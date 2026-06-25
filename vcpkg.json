@@ -39,7 +39,7 @@
     },
     {
       "name": "carbon-trinityaudioapi",
-      "version>=": "2.0.2#1"
+      "version>=": "2.0.3"
     },
     {
       "name": "freetype",
@@ -47,11 +47,11 @@
     },
     {
       "name": "carbon-pdmprotowrapper",
-      "version>=": "2.0.3"
+      "version>=": "2.0.4"
     },
     {
       "name": "carbon-blue",
-      "version>=": "5.0.0"
+      "version>=": "5.1.2"
     },
     {
       "name": "carbon-math",
@@ -59,7 +59,7 @@
     },
     {
       "name": "carbon-parser",
-      "version>=": "1.0.1"
+      "version>=": "1.0.2"
     },
     {
       "name": "libpng",
@@ -177,7 +177,7 @@
       "dependencies": [
         {
           "name": "granny",
-          "version>=": "2.12.0.14#2"
+          "version>=": "2.12.0.14"
         }
       ]
     }
