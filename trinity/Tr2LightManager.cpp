@@ -294,7 +294,7 @@ void Tr2LightManager::SetShadowQuality( ShadowQuality shadowQuality, uint64_t fr
 	m_ShadowMap.m_atlasSettings.actualTextureSize = CalculateShadowMapAtlasSettings( m_ShadowMap.m_qualityUsedByAtlas ).size;
 }
 
-void Tr2LightManager::AddPointLight( const Vector3& position, float radius, const Color& color, Float_16 innerRadius, uint16_t flags )
+void Tr2LightManager::AddPointLight( const Vector3& position, float radius, const Color& color, Float_16 innerRadius, uint16_t flags, bool scaleBrightness )
 {
 	if( !AreLightFlagsValid( flags ) )
 	{
@@ -319,9 +319,13 @@ void Tr2LightManager::AddPointLight( const Vector3& position, float radius, cons
 	{
 		float dimming = std::min( ( size - m_adjustedCutoff ) / FADE_SIZE, 1.f );
 		data.color = reinterpret_cast<const Vector3&>( color );
-		data.color.x *= radius * dimming;
-		data.color.y *= radius * dimming;
-		data.color.z *= radius * dimming;
+		if( scaleBrightness )
+		{
+			dimming *= radius;
+		}
+		data.color.x *= dimming;
+		data.color.y *= dimming;
+		data.color.z *= dimming;
 		data.innerRadius = innerRadius;
 		data.flags = flags;
 		data.direction = Vector3_16( Vector3( 1.f, 0.f, 0.f ) );
@@ -331,7 +335,7 @@ void Tr2LightManager::AddPointLight( const Vector3& position, float radius, cons
 	}
 }
 
-void Tr2LightManager::AddLight( PerLightData& data )
+void Tr2LightManager::AddLight( PerLightData& data, bool scaleBrightness )
 {
 	if( !AreLightFlagsValid( data.flags ) )
 	{
@@ -352,10 +356,13 @@ void Tr2LightManager::AddLight( PerLightData& data )
 	if( size > m_adjustedCutoff )
 	{
 		float dimming = std::min( ( size - m_adjustedCutoff ) / FADE_SIZE, 1.f );
-		data.color.x *= data.radius * dimming;
-		data.color.y *= data.radius * dimming;
-		data.color.z *= data.radius * dimming;
-
+		if( scaleBrightness )
+		{
+			dimming *= data.radius;
+		}
+		data.color.x *= dimming;
+		data.color.y *= dimming;
+		data.color.z *= dimming;
 		bool usingShadowMap = m_currentSpaceSceneShadowQuality == ShadowQuality::SHADOW_LOW || m_currentSpaceSceneShadowQuality == ShadowQuality::SHADOW_HIGH;
 		if( m_currentSpaceSceneShadowQuality == ShadowQuality::SHADOW_DISABLED ||
 			( usingShadowMap && m_ShadowMap.m_qualityUsedByAtlas == ShadowQuality::SHADOW_DISABLED ) ||

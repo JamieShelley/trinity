@@ -105,6 +105,7 @@ protected:
 	std::string m_name;
 	Be::Time m_startTime;
 	bool m_isDynamic;
+	bool m_scaleBrightness;
 	float m_brightnessMultiplier;
 	Matrix m_boneTransform; // used for lights that have boneIndices
 

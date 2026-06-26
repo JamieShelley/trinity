@@ -4,6 +4,10 @@
 #include "Tr2Light.h"
 #include "Include/TriMath.h"
 #include "Resources/Tr2LightProfileRes.h"
+#include "../TriSettingsRegistrar.h"
+
+bool g_scaleLightBrightnessByRadiusDefault = true;
+TRI_REGISTER_SETTING( "scaleLightBrightnessByRadiusDefault", g_scaleLightBrightnessByRadiusDefault );
 
 
 LightData::LightData() :
@@ -81,6 +85,7 @@ Tr2LightManager::PerLightData LightData::AsPerSpotLightData( CXMMATRIX transform
 
 Tr2Light::Tr2Light( IRoot* lockobj ) :
 	m_isDynamic( false ),
+	m_scaleBrightness( g_scaleLightBrightnessByRadiusDefault ),
 	m_type( UNDEFINED_LIGHT ),
 	m_name( "" ),
 	m_brightnessMultiplier( 1.f ),
@@ -139,12 +144,12 @@ void Tr2Light::AddLight( Tr2LightManager& lightManager, CXMMATRIX transform, flo
 	if( m_type == Tr2Light::POINT_LIGHT )
 	{
 		auto data = m_lightData.AsPerPointLightData( lightTransform, features, lightManager.GetCurrentSpaceSceneShadowQuality() );
-		lightManager.AddLight( data );
+		lightManager.AddLight( data, m_scaleBrightness );
 	}
 	else if( m_type == Tr2Light::SPOT_LIGHT )
 	{
 		auto data = m_lightData.AsPerSpotLightData( lightTransform, features, lightManager.GetCurrentSpaceSceneShadowQuality() );
-		lightManager.AddLight( data );
+		lightManager.AddLight( data, m_scaleBrightness );
 	}
 }
 
