@@ -19,9 +19,9 @@ struct LightFeatures
 
 enum class PerLightShadowSetting
 {
-	DISABLED,
-	ENABLED_ONLY_ON_HIGH_QUALITY,
-	ALWAYS_ENABLED
+	SHADOW_LOW = 1 << 1,
+	SHADOW_HIGH = 1 << 2,
+	SHADOW_RAYTRACED = 1 << 3
 };
 
 struct LightData
@@ -53,7 +53,7 @@ struct LightData
 
 	Be::Time startTime;
 
-	PerLightShadowSetting castsShadows;
+	uint8_t castsShadows;
 	bool isVolumetric;
 };
 

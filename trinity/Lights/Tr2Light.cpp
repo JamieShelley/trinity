@@ -26,7 +26,7 @@ LightData::LightData() :
 	boneIndex( -1 ),
 	flags( Tr2LightManager::FLAG_DEFAULT ),
 	startTime( BeOS->GetCurrentFrameTime() ),
-	castsShadows( PerLightShadowSetting::DISABLED ),
+	castsShadows( 0 ),
 	isVolumetric( false )
 {
 }
@@ -63,7 +63,7 @@ Tr2LightManager::PerLightData LightData::AsPerPointLightData( CXMMATRIX transfor
 	data.innerAngle = Float_16( 0.0f );
 	data.projectionPlaneDistance = Float_16( 1.f / tan( TRI_2PI * 45.f / 360.0f ) );
 
-	if( castsShadows == PerLightShadowSetting::ALWAYS_ENABLED || ( castsShadows == PerLightShadowSetting::ENABLED_ONLY_ON_HIGH_QUALITY && shadowQuality == ShadowQuality::SHADOW_HIGH ) || ( castsShadows == PerLightShadowSetting::ENABLED_ONLY_ON_HIGH_QUALITY && shadowQuality == ShadowQuality::SHADOW_RAYTRACED ) )
+	if( ( castsShadows & ( 1 << uint8_t( shadowQuality ) ) ) != 0 )
 	{
 		data.flags |= Tr2LightManager::FLAG_CASTS_SHADOWS;
 	}
