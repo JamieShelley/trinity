@@ -30,6 +30,14 @@ enum class ShadowQuality
 	SHADOW_RAYTRACED
 };
 
+// The base is deliberately set to 32bit because of a bug in MAP_ATTRIBUTE
+enum class LightingQuality : int32_t
+{
+	LOW,
+	MEDIUM,
+	HIGH,
+};
+
 // --------------------------------------------------------------------------------------
 // Description:
 //   Manages light sources for tiled/clustered lighting. An object of this class does not
@@ -119,6 +127,10 @@ public:
 	void AdjustLightCutoff( float lodFactor );
 
 	void SetShadowQuality( ShadowQuality shadowQuality, uint64_t frameCounter );
+	void SetLightingQuality( LightingQuality lightingQuality );
+	LightingQuality GetLightingQuality() const;
+
+	static const uint8_t ANY_LIGHT_QUALITY = 0xff;
 
 	virtual void ReleaseResources( TriStorage s );
 
@@ -200,6 +212,7 @@ private:
 
 	uint32_t nextFrameShadowQuality; // bitmask, collecting ShadowQualities during the current frame
 	ShadowQuality m_currentSpaceSceneShadowQuality;
+	LightingQuality m_lightingQuality;
 	uint64_t m_currentFrameCounter;
 
 	struct

@@ -22,11 +22,12 @@ LightData::LightData() :
 	rotation( 0.0f, 0.0f, 0.0f, 1.0f ),
 	innerAngle( 0.0f ),
 	outerAngle( 0.0f ),
+	falloff( uint8_t( LightFalloffType::INVERSE ) ),
+	lightingQuality( EnumFilter<LightingQuality>::AllBits() ),
 	texturePath( L"" ),
 	boneIndex( -1 ),
 	flags( Tr2LightManager::FLAG_DEFAULT ),
 	startTime( BeOS->GetCurrentFrameTime() ),
-	castsShadows( 0 ),
 	isVolumetric( false )
 {
 }
@@ -62,12 +63,12 @@ Tr2LightManager::PerLightData LightData::AsPerPointLightData( CXMMATRIX transfor
 	data.innerAngle = Float_16( 0.0f );
 	data.projectionPlaneDistance = Float_16( 1.f / tan( TRI_2PI * 45.f / 360.0f ) );
 
-	if( ( castsShadows & ( 1 << uint8_t( shadowQuality ) ) ) != 0 )
+	if( castsShadows.HasBit( shadowQuality ) )
 	{
 		data.flags |= Tr2LightManager::FLAG_CASTS_SHADOWS;
 	}
 	data.flags |= isVolumetric ? Tr2LightManager::FLAG_IS_VOLUMETRIC : 0;
-	if( falloff == LightFalloffType::INVERSE_SQUARE )
+	if( falloff == uint8_t( LightFalloffType::INVERSE_SQUARE ) )
 	{
 		data.flags |= Tr2LightManager::FLAG_FALLOFF_INV_SQUARE;
 	}
@@ -130,6 +131,11 @@ void Tr2Light::ChangeLightColor( Color c )
 
 void Tr2Light::AddLight( Tr2LightManager& lightManager, CXMMATRIX transform, float scale, const Float4x3* bones, size_t boneCount )
 {
+	if( !m_lightData.lightingQuality.HasBit( lightManager.GetLightingQuality() ) )
+	{
+		return;
+	}
+
 	if( m_isDynamic )
 	{
 		this->Update();
