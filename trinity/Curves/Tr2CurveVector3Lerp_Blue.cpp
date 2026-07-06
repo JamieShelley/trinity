@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2CurveVector3Lerp.h"
@@ -45,7 +41,7 @@ const Be::ClassInfo* Tr2CurveVector3Lerp::ExposeToBlue()
 			m_startInterpolation,
 			"The interpolation from initial value to first key",
 			Be::ENUM | Be::READWRITE,
-			Tr2CurveVector3LerpKeyInterpolationChooser )		
+			Tr2CurveVector3LerpKeyInterpolationChooser )
 
 		MAP_ATTRIBUTE(
 			"curve",
@@ -58,19 +54,17 @@ const Be::ClassInfo* Tr2CurveVector3Lerp::ExposeToBlue()
 			m_curveStartTime,
 			"The time when the curve starts",
 			Be::READWRITE | Be::PERSIST )
-		
+
 		MAP_ATTRIBUTE(
 			"currentValue",
 			m_currentValue,
 			"Curve value after the last update",
 			Be::READ )
-			
+
 		MAP_METHOD_AND_WRAP(
 			"GetValueAt",
 			GetValue,
 			"Returns curve value at specified time\n"
-			":param time: input time"
-		)
+			":param time: input time" )
 	EXPOSURE_END()
 }
-

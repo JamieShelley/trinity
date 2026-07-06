@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriView.h"
 #include "Tr2Renderer.h"
@@ -6,7 +8,7 @@
 // Description:
 //   Constructor.  Initializes the view matrix to the identity.
 // --------------------------------------------------------------------------------------
-TriView::TriView(void) :
+TriView::TriView( void ) :
 	m_transform( XMMatrixIdentity() )
 {
 }

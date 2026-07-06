@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
+
 #pragma once
 #ifndef EveSOFUtils_H
 #define EveSOFUtils_H
@@ -29,7 +26,7 @@ public:
 
 	// substitute
 	void ChangeMaterialIdx( const EveSOFDataMgr::GenericData* genericData, int32_t idx );
-	
+
 private:
 	// direct copy of the original name
 	std::string m_fullname;

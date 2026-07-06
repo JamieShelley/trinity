@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   February 2023
-//    Copyright: CCP 2023
-//
+// Copyright © 2023 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveChildCloud2.h"
@@ -251,7 +247,7 @@ void EveChildCloud2::GetVolumetricBatches( const TriFrustum& frustum, ITriRender
 	{
 		return;
 	}
-	auto isVisible = m_display && frustum.IsSphereVisible( m_boundingSphere.center, m_boundingSphere.radius );
+	auto isVisible = m_display && m_hasUpdated && frustum.IsSphereVisible( m_boundingSphere.center, m_boundingSphere.radius );
 	if( !isVisible )
 	{
 		return;
@@ -322,7 +318,7 @@ bool EveChildCloud2::HasValidTransform() const
 
 bool EveChildCloud2::UpdateVolumetricLightmap( Tr2RenderContext& renderContext )
 {
-	if( m_currentQuality < m_minVisibleQuality )
+	if( m_currentQuality < m_minVisibleQuality || !m_hasUpdated )
 	{
 		return false;
 	}
@@ -708,6 +704,7 @@ void EveChildCloud2::UpdateAsyncronous( const EveUpdateContext& updateContext, c
 	}
 
 	m_adjustedMinScreenSize = m_minScreenSize * updateContext.GetLodFactor();
+	m_hasUpdated = true;
 }
 
 void EveChildCloud2::GetDebugOptions( Tr2DebugRendererOptions& options )
@@ -898,11 +895,11 @@ void EveChildCloud2::SetupShadowFrustum( ShadowInfo& shadowInfo, Vector3 sunDir 
 	aabb.m_max.z += 2500000.f;
 
 	m_lightViewProj = lightView * OrthoOffCenterMatrix( aabb.m_max.x, aabb.m_min.x, aabb.m_max.y, aabb.m_min.y, -aabb.m_max.z, -aabb.m_min.z );
-	
+
 	// create shadow frustum out from lightView, aabb.min, aabb.max
 	TriFrustumOrtho shadowFrustum;
 	shadowFrustum.DeriveFrustum( lightView, aabb.m_min, aabb.m_max );
-	
+
 	shadowInfo.aabbMax = aabb.m_max;
 	shadowInfo.lightViewProj = m_lightViewProj;
 	shadowInfo.shadowFrustum = shadowFrustum;

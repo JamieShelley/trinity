@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2Sprite2dTexture.h"
 #include "Tr2TextureAtlasMan.h"
@@ -68,12 +70,12 @@ void Tr2Sprite2dTexture::SetResPath( const std::string& path )
 	m_atlasTexture.Unlock();
 
 	BeResMan->GetResource( m_resPath.c_str(), "atlas", m_atlasTexture );
-	
+
 	if( m_atlasTexture )
 	{
 		m_atlasTexture->RegisterForChangeNotification( this );
 	}
-	
+
 	SetDirty();
 }
 
@@ -205,17 +207,17 @@ void Tr2Sprite2dTexture::SetSrcHeight( float srcHeight )
 
 void Tr2Sprite2dTexture::CheckTextureWindow()
 {
-	if( (m_srcX == 0.0f) && (m_srcY == 0.0f) && (m_srcWidth == 0.0f) && (m_srcHeight == 0.0f) )
+	if( ( m_srcX == 0.0f ) && ( m_srcY == 0.0f ) && ( m_srcWidth == 0.0f ) && ( m_srcHeight == 0.0f ) )
 	{
 		m_hasTextureWindow = false;
 		return;
 	}
 
 	if( m_atlasTexture &&
-		(m_srcX == 0.0f) && 
-		(m_srcY == 0.0f) && 
-		(m_srcWidth == m_atlasTexture->GetWidth()) && 
-		(m_srcHeight == m_atlasTexture->GetHeight() ) )
+		( m_srcX == 0.0f ) &&
+		( m_srcY == 0.0f ) &&
+		( m_srcWidth == m_atlasTexture->GetWidth() ) &&
+		( m_srcHeight == m_atlasTexture->GetHeight() ) )
 	{
 		m_hasTextureWindow = false;
 		return;
@@ -226,14 +228,14 @@ void Tr2Sprite2dTexture::CheckTextureWindow()
 
 int Tr2Sprite2dTexture::GetTextureRepeatMode() const
 {
-	int repeatMode = m_settings & (S2D_TS_REPEAT_MIRROR | S2D_TS_REPEAT_CLAMP);
+	int repeatMode = m_settings & ( S2D_TS_REPEAT_MIRROR | S2D_TS_REPEAT_CLAMP );
 	return repeatMode >> 1;
 }
 
 void Tr2Sprite2dTexture::SetTextureRepeatMode( int repeatMode )
 {
-	int rest = m_settings & ~(S2D_TS_REPEAT_MIRROR | S2D_TS_REPEAT_CLAMP);
-	m_settings = (Tr2Sprite2dTextureSettings)(rest | repeatMode);
+	int rest = m_settings & ~( S2D_TS_REPEAT_MIRROR | S2D_TS_REPEAT_CLAMP );
+	m_settings = (Tr2Sprite2dTextureSettings)( rest | repeatMode );
 	SetDirty();
 }
 
@@ -298,7 +300,7 @@ void Tr2Sprite2dTexture::SetDirty()
 {
 	for( auto it = m_changeListeners.begin(); it != m_changeListeners.end(); ++it )
 	{
-		(*it)->Sprite2dTextureChanged( this );
+		( *it )->Sprite2dTextureChanged( this );
 	}
 }
 
@@ -306,4 +308,3 @@ void Tr2Sprite2dTexture::AtlasTextureChanged( Tr2AtlasTexture* p )
 {
 	SetDirty();
 }
-

@@ -1,7 +1,9 @@
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveSmartLightAttributeModifierBucket.h"
 
-EveSmartLightAttributeModifierBucket::EveSmartLightAttributeModifierBucket( IRoot* lockobj ):
+EveSmartLightAttributeModifierBucket::EveSmartLightAttributeModifierBucket( IRoot* lockobj ) :
 	PARENTLOCK( m_attributeModifiers ),
 	m_name( "bucket" )
 {
@@ -56,11 +58,10 @@ void EveSmartLightAttributeModifierBucket::ResetChildren( bool parentActive )
 {
 	for( auto attributeModifier : m_attributeModifiers )
 	{
-		if( EveSmartLightBaseAttributeModifierPtr attributeModPtr =  BlueCastPtr( attributeModifier ) )
+		if( EveSmartLightBaseAttributeModifierPtr attributeModPtr = BlueCastPtr( attributeModifier ) )
 		{
 			bool isActive = parentActive && m_active;
 			attributeModPtr->ResetPlayTime( isActive );
 		}
 	}
 }
-

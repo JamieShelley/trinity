@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "EvePlanet.h"
 #include "EveTransform.h"
@@ -6,7 +8,7 @@ BLUE_DEFINE( EvePlanet );
 
 const Be::ClassInfo* EvePlanet::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( EvePlanet, "" )
+	EXPOSURE_BEGIN( EvePlanet, "" )
 		MAP_INTERFACE( EvePlanet )
 		MAP_INTERFACE( IEveSpaceObject2 )
 		MAP_INTERFACE( ITr2SecondaryLightSource )
@@ -15,27 +17,21 @@ const Be::ClassInfo* EvePlanet::ExposeToBlue()
 		MAP_INTERFACE( IShaderConfigurer )
 		MAP_INTERFACE( ITr2SoundEmitterOwner )
 		MAP_INTERFACE( IWorldPosition )
-		MAP_ATTRIBUTE
-		(
+		MAP_ATTRIBUTE(
 			"radius",
 			m_radius,
 			"The planet's radius",
-			Be::READWRITE | Be::PERSIST
-		)
-		MAP_ATTRIBUTE
-		(
+			Be::READWRITE | Be::PERSIST )
+		MAP_ATTRIBUTE(
 			"albedoColor",
 			m_albedoColor,
 			"Planet albedo color, used for secondary lighting",
-			Be::READWRITE | Be::PERSIST
-		)
-		MAP_ATTRIBUTE
-		(
+			Be::READWRITE | Be::PERSIST )
+		MAP_ATTRIBUTE(
 			"minScreenSize",
 			m_minScreenSize,
 			"Minimum screen size for planet rendering",
-			Be::READWRITE | Be::PERSIST
-		)
+			Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE(
 			"zOnlyModel",
 			m_zOnlyModel,
@@ -51,5 +47,5 @@ const Be::ClassInfo* EvePlanet::ExposeToBlue()
 			m_estimatedPixelDiameter,
 			"Planet size in pixels as it appears from the camera perspective. ",
 			Be::READ | Be::PERSIST )
-	EXPOSURE_CHAINTO(EveEffectRoot2)
+	EXPOSURE_CHAINTO( EveEffectRoot2 )
 }

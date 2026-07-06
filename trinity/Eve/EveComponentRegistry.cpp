@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		June 2021
-// Copyright:	CCP 2021
-//
+// Copyright © 2021 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveComponentRegistry.h"
 #include "../ITr2VolumetricRenderable.h"
@@ -34,6 +31,7 @@ void EveComponentRegistry::Clear()
 			// an entity may have been registered into another registry while we are clearing this one
 			entity->m_indexInRegistry = -1;
 			entity->m_registry = nullptr;
+			entity->m_componentIndexLookup.clear();
 		}
 	}
 	m_registeredEntities.clear();
@@ -82,7 +80,7 @@ void EveComponentRegistry::UnRegister( EveEntity* entity )
 	m_registeredEntities.pop_back();
 
 	entity->m_registry = nullptr;
-	entity->m_indexInRegistry = - 1;
+	entity->m_indexInRegistry = -1;
 }
 
 // UnRegisters all components for a specific entity
@@ -163,4 +161,3 @@ std::vector<std::pair<const char*, size_t>> EveComponentRegistry::GetComponentIn
 
 	return info;
 }
-

@@ -1,9 +1,11 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2ControllerReference.h"
 
 
-Tr2ControllerReference::Tr2ControllerReference( IRoot* )
-	:m_owner( nullptr )
+Tr2ControllerReference::Tr2ControllerReference( IRoot* ) :
+	m_owner( nullptr )
 {
 }
 
@@ -42,12 +44,12 @@ void Tr2ControllerReference::Link( IRoot& owner )
 	}
 }
 
-void Tr2ControllerReference::Unlink()
+void Tr2ControllerReference::Unlink( UnlinkReason reason )
 {
 	m_owner = nullptr;
 	if( m_controller )
 	{
-		m_controller->Unlink();
+		m_controller->Unlink( reason );
 	}
 }
 

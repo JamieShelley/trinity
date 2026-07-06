@@ -1,22 +1,24 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "../include/Tr2SwapChainAL.h"
 #include TRINITY_AL_PLATFORM_INCLUDE( Tr2SwapChainAL )
 
 namespace
 {
-	std::shared_ptr<TrinityALImpl::Tr2SwapChainAL> NullSC()
-	{
-		static std::shared_ptr<TrinityALImpl::Tr2SwapChainAL> nullSC = std::make_shared<TrinityALImpl::Tr2SwapChainAL>();
-		return nullSC;
-	}
+std::shared_ptr<TrinityALImpl::Tr2SwapChainAL> NullSC()
+{
+	static std::shared_ptr<TrinityALImpl::Tr2SwapChainAL> nullSC = std::make_shared<TrinityALImpl::Tr2SwapChainAL>();
+	return nullSC;
+}
 }
 
-Tr2SwapChainAL::Tr2SwapChainAL()
-	:m_swapChain( NullSC() )
+Tr2SwapChainAL::Tr2SwapChainAL() :
+	m_swapChain( NullSC() )
 {
 }
 
-ALResult Tr2SwapChainAL::Create( Tr2WindowHandle windowHandle, Tr2PrimaryRenderContextAL &renderContext )
+ALResult Tr2SwapChainAL::Create( Tr2WindowHandle windowHandle, Tr2PrimaryRenderContextAL& renderContext )
 {
 	m_swapChain = std::make_shared<TrinityALImpl::Tr2SwapChainAL>();
 	auto hr = m_swapChain->Create( windowHandle, renderContext );
@@ -58,9 +60,9 @@ bool Tr2SwapChainAL::operator==( const Tr2SwapChainAL& other ) const
 	return m_swapChain == other.m_swapChain;
 }
 
-Tr2ALMemoryType Tr2SwapChainAL::GetMemoryClass() const 
-{ 
-	return m_swapChain->GetMemoryClass(); 
+Tr2ALMemoryType Tr2SwapChainAL::GetMemoryClass() const
+{
+	return m_swapChain->GetMemoryClass();
 }
 
 ALResult Tr2SwapChainAL::SetName( const char* name )

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		May 2013
-// Copyright:	CCP 2013
-//
+// Copyright © 2013 CCP ehf.
 
 #pragma once
 #ifndef Tr2WindowHandle_h
@@ -12,7 +8,7 @@
 
 typedef HWND Tr2WindowHandle;
 
-#elif defined(__APPLE__)
+#elif defined( __APPLE__ )
 
 #include <objc/objc-runtime.h>
 typedef id Tr2WindowHandle;

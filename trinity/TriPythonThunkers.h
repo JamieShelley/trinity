@@ -1,31 +1,9 @@
-/* 
-	*************************************************************************
-
-	TrinityPythonThunkers.h
-
-	Author:    Hilmar Veigar Pétursson
-	Created:   Okt. 2001
-	OS:        Win32
-	Project:   Trinity
-
-	Description:   
-
-		Generic interface thunkers
-
-
-	Dependencies:
-
-		Trinity
-
-	(c) CCP 2000
-
-	*************************************************************************
-*/
+// Copyright Â© 2000 CCP ehf.
 
 #ifndef _TRIPYTHONTHUNKERS_H_
 #define _TRIPYTHONTHUNKERS_H_
 
-#include "include/ITriFunction.h"
+#include <ITriFunction.h>
 
 //////////////////////////////////////////////////////////////////////
 // ITriScalarFunction Thunkers
@@ -33,7 +11,6 @@
 class ITriScalarFunction_Thunk : public ITriScalarFunction
 {
 public:
-
 	typedef ITriScalarFunction_Thunk _Class;
 	typedef ITriScalarFunction _Interface;
 
@@ -47,24 +24,19 @@ public:
 		return ClassType()->mClassId;
 	}
 
-	static const PyMethodDef* Defs()
-	{
+	static const PyMethodDef* Defs(){
 		THUNKER_BEGIN()
-			MAPPYTHON
-			( 
-				UpdateScalar,                    
-				"use:  f = curve.Update( t )\r\n" 
-				"pre:  't' is of type double or Be::Time.\r\n" 
-				"post: 'curve.value' is now 'f' which is the value at time 't'." 
-			)
-			MAPPYTHON
-			( 
-				GetScalarAt,                
-				"use:  f = curve.GetValueAt( t )\r\n" 
-				"pre:  't' is of type double or Be::Time.\r\n" 
-				"post: 'f' is the value of 'curve' at time 't'." 
-			)
-/*			MAPPYTHON
+			MAPPYTHON(
+				UpdateScalar,
+				"use:  f = curve.Update( t )\r\n"
+				"pre:  't' is of type double or Be::Time.\r\n"
+				"post: 'curve.value' is now 'f' which is the value at time 't'." )
+				MAPPYTHON(
+					GetScalarAt,
+					"use:  f = curve.GetValueAt( t )\r\n"
+					"pre:  't' is of type double or Be::Time.\r\n"
+					"post: 'f' is the value of 'curve' at time 't'." )
+		/*			MAPPYTHON
 			( 
 				GetValueDotAt,       
 				"Get the value of the of the differential function" 
@@ -80,8 +52,8 @@ public:
 	// compatible python methods
 	DECLARE_PYMETHODTHUNK( UpdateScalar );
 	DECLARE_PYMETHODTHUNK( GetScalarAt );
-//	DECLARE_PYMETHODTHUNK( GetValueDotAt );
-//	DECLARE_PYMETHODTHUNK( GetValueDoubleDotAt );
+	//	DECLARE_PYMETHODTHUNK( GetValueDotAt );
+	//	DECLARE_PYMETHODTHUNK( GetValueDoubleDotAt );
 };
 
 
@@ -92,7 +64,6 @@ public:
 class ITriColorFunction_Thunk : public ITriColorFunction
 {
 public:
-
 	typedef ITriColorFunction_Thunk _Class;
 	typedef ITriColorFunction _Interface;
 
@@ -106,28 +77,23 @@ public:
 		return ClassType()->mClassId;
 	}
 
-	static const PyMethodDef* Defs()
-	{
+	static const PyMethodDef* Defs(){
 		THUNKER_BEGIN()
-			MAPPYTHON
-			( 
-				UpdateColor,                    
-				"use:  f = curve.Update( t )\r\n" 
-				"pre:  't' is of type double or Be::Time.\r\n" 
-				"post: 'curve.value' is now 'f' which is the value at time 't'." 
-			)
-			MAPPYTHON
-			( 
-				GetColorAt,                
-				"use:  f = curve.GetValueAt( t )\r\n" 
-				"pre:  't' is of type double or Be::Time.\r\n" 
-				"post: 'f' is the value of 'curve' at time 't'." 
-			)
-		THUNKER_END()
+			MAPPYTHON(
+				UpdateColor,
+				"use:  f = curve.Update( t )\r\n"
+				"pre:  't' is of type double or Be::Time.\r\n"
+				"post: 'curve.value' is now 'f' which is the value at time 't'." )
+				MAPPYTHON(
+					GetColorAt,
+					"use:  f = curve.GetValueAt( t )\r\n"
+					"pre:  't' is of type double or Be::Time.\r\n"
+					"post: 'f' is the value of 'curve' at time 't'." )
+					THUNKER_END()
 	}
 
 	// compatible python methods
-	DECLARE_PYMETHODTHUNK( UpdateColor );	
+	DECLARE_PYMETHODTHUNK( UpdateColor );
 	DECLARE_PYMETHODTHUNK( GetColorAt );
 };
 
@@ -138,7 +104,6 @@ public:
 class ITriVectorFunction_Thunk : public ITriVectorFunction
 {
 public:
-
 	typedef ITriVectorFunction_Thunk _Class;
 	typedef ITriVectorFunction _Interface;
 
@@ -152,34 +117,25 @@ public:
 		return ClassType()->mClassId;
 	}
 
-	static const PyMethodDef* Defs()
-	{
+	static const PyMethodDef* Defs(){
 		THUNKER_BEGIN()
-			MAPPYTHON
-			( 
-				UpdateVector,                    
-				"use:  f = curve.Update( t )\r\n" 
-				"pre:  't' is of type double or Be::Time.\r\n" 
-				"post: 'curve.value' is now 'f' which is the value at time 't'." 
-			)
-			MAPPYTHON
-			( 
-				GetVectorAt,                
-				"use:  f = curve.GetValueAt( t )\r\n" 
-				"pre:  't' is of type double or Be::Time.\r\n" 
-				"post: 'f' is the value of 'curve' at time 't'." 
-			)
-			MAPPYTHON
-			( 
-				GetVectorDotAt,       
-				"Get the value of the of the differential function" 
-			)
-			MAPPYTHON
-			( 
-				GetVectorDoubleDotAt, 
-				"Get the value of the of the double differential function" 
-			)
-		THUNKER_END()
+			MAPPYTHON(
+				UpdateVector,
+				"use:  f = curve.Update( t )\r\n"
+				"pre:  't' is of type double or Be::Time.\r\n"
+				"post: 'curve.value' is now 'f' which is the value at time 't'." )
+				MAPPYTHON(
+					GetVectorAt,
+					"use:  f = curve.GetValueAt( t )\r\n"
+					"pre:  't' is of type double or Be::Time.\r\n"
+					"post: 'f' is the value of 'curve' at time 't'." )
+					MAPPYTHON(
+						GetVectorDotAt,
+						"Get the value of the of the differential function" )
+						MAPPYTHON(
+							GetVectorDoubleDotAt,
+							"Get the value of the of the double differential function" )
+							THUNKER_END()
 	}
 
 	// compatible python methods
@@ -197,7 +153,6 @@ public:
 class ITriQuaternionFunction_Thunk : public ITriQuaternionFunction
 {
 public:
-
 	typedef ITriQuaternionFunction_Thunk _Class;
 	typedef ITriQuaternionFunction _Interface;
 
@@ -211,34 +166,25 @@ public:
 		return ClassType()->mClassId;
 	}
 
-	static const PyMethodDef* Defs()
-	{
+	static const PyMethodDef* Defs(){
 		THUNKER_BEGIN()
-			MAPPYTHON
-			( 
-				UpdateQuaternion,                    
-				"use:  f = curve.Update( t )\r\n" 
-				"pre:  't' is of type double or Be::Time.\r\n" 
-				"post: 'curve.value' is now 'f' which is the value at time 't'." 
-			)
-			MAPPYTHON
-			( 
-				GetQuaternionAt,                
-				"use:  f = curve.GetValueAt( t )\r\n" 
-				"pre:  't' is of type double or Be::Time.\r\n" 
-				"post: 'f' is the value of 'curve' at time 't'." 
-			)
-			MAPPYTHON
-			( 
-				GetQuaternionDotAt,       
-				"Get the value of the of the differential function" 
-			)
-			MAPPYTHON
-			( 
-				GetQuaternionDoubleDotAt, 
-				"Get the value of the of the double differential function" 
-			)
-		THUNKER_END()
+			MAPPYTHON(
+				UpdateQuaternion,
+				"use:  f = curve.Update( t )\r\n"
+				"pre:  't' is of type double or Be::Time.\r\n"
+				"post: 'curve.value' is now 'f' which is the value at time 't'." )
+				MAPPYTHON(
+					GetQuaternionAt,
+					"use:  f = curve.GetValueAt( t )\r\n"
+					"pre:  't' is of type double or Be::Time.\r\n"
+					"post: 'f' is the value of 'curve' at time 't'." )
+					MAPPYTHON(
+						GetQuaternionDotAt,
+						"Get the value of the of the differential function" )
+						MAPPYTHON(
+							GetQuaternionDoubleDotAt,
+							"Get the value of the of the double differential function" )
+							THUNKER_END()
 	}
 
 	// compatible python methods
@@ -247,7 +193,6 @@ public:
 	DECLARE_PYMETHODTHUNK( GetQuaternionDotAt );
 	DECLARE_PYMETHODTHUNK( GetQuaternionDoubleDotAt );
 };
-
 
 
 

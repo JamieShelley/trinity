@@ -1,11 +1,13 @@
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveDistributionSpawnerControllerTrigger.h"
 
-EveDistributionSpawnerControllerTrigger::EveDistributionSpawnerControllerTrigger( IRoot* lockobj ) : 
+EveDistributionSpawnerControllerTrigger::EveDistributionSpawnerControllerTrigger( IRoot* lockobj ) :
 	PARENTLOCK( m_distributionSpawners ),
 	m_isActive( false ),
 	m_restartOnReceivingValue( false ),
-	m_invertReceivedValue( false ), 
+	m_invertReceivedValue( false ),
 	m_value( 0.f )
 {
 }
@@ -71,7 +73,7 @@ void EveDistributionSpawnerControllerTrigger::SetControllerVariable( const char*
 
 		if( m_invertReceivedValue )
 		{
-			m_isActive =  1.f - m_value > 0.f;
+			m_isActive = 1.f - m_value > 0.f;
 		}
 		else
 		{

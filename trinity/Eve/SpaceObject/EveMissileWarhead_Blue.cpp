@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   February 2012
-//    Copyright: CCP 2012
-//
+// Copyright © 2012 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveMissileWarhead.h"
 
@@ -10,8 +7,8 @@ BLUE_DEFINE( EveMissileWarhead );
 
 const Be::ClassInfo* EveMissileWarhead::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( EveMissileWarhead, "" )
-        MAP_INTERFACE( EveMissileWarhead )
+	EXPOSURE_BEGIN( EveMissileWarhead, "" )
+		MAP_INTERFACE( EveMissileWarhead )
 		MAP_INTERFACE( EveTransform )
 
 		MAP_ATTRIBUTE( "startDataValid", m_startDataValid, "", Be::READWRITE )

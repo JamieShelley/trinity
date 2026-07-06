@@ -1,9 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   September 2010
-//    Copyright: CCP 2010
-//
-//    Refactored from EveParticleDirectForce_Blue.cpp
+// Copyright © 2010 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ParticleAttractorForce.h"
@@ -12,7 +7,7 @@ BLUE_DEFINE( Tr2ParticleAttractorForce );
 
 const Be::ClassInfo* Tr2ParticleAttractorForce::ExposeToBlue()
 {
-	EXPOSURE_BEGIN(Tr2ParticleAttractorForce, "" )
+	EXPOSURE_BEGIN( Tr2ParticleAttractorForce, "" )
 		MAP_INTERFACE( ITr2ParticleForce )
 		MAP_INTERFACE( Tr2ParticleAttractorForce )
 

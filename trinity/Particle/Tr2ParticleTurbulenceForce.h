@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2011
-//    Copyright: CCP 2011
-//
+// Copyright © 2011 CCP ehf.
 
 #pragma once
 #ifndef Tr2ParticleTurbulenceForce_H
@@ -14,14 +10,13 @@ BLUE_DECLARE( Tr2ParticleTurbulenceForce );
 
 // -------------------------------------------------------------
 // Description:
-//   A force to apply to particles in a particle system. 
+//   A force to apply to particles in a particle system.
 //   Represents a random time/position dependant directional
 //   force.
 // SeeAlso:
 //   Tr2SpriteParticleSystem
 // -------------------------------------------------------------
-class Tr2ParticleTurbulenceForce:
-	public ITr2ParticleForce
+class Tr2ParticleTurbulenceForce : public ITr2ParticleForce
 {
 public:
 	EXPOSE_TO_BLUE();

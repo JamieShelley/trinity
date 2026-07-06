@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		January 2011
-// Copyright:	CCP 2011
-//
+// Copyright © 2011 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2Sprite2dRenderJob.h"
@@ -16,7 +12,6 @@ Tr2Sprite2dRenderJob::Tr2Sprite2dRenderJob( IRoot* lockobj /*= NULL */ )
 
 Tr2Sprite2dRenderJob::~Tr2Sprite2dRenderJob()
 {
-
 }
 
 void Tr2Sprite2dRenderJob::GatherSprites( Tr2Sprite2dScene* renderer )

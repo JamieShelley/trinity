@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 
 using namespace Tr2RenderContextEnum;
@@ -5,9 +7,11 @@ using namespace Tr2RenderContextEnum;
 namespace
 {
 
-struct BitmapDimensionsTest: public Tr2BitmapDimensions
+struct BitmapDimensionsTest : public Tr2BitmapDimensions
 {
-	BitmapDimensionsTest() {}
+	BitmapDimensionsTest()
+	{
+	}
 	void SetType( TextureType type )
 	{
 		m_type = type;

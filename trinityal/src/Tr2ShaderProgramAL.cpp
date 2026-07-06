@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "../include/Tr2ShaderProgramAL.h"
 #include TRINITY_AL_PLATFORM_INCLUDE( Tr2ShaderProgramAL )
@@ -5,16 +7,16 @@
 
 namespace
 {
-	std::shared_ptr<TrinityALImpl::Tr2ShaderProgramAL> NullProgram()
-	{
-		static std::shared_ptr<TrinityALImpl::Tr2ShaderProgramAL> nullProgram = std::make_shared<TrinityALImpl::Tr2ShaderProgramAL>();
-		return nullProgram;
-	}
+std::shared_ptr<TrinityALImpl::Tr2ShaderProgramAL> NullProgram()
+{
+	static std::shared_ptr<TrinityALImpl::Tr2ShaderProgramAL> nullProgram = std::make_shared<TrinityALImpl::Tr2ShaderProgramAL>();
+	return nullProgram;
+}
 }
 
 
-Tr2ShaderProgramAL::Tr2ShaderProgramAL()
-	:m_program( NullProgram() )
+Tr2ShaderProgramAL::Tr2ShaderProgramAL() :
+	m_program( NullProgram() )
 {
 }
 

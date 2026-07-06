@@ -1,13 +1,16 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   September 2010
-//    Copyright: CCP 2010
-//
-//    Refactored from EveParticleSpringAttractor.cpp
+// Copyright © 2010 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ParticleSpring.h"
-#include "../Include/ITr2DebugRenderer2.h"
+
+#ifdef BLUE_USE_LOCAL_ITr2DebugRenderer2
+// This is only needed for py2 as the file now belongs in blue.
+// Unfortunatly the blue py2 branch cannot be updated at present due to security vulnerability work.
+// The file version in the older blue versions had diverged from this one is incompatible.
+#include "Include/ITr2DebugRenderer2.h"
+#else
+#include <ITr2DebugRenderer2.h>
+#endif
 
 Tr2ParticleSpring::Tr2ParticleSpring( IRoot* lockobj ) :
 	m_springConstant( 0.0f ),
@@ -17,7 +20,6 @@ Tr2ParticleSpring::Tr2ParticleSpring( IRoot* lockobj ) :
 
 Tr2ParticleSpring::~Tr2ParticleSpring()
 {
-
 }
 
 // -------------------------------------------------------------
@@ -35,7 +37,6 @@ XMVECTOR Tr2ParticleSpring::GetForce( FXMVECTOR position, FXMVECTOR velocity, fl
 {
 	XMVECTOR direction = XMVectorSubtract( position, m_position );
 	return XMVectorScale( direction, -m_springConstant );
-
 }
 
 void Tr2ParticleSpring::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Matrix& worldTransform, const CcpMath::AxisAlignedBox& aabb ) const

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2TexturePipeline.h"
@@ -31,8 +27,7 @@ const Be::ClassInfo* Tr2TexturePipeline::ExposeToBlue()
 			2,
 			"Executes the pipeline and returns the resulting bitmap.\n"
 			":param maxWidth: Max resulting texture width\n"
-			":param maxHeight: Max resulting texture width\n"
-		)
+			":param maxHeight: Max resulting texture width\n" )
 
 	EXPOSURE_END()
 }

@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriStepSetDepthStencil.h"
 #include "Tr2Renderer.h"
@@ -9,7 +11,7 @@ TriStepSetDepthStencil::TriStepSetDepthStencil( IRoot* lockobj )
 {
 }
 
-TriStepSetDepthStencil::~TriStepSetDepthStencil(void)
+TriStepSetDepthStencil::~TriStepSetDepthStencil( void )
 {
 }
 

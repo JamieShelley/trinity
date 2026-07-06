@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2020
-//    Copyright: CCP 2020
-//
+// Copyright © 2020 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildInstanceContainer.h"
 #include "EveChildContainer.h"
@@ -13,14 +10,13 @@
 
 namespace
 {
-BlueStructureDefinition s_eveChildInstanceTransformStructureDef[] =
-	{
-		{ "scale", Be::FLOAT32_3, 0 },
-		{ "rotation", Be::FLOAT32_4, 12 },
-		{ "translation", Be::FLOAT32_3, 28 },
-		{ "boneIndex", Be::INT32_1, 40 },
-		{ 0 }
-	};
+BlueStructureDefinition s_eveChildInstanceTransformStructureDef[] = {
+	{ "scale", Be::FLOAT32_3, 0 },
+	{ "rotation", Be::FLOAT32_4, 12 },
+	{ "translation", Be::FLOAT32_3, 28 },
+	{ "boneIndex", Be::INT32_1, 40 },
+	{ 0 }
+};
 
 EveChildInstanceTransform s_defaultEveChildInstanceTransform;
 }
@@ -369,7 +365,7 @@ float EveChildInstanceContainer::GetOwnerMaxSpeed() const
 
 void EveChildInstanceContainer::GetRenderables( std::vector<ITr2Renderable*>& renderables )
 {
-	if( !m_display )
+	if( !m_display || !m_hasUpdated )
 	{
 		return;
 	}
@@ -441,6 +437,8 @@ void EveChildInstanceContainer::UpdateAsyncronous( const EveUpdateContext& updat
 	{
 		params.spaceObjectParent->GetWorldVelocity( m_worldVelocity );
 	}
+
+	m_hasUpdated = true;
 }
 
 void EveChildInstanceContainer::Setup( const Vector3* scale, const Quaternion* rotation, const Vector3* translation, Tr2Lod lowestLodVisible )
@@ -529,7 +527,10 @@ void EveChildInstanceContainer::RemoveFromEffectChildrenList( IEveSpaceObjectChi
 
 void EveChildInstanceContainer::SetControllerVariable( const char* name, float value )
 {
-	m_source->SetControllerVariable( name, value );
+	if( m_source )
+	{
+		m_source->SetControllerVariable( name, value );
+	}
 	auto found = find_if( begin( m_controllerVariables ), end( m_controllerVariables ), [name]( auto& x ) { return x.first == name; } );
 	if( found == end( m_controllerVariables ) )
 	{

@@ -1,14 +1,37 @@
+# Copyright © 2023 CCP ehf.
+
 cmake_minimum_required(VERSION 3.16)
+
+if(WITH_GRANNY)
+    message("Compiling with Granny for .gr2 file support")
+endif()
+
 project(trinity VERSION 1.0.0)
 
-find_package(libSquish REQUIRED)
-find_package(IntelXeSS REQUIRED)
-find_package(FidelityFX_CAS REQUIRED)
-find_package(CACAO REQUIRED)
-find_package(IntelTBB REQUIRED)
-find_package(NanoVDB REQUIRED)
-find_package(VMA REQUIRED)
-find_package(CarbonTrinityAudioAPI REQUIRED)
+if(BUILD_FOR_PYTHON_2)
+    find_package(libSquish REQUIRED)
+    add_library(unofficial::libsquish::squish ALIAS SQUISH::SQUISH)
+    find_package(FidelityFX_CAS REQUIRED)
+    add_library(AMD::FidelityFX::CAS ALIAS AMD::FidelityFX_CAS)
+    find_package(CACAO REQUIRED)
+    add_library(AMD::FidelityFX::CACAO ALIAS AMD::CACAO)
+    find_package(IntelTBB REQUIRED)
+    add_library(TBB::tbb ALIAS Intel::TBB)
+    add_library(TBB::tbbmalloc INTERFACE IMPORTED)
+    add_library(TBB::tbbmalloc_proxy INTERFACE IMPORTED)
+    find_package(VMA REQUIRED)
+    add_library(GPUOpen::VulkanMemoryAllocator ALIAS GPUOpen::VMA)
+    find_package(CarbonTrinityAudioAPI REQUIRED)
+    add_library(CcpTrinityAudioAPI ALIAS CarbonTrinityAudioAPI)
+else()
+    find_package(unofficial-libsquish CONFIG REQUIRED)
+    find_package(amd-fidelityfx-cas CONFIG REQUIRED)
+    find_package(amd-fidelityfx-cacao CONFIG REQUIRED)
+    find_package(TBB CONFIG REQUIRED)
+    find_package(VulkanHeaders CONFIG) # Required for VulkanMemoryAllocator
+    find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+    find_package(carbon-trinityaudioapi CONFIG REQUIRED)
+endif()
 
 set(PUBLIC_HEADER_FILES
     Include/IEveBallpark.h
@@ -16,7 +39,6 @@ set(PUBLIC_HEADER_FILES
     Include/ITr2AnimationUpdater.h
     Include/ITr2BoundingBox.h
     Include/ITr2DebugRenderer.h
-    Include/ITr2DebugRenderer2.h
     Include/ITr2GpuBuffer.h
     Include/ITr2InstanceData.h
     Include/ITr2Interior.h
@@ -25,14 +47,10 @@ set(PUBLIC_HEADER_FILES
     Include/ITr2Updateable.h
     Include/ITr2ValueBinding.h
     Include/ITriColor.h
-    Include/ITriConstants.h
-    Include/ITriCurveLength.h
     Include/ITriDevice.h
     Include/ITriDuration.h
     Include/ITriEffectParameter.h
-    Include/ITriFunction.h
     Include/ITriMatrix.h
-    Include/ITriObserverLocal.h
     Include/ITriQuaternion.h
     Include/ITriTargetable.h
     Include/ITriTextureRes.h
@@ -47,6 +65,13 @@ set(PUBLIC_HEADER_FILES
     Include/TriQuaternion.h
     Include/TriVector.h
 )
+
+if(BUILD_FOR_PYTHON_2)
+    # This is only needed for py2 as the file now belongs in blue.
+    # Unfortunatly the blue py2 branch cannot be updated at present due to security vulnerability work.
+    # The file version in the older blue versions had diverged from this one is incompatible.
+    list(APPEND PUBLIC_HEADER_FILES Include/ITr2DebugRenderer2.h)
+endif()
 
 set(_SOURCES
     Audio/Tr2AudioStretchAuto.cpp
@@ -201,21 +226,6 @@ set(_SOURCES
     Curves/Tr2FollowCurveKey.cpp
     Curves/Tr2FollowCurveKey.h
     Curves/Tr2FollowCurveKey_Blue.cpp
-    Curves/Tr2GrannyEventTrack.cpp
-    Curves/Tr2GrannyEventTrack.h
-    Curves/Tr2GrannyEventTrack_Blue.cpp
-    Curves/Tr2GrannyTrack.cpp
-    Curves/Tr2GrannyTrack.h
-    Curves/Tr2GrannyTrack_Blue.cpp
-    Curves/Tr2GrannyTransformTrack.cpp
-    Curves/Tr2GrannyTransformTrack.h
-    Curves/Tr2GrannyTransformTrack_Blue.cpp
-    Curves/Tr2GrannyVector3Curve.cpp
-    Curves/Tr2GrannyVector3Curve.h
-    Curves/Tr2GrannyVector3Curve_Blue.cpp
-    Curves/Tr2GrannyVectorTrack.cpp
-    Curves/Tr2GrannyVectorTrack.h
-    Curves/Tr2GrannyVectorTrack_Blue.cpp
     Curves/Tr2QuaternionLerpCurve.cpp
     Curves/Tr2QuaternionLerpCurve.h
     Curves/Tr2QuaternionLerpCurve_Blue.cpp
@@ -698,6 +708,12 @@ set(_SOURCES
     Eve/UI/EveLineSet.cpp
     Eve/UI/EveLineSet.h
     Eve/UI/EveLineSet_Blue.cpp
+    Eve/UI/EveEllipseDefinition.cpp
+    Eve/UI/EveEllipseDefinition.h
+    Eve/UI/EveEllipseDefinition_Blue.cpp
+    Eve/UI/EveEllipseSet.cpp
+    Eve/UI/EveEllipseSet.h
+    Eve/UI/EveEllipseSet_Blue.cpp
     Eve/UI/EveProjectBracket.cpp
     Eve/UI/EveProjectBracket.h
     Eve/UI/EveProjectBracket_Blue.cpp
@@ -781,15 +797,15 @@ set(_SOURCES
     Eve/EveParticleSpringAttractor.cpp
     Eve/EveParticleSpringAttractor.h
     Eve/EveParticleSpringAttractor_Blue.cpp
+	Eve/EvePicking.cpp
+	Eve/EvePicking.h
+	Eve/EvePicking_Blue.cpp
     Eve/EvePlanet.cpp
     Eve/EvePlanet.h
     Eve/EvePlanet_Blue.cpp
     Eve/EveRootTransform.cpp
     Eve/EveRootTransform.h
     Eve/EveRootTransform_Blue.cpp
-    Eve/EveShip2Builder.cpp
-    Eve/EveShip2Builder.h
-    Eve/EveShip2Builder_Blue.cpp
     Eve/EveSpaceScene.cpp
     Eve/EveSpaceScene.h
     Eve/EveSpaceScene_Blue.cpp
@@ -821,7 +837,6 @@ set(_SOURCES
     Include/ITr2AnimationUpdater.h
     Include/ITr2BoundingBox.h
     Include/ITr2DebugRenderer.h
-    Include/ITr2DebugRenderer2.h
     Include/ITr2GpuBuffer.h
     Include/ITr2InstanceData.h
     Include/ITr2Interior.h
@@ -830,14 +845,10 @@ set(_SOURCES
     Include/ITr2Updateable.h
     Include/ITr2ValueBinding.h
     Include/ITriColor.h
-    Include/ITriConstants.h
-    Include/ITriCurveLength.h
     Include/ITriDevice.h
     Include/ITriDuration.h
     Include/ITriEffectParameter.h
-    Include/ITriFunction.h
     Include/ITriMatrix.h
-    Include/ITriObserverLocal.h
     Include/ITriQuaternion.h
     Include/ITriTargetable.h
     Include/ITriTextureRes.h
@@ -1206,6 +1217,8 @@ set(_SOURCES
     Resources/TexturePipeline/Tr2TexturePipelineStepPack_Blue.cpp
     Resources/Tr2AsyncSave.cpp
     Resources/Tr2AsyncSave.h
+    Resources/Tr2CmfContent.cpp
+    Resources/Tr2CmfContent.h
     Resources/Tr2EffectRes.cpp
     Resources/Tr2EffectRes.h
     Resources/Tr2EffectRes_Blue.cpp
@@ -1502,8 +1515,6 @@ set(_SOURCES
     Tr2GrannyPrimitiveSet.cpp
     Tr2GrannyPrimitiveSet.h
     Tr2GrannyPrimitiveSet_Blue.cpp
-    Tr2GRNMemoryPersist.cpp
-    Tr2GRNMemoryPersist.h
     Tr2GStateAnimation.cpp
     Tr2GStateAnimation.h
     Tr2GStateAnimation_Blue.cpp
@@ -1553,9 +1564,6 @@ set(_SOURCES
     Tr2Model.cpp
     Tr2Model.h
     Tr2Model_Blue.cpp
-    Tr2NamedPipeListener.cpp
-    Tr2NamedPipeListener.h
-    Tr2NamedPipeListener_Blue.cpp
     Tr2PerObjectData.cpp
     Tr2PerObjectData.h
     Tr2PersistentPerObjectData.h
@@ -1776,6 +1784,33 @@ set(_SOURCES
     version.h
 )
 
+if(BUILD_FOR_PYTHON_2)
+    # This is only needed for py2 as the file now belongs in blue.
+    # Unfortunatly the blue py2 branch cannot be updated at present due to security vulnerability work.
+    # The file version in the older blue versions had diverged from this one is incompatible.
+    list(APPEND _SOURCES Include/ITr2DebugRenderer2.h)
+endif()
+
+set(GRANNY_RELATED_SOURCES
+    Curves/Tr2GrannyEventTrack.cpp
+    Curves/Tr2GrannyEventTrack.h
+    Curves/Tr2GrannyEventTrack_Blue.cpp
+    Curves/Tr2GrannyTrack.cpp
+    Curves/Tr2GrannyTrack.h
+    Curves/Tr2GrannyTrack_Blue.cpp
+    Curves/Tr2GrannyTransformTrack.cpp
+    Curves/Tr2GrannyTransformTrack.h
+    Curves/Tr2GrannyTransformTrack_Blue.cpp
+    Curves/Tr2GrannyVectorTrack.cpp
+    Curves/Tr2GrannyVectorTrack.h
+    Curves/Tr2GrannyVectorTrack_Blue.cpp
+)
+
+if(WITH_GRANNY)
+    list(APPEND _SOURCES ${GRANNY_RELATED_SOURCES})
+endif()
+
+
 # Ensure that we have a sane file grouping for XCode and VS project files
 if(CMAKE_GENERATOR STREQUAL "Xcode" OR CMAKE_GENERATOR MATCHES "Visual Studio.*")
     source_group(
@@ -1785,50 +1820,75 @@ if(CMAKE_GENERATOR STREQUAL "Xcode" OR CMAKE_GENERATOR MATCHES "Visual Studio.*"
     )
 endif()
 
-find_package(Freetype REQUIRED NO_CMAKE_PATH)
-find_package(Granny REQUIRED NO_CMAKE_PATH)
-find_package(PDM REQUIRED NO_CMAKE_PATH)
-find_package(PNG REQUIRED NO_CMAKE_PATH)
-find_package(Blue REQUIRED NO_CMAKE_PATH)
-find_package(CcpMath REQUIRED NO_CMAKE_PATH)
-find_package(ImageIO REQUIRED NO_CMAKE_PATH)
-find_package(JPEG REQUIRED NO_CMAKE_PATH)
-find_package(CcpParser REQUIRED NO_CMAKE_PATH)
-find_package(CarbonTrinityAudioAPI REQUIRED NO_CMAKE_PATH)
+if(BUILD_FOR_PYTHON_2)
+    find_package(Freetype REQUIRED NO_CMAKE_PATH)
+    if(WITH_GRANNY)
+        find_package(Granny REQUIRED NO_CMAKE_PATH)
+    endif()
+    find_package(PDM REQUIRED NO_CMAKE_PATH)
+    add_library(platform_pdm_proto_wrapper ALIAS PDM::PDM)
+    find_package(Blue REQUIRED NO_CMAKE_PATH)
+    find_package(CcpMath REQUIRED NO_CMAKE_PATH)
+    find_package(ImageIO REQUIRED NO_CMAKE_PATH)
+    add_library(CcpImageIO ALIAS ImageIO)
+    find_package(CcpParser REQUIRED NO_CMAKE_PATH)
+    find_package(CarbonMesh CONFIG REQUIRED)
+else()
+    find_package(Freetype REQUIRED)
+    if(WITH_GRANNY)
+        find_package(granny CONFIG REQUIRED)
+    endif()
+    find_package(carbon-pdmprotowrapper CONFIG REQUIRED)
+    find_package(carbon-blue CONFIG REQUIRED)
+    find_package(carbon-math CONFIG REQUIRED)
+    find_package(carbon-imageio CONFIG REQUIRED)
+    find_package(carbon-parser CONFIG REQUIRED)
+    find_package(PNG CONFIG REQUIRED)
+    find_package(CarbonMesh CONFIG REQUIRED)
+endif()
 
 # utility function that sets properties shared between all trinity targets
-function(set_shared_trinity_properties target)
-    #Needs png.h but isn't linked to png
-    target_include_directories(${target} PUBLIC "$<TARGET_PROPERTY:PNG::PNG,INTERFACE_INCLUDE_DIRECTORIES>")
+function(set_shared_trinity_properties target package_name)
 
     target_link_libraries(${target}
         PUBLIC
-            CarbonTrinityAudioAPI
+            CcpTrinityAudioAPI
         PRIVATE
-            ImageIO
+            CcpImageIO
             Blue
             Freetype::Freetype
-            SQUISH::SQUISH
-            AMD::CACAO
-            AMD::FidelityFX_CAS
-            RadGameTools::Granny
-            Intel::TBB
+            unofficial::libsquish::squish
+            AMD::FidelityFX::CACAO
+            AMD::FidelityFX::CAS
+            TBB::tbb
+            TBB::tbbmalloc
+            TBB::tbbmalloc_proxy
             CcpMath
-            PDM::PDM
+            platform_pdm_proto_wrapper
             CcpParser
-			GPUOpen::VMA
+			GPUOpen::VulkanMemoryAllocator
+            CarbonMesh
     )
 
     target_sources(${target} PRIVATE ${_SOURCES})
+    if(WITH_GRANNY)
+        target_link_libraries(${target} PRIVATE RadGameTools::Granny)
+        target_compile_definitions(${target} PRIVATE WITH_GRANNY)
+    endif()
 
     target_precompile_headers(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/StdAfx.h)
+
     target_include_directories(${target}
         PUBLIC
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            $<TARGET_PROPERTY:PNG::PNG,INTERFACE_INCLUDE_DIRECTORIES>
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+            $<TARGET_PROPERTY:PNG::PNG,INTERFACE_INCLUDE_DIRECTORIES>
         PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}
             ${CMAKE_CURRENT_SOURCE_DIR}/..
     )
+
     target_compile_definitions(${target}
         PRIVATE
             BLUE_OVERRIDE_VECTOR_TYPES=1
@@ -1837,6 +1897,13 @@ function(set_shared_trinity_properties target)
             TBB_ENABLED=1
             DEPRECATED_ENABLED=1
     )
+
+    if(BUILD_FOR_PYTHON_2)
+        target_compile_definitions(${target}
+        PRIVATE
+            BLUE_USE_LOCAL_ITr2DebugRenderer2=1
+    )
+    endif()
 
     # override the output directory to ensure that all TrinityAL outputs end up in the same folder.
     # this is OK because we're differentiating them by OUTPUT_NAME
@@ -1855,117 +1922,177 @@ function(set_shared_trinity_properties target)
 
     add_trinity_dev_debug_flags(${target})
 
-    # Install rule to ensure that our runtime and linker files are in the expected, platform-specific folders
-    install(
-        TARGETS ${target}
-        EXPORT ${target}Targets
-        CONFIGURATIONS ${CMAKE_CONFIGURATION_TYPES}
-        LIBRARY DESTINATION lib/${CCP_PLATFORM}/${CCP_ARCHITECTURE}/${CCP_TOOLSET}/
-        ARCHIVE DESTINATION lib/${CCP_PLATFORM}/${CCP_ARCHITECTURE}/${CCP_TOOLSET}/
-        RUNTIME DESTINATION bin/${CCP_PLATFORM}/${CCP_ARCHITECTURE}/${CCP_TOOLSET}/
-    )
-    # Install rule for available public headers
-    install(FILES ${PUBLIC_HEADER_FILES} DESTINATION include)
+    if (INSTALL_TO_MONOLITH)
 
-    configure_ccp_vendor_config_file(
-        TARGET ${target}
-        DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/${target}Config.cmake"
-        DEPENDENCIES ""
-    )
+        # Install rule to ensure that our runtime and linker files are in the expected, platform-specific folders
+        install(
+            TARGETS ${target}
+            EXPORT ${target}Targets
+            CONFIGURATIONS ${CMAKE_CONFIGURATION_TYPES}
+            LIBRARY DESTINATION lib/${CCP_PLATFORM}/${CCP_ARCHITECTURE}/${CCP_TOOLSET}/
+            ARCHIVE DESTINATION lib/${CCP_PLATFORM}/${CCP_ARCHITECTURE}/${CCP_TOOLSET}/
+            RUNTIME DESTINATION bin/${CCP_PLATFORM}/${CCP_ARCHITECTURE}/${CCP_TOOLSET}/
+        )
+        # Install rule for available public headers
+        install(FILES ${PUBLIC_HEADER_FILES} DESTINATION include)
 
-    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${target}Config.cmake DESTINATION .)
+        configure_ccp_vendor_config_file(
+            TARGET ${target}
+            DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/${package_name}Config.cmake"
+            DEPENDENCIES ""
+        )
+
+        install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${package_name}Config.cmake DESTINATION .)
+    else () # VCPKG install mode
+
+        # Install rule to ensure that our runtime and linker files are in the vcpkg structure
+        install(
+                TARGETS ${target}
+                EXPORT CcpTrinityTargets
+                CONFIGURATIONS ${CMAKE_CONFIGURATION_TYPES}
+                LIBRARY DESTINATION lib
+                RUNTIME DESTINATION bin
+        )
+
+    endif ()
     
     ccp_enable_vs_analizers(${target})
 
     if(${MSVC})
         target_compile_options(${target} PRIVATE "/bigobj") # The object file generated for EveSOFData.cpp has more than 2^16 sections.
+        target_compile_options(${target} PRIVATE /w14062)   # Warns about missing enum case.
+    else()
+        target_compile_options(${target} PRIVATE -Wswitch)  # Warns about missing enum case.
     endif()
 
 endfunction()
+
+option(INSTALL_TO_MONOLITH "Install this package to a perforce branch vendor folder - provided for backwards compatability" OFF)
 
 #[[
 FIXME currently the _stub platform does not build on macOS due to "unknown type name: 'CGKeyCode'"
 There are probably more issues because we haven't build the stub project on macOS so far IIRC
 ]]
 if(WIN32)
-    ccp_add_library(trinity_stub SHARED)
-    target_compile_definitions(trinity_stub
+    set(TRINITY_STUB_TARGET_NAME trinity_stub)
+
+    ccp_add_library(${TRINITY_STUB_TARGET_NAME} SHARED)
+    target_compile_definitions(${TRINITY_STUB_TARGET_NAME}
     PRIVATE
         TRINITY_PLATFORM=TRINITY_STUB
         TRINITYNAME=_trinity_stub
     )
 
-    target_link_libraries(trinity_stub PRIVATE TrinityAL_stub)
-    set_shared_trinity_properties(trinity_stub)
+    target_link_libraries(${TRINITY_STUB_TARGET_NAME} PRIVATE TrinityAL_stub)
+    set_shared_trinity_properties(${TRINITY_STUB_TARGET_NAME} carbon-trinity-stub)
 endif()
 
 if(WIN32)
-    ccp_add_library(trinity_dx11 SHARED)
-    target_compile_definitions(trinity_dx11
-        PRIVATE
-            TRINITY_PLATFORM=TRINITY_DIRECTX11
-            TRINITYNAME=_trinity_dx11
-    )
-    find_package(NvidiaAftermath REQUIRED)#Required for dx11
-    target_link_libraries(trinity_dx11 PRIVATE TrinityAL_dx11)
-    set_shared_trinity_properties(trinity_dx11)
+    if (BUILD_DX11)
 
-    ccp_add_library(trinity_dx12 SHARED)
-    target_compile_definitions(trinity_dx12
-        PRIVATE
-            TRINITY_PLATFORM=TRINITY_DIRECTX12
-            TRINITYNAME=_trinity_dx12
-    )
-    target_link_libraries(trinity_dx12 PRIVATE TrinityAL_dx12 )
-    set_shared_trinity_properties(trinity_dx12)
+        set(TRINITY_DX11_TARGET_NAME trinity_dx11)
+
+        ccp_add_library(${TRINITY_DX11_TARGET_NAME} SHARED)
+        target_compile_definitions(${TRINITY_DX11_TARGET_NAME}
+            PRIVATE
+                TRINITY_PLATFORM=TRINITY_DIRECTX11
+                TRINITYNAME=_trinity_dx11
+        )
+        #find_package(nvidia-aftermath CONFIG REQUIRED)#Required for dx11
+        target_link_libraries(${TRINITY_DX11_TARGET_NAME} PRIVATE TrinityAL_dx11)
+        set_shared_trinity_properties(${TRINITY_DX11_TARGET_NAME} carbon-trinity-dx11)
+    endif()
+
+    if (BUILD_DX12)
+
+        set(TRINITY_DX12_TARGET_NAME trinity_dx12)
+
+        ccp_add_library(${TRINITY_DX12_TARGET_NAME} SHARED)
+        target_compile_definitions(${TRINITY_DX12_TARGET_NAME}
+            PRIVATE
+                TRINITY_PLATFORM=TRINITY_DIRECTX12
+                TRINITYNAME=_trinity_dx12
+        )
+        target_link_libraries(${TRINITY_DX12_TARGET_NAME} PRIVATE TrinityAL_dx12 )
+        set_shared_trinity_properties(${TRINITY_DX12_TARGET_NAME} carbon-trinity-dx12)
+    endif()
+
 elseif(APPLE)
-    enable_language(OBJCXX)
-    ccp_add_library(trinity_metal SHARED)
-    target_compile_definitions(trinity_metal
-        PRIVATE
-            TRINITY_PLATFORM=TRINITY_METAL
-            TRINITYNAME=_trinity_metal
-    )
-    set_shared_trinity_properties(trinity_metal)
-    target_link_libraries(trinity_metal
-        PRIVATE
-            TrinityAL_metal
-            "-framework CoreFoundation"
-            "-framework Cocoa"
-            "-framework Carbon"
-            "-framework GameController"
-            "-framework Metal"
-            "-framework MetalFX"
-            "-framework IOKit"
-            "-framework QuartzCore"
-    )
+    if(BUILD_METAL)
+        enable_language(OBJCXX)
 
-    #[[
-        FIXME because we're mixing objective-c++ and c++ headers in our precompiled headers then we need to force
-        one specific language for macOS. This can be fixed once we revisit our usage of precompiled headers, which is
-        still very MSVC specific.
-    ]]
-    set(_CPP_SOURCES ${_SOURCES})
-    list(FILTER _CPP_SOURCES INCLUDE REGEX "\.cpp")
-    set_source_files_properties(${_CPP_SOURCES} PROPERTIES LANGUAGE OBJCXX)
-    set_source_files_properties(UI/Scancodes.mm PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+        set(TRINITY_METAL_TARGET_NAME trinity_metal)
 
-    target_compile_options(trinity_metal
-        PRIVATE
-            "-fobjc-arc"
-            # disabling these warnings is temporary so that we don't drown in them
-            "-Wno-nonportable-include-path"
-            "-Wno-inconsistent-missing-override"
-    )
+        ccp_add_library(${TRINITY_METAL_TARGET_NAME} SHARED)
+        target_compile_definitions(${TRINITY_METAL_TARGET_NAME}
+            PRIVATE
+                TRINITY_PLATFORM=TRINITY_METAL
+                TRINITYNAME=_trinity_metal
+        )
+        set_shared_trinity_properties(${TRINITY_METAL_TARGET_NAME} carbon-trinity-metal)
+        target_link_libraries(${TRINITY_METAL_TARGET_NAME}
+            PRIVATE
+                TrinityAL_metal
+                "-framework CoreFoundation"
+                "-framework Cocoa"
+                "-framework Carbon"
+                "-framework GameController"
+                "-framework Metal"
+                "-framework MetalFX"
+                "-framework IOKit"
+                "-framework QuartzCore"
+        )
 
-    set_target_properties(trinity_metal
-        PROPERTIES
-            LINKER_LANGUAGE OBJCXX
-            PREFIX ""
-            SUFFIX ".so"
-            BUILD_WITH_INSTALL_RPATH TRUE
-            INSTALL_RPATH "@executable_path/."
-    )
+        #[[
+            FIXME because we're mixing objective-c++ and c++ headers in our precompiled headers then we need to force
+            one specific language for macOS. This can be fixed once we revisit our usage of precompiled headers, which is
+            still very MSVC specific.
+        ]]
+        set(_CPP_SOURCES ${_SOURCES})
+        list(FILTER _CPP_SOURCES INCLUDE REGEX "\.cpp")
+        set_source_files_properties(${_CPP_SOURCES} PROPERTIES LANGUAGE OBJCXX)
+        set_source_files_properties(UI/Scancodes.mm PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
+        target_compile_options(${TRINITY_METAL_TARGET_NAME}
+            PRIVATE
+                "-fobjc-arc"
+                "-fdeclspec"
+                # disabling these warnings is temporary so that we don't drown in them
+                "-Wno-nonportable-include-path"
+                "-Wno-inconsistent-missing-override"
+        )
+
+        set_target_properties(${TRINITY_METAL_TARGET_NAME}
+            PROPERTIES
+                LINKER_LANGUAGE OBJCXX
+                PREFIX ""
+                SUFFIX ".so"
+                BUILD_WITH_INSTALL_RPATH TRUE
+                INSTALL_RPATH "@executable_path/."
+        )
+    endif()
 else()
     message(FATAL_ERROR "Unsupported trinity platform, only stub would be available!")
+endif()
+
+
+# Targets are now handled via vcpkg features.
+if (NOT INSTALL_TO_MONOLITH)
+    # # Install rule for available public headers
+    install(FILES ${PUBLIC_HEADER_FILES} DESTINATION include)
+
+    install(
+        EXPORT CcpTrinityTargets
+        DESTINATION ${CMAKE_INSTALL_PREFIX}/share/carbon-trinity
+        FILE carbon-trinityTargets.cmake
+    )
+
+    include(CMakePackageConfigHelpers)
+
+    configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/carbon-trinityConfig.cmake.in 
+                                    ${CMAKE_CURRENT_BINARY_DIR}/carbon-trinityConfig.cmake
+                                    INSTALL_DESTINATION share/carbon-trinity)
+
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/carbon-trinityConfig.cmake
+            DESTINATION share/carbon-trinity)
 endif()

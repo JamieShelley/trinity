@@ -1,11 +1,13 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 
 #if BLUE_WITH_PYTHON
 
 #include "Tr2PyValueBinding.h"
 
-Tr2PyValueBinding::Tr2PyValueBinding( IRoot* lockobj )
-	:m_isValid( false )
+Tr2PyValueBinding::Tr2PyValueBinding( IRoot* lockobj ) :
+	m_isValid( false )
 {
 	m_sourceObject = Py_None;
 	Py_INCREF( m_sourceObject );
@@ -42,10 +44,7 @@ void Tr2PyValueBinding::Initialize()
 {
 	m_isValid = false;
 
-	if( m_sourceObject != Py_None 
-		&& m_destinationObject != Py_None
-		&& !m_sourceAttribute.empty()
-		&& !m_destinationAttribute.empty() )
+	if( m_sourceObject != Py_None && m_destinationObject != Py_None && !m_sourceAttribute.empty() && !m_destinationAttribute.empty() )
 	{
 		// We have valid Python objects and attributes have been specified.
 		// We don't check here if attributes are valid - this may change and

@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 BLUE_DECLARE( Range );
@@ -12,7 +14,7 @@ public:
 
 	void SetCenterPoint( const float var );
 	void SetMinRangePoint( float var );
-	void Setup(float rangeCenterPoint, float rangeDeltaFromCenter, float sliderMin, float sliderMax);
+	void Setup( float rangeCenterPoint, float rangeDeltaFromCenter, float sliderMin, float sliderMax );
 	void SetMaxRangePoint( float var );
 	float GetCenterPoint() const;
 	float GetMinRangePoint() const;
@@ -38,4 +40,3 @@ protected:
 };
 
 TYPEDEF_BLUECLASS( Range );
- 

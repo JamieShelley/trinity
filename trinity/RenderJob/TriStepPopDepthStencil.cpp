@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriStepPopDepthStencil.h"
 #include "Tr2Renderer.h"
@@ -7,7 +9,7 @@ TriStepPopDepthStencil::TriStepPopDepthStencil( IRoot* lockobj )
 {
 }
 
-TriStepPopDepthStencil::~TriStepPopDepthStencil(void)
+TriStepPopDepthStencil::~TriStepPopDepthStencil( void )
 {
 }
 

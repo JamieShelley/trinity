@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriFloatArrayParameter.h"
 #include "Shader/Tr2Shader.h"
@@ -11,14 +13,13 @@ TriVector4::TriVector4( IRoot* lockobj ) :
 // ------------------------------------------------------------------------------------------------------
 TriVector4::~TriVector4()
 {
-
 }
 
 
 
 
 // ------------------------------------------------------------------------------------------------------
-TriFloatArrayParameter::TriFloatArrayParameter( IRoot* lockobj ):
+TriFloatArrayParameter::TriFloatArrayParameter( IRoot* lockobj ) :
 	PARENTLOCK( m_value ),
 	m_isUsedByEffect( false )
 {
@@ -55,16 +56,16 @@ unsigned TriFloatArrayParameter::GetHashValue( unsigned startingHash ) const
 }
 
 // ------------------------------------------------------------------------------------------------------
-void TriFloatArrayParameter::CopyValueToEffect(	Tr2RenderContextEnum::ShaderType inputType, 
-												unsigned char* destHandle, 
+void TriFloatArrayParameter::CopyValueToEffect( Tr2RenderContextEnum::ShaderType inputType,
+												unsigned char* destHandle,
 												size_t size,
-												Tr2RenderContext &renderContext ) const
+												Tr2RenderContext& renderContext ) const
 {
 	unsigned char* pDst = destHandle;
 	size_t bytesCopied = 0;
 	for( PTriVector4Vector::const_iterator it = m_value.begin(); it != m_value.end(); ++it )
 	{
-		memcpy( pDst, &((*it)->m_data), sizeof( Vector4 ) );
+		memcpy( pDst, &( ( *it )->m_data ), sizeof( Vector4 ) );
 		pDst += sizeof( Vector4 );
 		bytesCopied += sizeof( Vector4 );
 		if( bytesCopied >= size )
@@ -78,7 +79,7 @@ void TriFloatArrayParameter::CopyValueToEffect(	Tr2RenderContextEnum::ShaderType
 void TriFloatArrayParameter::RebuildEffectHandles( Tr2Shader* effectRes )
 {
 	m_cachedEffect = effectRes;
-	if ( m_name.empty() || !effectRes || !effectRes->GetConstant( m_name.c_str() ) )
+	if( m_name.empty() || !effectRes || !effectRes->GetConstant( m_name.c_str() ) )
 	{
 		m_isUsedByEffect = false;
 		return;

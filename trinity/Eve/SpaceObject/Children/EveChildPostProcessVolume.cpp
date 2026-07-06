@@ -1,3 +1,5 @@
+// Copyright © 2024 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildPostProcessVolume.h"
 #include "ITr2Renderable.h"
@@ -6,12 +8,13 @@
 #include "Utilities/BoundingSphere.h"
 
 
-EveChildPostProcessVolume::EveChildPostProcessVolume( IRoot* lockobj ) : 
+EveChildPostProcessVolume::EveChildPostProcessVolume( IRoot* lockobj ) :
 	PARENTLOCK( m_volumes ),
 	PARENTLOCK( m_exclusionVolumes ),
-	m_boundingSphere( Vector3( 0.0, 0.0, 0.0), 0.0 )
+	m_boundingSphere( Vector3( 0.0, 0.0, 0.0 ), 0.0 )
 {
 	m_postProcessAttributes.CreateInstance();
+	m_postProcessAttributes->intensity = 0.0f;
 }
 
 EveChildPostProcessVolume::~EveChildPostProcessVolume()
@@ -28,7 +31,7 @@ void EveChildPostProcessVolume::RebuildBoundingSphere()
 	for( auto volume = m_volumes.begin(); volume != m_volumes.end(); ++volume )
 	{
 		auto volumeSphere = ( *volume )->GetBoundingSphere();
-	
+
 		// this code is hijacked from carbon-math, it should live there but I don't want to touch carbon-math for now
 		if( !volumeSphere.IsInitialized() )
 		{
@@ -75,12 +78,11 @@ const char* EveChildPostProcessVolume::GetName() const
 
 void EveChildPostProcessVolume::SetName( const char* name )
 {
-	m_name = BlueSharedString(name);
+	m_name = BlueSharedString( name );
 }
 
 void EveChildPostProcessVolume::UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod )
 {
-
 }
 
 bool EveChildPostProcessVolume::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query ) const
@@ -93,7 +95,6 @@ bool EveChildPostProcessVolume::GetBoundingSphere( Vector4& sphere, BoundingSphe
 
 void EveChildPostProcessVolume::UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )
 {
-
 }
 
 void EveChildPostProcessVolume::UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )
@@ -158,7 +159,6 @@ void EveChildPostProcessVolume::UpdateTransformFromParent( const EveChildUpdateP
 
 void EveChildPostProcessVolume::GetLocalToWorldTransform( Matrix& transform ) const
 {
-
 }
 
 void EveChildPostProcessVolume::Setup( const Vector3* scale, const Quaternion* rotation, const Vector3* translation, Tr2Lod lowestLodVisible )
@@ -192,17 +192,17 @@ void EveChildPostProcessVolume::GetDebugOptions( Tr2DebugRendererOptions& option
 
 void EveChildPostProcessVolume::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 {
-	if (renderer.HasOption( this, "Volumes" ))
+	if( renderer.HasOption( this, "Volumes" ) )
 	{
 		for( auto volume = m_volumes.begin(); volume != m_volumes.end(); ++volume )
 		{
-			(*volume)->RenderDebugInfo( renderer, m_worldTransform, 0xFFFFFFFF );
+			( *volume )->RenderDebugInfo( renderer, m_worldTransform, 0xFFFFFFFF );
 		}
 	}
 
-	if (renderer.HasOption( this, "ExclusionVolumes" ))
+	if( renderer.HasOption( this, "ExclusionVolumes" ) )
 	{
-		for (auto volume = m_exclusionVolumes.begin(); volume != m_exclusionVolumes.end(); ++volume)
+		for( auto volume = m_exclusionVolumes.begin(); volume != m_exclusionVolumes.end(); ++volume )
 		{
 			( *volume )->RenderDebugInfo( renderer, m_worldTransform, 0xFFFF3333 );
 		}

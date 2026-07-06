@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   November 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "../include/Tr2RtTopLevelAccelerationStructureAL.h"
@@ -15,15 +11,15 @@
 
 namespace
 {
-    std::shared_ptr<TrinityALImpl::Tr2RtTopLevelAccelerationStructureAL> NullTlas()
-	{
-		static std::shared_ptr<TrinityALImpl::Tr2RtTopLevelAccelerationStructureAL> nullTlas = std::make_shared<TrinityALImpl::Tr2RtTopLevelAccelerationStructureAL>();
-		return nullTlas;
-	}
+std::shared_ptr<TrinityALImpl::Tr2RtTopLevelAccelerationStructureAL> NullTlas()
+{
+	static std::shared_ptr<TrinityALImpl::Tr2RtTopLevelAccelerationStructureAL> nullTlas = std::make_shared<TrinityALImpl::Tr2RtTopLevelAccelerationStructureAL>();
+	return nullTlas;
+}
 }
 
-Tr2RtTopLevelAccelerationStructureAL::Tr2RtTopLevelAccelerationStructureAL()
-	:m_tlas( NullTlas() )
+Tr2RtTopLevelAccelerationStructureAL::Tr2RtTopLevelAccelerationStructureAL() :
+	m_tlas( NullTlas() )
 {
 }
 
@@ -102,4 +98,3 @@ TrinityALImpl::Tr2RtTopLevelAccelerationStructureAL* Tr2RtTopLevelAccelerationSt
 
 
 #endif
-

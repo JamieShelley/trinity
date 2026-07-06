@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildInstanceMeshRenderer.h"
 
@@ -39,6 +41,6 @@ const Be::ClassInfo* EveChildInstanceMeshRenderer::ExposeToBlue()
 		MAP_ATTRIBUTE( "minScreenSize", m_minScreenSize, "", Be::READWRITE | Be::PERSIST )
 
 		MAP_METHOD_AND_WRAP( "RefreshStaticGeometry", RefreshStaticGeometry, "if static geo parameters were changed during authoring: refresh here\n:jessica-placement: TOOLBAR" )
-		
+
 	EXPOSURE_END()
 }

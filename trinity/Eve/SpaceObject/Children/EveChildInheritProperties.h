@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   September 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
+
 #pragma once
 #ifndef EveChildInheritProperties_H
 #define EveChildInheritProperties_H
@@ -18,8 +15,9 @@ public:
 	EveChildInheritProperties( IRoot* lockobj = NULL );
 	~EveChildInheritProperties();
 
-	void SetProperties( const Color *colorSet );
-    const Color* GetProperties();
+	void SetProperties( const Color* colorSet );
+	const Color* GetProperties();
+
 protected:
 	Color m_colorSet[SOFDataFactionColorChooser::TYPE_MAX];
 };

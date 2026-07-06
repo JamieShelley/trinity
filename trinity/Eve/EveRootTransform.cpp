@@ -1,9 +1,12 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveRootTransform.h"
 #include "EveUpdateContext.h"
-#include "Include/ITriFunction.h"
 
-EveRootTransform::EveRootTransform( IRoot* lockobj ):
+#include <ITriFunction.h>
+
+EveRootTransform::EveRootTransform( IRoot* lockobj ) :
 	m_boundingSphereRadius( -1.0f ),
 	m_lastUpdateMatrix( IdentityMatrix() )
 {
@@ -67,7 +70,7 @@ void EveRootTransform::Update( const EveUpdateContext& updateContext )
 void EveRootTransform::UpdateViewDependentData( const TriFrustum& frustum, const Matrix& /*parentTransform*/ )
 {
 	// parentTransform is identity, since we're the root transform
-	EveTransform::UpdateViewDependentData( frustum, m_lastUpdateMatrix );	
+	EveTransform::UpdateViewDependentData( frustum, m_lastUpdateMatrix );
 }
 
 // --------------------------------------------------------------------------------
@@ -107,7 +110,7 @@ int EveRootTransform::GetClosestDamageLocatorIndex( const Vector3* position )
 	return 0;
 }
 
-int EveRootTransform::GetGoodDamageLocatorIndex( const Vector3 &position )
+int EveRootTransform::GetGoodDamageLocatorIndex( const Vector3& position )
 {
 	return 0;
 }
@@ -139,13 +142,13 @@ bool EveRootTransform::UpdateImpact( Vector3& out, const Vector3& direction, int
 
 void EveRootTransform::GetMissPosition( const Vector3* hit, const Vector3* source, Vector3* out )
 {
-	GetDamageLocatorPosition(out, -1, true );
-	
-	if( hit && source ) 
+	GetDamageLocatorPosition( out, -1, true );
+
+	if( hit && source )
 	{
 		Vector3 local( *hit - *out );
 		Vector3 dir = Normalize( *hit - *source );
-		
+
 		local -= dir * Dot( dir, local );
 
 		local = Normalize( local );

@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildModifierHaloInverted.h"
 #include "Tr2Renderer.h"
@@ -17,7 +14,7 @@ EveChildModifierHaloInverted::~EveChildModifierHaloInverted()
 {
 }
 
-Matrix EveChildModifierHaloInverted::ApplyTransform( const Matrix& transform, size_t, const granny_matrix_3x4* ) const
+Matrix EveChildModifierHaloInverted::ApplyTransform( const Matrix& transform, size_t, const Float4x3* ) const
 {
 	Matrix alignMat;
 	float distCenter;
@@ -30,7 +27,7 @@ Matrix EveChildModifierHaloInverted::ApplyTransform( const Matrix& transform, si
 	Vector3 backward = -forward;
 
 	float scale = Dot( Normalize( d ), backward );
-	if (scale < 0.0f)
+	if( scale < 0.0f )
 	{
 		scale = 0.0f;
 	}

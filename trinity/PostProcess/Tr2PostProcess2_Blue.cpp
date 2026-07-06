@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:	January 2019
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2PostProcess2.h"
@@ -11,7 +7,7 @@ BLUE_DEFINE( Tr2PostProcess2 );
 
 const Be::ClassInfo* Tr2PostProcess2::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( Tr2PostProcess2, "" )
+	EXPOSURE_BEGIN( Tr2PostProcess2, "" )
 
 		MAP_INTERFACE( Tr2PostProcess2 )
 
@@ -32,5 +28,5 @@ const Be::ClassInfo* Tr2PostProcess2::ExposeToBlue()
 		MAP_ATTRIBUTE( "colorCorrection", m_colorCorrection, "Accesses the color correction effect", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "genericEffect", m_generic, "Accesses the generic effect", Be::READWRITE | Be::PERSIST )
 
-    EXPOSURE_END()
+	EXPOSURE_END()
 }

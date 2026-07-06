@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 #include "../Tr2DeviceResourceAL.h"
@@ -8,7 +10,7 @@ class Tr2RenderContextAL;
 
 namespace TrinityALImpl
 {
-	class Tr2FenceAL;
+class Tr2FenceAL;
 }
 
 class Tr2FenceAL

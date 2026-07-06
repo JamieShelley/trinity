@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   September 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveChildLink.h"
@@ -11,9 +7,9 @@ BLUE_DEFINE( EveChildLink );
 
 const Be::ClassInfo* EveChildLink::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( EveChildLink, "" )
-        MAP_INTERFACE( EveChildLink )
-        MAP_INTERFACE( EveChildMesh )
+	EXPOSURE_BEGIN( EveChildLink, "" )
+		MAP_INTERFACE( EveChildLink )
+		MAP_INTERFACE( EveChildMesh )
 
 		MAP_ATTRIBUTE( "currentDirection", m_currentDirection, "Current normalized direction to link source in worldspace", Be::READ )
 		MAP_ATTRIBUTE( "currentDistance", m_currentDistance, "Current distance to link source", Be::READ )
@@ -24,5 +20,5 @@ const Be::ClassInfo* EveChildLink::ExposeToBlue()
 		MAP_ATTRIBUTE( "linkStrengthCurves", m_linkStrengthCurves, "", Be::READ | Be::PERSIST )
 		MAP_ATTRIBUTE( "linkStrengthBindings", m_linkStrengthBindings, "", Be::READ | Be::PERSIST )
 
-    EXPOSURE_CHAINTO( EveChildMesh )
+	EXPOSURE_CHAINTO( EveChildMesh )
 }

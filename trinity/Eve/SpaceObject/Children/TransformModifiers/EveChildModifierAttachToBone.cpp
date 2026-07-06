@@ -1,14 +1,16 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildModifierAttachToBone.h"
 #include "Utilities/MatrixUtils.h"
 
 
-EveChildModifierAttachToBone::EveChildModifierAttachToBone( IRoot* )
-	:m_boneIndex( -1 )
+EveChildModifierAttachToBone::EveChildModifierAttachToBone( IRoot* ) :
+	m_boneIndex( -1 )
 {
 }
 
-Matrix EveChildModifierAttachToBone::ApplyTransform( const Matrix& transform, size_t boneCount, const granny_matrix_3x4* bones ) const
+Matrix EveChildModifierAttachToBone::ApplyTransform( const Matrix& transform, size_t boneCount, const Float4x3* bones ) const
 {
 	if( m_boneIndex < 0 || size_t( m_boneIndex ) >= boneCount )
 	{

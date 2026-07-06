@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   October 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #pragma once
 
@@ -12,7 +8,8 @@ BLUE_DECLARE_IVECTOR( ITr2ControllerAction );
 BLUE_DECLARE_INTERFACE( ITr2ActionController );
 
 
-BLUE_CLASS( Tr2ControllerEventHandler ): public IListNotify
+BLUE_CLASS( Tr2ControllerEventHandler ) :
+	public IListNotify
 {
 public:
 	Tr2ControllerEventHandler( IRoot* lockobj = nullptr );

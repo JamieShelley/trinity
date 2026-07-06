@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #pragma once
 
 #include "PostProcess/Effects/Tr2PPEffect.h"
@@ -10,7 +12,7 @@ public:
 
 	Tr2PPColorCorrectionEffect( IRoot* lockobj = NULL );
 	~Tr2PPColorCorrectionEffect();
-	
+
 	float m_whiteTemperature;
 	float m_whiteTint;
 	float m_colorSaturation;

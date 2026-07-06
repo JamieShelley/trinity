@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		February 2019
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #pragma once
 #ifndef Tr2PPTaaEffect_H
@@ -24,6 +20,13 @@ public:
 		TAA_HIGH = 3
 	};
 
+	enum Debug
+	{
+		TAA_DEBUG_OFF,
+		TAA_DEBUG_MOTION_VECTORS,
+		TAA_DEBUG_EARLY_OUT_MASK
+	};
+
 	Tr2PPTaaEffect( IRoot* lockobj = NULL );
 	~Tr2PPTaaEffect();
 
@@ -34,9 +37,8 @@ public:
 		return m_display;
 	}
 
-	int m_quality;
-	bool m_showMotionVectors;
-	bool m_showEarlyOutMask;
+	Quality m_quality;
+	Debug m_debugMode;
 	float m_earlyOutThreshold;
 };
 

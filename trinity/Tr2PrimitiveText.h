@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   2016
-//    Copyright: CCP 2016
-//
+// Copyright © 2016 CCP ehf.
+
 #pragma once
 #ifndef Tr2PrimitiveText_H
 #define Tr2PrimitiveText_H
@@ -19,6 +16,7 @@ public:
 	~Tr2PrimitiveText();
 
 	void Render();
+
 private:
 	std::string m_text;
 	Color m_color;

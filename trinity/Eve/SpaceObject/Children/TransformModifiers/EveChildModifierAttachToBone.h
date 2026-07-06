@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
+
 #pragma once
 
 #include "IEveChildTransformModifier.h"
@@ -15,9 +12,10 @@ public:
 
 	EveChildModifierAttachToBone( IRoot* lockobj = nullptr );
 
-	Matrix ApplyTransform( const Matrix& transform, size_t boneCount, const granny_matrix_3x4* bones ) const;
+	Matrix ApplyTransform( const Matrix& transform, size_t boneCount, const Float4x3* bones ) const;
 
 	void SetBoneIndex( int32_t index );
+
 private:
 	int32_t m_boneIndex;
 };

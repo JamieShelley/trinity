@@ -1,15 +1,11 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #pragma once
 
-#include "Include/ITriFunction.h"
-#include "Include/ITriCurveLength.h"
 #include "Tr2CurveScalar.h"
 
+#include <ITriFunction.h>
+#include <ITriCurveLength.h>
 
 BLUE_CLASS( Tr2CurveColor ) :
 	public ITriCurveLength,
@@ -22,10 +18,10 @@ public:
 
 	virtual void UpdateValue( double time );
 
-	virtual Color* Update( Color* in, Be::Time time );
-	virtual Color* Update( Color* in, double time );
-	virtual Color* GetValueAt( Color* in, Be::Time time );
-	virtual Color* GetValueAt( Color* in, double time );
+	virtual Color* Update( Color * in, Be::Time time );
+	virtual Color* Update( Color * in, double time );
+	virtual Color* GetValueAt( Color * in, Be::Time time );
+	virtual Color* GetValueAt( Color * in, double time );
 
 	virtual float Length();
 

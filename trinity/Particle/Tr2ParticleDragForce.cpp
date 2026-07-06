@@ -1,14 +1,9 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   September 2010
-//    Copyright: CCP 2010
-//
-//    Refactored from EveParticleDragForce.cpp
+// Copyright © 2010 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ParticleDragForce.h"
 
-Tr2ParticleDragForce::Tr2ParticleDragForce( IRoot* lockobj ):
+Tr2ParticleDragForce::Tr2ParticleDragForce( IRoot* lockobj ) :
 	m_dragConstant( 0.1f )
 {
 }

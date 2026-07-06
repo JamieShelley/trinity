@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ControllerFloatVariable.h"
@@ -10,14 +6,13 @@
 
 namespace
 {
-	Be::VarChooser TypeChooser[] =
-	{
-		{ "Float", BeCast( Tr2ControllerFloatVariable::FLOAT ), "Floating point value" },
-		{ "Integer", BeCast( Tr2ControllerFloatVariable::INTEGER ), "Integer value" },
-		{ "Boolean", BeCast( Tr2ControllerFloatVariable::BOOLEAN ), "Boolean value" },
-		{ "Enum", BeCast( Tr2ControllerFloatVariable::ENUM ), "Enumerated value" },
-		{ 0 }
-	};
+Be::VarChooser TypeChooser[] = {
+	{ "Float", BeCast( Tr2ControllerFloatVariable::FLOAT ), "Floating point value" },
+	{ "Integer", BeCast( Tr2ControllerFloatVariable::INTEGER ), "Integer value" },
+	{ "Boolean", BeCast( Tr2ControllerFloatVariable::BOOLEAN ), "Boolean value" },
+	{ "Enum", BeCast( Tr2ControllerFloatVariable::ENUM ), "Enumerated value" },
+	{ 0 }
+};
 }
 
 BLUE_DEFINE( Tr2ControllerFloatVariable );

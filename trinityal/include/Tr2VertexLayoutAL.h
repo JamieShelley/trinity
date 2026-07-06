@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 
@@ -10,8 +12,8 @@ class Tr2VertexDefinition;
 
 namespace TrinityALImpl
 {
-	class Tr2VertexLayoutAL;
-	class PSODescription;
+class Tr2VertexLayoutAL;
+class PSODescription;
 }
 
 class Tr2VertexLayoutAL

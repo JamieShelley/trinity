@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   February 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveChildParticleSphere.h"
@@ -19,36 +15,36 @@
 namespace
 {
 
-	class EveChildParticleSpherePerObjectData : public Tr2PerObjectData
+class EveChildParticleSpherePerObjectData : public Tr2PerObjectData
+{
+public:
+	virtual void SetPerObjectDataToDevice( Tr2ConstantBufferAL** buffers, unsigned constantTypeMask, Tr2RenderContext& renderContext ) const
 	{
-	public:
-		virtual void SetPerObjectDataToDevice( Tr2ConstantBufferAL** buffers, unsigned constantTypeMask, Tr2RenderContext& renderContext ) const
-		{
-			static const unsigned mask = ( 1 << Tr2RenderContextEnum::VERTEX_SHADER );
-			FillAndSetConstants( 
-				*buffers[m_bufferType],
-				&m_data, 
-				sizeof( m_data ), 
-				mask, 
-				m_register,
-				renderContext );
-		}
+		static const unsigned mask = ( 1 << Tr2RenderContextEnum::VERTEX_SHADER );
+		FillAndSetConstants(
+			*buffers[m_bufferType],
+			&m_data,
+			sizeof( m_data ),
+			mask,
+			m_register,
+			renderContext );
+	}
 
-		struct Data
-		{
-			Matrix m_world;
-			Matrix m_worldInverseTranspose;
-		} m_data;
+	struct Data
+	{
+		Matrix m_world;
+		Matrix m_worldInverseTranspose;
+	} m_data;
 
-		int32_t m_bufferType;
-		int32_t m_register;
-	};
+	int32_t m_bufferType;
+	int32_t m_register;
+};
 }
 
 
 // -----------------------------------------------------------------------------
-EveChildParticleSphere::EveChildParticleSphere( IRoot* lockobj )
-	:PARENTLOCK( m_generators ),
+EveChildParticleSphere::EveChildParticleSphere( IRoot* lockobj ) :
+	PARENTLOCK( m_generators ),
 	m_worldTransform( IdentityMatrix() ),
 	m_boundingSphere( 0, 0, 0, 500 ),
 	m_bindStatus( BIND_PENDING ),
@@ -87,7 +83,7 @@ void EveChildParticleSphere::SetName( const char* name )
 // -----------------------------------------------------------------------------
 void EveChildParticleSphere::GetRenderables( std::vector<ITr2Renderable*>& renderables )
 {
-	if( m_mesh && m_particleSystem && m_display )
+	if( m_mesh && m_particleSystem && m_display && m_hasUpdated )
 	{
 		m_particleSystem->SortParticles();
 		renderables.push_back( this );
@@ -137,6 +133,7 @@ void EveChildParticleSphere::UpdateAsyncronous( const EveUpdateContext& updateCo
 	BoundingSphereTransform( m_worldTransform, m_boundingSphere );
 
 	Update( updateContext );
+	m_hasUpdated = true;
 }
 
 // -----------------------------------------------------------------------------
@@ -263,11 +260,10 @@ void EveChildParticleSphere::Refresh()
 
 	m_particleSystem->UpdateElementDeclaration();
 
-	const Tr2ParticleElementDataMap &declaration = m_particleSystem->GetElementDeclaration();
+	const Tr2ParticleElementDataMap& declaration = m_particleSystem->GetElementDeclaration();
 	std::set<Tr2ParticleElementDeclarationName> elements;
 
-	auto Bind = [&]( Tr2ParticleElementDeclarationName::Type type ) -> Tr2ParticleElementData
-	{
+	auto Bind = [&]( Tr2ParticleElementDeclarationName::Type type ) -> Tr2ParticleElementData {
 		Tr2ParticleElementDeclarationName element( type );
 		if( elements.find( element ) == elements.end() )
 		{
@@ -325,8 +321,7 @@ void EveChildParticleSphere::ApplyConstraint( const Vector3& previousReferencePo
 		return;
 	}
 
-	auto constraint = [&]( float** particles, unsigned* strides, unsigned count )
-	{
+	auto constraint = [&]( float** particles, unsigned* strides, unsigned count ) {
 		Tr2ParticleStreamIterator<XMFLOAT3> position( particles, strides, m_positionElement );
 		Tr2ParticleStreamIterator<XMFLOAT3> velocity( particles, strides, m_velocityElement );
 		Tr2ParticleStreamIterator<float> lifetime( particles, strides, m_lifetimeElement );
@@ -364,8 +359,7 @@ void EveChildParticleSphere::ApplyConstraint( const Vector3& previousReferencePo
 // -----------------------------------------------------------------------------
 void EveChildParticleSphere::FillParticleData( float** particle, const Vector3& previousReferencePosition, const Vector3& velocityDirection )
 {
-	auto randf = []()
-	{
+	auto randf = []() {
 		return float( rand() ) / RAND_MAX;
 	};
 
@@ -427,8 +421,7 @@ void EveChildParticleSphere::AddParticles( const Vector3& previousReferencePosit
 		return;
 	}
 
-	auto randf = []()
-	{
+	auto randf = []() {
 		return float( rand() ) / RAND_MAX;
 	};
 

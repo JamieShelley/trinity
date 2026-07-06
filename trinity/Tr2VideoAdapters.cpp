@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   September 2012
-//    Copyright: CCP 2012
-//
+// Copyright © 2012 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2VideoAdapters.h"
@@ -16,8 +12,8 @@ std::vector<HANDLE> g_D3DCreatedHeaps;
 
 using namespace Tr2RenderContextEnum;
 
-Tr2VideoAdapters::Tr2VideoAdapters()
-	:DEFAULT_ADAPTER( Tr2VideoAdapterInfo::DEFAULT_ADAPTER ) 
+Tr2VideoAdapters::Tr2VideoAdapters() :
+	DEFAULT_ADAPTER( Tr2VideoAdapterInfo::DEFAULT_ADAPTER )
 {
 }
 
@@ -81,7 +77,7 @@ ALResult Tr2VideoAdapters::GetCurrentDisplayMode( unsigned adapterIndex,
 
 // --------------------------------------------------------------------------------------
 // Description:
-//   Get number of available display modes supported by display adapter for the given 
+//   Get number of available display modes supported by display adapter for the given
 //   back buffer format.
 // Arguments:
 //   adapterIndex - index of display adapter (from 0 to GetAdapterCount)
@@ -115,8 +111,7 @@ ALResult Tr2VideoAdapters::GetDisplayMode( unsigned adapterIndex,
 {
 	*mode = nullptr;
 	Tr2DisplayModeInfo info;
-	CR_RETURN_HR( Tr2VideoAdapterInfo::GetAdapterMode( adapterIndex, PixelFormat( backBufferFormat ), modeIndex, info ) )
-	;
+	CR_RETURN_HR( Tr2VideoAdapterInfo::GetAdapterMode( adapterIndex, PixelFormat( backBufferFormat ), modeIndex, info ) );
 	Tr2DisplayModePtr result;
 	result.CreateInstance();
 	result->m_mode = info;
@@ -195,30 +190,30 @@ std::string Tr2VideoAdapter::GetDeviceIdentifierString() const
 {
 #ifdef _WIN32
 	LPOLESTR guidstr;
-	if ( SUCCEEDED( StringFromCLSID( *reinterpret_cast<const GUID*>( &m_info.deviceIdentifier ), &guidstr ) ) )
+	if( SUCCEEDED( StringFromCLSID( *reinterpret_cast<const GUID*>( &m_info.deviceIdentifier ), &guidstr ) ) )
 	{
 		CW2A str( guidstr );
 		CoTaskMemFree( guidstr );
-		return ( const char* )str;
+		return (const char*)str;
 	}
 #else
-    char buffer[128];
-    snprintf(
-            buffer,
-             128,
-            "%08x-%04x-%04x-%02xhh%02xhh-%02xhh%02xhh%02xhh%02xhh%02xhh%02xhh",
-            unsigned( m_info.deviceIdentifier.data1 ),
-            unsigned( m_info.deviceIdentifier.data2 ),
-            unsigned( m_info.deviceIdentifier.data3 ),
-            m_info.deviceIdentifier.data4[0],
-            m_info.deviceIdentifier.data4[1],
-            m_info.deviceIdentifier.data4[2],
-            m_info.deviceIdentifier.data4[3],
-            m_info.deviceIdentifier.data4[4],
-            m_info.deviceIdentifier.data4[5],
-            m_info.deviceIdentifier.data4[6],
-            m_info.deviceIdentifier.data4[7] );
-    return buffer;
+	char buffer[128];
+	snprintf(
+		buffer,
+		128,
+		"%08x-%04x-%04x-%02xhh%02xhh-%02xhh%02xhh%02xhh%02xhh%02xhh%02xhh",
+		unsigned( m_info.deviceIdentifier.data1 ),
+		unsigned( m_info.deviceIdentifier.data2 ),
+		unsigned( m_info.deviceIdentifier.data3 ),
+		m_info.deviceIdentifier.data4[0],
+		m_info.deviceIdentifier.data4[1],
+		m_info.deviceIdentifier.data4[2],
+		m_info.deviceIdentifier.data4[3],
+		m_info.deviceIdentifier.data4[4],
+		m_info.deviceIdentifier.data4[5],
+		m_info.deviceIdentifier.data4[6],
+		m_info.deviceIdentifier.data4[7] );
+	return buffer;
 #endif
 	return "";
 }
@@ -234,7 +229,7 @@ std::string Tr2VideoAdapter::GetDeviceIdentifierString() const
 ALResult Tr2VideoAdapter::GetDriverInfo( Tr2VideoDriver** info )
 {
 	*info = nullptr;
-	
+
 	Tr2VideoDriverInfo driverInfo;
 	FORWARD_HR( Tr2DriverUtilities::GetDriverVersion( m_info.deviceID, driverInfo ) );
 
@@ -244,4 +239,3 @@ ALResult Tr2VideoAdapter::GetDriverInfo( Tr2VideoDriver** info )
 	*info = result.Detach();
 	return S_OK;
 }
-

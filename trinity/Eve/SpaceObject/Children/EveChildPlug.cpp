@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildPlug.h"
 
@@ -24,6 +21,10 @@ EveChildPlug::EveChildPlug( IRoot* lockobj ) :
 
 EveChildPlug::~EveChildPlug()
 {
+	for( auto& controller : m_controllers )
+	{
+		controller->Unlink( UnlinkReason::DELETING );
+	}
 }
 
 bool EveChildPlug::Initialize()
@@ -40,22 +41,28 @@ bool EveChildPlug::Initialize()
 
 void EveChildPlug::OnListModified( long event, ssize_t key, ssize_t key2, IRoot* value, const IList* list )
 {
-	if ( list == &m_controllers && ( event & BELIST_LOADING ) == 0 )
+	if( list == &m_controllers && ( event & BELIST_LOADING ) == 0 )
 	{
-		switch ( event & BELIST_EVENTMASK )
+		switch( event & BELIST_EVENTMASK )
 		{
 		case BELIST_INSERTED:
-			if ( ITr2ControllerPtr controller = BlueCastPtr( value ) )
+			if( ITr2ControllerPtr controller = BlueCastPtr( value ) )
 			{
 				controller->Link( *GetRawRoot() );
-				for ( auto it = begin( m_controllerVariables ); it != end( m_controllerVariables ); ++it )
+				for( auto it = begin( m_controllerVariables ); it != end( m_controllerVariables ); ++it )
 				{
 					controller->SetVariable( it->first.c_str(), it->second );
 				}
 			}
 			break;
 		case BELIST_REMOVED:
-			if ( ITr2ControllerPtr controller = BlueCastPtr( value ) )
+			if( ITr2ControllerPtr controller = BlueCastPtr( value ) )
+			{
+				controller->Unlink();
+			}
+			break;
+		case BELIST_UNLOADSTART:
+			for( auto& controller : m_controllers )
 			{
 				controller->Unlink();
 			}
@@ -162,10 +169,10 @@ void EveChildPlug::UpdateVisibility( const EveUpdateContext& updateContext, cons
 	{
 		return;
 	}
-	
+
 	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
-		(*it)->UpdateVisibility( updateContext, parentTransform, parentLod );
+		( *it )->UpdateVisibility( updateContext, parentTransform, parentLod );
 	}
 }
 
@@ -178,7 +185,7 @@ void EveChildPlug::GetRenderables( std::vector<ITr2Renderable*>& renderables )
 
 	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
-		(*it)->GetRenderables( renderables );
+		( *it )->GetRenderables( renderables );
 	}
 }
 
@@ -188,7 +195,7 @@ bool EveChildPlug::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query
 	Vector4 bSphere( 0.f, 0.f, 0.f, -1.f );
 	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
-		if( (*it)->GetBoundingSphere( bSphere ) )
+		if( ( *it )->GetBoundingSphere( bSphere ) )
 		{
 			BoundingSphereSetOrUpdate( bSphere, sphere, success );
 			success = true;
@@ -201,19 +208,19 @@ void EveChildPlug::RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer )
 {
 	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
-		(*it)->RegisterWithQuadRenderer( quadRenderer );
+		( *it )->RegisterWithQuadRenderer( quadRenderer );
 	}
 }
 
 void EveChildPlug::AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer ) const
 {
-	if (!m_display )
+	if( !m_display )
 	{
 		return;
 	}
 	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
-		(*it)->AddQuadsToQuadRenderer( frustum, quadRenderer );
+		( *it )->AddQuadsToQuadRenderer( frustum, quadRenderer );
 	}
 }
 
@@ -225,7 +232,7 @@ void EveChildPlug::UpdateSyncronous( const EveUpdateContext& updateContext, cons
 
 	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
-		(*it)->UpdateSyncronous( updateContext, newParams );
+		( *it )->UpdateSyncronous( updateContext, newParams );
 	}
 }
 
@@ -239,9 +246,9 @@ void EveChildPlug::UpdateAsyncronous( const EveUpdateContext& updateContext, con
 
 	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
-		(*it)->UpdateAsyncronous( updateContext, newParams );
+		( *it )->UpdateAsyncronous( updateContext, newParams );
 	}
-	for ( auto it = begin( m_controllers ); it != end( m_controllers ); ++it )
+	for( auto it = begin( m_controllers ); it != end( m_controllers ); ++it )
 	{
 		( *it )->Update( params.controllerUpdateFrequency );
 	}
@@ -254,7 +261,7 @@ void EveChildPlug::GetLocalToWorldTransform( Matrix& transform ) const
 
 void EveChildPlug::ChangeLOD( Tr2Lod lod )
 {
-	for ( auto it = m_objects.begin(); it != m_objects.end(); it++ )
+	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
 		( *it )->ChangeLOD( lod );
 	}
@@ -262,9 +269,9 @@ void EveChildPlug::ChangeLOD( Tr2Lod lod )
 
 void EveChildPlug::SetShaderOption( const BlueSharedString& name, const BlueSharedString& value )
 {
-	for ( auto it = m_objects.begin(); it != m_objects.end(); ++it )
+	for( auto it = m_objects.begin(); it != m_objects.end(); ++it )
 	{
-		IEveSpaceObjectChild *child = *it;
+		IEveSpaceObjectChild* child = *it;
 		child->SetShaderOption( name, value );
 	}
 }
@@ -293,9 +300,9 @@ void EveChildPlug::StopAllCurveSets()
 
 void EveChildPlug::PlayCurveSet( const std::string& name, const std::string& rangeName )
 {
-	for ( auto it = m_objects.begin(); it != m_objects.end(); it++ )
+	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
-		if ( auto owner = dynamic_cast<ITr2CurveSetOwner*>( *it ) )
+		if( auto owner = dynamic_cast<ITr2CurveSetOwner*>( *it ) )
 		{
 			owner->PlayCurveSet( name, rangeName );
 		}
@@ -304,9 +311,9 @@ void EveChildPlug::PlayCurveSet( const std::string& name, const std::string& ran
 
 void EveChildPlug::StopCurveSet( const std::string& name )
 {
-	for ( auto it = m_objects.begin(); it != m_objects.end(); it++ )
+	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
-		if ( auto owner = dynamic_cast<ITr2CurveSetOwner*>( *it ) )
+		if( auto owner = dynamic_cast<ITr2CurveSetOwner*>( *it ) )
 		{
 			owner->StopCurveSet( name );
 		}
@@ -315,9 +322,9 @@ void EveChildPlug::StopCurveSet( const std::string& name )
 
 void EveChildPlug::UpdateCurveSet( const std::string& name, Be::Time time )
 {
-	for ( auto it = m_objects.begin(); it != m_objects.end(); it++ )
+	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
-		if ( auto owner = dynamic_cast<ITr2CurveSetOwner*>( *it ) )
+		if( auto owner = dynamic_cast<ITr2CurveSetOwner*>( *it ) )
 		{
 			owner->UpdateCurveSet( name, time );
 		}
@@ -327,9 +334,9 @@ void EveChildPlug::UpdateCurveSet( const std::string& name, Be::Time time )
 float EveChildPlug::GetCurveSetDuration( const std::string& name ) const
 {
 	float maxDuration = 0.f;
-	for ( auto it = m_objects.begin(); it != m_objects.end(); it++ )
+	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
-		if ( auto owner = dynamic_cast<ITr2CurveSetOwner*>( *it ) )
+		if( auto owner = dynamic_cast<ITr2CurveSetOwner*>( *it ) )
 		{
 			maxDuration = max( maxDuration, owner->GetCurveSetDuration( name ) );
 		}
@@ -341,9 +348,9 @@ float EveChildPlug::GetCurveSetDuration( const std::string& name ) const
 float EveChildPlug::GetRangeDuration( const std::string& name, const std::string& rangeName ) const
 {
 	float maxDuration = 0.f;
-	for ( auto it = m_objects.begin(); it != m_objects.end(); it++ )
+	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
-		if ( auto owner = dynamic_cast<ITr2CurveSetOwner*>( *it ) )
+		if( auto owner = dynamic_cast<ITr2CurveSetOwner*>( *it ) )
 		{
 			maxDuration = max( maxDuration, owner->GetRangeDuration( name, rangeName ) );
 		}
@@ -405,7 +412,7 @@ void EveChildPlug::SetControllerVariable( const char* name, float value )
 
 void EveChildPlug::HandleControllerEvent( const char* name )
 {
-	for ( auto it = begin( m_controllers ); it != end( m_controllers ); ++it )
+	for( auto it = begin( m_controllers ); it != end( m_controllers ); ++it )
 	{
 		( *it )->HandleEvent( name );
 	}
@@ -413,7 +420,7 @@ void EveChildPlug::HandleControllerEvent( const char* name )
 
 void EveChildPlug::StartControllers()
 {
-	for ( auto it = begin( m_controllers ); it != end( m_controllers ); ++it )
+	for( auto it = begin( m_controllers ); it != end( m_controllers ); ++it )
 	{
 		( *it )->Start();
 	}
@@ -476,7 +483,7 @@ const PTr2ExternalParameterVector& EveChildPlug::GetExternalParameters() const
 
 void EveChildPlug::SetInheritProperties( const Color* colorSet )
 {
-	if ( !m_inheritProperties )
+	if( !m_inheritProperties )
 	{
 		m_inheritProperties.CreateInstance();
 	}
@@ -485,12 +492,12 @@ void EveChildPlug::SetInheritProperties( const Color* colorSet )
 
 ITr2AudEmitterPtr EveChildPlug::FindSoundEmitter( const char* name )
 {
-	for ( auto it = m_objects.begin(); it != m_objects.end(); it++ )
+	for( auto it = m_objects.begin(); it != m_objects.end(); it++ )
 	{
-		if ( auto owner = dynamic_cast<ITr2SoundEmitterOwner*>( *it ) )
+		if( auto owner = dynamic_cast<ITr2SoundEmitterOwner*>( *it ) )
 		{
 			auto emitter = owner->FindSoundEmitter( name );
-			if ( emitter != nullptr )
+			if( emitter != nullptr )
 			{
 				return emitter;
 			}

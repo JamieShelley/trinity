@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2Controller.h"
@@ -11,8 +7,7 @@
 #include "Tr2ControllerEventHandler.h"
 #include "Include/ITr2Updateable.h"
 #include "../Tr2ExpressionTermInfo.h"
-#include <ScopedBlockTrap.h>
-
+#include "ContinueOnMainThread.h"
 
 CCP_STATS_DECLARE( controllerUpdateTime, "Trinity/Controllers/UpdateTime", true, CST_TIME, "Cumulative per-frame time for controller update" );
 CCP_STATS_DECLARE( controllerUpdateablesTime, "Trinity/Controllers/UpdateablesTime", true, CST_TIME, "Cumulative per-frame time for controller updates tick" );
@@ -23,8 +18,8 @@ CCP_STATS_DECLARE( controllerLinkCount, "Trinity/Controllers/LinkCount", false, 
 
 CcpMutex g_controllerMutex( "", "g_controllerMutex" );
 
-Tr2Controller::Tr2Controller( IRoot* lockobj )
-	:PARENTLOCK( m_stateMachines ),
+Tr2Controller::Tr2Controller( IRoot* lockobj ) :
+	PARENTLOCK( m_stateMachines ),
 	PARENTLOCK( m_variables ),
 	PARENTLOCK( m_eventHandlers ),
 	m_updateables( "Tr2Controller::m_updateables" ),
@@ -99,8 +94,7 @@ void Tr2Controller::OnListModified( long event, ssize_t key, ssize_t key2, IRoot
 		switch( event & BELIST_EVENTMASK )
 		{
 		case BELIST_INSERTED:
-		case BELIST_REMOVED:
-		{
+		case BELIST_REMOVED: {
 			if( auto owner = m_owner )
 			{
 				Unlink();
@@ -161,7 +155,7 @@ void Tr2Controller::Link( IRoot& owner )
 	}
 }
 
-void Tr2Controller::Unlink()
+void Tr2Controller::Unlink( UnlinkReason reason )
 {
 	if( !m_owner )
 	{
@@ -169,8 +163,10 @@ void Tr2Controller::Unlink()
 	}
 
 	CCP_STATS_ZONE( __FUNCTION__ );
-
-	Stop();
+	if( reason != UnlinkReason::DELETING )
+	{
+		Stop();
+	}
 	for( auto& var : m_variables )
 	{
 		var->SetDestinationBuffer( nullptr );
@@ -178,7 +174,7 @@ void Tr2Controller::Unlink()
 	}
 	for( auto it = begin( m_stateMachines ); it != end( m_stateMachines ); ++it )
 	{
-		( *it )->Unlink();
+		( *it )->Unlink( reason );
 	}
 	for( auto it = begin( m_eventHandlers ); it != end( m_eventHandlers ); ++it )
 	{
@@ -205,8 +201,6 @@ bool Tr2Controller::IsLinked() const
 
 void Tr2Controller::Start()
 {
-	ScopedBlockTrap blockTrap;
-	
 	if( m_isActive )
 	{
 		Stop();
@@ -266,11 +260,11 @@ void Tr2Controller::Update( float normalizedUpdateFrequency )
 
 			auto simTime = BeOS->GetCurrentFrameTime();
 
-			CcpAutoMutex lock( g_controllerMutex );
-
-			for( auto& updatable : m_updateables )
+			for( auto& u : m_updateables )
 			{
-				updatable->Update( currentTime, simTime );
+				ContinueOnMainThread( [updatable = ITr2UpdateablePtr( u ), currentTime, simTime]() {
+					updatable->Update( currentTime, simTime );
+				} );
 			}
 		}
 	}
@@ -334,7 +328,7 @@ void Tr2Controller::GetExpressionTermInfo( std::vector<Tr2ExpressionTermInfoPtr>
 		out.push_back( Tr2ExpressionTermInfo::Variable( "Variables", ( *it )->GetName().c_str(), "controller variable" ) );
 	}
 }
-	
+
 const PTr2ControllerFloatVariableVector& Tr2Controller::GetVariables() const
 {
 	return m_variables;
@@ -410,7 +404,7 @@ void Tr2Controller::Callback( BlueSharedString callbackName )
 
 void Tr2Controller::RegisterCallback( BlueSharedString callbackName, BlueScriptCallback callback )
 {
-	m_callbacks.push_back(std::pair<BlueSharedString, BlueScriptCallback>( callbackName, callback) );
+	m_callbacks.push_back( std::pair<BlueSharedString, BlueScriptCallback>( callbackName, callback ) );
 }
 
 void Tr2Controller::ClearCallbacks()

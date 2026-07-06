@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef Tr2GStateAnimation_h
 #define Tr2GStateAnimation_h
@@ -6,10 +8,12 @@
 
 #include "Include/ITr2AnimationUpdater.h"
 #include "Resources/Tr2GrannyStateRes.h"
+#if WITH_GRANNY
 #include "gstate.h"
 #include "gstate_parameters.h"
 #include "gstate_tokenized.h"
 #include "gstate_state_machine.h"
+#endif
 #include "Tr2GStateParameter.h"
 
 BLUE_DECLARE( TriGrannyRes );
@@ -88,7 +92,7 @@ public:
 	void RenderBones( const Matrix& modelTransform );
 
 	int GetMeshBoneCount() const;
-	const granny_matrix_3x4* GetMeshBoneMatrixList() const;
+	const Float4x3* GetMeshBoneMatrixList() const;
 
 	void TogglePauseAnimations( bool pause );
 	void InstantiateCharacter();
@@ -152,7 +156,7 @@ private:
 	BoneList_t m_boneList;
 
 	// bone matrix list in mesh-order
-	granny_matrix_3x4* m_meshBoneMatrixList;
+	Float4x3* m_meshBoneMatrixList;
 	int m_meshBoneCount;
 	int m_modelIndex;
 	int m_meshBindingIndex;

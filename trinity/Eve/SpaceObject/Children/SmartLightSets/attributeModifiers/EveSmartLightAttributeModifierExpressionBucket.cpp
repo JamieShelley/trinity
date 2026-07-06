@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveSmartLightAttributeModifierExpressionBucket.h"
 #include "include/TriMath.h"
@@ -80,7 +82,7 @@ CcpParser::Constant s_constants[] = {
 };
 }
 
-EveSmartLightAttributeModifierExpressionBucket::EveSmartLightAttributeModifierExpressionBucket( IRoot* lockobj ) : 
+EveSmartLightAttributeModifierExpressionBucket::EveSmartLightAttributeModifierExpressionBucket( IRoot* lockobj ) :
 	PARENTLOCK( m_inputs ),
 	m_randomConstant( float( rand() ) / RAND_MAX )
 {
@@ -89,7 +91,7 @@ EveSmartLightAttributeModifierExpressionBucket::EveSmartLightAttributeModifierEx
 }
 
 bool EveSmartLightAttributeModifierExpressionBucket::Initialize()
-{		
+{
 	EveSmartLightAttributeModifierBucket::Initialize();
 	if( !m_expression.empty() )
 	{

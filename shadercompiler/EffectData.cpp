@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "stdafx.h"
 #include "EffectData.h"
 
@@ -15,7 +17,7 @@ const char* GetStringForUsageCode( int usageCode )
 	};
 
 	assert( 0 <= usageCode && usageCode < int( sizeof( str ) / sizeof( *str ) ) );
-	return str[ usageCode ];
+	return str[usageCode];
 }
 
 const char* ToString( ConstantType constType )

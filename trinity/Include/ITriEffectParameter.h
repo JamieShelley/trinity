@@ -1,24 +1,4 @@
-/* 
-	*************************************************************************
-
-	ITriEffectParameter.h
-
-	Created:   June 2006
-	OS:        Win32
-	Project:   Trinity
-
-	Description:   
-
-		ITriEffectParameter is an interface allowing for a list of parameters like float4, float3, float and textures
-
-	Dependencies:
-
-		DirectX 9.0c, Probably more, ytbd.
-
-	(c) CCP 2005
-
-	*************************************************************************
-*/
+// Copyright © 2005 CCP ehf.
 
 #ifndef ITr2EffectParameter_h
 #define ITr2EffectParameter_h
@@ -27,11 +7,12 @@
 
 BLUE_DECLARE( Tr2Shader );
 
-BLUE_INTERFACE(ITriEffectParameter) : public ITr2EffectValue
+BLUE_INTERFACE( ITriEffectParameter ) :
+	public ITr2EffectValue
 {
 	virtual const char* GetParameterName() const = 0;
 
-	virtual void RebuildEffectHandles( Tr2Shader* effectRes ) = 0;
+	virtual void RebuildEffectHandles( Tr2Shader * effectRes ) = 0;
 
 	virtual unsigned GetHashValue( unsigned startingHash ) const = 0;
 
@@ -44,11 +25,10 @@ BLUE_DECLARE_IVECTOR( ITriEffectParameter );
 typedef BlueDict<ITriEffectParameter> ITriEffectParameterDict;
 TYPEDEF_BLUECLASS( ITriEffectParameterDict );
 
-BLUE_INTERFACE(ITriEffectResourceParameter) : public ITriEffectParameter
-{
-	virtual void OnAddedToMaterial( Tr2Material* material ) {}
-	virtual void OnRemovedFromMaterial( Tr2Material* material ) {}
-};
+BLUE_INTERFACE( ITriEffectResourceParameter ) :
+	public ITriEffectParameter{
+		virtual void OnAddedToMaterial( Tr2Material * material ){} virtual void OnRemovedFromMaterial( Tr2Material * material ){}
+	};
 BLUE_DECLARE_IVECTOR( ITriEffectResourceParameter );
 
 BLUE_INTERFACE( ITriEffectTextureParameter ) :

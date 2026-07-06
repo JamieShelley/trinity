@@ -1,19 +1,15 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2010
-//    Copyright: CCP 2010
-//
+// Copyright © 2010 CCP ehf.
 
 #include "StdAfx.h"
 #include "TriStepRenderPass.h"
 
 
-TriStepRenderPass::TriStepRenderPass( IRoot* lockobj )
-:	m_pass( ITr2MultiPassScene::RP_BEGIN_RENDER )
+TriStepRenderPass::TriStepRenderPass( IRoot* lockobj ) :
+	m_pass( ITr2MultiPassScene::RP_BEGIN_RENDER )
 {
 }
 
-TriStepRenderPass::~TriStepRenderPass(void)
+TriStepRenderPass::~TriStepRenderPass( void )
 {
 }
 
@@ -33,5 +29,5 @@ TriStepResult TriStepRenderPass::Execute( Be::Time realTime, Be::Time simTime, T
 void TriStepRenderPass::py__init__( ITr2MultiPassScene* scene, int passType )
 {
 	m_scene = scene;
-	m_pass = ITr2MultiPassScene::PassType(passType);
+	m_pass = ITr2MultiPassScene::PassType( passType );
 }

@@ -1,13 +1,10 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #pragma once
 
 
-BLUE_CLASS( Tr2ExpressionTermInfo ) : public IRoot
+BLUE_CLASS( Tr2ExpressionTermInfo ) :
+	public IRoot
 {
 public:
 	EXPOSE_TO_BLUE();

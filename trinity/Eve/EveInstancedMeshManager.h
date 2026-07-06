@@ -1,6 +1,9 @@
+// Copyright © 2026 CCP ehf.
+
 #pragma once
 
 #include "SpaceObject/EveSpaceObject2.h"
+#include "Eve/EvePicking.h"
 
 BLUE_DECLARE( Tr2GpuStructuredBuffer );
 
@@ -71,8 +74,8 @@ public:
 	void CollectMeshes( EveComponentRegistry& registry );
 	size_t GetBatches( const TriFrustum& frustum, float invLodFactor, const std::initializer_list<std::pair<TriBatchType, ITriRenderBatchAccumulator&>>& batches, Tr2RenderReason reason = TR2RENDERREASON_NORMAL );
 	size_t GetShadowBatches( const TriFrustum& frustum, const IEveShadowFrustum& shadowFrustum, float invLodFactor, const std::initializer_list<std::pair<TriBatchType, ITriRenderBatchAccumulator&>>& batches, Tr2RenderReason reason = TR2RENDERREASON_NORMAL );
-	void GetPickingBatches( const TriFrustum& viewFrustum, const TriFrustum& pickingFrustum, float invLodFactor, uint32_t objectIdOffset, const std::vector<std::pair<TriBatchType, ITriRenderBatchAccumulator&>>& batches );
-	std::pair<IRootPtr, uint32_t> GetPickedObject( uint16_t objectId, uint16_t areaId );
+	void GetPickingBatches( EvePendingPickingReadback& readback, const TriFrustum& viewFrustum, const TriFrustum& pickingFrustum, float invLodFactor, uint32_t objectIdOffset, const std::vector<std::pair<TriBatchType, ITriRenderBatchAccumulator&>>& batches );
+	std::pair<IRootPtr, uint32_t> GetPickedObject( uint32_t objectId, uint32_t areaId );
 	void ReportUsedScreenSizes() const;
 
 	void AddPerObjectData( PerObjectDataHandle& handle, const EveSpacePerObjectData* data );
@@ -167,7 +170,7 @@ private:
 		uint32_t sphereGroupIndex = 0;
 		uint32_t perObjectDataIndex = 0;
 		uint32_t ownerIndex = 0;
-		IRootPtr owner;  // Used for picking
+		IRootPtr owner; // Used for picking
 		uint32_t pickingObjectId = 0;
 	};
 
@@ -244,7 +247,7 @@ private:
 	void BinVisibleInstances( const std::initializer_list<std::pair<TriBatchType, ITriRenderBatchAccumulator&>>& batches );
 
 	size_t GetBatches( const std::initializer_list<std::pair<TriBatchType, ITriRenderBatchAccumulator&>>& batches );
-	void GetPickingBatches( uint32_t objectIdOffset, const std::vector<std::pair<TriBatchType, ITriRenderBatchAccumulator&>>& batches );
+	void GetPickingBatches( EvePendingPickingReadback& readback, uint32_t objectIdOffset, const std::vector<std::pair<TriBatchType, ITriRenderBatchAccumulator&>>& batches );
 	static uint32_t GetMeshLod( const MeshData& meshInfo, float screenSize );
 	void UploadLodData( const MeshKey& mesh, MeshData& meshInfo, uint32_t lod, InstanceBuffer::Allocation& allocation );
 	InstanceBuffer::Allocation AllocateInstanceData( uint32_t count, bool isDynamic );

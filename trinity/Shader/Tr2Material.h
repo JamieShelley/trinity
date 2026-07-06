@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #pragma once
 
@@ -29,7 +25,7 @@ public:
 	unsigned int m_registerCount;
 };
 
-typedef std::vector<Tr2EffectParam>		Tr2EffectParamVector;
+typedef std::vector<Tr2EffectParam> Tr2EffectParamVector;
 
 struct Tr2SamplerOverrideData
 {
@@ -113,10 +109,11 @@ struct Tr2MaterialStageInput
 	void GetSharedConstantBuffer( const void* contents, uint32_t size );
 };
 
-class PassParametersOwner {
+class PassParametersOwner
+{
 
 public:
-    virtual ~PassParametersOwner() {};
+	virtual ~PassParametersOwner() {};
 	virtual void AddUsedResource( ITr2EffectValuePtr resource ) = 0;
 	virtual void AddReroutable( ITriReroutable* reroutable ) = 0;
 };
@@ -183,15 +180,17 @@ struct Tr2EffectTechniqueInputs
 		std::swap( passes, other.passes );
 		std::swap( libraries, other.libraries );
 	}
-    ~Tr2EffectTechniqueInputs(){}
-    
+	~Tr2EffectTechniqueInputs()
+	{
+	}
+
 	Tr2EffectTechniqueInputs& operator=( Tr2EffectTechniqueInputs&& other )
 	{
 		std::swap( passes, other.passes );
 		std::swap( libraries, other.libraries );
 		return *this;
 	}
-    
+
 	std::vector<std::unique_ptr<Tr2EffectPassParameters>> passes;
 	std::vector<std::unique_ptr<Tr2EffectLibraryParameters>> libraries;
 };
@@ -201,7 +200,7 @@ typedef std::vector<Tr2EffectTechniqueInputs> Tr2EffectTechniqueParametersVector
 //typedef std::vector<std::unique_ptr<Tr2EffectPassParameters>> Tr2EffectPassParametersVector;
 //typedef std::vector<Tr2EffectPassParametersVector> Tr2EffectTechniqueParametersVector;
 
-BLUE_CLASS( Tr2Material ): 
+BLUE_CLASS( Tr2Material ) :
 	public IRoot
 {
 public:
@@ -218,7 +217,9 @@ public:
 	Tr2Shader* GetShaderStateInterface() const;
 
 
-	virtual void SetOption( const BlueSharedString& name, const BlueSharedString& value ) {}
+	virtual void SetOption( const BlueSharedString& name, const BlueSharedString& value )
+	{
+	}
 
 	Tr2EffectPassParameters* GetPassDescription( uint32_t techniqueIndex, uint32_t passIndex );
 
@@ -236,11 +237,11 @@ public:
 
 protected:
 	bool ApplyShaderInputs( uint32_t techniqueIndex, unsigned int passIndex, Tr2RenderContextEnum::ShaderType shaderType, Tr2RenderContext& renderContext ) const;
-	bool ApplyShaderInputs( Tr2EffectPassParameters& pp, Tr2RenderContextEnum::ShaderType shaderType, Tr2RenderContext& renderContext ) const;
+	bool ApplyShaderInputs( Tr2EffectPassParameters & pp, Tr2RenderContextEnum::ShaderType shaderType, Tr2RenderContext & renderContext ) const;
 
-	void ApplyConstants( Tr2RenderContextEnum::ShaderType shaderType, Tr2MaterialStageInput& input, bool hasReroutables, Tr2RenderContext& renderContext ) const;
-	void UpdateConstants( Tr2RenderContextEnum::ShaderType shaderType, Tr2MaterialStageInput& input, bool hasReroutables, Tr2RenderContext& renderContext ) const;
-	bool UpdateResourceSetDesc( Tr2RenderContextEnum::ShaderType shaderType, Tr2MaterialStageInput& input, Tr2ResourceSetDescriptionAL& desc ) const;
+	void ApplyConstants( Tr2RenderContextEnum::ShaderType shaderType, Tr2MaterialStageInput & input, bool hasReroutables, Tr2RenderContext& renderContext ) const;
+	void UpdateConstants( Tr2RenderContextEnum::ShaderType shaderType, Tr2MaterialStageInput & input, bool hasReroutables, Tr2RenderContext& renderContext ) const;
+	bool UpdateResourceSetDesc( Tr2RenderContextEnum::ShaderType shaderType, Tr2MaterialStageInput & input, Tr2ResourceSetDescriptionAL & desc ) const;
 
 
 	Tr2ShaderPtr m_shader;

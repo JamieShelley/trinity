@@ -1,6 +1,5 @@
-//
-//  Copyright © 2020 CCP. All rights reserved.
-//
+// Copyright © 2020 CCP ehf.
+
 #pragma once
 #if TRINITY_PLATFORM == TRINITY_METAL
 

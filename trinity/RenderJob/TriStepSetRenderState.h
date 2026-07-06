@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef TriStepSetRenderState_h
 #define TriStepSetRenderState_h
@@ -7,12 +9,11 @@
 
 BLUE_DECLARE( TriStepSetRenderState );
 
-class TriStepSetRenderState:
-     public TriRenderStep
+class TriStepSetRenderState : public TriRenderStep
 {
 public:
-    EXPOSE_TO_BLUE();
-    TriStepSetRenderState( IRoot* lockobj = NULL );
+	EXPOSE_TO_BLUE();
+	TriStepSetRenderState( IRoot* lockobj = NULL );
 
 	//IRenderStep
 	TriStepResult Execute( Be::Time realTime, Be::Time simTime, Tr2RenderContext& renderContext );

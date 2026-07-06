@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveDistributionPlacementGeneratorVolume.h"
 
@@ -11,7 +13,7 @@ const Be::ClassInfo* EveDistributionPlacementGeneratorVolume::ExposeToBlue()
 		MAP_INTERFACE( EveDistributionPlacementGeneratorVolume )
 		MAP_INTERFACE( IEveDistributionPlacementGenerators )
 		MAP_INTERFACE( IInitialize )
-		MAP_INTERFACE( INotify ) 
+		MAP_INTERFACE( INotify )
 
 		MAP_ATTRIBUTE( "volume", m_volume, "Volume To generate points in", Be::PERSISTONLY )
 		MAP_PROPERTY( "volume", GetVolume, SetVolume, "Volume To generate points in" )

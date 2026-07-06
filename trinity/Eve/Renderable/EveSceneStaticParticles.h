@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   November 2014
-//    Copyright: CCP 2014
-//
+// Copyright © 2014 CCP ehf.
 
 #pragma once
 #ifndef EveSceneStaticParticles_H
@@ -29,7 +25,7 @@ BLUE_CLASS( EveSceneStaticParticles ) :
 public:
 	EXPOSE_TO_BLUE();
 
-	EveSceneStaticParticles(IRoot* lockobj = NULL);
+	EveSceneStaticParticles( IRoot* lockobj = NULL );
 	~EveSceneStaticParticles();
 
 	// structs
@@ -55,8 +51,8 @@ public:
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2DebugRenderable
-    virtual void GetDebugOptions( Tr2DebugRendererOptions& options );
-    virtual void RenderDebugInfo( ITr2DebugRenderer2& renderer );
+	virtual void GetDebugOptions( Tr2DebugRendererOptions & options );
+	virtual void RenderDebugInfo( ITr2DebugRenderer2 & renderer );
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2Renderable
@@ -66,7 +62,7 @@ public:
 	virtual bool HasTransparentBatches();
 	virtual float GetSortValue();
 	virtual bool IsVisible( const EveUpdateContext& updateContext ) const override;
-	
+
 	// update & render
 	void Update( const EveUpdateContext& updateContext );
 	void UpdateVisibility( const EveUpdateContext& updateContext );
@@ -101,7 +97,7 @@ private:
 	// bounding sphere
 	Vector4 m_boundingSphere;
 
-	// the actual rendering object	
+	// the actual rendering object
 	Tr2InstancedMeshPtr m_mesh;
 	bool m_visible;
 };

@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 #include "Eve/EveUpdateContext.h"
@@ -13,7 +15,7 @@ public:
 	EXPOSE_TO_BLUE();
 	EveCameraFxAttributes( IRoot* lockobj = nullptr );
 	~EveCameraFxAttributes();
-	
+
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params ) override;
 
 private:
@@ -22,7 +24,7 @@ private:
 
 	float m_distanceToCamera;
 	float m_lookAngleToObject;
-	
+
 	Vector3 m_objectRotation;
 	Vector3 m_rotationWithChildTransform;
 	Vector3 m_cameraRotation;

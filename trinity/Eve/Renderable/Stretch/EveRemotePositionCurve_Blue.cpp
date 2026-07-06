@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   October 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveRemotePositionCurve.h"
@@ -21,6 +17,6 @@ const Be::ClassInfo* EveRemotePositionCurve::ExposeToBlue()
 		MAP_ATTRIBUTE( "delayTime", m_delayTime, "A certain time to wait until the sweep starts", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "sweepTime", m_sweepTime, "Total time of one sweep", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "cycle", m_cycle, "Does it start all over again?", Be::READWRITE | Be::PERSIST )
-		
+
 	EXPOSURE_END()
 }

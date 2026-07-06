@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		February 2022
-// Copyright:	CCP 2022
-//
+// Copyright © 2022 CCP ehf.
 
 #pragma once
 
@@ -19,7 +15,7 @@ struct Tr2TextureLodUpdateRequest
 
 
 BLUE_CLASS( Tr2TextureLodManager ) :
-	public IRoot, 
+	public IRoot,
 	public IBlueEvents
 {
 public:

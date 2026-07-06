@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2020
-//    Copyright: CCP 2020
-//
+// Copyright © 2020 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveEllipsoidVolume.h"
@@ -24,5 +20,5 @@ const Be::ClassInfo* EveEllipsoidVolume::ExposeToBlue()
 
 		MAP_ATTRIBUTE( "debugShowIntersection", m_debugShowIntersection, "When volume debugging is on, you the intersection points can be shown", Be::READWRITE )
 
-		EXPOSURE_END()
+	EXPOSURE_END()
 }

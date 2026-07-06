@@ -1,12 +1,10 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2020
-//    Copyright: CCP 2020
-//
+// Copyright © 2020 CCP ehf.
+
 #pragma once
 
 #include "IEveChildTransformModifier.h"
-#include "include/ITriFunction.h"
+
+#include <ITriFunction.h>
 
 BLUE_CLASS( EveChildModifierStretch ) :
 	public IEveChildTransformModifier
@@ -17,8 +15,8 @@ public:
 	EveChildModifierStretch( IRoot* lockobj = NULL );
 	~EveChildModifierStretch();
 
-	Matrix ApplyTransform( const Matrix& transform, size_t boneCount, const granny_matrix_3x4* bones ) const;
-	void SetDest( ITriVectorFunction* dest );
+	Matrix ApplyTransform( const Matrix& transform, size_t boneCount, const Float4x3* bones ) const;
+	void SetDest( ITriVectorFunction * dest );
 	void SetDestPosition( Vector3 destPosition );
 
 private:

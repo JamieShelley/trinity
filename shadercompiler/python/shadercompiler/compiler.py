@@ -1,3 +1,5 @@
+# Copyright (c) 2023 CCP ehf.
+
 import os
 import subprocess
 import sys

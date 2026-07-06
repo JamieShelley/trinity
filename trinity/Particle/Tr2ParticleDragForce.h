@@ -1,9 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   September 2010
-//    Copyright: CCP 2010
-//
-//    Refactored from EveParticleDragForce.h
+// Copyright © 2010 CCP ehf.
 
 #pragma once
 #ifndef Tr2ParticleDragForce_H
@@ -15,14 +10,13 @@ BLUE_DECLARE( Tr2ParticleDragForce );
 
 // -------------------------------------------------------------
 // Description:
-//   A force to apply to particles in a particle system. 
-//   Represents a drag force: proportional and opposite to 
+//   A force to apply to particles in a particle system.
+//   Represents a drag force: proportional and opposite to
 //   particle velocity.
 // SeeAlso:
 //   Tr2SpriteParticleSystem
 // -------------------------------------------------------------
-class Tr2ParticleDragForce:
-	public ITr2ParticleForce
+class Tr2ParticleDragForce : public ITr2ParticleForce
 {
 public:
 	EXPOSE_TO_BLUE();
@@ -31,7 +25,9 @@ public:
 	~Tr2ParticleDragForce();
 
 	XMVECTOR FASTCALL GetForce( FXMVECTOR position, FXMVECTOR velocity, float dt, float mass );
-	void Update( float dt ) {}
+	void Update( float dt )
+	{
+	}
 
 private:
 	// Drag coefficient

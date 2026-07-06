@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveBaseDistributionMethod.h"
 #include "include/TriMath.h"
@@ -33,7 +35,7 @@ EveBaseDistributionMethod::EveBaseDistributionMethod( IRoot* lockobj ) :
 	m_playTime( 0.f ),
 	m_playtimeMultiplier( 1.f ),
 	m_isPlaying( true ),
-	m_placementDataCenter( 0.f, 0.f, 0.f)
+	m_placementDataCenter( 0.f, 0.f, 0.f )
 {
 	m_placementData.SetStructureDefinition( PlacementDataWithIdentifierDef );
 	m_placementData.SetDefaultValue( &s_PlacementDataWithIdentifierDefaultKey );
@@ -51,12 +53,12 @@ void EveBaseDistributionMethod::RegeneratePlacementData()
 		placementGenerator->GetInitialPlacements( m_initialPlacements, counter );
 	}
 
-	for( uint32_t i = 0; i < uint32_t(m_initialPlacements.size()); i++ )
+	for( uint32_t i = 0; i < uint32_t( m_initialPlacements.size() ); i++ )
 	{
 		m_uniqueIDIndices[m_initialPlacements[i].placement.uniqueID] = i;
 	}
 
-	m_numFreePlacements = uint32_t(m_initialPlacements.size());
+	m_numFreePlacements = uint32_t( m_initialPlacements.size() );
 }
 
 size_t EveBaseDistributionMethod::GetNumberOfPlacements()
@@ -158,7 +160,7 @@ void EveBaseDistributionMethod::UpdateSyncronous( const EveUpdateContext& update
 				}
 				else
 				{
-					SwapInitialPlacements( uint32_t(indx), m_numFreePlacements );
+					SwapInitialPlacements( uint32_t( indx ), m_numFreePlacements );
 					m_numFreePlacements++;
 					continue;
 				}
@@ -188,7 +190,7 @@ void EveBaseDistributionMethod::UpdateSyncronous( const EveUpdateContext& update
 			m_placementData[indx].additionalRotation = Quaternion( 0.f, 0.f, 0.f, 1.f );
 			m_placementData[indx].additionalScale = Vector3( 1.f, 1.f, 1.f );
 		}
-		
+
 		if( m_placementData[indx].boneIndex >= 0 && m_placementData[indx].boneIndex < params.boneCount )
 		{
 			Matrix boneMatrix = IdentityMatrix();
@@ -198,27 +200,33 @@ void EveBaseDistributionMethod::UpdateSyncronous( const EveUpdateContext& update
 			Decompose( m_placementData[indx].initialScale, m_placementData[indx].initialRotation, m_placementData[indx].initialTranslation, m );
 		}
 
+		bool entityKilled = false;
+
 		for( auto distributionModifier : m_distributionModifiers )
 		{
 			auto lifeTimeEvent = distributionModifier->ProcessDistributionModifier( m_placementData[indx], dt, params );
-			
+
 			if( lifeTimeEvent != DistributionEntityLifeTimeEvent::DO_NOTHING )
 			{
 				this->HandleDistributionEntityLifetimeEvent( indx, lifeTimeEvent );
 				indx--;
+				entityKilled = true;
 				break;
 			}
 		}
 
-		if( m_resetTransformOnUpdate )
+		if( !entityKilled )
 		{
-			m_placementData[indx].translationFrameDelta -= m_placementData[indx].additionalTranslation;
-		}
+			if( m_resetTransformOnUpdate )
+			{
+				m_placementData[indx].translationFrameDelta -= m_placementData[indx].additionalTranslation;
+			}
 
-		m_placementDataCenter += m_placementData[indx].initialTranslation + m_placementData[indx].additionalTranslation;
+			m_placementDataCenter += m_placementData[indx].initialTranslation + m_placementData[indx].additionalTranslation;
+		}
 	}
 
-	m_placementDataCenter /= float(m_placementData.size());
+	m_placementDataCenter /= float( m_placementData.size() );
 
 	for( auto spawner : m_distributionSpawners )
 	{
@@ -361,7 +369,7 @@ void EveBaseDistributionMethod::AddEntities( uint32_t howMany )
 
 	size_t originalSize = m_placementData.size();
 	m_placementData.Resize( originalSize + min( howMany, m_numFreePlacements ) );
-	
+
 	for( size_t i = 0; i < howMany; ++i )
 	{
 		if( m_numFreePlacements < 1 )
@@ -388,7 +396,7 @@ int32_t EveBaseDistributionMethod::TriggerEntityByID( uint32_t entityID )
 	{
 		return -1;
 	}
-	
+
 	if( m_initialPlacements[entityIdx].timeOutDuration > 0.0 )
 	{
 		return -1;
@@ -396,7 +404,7 @@ int32_t EveBaseDistributionMethod::TriggerEntityByID( uint32_t entityID )
 
 	m_initialPlacements[entityIdx].timeOutDuration = m_timeOutOnTriggering;
 
-	if( uint32_t(entityIdx) < m_numFreePlacements )
+	if( uint32_t( entityIdx ) < m_numFreePlacements )
 	{
 		m_numFreePlacements--;
 
@@ -421,7 +429,7 @@ PlacementDataWithIdentifier* EveBaseDistributionMethod::GetInitialPlacementData(
 {
 	int32_t entityIdx = this->GetInitialPlacementIndexByID( uniqueID );
 
-	if( entityIdx >= int32_t( m_initialPlacements.size() ) ) 
+	if( entityIdx >= int32_t( m_initialPlacements.size() ) )
 	{
 		return nullptr;
 	}
@@ -455,7 +463,7 @@ int32_t EveBaseDistributionMethod::GetClosestFreePlacement( Vector3& position )
 		}
 	}
 
-	return int32_t(m_initialPlacements[bestIndex].placement.uniqueID);
+	return int32_t( m_initialPlacements[bestIndex].placement.uniqueID );
 }
 
 void EveBaseDistributionMethod::SetControllerVariable( const char* name, float value )

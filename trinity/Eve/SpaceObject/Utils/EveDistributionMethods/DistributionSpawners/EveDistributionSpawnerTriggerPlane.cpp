@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveDistributionSpawnerTriggerPlane.h"
 #include "include/TriMath.h"
@@ -68,7 +70,7 @@ void EveDistributionSpawnerTriggerPlane::UpdateSyncronous( const EveUpdateContex
 	{
 		return;
 	}
-	
+
 	float normalizedPlayTime = ( m_currentPlayTime - m_delayBeforeActivation ) / max( 0.01f, m_playDuration );
 
 	if( !m_reversePlaneAnimation )

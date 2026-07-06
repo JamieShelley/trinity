@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef Tr2PushPopRT_H
 #define Tr2PushPopRT_H
@@ -37,7 +39,7 @@ struct Tr2PushPopRT
 
 private:
 	Tr2RenderContext* m_renderContext;
-	uint32_t	m_slot;
+	uint32_t m_slot;
 
 	Tr2PushPopRT( Tr2PushPopRT& );
 	Tr2PushPopRT& operator=( Tr2PushPopRT& );

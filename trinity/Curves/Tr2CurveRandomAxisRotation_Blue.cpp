@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2CurveRandomAxisRotation.h"
@@ -50,8 +46,7 @@ const Be::ClassInfo* Tr2CurveRandomAxisRotation::ExposeToBlue()
 			"GetValueAt",
 			GetValue,
 			"Returns curve value at specified time\n"
-			":param time: input time"
-		)
+			":param time: input time" )
 
-		EXPOSURE_END()
+	EXPOSURE_END()
 }

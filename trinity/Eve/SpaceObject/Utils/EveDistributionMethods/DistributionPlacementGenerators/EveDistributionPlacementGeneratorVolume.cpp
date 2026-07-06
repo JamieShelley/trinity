@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveDistributionPlacementGeneratorVolume.h"
 #include "include/TriMath.h"
@@ -42,7 +44,7 @@ void EveDistributionPlacementGeneratorVolume::GetInitialPlacements( std::vector<
 	Vector3 offset = m_volume->GetBoundingSphere().center;
 	placements.reserve( placements.size() + points.size() );
 
-	for( auto &point : points )
+	for( auto& point : points )
 	{
 		InitialPlacement placement;
 		placement.timeOutDuration = 0.0;

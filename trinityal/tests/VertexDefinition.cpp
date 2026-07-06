@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 
 TEST( VertexDefinition, CanCompareVertexDefinitionItems )
@@ -116,7 +118,7 @@ TEST( VertexDefinition, CanCompareVertexDefinitions )
 	def2.Add( Tr2VertexDefinition::FLOAT32_3, Tr2VertexDefinition::NORMAL, 0, 1 );
 
 	EXPECT_TRUE( def1 == def2 );
-	
+
 	def2.Add( Tr2VertexDefinition::FLOAT32_3, Tr2VertexDefinition::TEXCOORD, 0, 2 );
 
 	EXPECT_FALSE( def1 == def2 );

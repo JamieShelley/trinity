@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 
 #include "Utilities/BoundingBox.h"
@@ -11,6 +13,7 @@
 #include "TriFrustumOrtho.h"
 
 #include <ITr2AudEmitter.h>
+#include <ITr2AudGeometry.h>
 #include "Eve/EveTransform.h"
 #include "EveSpaceObject2.h"
 #include "Eve/EveSpaceScene.h"
@@ -36,6 +39,8 @@
 
 #include <limits>
 
+
+std::atomic<uint64_t> EveSpaceObject2::s_nextAudioInstanceId{ 1 };
 
 static const int MAX_JOINT_COUNT = 58;
 
@@ -193,7 +198,8 @@ EveSpaceObject2::EveSpaceObject2( IRoot* lockobj ) :
 	m_lastDamageLocatorHit( -1 ),
 	m_worldTransform( XMMatrixIdentity() ),
 	m_invWorldTransform( XMMatrixIdentity() ),
-	m_reflectionMode( EntityComponents::REFLECT_NEVER )
+	m_reflectionMode( EntityComponents::REFLECT_NEVER ),
+	m_audioInstanceId( NextAudioInstanceId() )
 {
 	m_positionDelta.CreateInstance();
 
@@ -224,6 +230,15 @@ EveSpaceObject2::~EveSpaceObject2()
 	{
 		m_geometryResFromMesh->RemoveNotifyTarget( this );
 	}
+
+	UnregisterAudioGeometry();
+
+	for( auto& controller : m_controllers )
+	{
+		controller->Unlink( UnlinkReason::DELETING );
+	}
+
+	UnregisterAudioGeometry();
 }
 
 bool EveSpaceObject2::Initialize()
@@ -247,6 +262,11 @@ bool EveSpaceObject2::Initialize()
 		m_decals[i]->SetPriority( i );
 	}
 
+	if( !m_audioGeometry )
+	{
+		BeClasses->CreateInstanceFromName( "AudGeometry", BlueInterfaceIID<ITr2AudGeometry>(), reinterpret_cast<void**>( &m_audioGeometry.p ) );
+	}
+
 	return true;
 }
 
@@ -268,6 +288,12 @@ void EveSpaceObject2::OnListModified( long event, ssize_t key, ssize_t key2, IRo
 			break;
 		case BELIST_REMOVED:
 			if( ITr2ControllerPtr controller = BlueCastPtr( value ) )
+			{
+				controller->Unlink();
+			}
+			break;
+		case BELIST_UNLOADSTART:
+			for( auto& controller : m_controllers )
 			{
 				controller->Unlink();
 			}
@@ -566,6 +592,8 @@ void EveSpaceObject2::UpdateSyncronous( const EveUpdateContext& updateContext )
 			m_secondaryLightingSphereRadius = pow( boxVolume / 4.f * 3.f / TRI_PI, 1.0f / 3.0f );
 		}
 	}
+
+	RegisterAudioGeometry();
 }
 
 void EveSpaceObject2::UpdateAsyncronous( const EveUpdateContext& updateContext )
@@ -673,7 +701,7 @@ void EveSpaceObject2::UpdateAsyncronous( const EveUpdateContext& updateContext )
 	if( !m_attachments.empty() )
 	{
 		size_t boneCount = 0;
-		const granny_matrix_3x4* bones = nullptr;
+		const Float4x3* bones = nullptr;
 		Tr2GrannyAnimationUtils::GetBoneList( m_animationUpdater, bones, boneCount );
 
 		for( auto& attachment : m_attachments )
@@ -902,7 +930,7 @@ void EveSpaceObject2::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 	if( renderer.HasOption( this, "Lights" ) )
 	{
 		size_t boneCount = 0;
-		const granny_matrix_3x4* bones = nullptr;
+		const Float4x3* bones = nullptr;
 		Tr2GrannyAnimationUtils::GetBoneList( m_animationUpdater, bones, boneCount );
 		for( auto it = m_lights.begin(); it != m_lights.end(); ++it )
 		{
@@ -917,15 +945,13 @@ void EveSpaceObject2::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 
 		for( auto it = m_locators.begin(); it != m_locators.end(); ++it )
 		{
-			auto transform = ( *it )->GetTransform();
-			if( m_animationUpdater && m_animationUpdater->m_worldPose && m_animationUpdater->m_skeleton )
+			Matrix transform = ( *it )->GetTransform();
+
+			if( m_animationUpdater )
 			{
-				granny_int32x bone;
-				if( GrannyFindBoneByName( m_animationUpdater->m_skeleton, ( *it )->GetName(), &bone ) )
-				{
-					transform = *reinterpret_cast<const Matrix*>( GrannyGetWorldPose4x4( m_animationUpdater->m_worldPose, bone ) );
-				}
+				m_animationUpdater->GetBoneWorldTransform( ( *it )->GetName(), transform );
 			}
+
 			XMVECTOR scale, rotation, translation;
 			XMMatrixDecompose( &scale, &rotation, &translation, transform );
 			transform = Matrix( XMMatrixAffineTransformation( XMVectorReplicate( m_boundingSphereRadius / 50.f ), Vector3( 0, 0, 0 ), rotation, translation ) );
@@ -964,13 +990,13 @@ void EveSpaceObject2::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 				auto rotation = locator.direction;
 
 				size_t boneCount;
-				const granny_matrix_3x4* bones;
+				const Float4x3* bones;
 
 				if( locator.boneIndex >= 0 && Tr2GrannyAnimationUtils::GetBoneList( m_animationUpdater, bones, boneCount ) )
 				{
 					if( locator.boneIndex < int( boneCount ) )
 					{
-						const granny_matrix_3x4* bones = m_animationUpdater->GetMeshBoneMatrixList();
+						const Float4x3* bones = m_animationUpdater->GetMeshBoneMatrixList();
 						Matrix boneTF = IdentityMatrix();
 						TriMatrixCopyFrom3x4( &boneTF, &bones[locator.boneIndex] );
 						position = XMVector3TransformCoord( position, boneTF );
@@ -998,7 +1024,7 @@ void EveSpaceObject2::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 	if( !m_attachments.empty() )
 	{
 		size_t boneCount = 0;
-		const granny_matrix_3x4* bones = nullptr;
+		const Float4x3* bones = nullptr;
 		Tr2GrannyAnimationUtils::GetBoneList( m_animationUpdater, bones, boneCount );
 
 		for( auto it = begin( m_attachments ); it != end( m_attachments ); ++it )
@@ -1032,14 +1058,16 @@ Matrix EveSpaceObject2::GetEveLocatorTransform( const char* name ) const
 	{
 		return IdentityMatrix();
 	}
-	if( m_animationUpdater && m_animationUpdater->m_worldPose && m_animationUpdater->m_skeleton )
+
+	if( m_animationUpdater )
 	{
-		granny_int32x bone;
-		if( GrannyFindBoneByName( m_animationUpdater->m_skeleton, locator->GetName(), &bone ) )
+		Matrix result;
+		if( m_animationUpdater->GetBoneWorldTransform( locator->GetName(), result ) )
 		{
-			return *reinterpret_cast<const Matrix*>( GrannyGetWorldPose4x4( m_animationUpdater->m_worldPose, bone ) );
+			return result;
 		}
 	}
+
 	return locator->GetTransform();
 }
 
@@ -1118,7 +1146,7 @@ void EveSpaceObject2::GetShadowBatches( ITriRenderBatchAccumulator* batches, con
 	{
 		return;
 	}
-	
+
 	TriGeometryRes* geomRes = m_mesh->GetGeometryResource();
 	if( !geomRes || !geomRes->IsGood() )
 	{
@@ -1260,21 +1288,47 @@ const Matrix* EveSpaceObject2::GetLocatorTransform( LocatorType lt, unsigned int
 {
 	switch( lt )
 	{
-	case ELT_TRANSFORM:
-	{
+	case ELT_TRANSFORM: {
 		EveLocator2* t = m_locators[lix];
 		return &t->GetTransform();
 	}
 	break;
 
-	case ELT_JOINT:
-	{
-		if( !m_animationUpdater || !m_animationUpdater->m_worldPose )
+	case ELT_JOINT: {
+		if( !m_animationUpdater )
 		{
 			return nullptr;
 		}
 
-		return reinterpret_cast<const Matrix*>( GrannyGetWorldPose4x4( m_animationUpdater->m_worldPose, lix ) );
+		if( m_animationUpdater->IsUsingCMF() )
+		{
+			auto& worldTransforms = m_animationUpdater->GetWorldTransforms();
+			if( !worldTransforms.size() )
+			{
+				return nullptr;
+			}
+			if( lix >= worldTransforms.size() )
+			{
+				return nullptr;
+			}
+			return &worldTransforms[lix];
+		}
+#if WITH_GRANNY
+		else
+		{
+			if( !m_animationUpdater->m_worldPose )
+			{
+				return nullptr;
+			}
+
+			return reinterpret_cast<const Matrix*>( GrannyGetWorldPose4x4( m_animationUpdater->m_worldPose, lix ) );
+		}
+#else
+		else
+		{
+			return nullptr;
+		}
+#endif
 	}
 	break;
 
@@ -1439,7 +1493,16 @@ Vector4 EveSpaceObject2::CalculateSkinnedBoundingSphere()
 {
 	if( m_dynamicBoundingSphereEnabled )
 	{
-		return m_animationUpdater->CalculateSkinnedBoundingSphere( m_mesh->GetGeometryResource()->GetGrannyInfo() );
+		if( m_mesh->GetGeometryResource()->IsUsingCMF() )
+		{
+			return Vector4( GetBoundingSphereCenter(), GetBoundingSphereRadius() );
+		}
+#if WITH_GRANNY
+		else
+		{
+			return m_animationUpdater->CalculateSkinnedBoundingSphere( m_mesh->GetGeometryResource()->GetGrannyInfo() );
+		}
+#endif
 	}
 	return Vector4( 0, 0, 0, -1 );
 }
@@ -1450,11 +1513,34 @@ std::pair<Vector3, Vector3> EveSpaceObject2::CalculateSkinnedBoundingBoxFromTran
 	BoundingBoxInitialize( bbMin, bbMax );
 	if( m_dynamicBoundingSphereEnabled )
 	{
-		m_animationUpdater->CalculateSkinnedBoundingBoxFromTransform( transform, bbMin, bbMax, m_geometryResFromMesh->GetGrannyInfo() );
+		if( m_geometryResFromMesh->IsUsingCMF() )
+		{
+			Vector3 localMin, localMax;
+			GetLocalBoundingBox( localMin, localMax );
+			AxisAlignedBoundingBox box( localMin, localMax );
+			box.EnumerateVertices( [&transform, &bbMin, &bbMax]( const Vector3& vertex ) {
+				Vector4 pos = Transform( Vector4( vertex, 1.f ), transform );
+				pos /= pos.w;
+
+				bbMin.x = min( bbMin.x, pos.x );
+				bbMax.x = max( bbMax.x, pos.x );
+
+				bbMin.y = min( bbMin.y, pos.y );
+				bbMax.y = max( bbMax.y, pos.y );
+
+				bbMin.z = min( bbMin.z, pos.z );
+				bbMax.z = max( bbMax.z, pos.z );
+			} );
+		}
+#if WITH_GRANNY
+		else
+		{
+			m_animationUpdater->CalculateSkinnedBoundingBoxFromTransform( transform, bbMin, bbMax, m_geometryResFromMesh->GetGrannyInfo() );
+		}
+#endif
 	}
 	return std::pair<Vector3, Vector3>( bbMin, bbMax );
 }
-
 
 // Actually submit renderables to the list, called from GetRenderables
 void EveSpaceObject2::PushRenderables( std::vector<ITr2Renderable*>& renderables )
@@ -1543,7 +1629,7 @@ void EveSpaceObject2::UpdateVisibility( const EveUpdateContext& updateContext, c
 	if( !m_attachments.empty() )
 	{
 		size_t boneCount = 0;
-		const granny_matrix_3x4* bones = nullptr;
+		const Float4x3* bones = nullptr;
 		Tr2GrannyAnimationUtils::GetBoneList( m_animationUpdater, bones, boneCount );
 
 		for( auto it = begin( m_attachments ); it != end( m_attachments ); ++it )
@@ -1647,7 +1733,7 @@ void EveSpaceObject2::UpdateVisibility( const EveUpdateContext& updateContext, c
 
 		if( updateContext.m_raytracingEnabled )
 		{
-			UpdateRtMesh(updateContext);
+			UpdateRtMesh( updateContext );
 			UpdateRtSkeleton();
 		}
 	}
@@ -1679,28 +1765,28 @@ void EveSpaceObject2::UpdateRtSkeleton()
 	{
 		return;
 	}
-    
+
 	auto rtMesh = m_mesh->GetRtMesh();
 	if( !rtMesh )
 	{
 		return;
 	}
-    
+
 	auto geo = m_mesh->GetGeometryResource();
 	if( !geo || !geo->IsGood() )
 	{
 		return;
 	}
-	
+
 	auto meshIndex = m_mesh->GetMeshIndex();
 	auto lod = geo->GetMeshLod( meshIndex, m_meshScreenSize );
 	if( !lod )
 	{
 		return;
 	}
-    
+
 	bool hasSkinned = false;
-    
+
 	auto areas = m_mesh->GetAreas( TRIBATCHTYPE_OPAQUE );
 	for( auto& area : *areas )
 	{
@@ -1716,7 +1802,7 @@ void EveSpaceObject2::UpdateRtSkeleton()
 	{
 		return; //no skinned areas
 	}
-	
+
 	auto boneCount = uint32_t( m_animationUpdater->GetMeshBoneCount() );
 	m_boneOffsets.UploadTransforms( Tr2RingBuffer::GetInstance<Float4x3>(), reinterpret_cast<const Float4x3*>( m_animationUpdater->GetMeshBoneMatrixList() ), boneCount );
 	auto offset = m_boneOffsets.GetCurrentFrameOffset();
@@ -1829,7 +1915,7 @@ void EveSpaceObject2::AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2Quad
 		return;
 	}
 	size_t boneCount = 0;
-	const granny_matrix_3x4* bones = nullptr;
+	const Float4x3* bones = nullptr;
 	Tr2GrannyAnimationUtils::GetBoneList( m_animationUpdater, bones, boneCount );
 
 	for( auto it = begin( m_attachments ); it != end( m_attachments ); ++it )
@@ -1876,8 +1962,16 @@ bool EveSpaceObject2::IsCastingShadow( const TriFrustum& cameraFrustum, const IE
 
 void EveSpaceObject2::SetMesh( Tr2MeshBase* mesh )
 {
+	if( mesh != m_mesh )
+	{
+		UnregisterAudioGeometry();
+	}
+
 	m_mesh = mesh;
-	PrepareForAnimation();
+	if( m_mesh )
+	{
+		PrepareForAnimation();
+	}
 }
 
 // --------------------------------------------------------------------------------
@@ -1917,11 +2011,29 @@ Vector3 EveSpaceObject2::GetBoundingSphereCenter() const
 // --------------------------------------------------------------------------------
 int EveSpaceObject2::GetBoneCount() const
 {
-	if( !m_animationUpdater->m_meshBinding )
+	if( m_animationUpdater->IsUsingCMF() )
+	{
+		if( !m_animationUpdater->HasMeshBinding() )
+		{
+			return 0;
+		}
+		return (int)m_animationUpdater->GetSkeletonBoneIndices().size();
+	}
+#if WITH_GRANNY
+	else
+	{
+		if( !m_animationUpdater->m_meshBinding )
+		{
+			return 0;
+		}
+		return GrannyGetMeshBindingBoneCount( m_animationUpdater->m_meshBinding );
+	}
+#else
+	else
 	{
 		return 0;
 	}
-	return GrannyGetMeshBindingBoneCount( m_animationUpdater->m_meshBinding );
+#endif
 }
 
 bool EveSpaceObject2::RebuildBoundingSphereInformation()
@@ -1952,6 +2064,8 @@ void EveSpaceObject2::ReleaseCachedData( BlueAsyncRes* p )
 {
 	CCP_ASSERT( p == m_geometryResFromMesh );
 
+	UnregisterAudioGeometry();
+
 	// no more overlay effects
 	for( int i = 0; i < EveMeshOverlayEffect::TYPE_COUNT; ++i )
 	{
@@ -1981,6 +2095,9 @@ void EveSpaceObject2::RebuildCachedData( BlueAsyncRes* p )
 			collector.Optimize();
 		}
 	}
+
+	// Try to register audio geometry now that the geometry resource is loaded
+	RegisterAudioGeometry();
 
 	// If we already have a model we don't want to go through here
 	// as it would nuke all current animations.
@@ -2046,7 +2163,6 @@ bool EveSpaceObject2::OnModified( Be::Var* val )
 	{
 		SetMute( val );
 	}
-
 	return true;
 }
 
@@ -2618,6 +2734,11 @@ void EveSpaceObject2::UpdateWorldTransform( Be::Time time )
 	}
 	//is this done in a parent class/subclass anywhere else?
 	m_invWorldTransform = Inverse( m_worldTransform );
+
+	if( m_audioGeometryRegistered && m_audioGeometry )
+	{
+		m_audioGeometry->SetGeometryTransform( m_audioGeometrySetId, m_audioInstanceId, m_worldTransform );
+	}
 }
 
 void EveSpaceObject2::GetModelCenterWorldPosition( Vector3& position ) const
@@ -2675,6 +2796,8 @@ void EveSpaceObject2::PrepareForAnimation()
 	auto geometryRes = m_mesh->GetGeometryResource();
 	if( geometryRes && geometryRes != m_geometryResFromMesh )
 	{
+		UnregisterAudioGeometry();
+
 		// We might be loading, still. The AddNotifyTarget below will trigger a callback
 		// once the loading is done. If the geometry resource has already loaded we get the callback
 		// immediately. Further initialization that relies on the granny file being in
@@ -2811,8 +2934,33 @@ void EveSpaceObject2::AddOverlayEffect( EveMeshOverlayEffectPtr newOverlayEffect
 void EveSpaceObject2::RemoveOverlayEffect( EveMeshOverlayEffectPtr overlayEffectToRemove )
 {
 	ssize_t index = m_overlayEffects.FindKey( overlayEffectToRemove->GetRawRoot() );
-	m_overlayEffects.Remove( index );
+	if( index >= 0 )
+	{
+		m_overlayEffects.Remove( index );
+	}
 }
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Get an overlay effect by name. Returns nullptr if no effect with this name exists on this object.
+// --------------------------------------------------------------------------------
+EveMeshOverlayEffectPtr EveSpaceObject2::GetOverlayEffectByName( const char* name ) const
+{
+	if( name == nullptr )
+	{
+		return nullptr;
+	}
+
+	for( auto overlay : m_overlayEffects )
+	{
+		if( strcmp( overlay->m_name.c_str(), name ) == 0 )
+		{
+			return overlay;
+		}
+	}
+	return nullptr;
+}
+
 
 // --------------------------------------------------------------------------------
 // Description:
@@ -3126,7 +3274,7 @@ void EveSpaceObject2::GetLocatorInObjectSpace( Vector3& position, Vector3& direc
 	{
 		if( locator.boneIndex < m_animationUpdater->GetMeshBoneCount() )
 		{
-			const granny_matrix_3x4* bones = m_animationUpdater->GetMeshBoneMatrixList();
+			const Float4x3* bones = m_animationUpdater->GetMeshBoneMatrixList();
 			Matrix boneTF = IdentityMatrix();
 			TriMatrixCopyFrom3x4( &boneTF, &bones[locator.boneIndex] );
 			position = XMVector3TransformCoord( locator.position, boneTF );
@@ -3395,7 +3543,7 @@ void EveSpaceObject2::GetLights( Tr2LightManager& lightManager ) const
 	XMMATRIX worldTransform = m_worldTransform;
 
 	size_t boneCount = 0;
-	const granny_matrix_3x4* bones = nullptr;
+	const Float4x3* bones = nullptr;
 	Tr2GrannyAnimationUtils::GetBoneList( m_animationUpdater, bones, boneCount );
 
 	for( auto it = std::begin( m_lights ); it != std::end( m_lights ); ++it )
@@ -3420,9 +3568,14 @@ bool EveSpaceObject2::IsPickable() const
 void EveSpaceObject2::RegisterComponents()
 {
 	auto registry = this->GetComponentRegistry();
+	if( registry )
+	{
+		RegisterAudioGeometry();
+	}
+
 	if( registry && m_display )
 	{
-		if ( !m_lights.empty() )
+		if( !m_lights.empty() )
 		{
 			registry->RegisterComponent<ITr2LightOwner>( this );
 		}
@@ -3461,6 +3614,8 @@ void EveSpaceObject2::RegisterComponents()
 // --------------------------------------------------------------------------------
 void EveSpaceObject2::UnRegisterComponents()
 {
+	UnregisterAudioGeometry();
+
 	auto registry = this->GetComponentRegistry();
 	if( registry )
 	{
@@ -3517,6 +3672,31 @@ void EveSpaceObject2::GetPickingBatches( ITriRenderBatchAccumulator* batches, Tr
 			m_mesh->GetBatches( batches, areas, perObjectData );
 		}
 	}
+}
+
+bool EveSpaceObject2::GetWorldBoundingBox( Vector3& min, Vector3& max ) const
+{
+	min = m_localAabbMin;
+	max = m_localAabbMax;
+	BoundingBoxTransform( min, max, m_worldTransform );
+	return true;
+}
+
+bool EveSpaceObject2::IsBoundingBoxReady() const
+{
+	Tr2MeshBase* mesh = m_mesh;
+
+	if( !mesh )
+	{
+		return false;
+	}
+
+	TriGeometryRes* geomRes = mesh->GetGeometryResource();
+	if( !geomRes || !geomRes->IsGood() )
+	{
+		return false;
+	}
+	return true;
 }
 
 bool EveSpaceObject2::IsImpostor() const
@@ -3828,12 +4008,12 @@ void EveSpaceObject2::PushRtGeometry( Tr2RaytracingManager& rtManager ) const
 	}
 
 	USE_MAIN_THREAD_RENDER_CONTEXT();
-	
+
 	const Tr2MeshAreaVector* opaqueAreas = m_mesh->GetAreas( TRIBATCHTYPE_OPAQUE );
 
 	UpdateRtPerObjectData( m_psData, nullptr, renderContext, m_rtPerObjectData );
-	
-	#pragma region geometry
+
+#pragma region geometry
 	uint32_t vertexBufferDataIndex = 0;
 	for( Tr2MeshAreaVector::const_iterator it = opaqueAreas->begin(); it != opaqueAreas->end(); ++it, ++vertexBufferDataIndex )
 	{
@@ -3855,4 +4035,58 @@ void EveSpaceObject2::PushRtGeometry( Tr2RaytracingManager& rtManager ) const
 #pragma endregion
 
 	rtManager.GetGeometry().AddBindlessResources( *opaqueAreas, *rtMesh );
+}
+
+ITr2AudGeometryPtr EveSpaceObject2::GetAudioGeometry() const
+{
+	return m_audioGeometry;
+}
+
+void EveSpaceObject2::SetAudioGeometry( ITr2AudGeometry* audioGeometry )
+{
+	UnregisterAudioGeometry();
+
+	m_audioGeometry = audioGeometry;
+	if( m_audioGeometry )
+	{
+		RegisterAudioGeometry();
+	}
+}
+
+void EveSpaceObject2::UnregisterAudioGeometry()
+{
+	if( m_audioGeometryRegistered && m_audioGeometry )
+	{
+		m_audioGeometry->RemoveGeometry( m_audioGeometrySetId, m_audioInstanceId );
+	}
+
+	m_audioGeometryRegistered = false;
+	m_audioGeometrySetId = 0;
+}
+
+void EveSpaceObject2::RegisterAudioGeometry()
+{
+	if( !m_isAudioOccluder )
+	{
+		return;
+	}
+	if( !m_audioGeometryRegistered && m_audioGeometry && m_mesh && m_geometryResFromMesh && m_geometryResFromMesh->IsGood() )
+	{
+		int meshIx = m_mesh->GetMeshIndex();
+		const AudioGeometryResData* audioGeo = m_geometryResFromMesh->GetAudioGeometry( meshIx );
+
+		if( audioGeo && !audioGeo->m_vertices.empty() )
+		{
+			Tr2AudGeometryData data;
+
+			data.m_vertices = audioGeo->m_vertices;
+			data.m_indices = audioGeo->m_indices;
+			data.m_maxBounds = audioGeo->m_maxBounds;
+			data.m_minBounds = audioGeo->m_minBounds;
+
+			m_audioGeometry->SetGeometry( audioGeo->m_id, m_audioInstanceId, data, m_worldTransform );
+			m_audioGeometrySetId = audioGeo->m_id;
+			m_audioGeometryRegistered = true;
+		}
+	}
 }

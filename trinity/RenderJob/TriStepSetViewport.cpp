@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriStepSetViewport.h"
 #include "TriViewport.h"
@@ -7,7 +9,7 @@ TriStepSetViewport::TriStepSetViewport( IRoot* lockobj )
 {
 }
 
-TriStepSetViewport::~TriStepSetViewport(void)
+TriStepSetViewport::~TriStepSetViewport( void )
 {
 }
 

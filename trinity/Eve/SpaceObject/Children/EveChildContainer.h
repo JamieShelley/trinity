@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
+
 #pragma once
 #ifndef EveChildContainer_H
 #define EveChildContainer_H
@@ -72,14 +69,14 @@ public:
 	// IEveSpaceObjectChild
 	void SetShaderOption( const BlueSharedString& name, const BlueSharedString& value ) override;
 	bool IsAlwaysOn() const override;
-	void AddTransformModifier( IEveChildTransformModifier* modifier ) override;
-    void SetProceduralContainerVariable( const char* name, float value ) override;
+	void AddTransformModifier( IEveChildTransformModifier * modifier ) override;
+	void SetProceduralContainerVariable( const char* name, float value ) override;
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IEveEffectChildrenOwner
 	IEveSpaceObjectChildPtr GetEffectChildByName( const char* name ) const;
-	void AddToEffectChildrenList( IEveSpaceObjectChild* child );
-	void RemoveFromEffectChildrenList( IEveSpaceObjectChild* child );
+	void AddToEffectChildrenList( IEveSpaceObjectChild * child );
+	void RemoveFromEffectChildrenList( IEveSpaceObjectChild * child );
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2ControllerOwner
@@ -118,20 +115,20 @@ public:
 	void SetName( const char* name );
 
 	void UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod );
-	void GetRenderables( std::vector<ITr2Renderable*>& renderables );
-	bool GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query=EVE_BOUNDS_NORMAL ) const;
-	void RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer );
+	void GetRenderables( std::vector<ITr2Renderable*> & renderables );
+	bool GetBoundingSphere( Vector4 & sphere, BoundingSphereQuery query = EVE_BOUNDS_NORMAL ) const;
+	void RegisterWithQuadRenderer( Tr2QuadRenderer & quadRenderer );
 	void AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer ) const;
 
 	void UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, Matrix& parentTransform );
-	void GetLocalToWorldTransform( Matrix& transform ) const;
+	void GetLocalToWorldTransform( Matrix & transform ) const;
 	void ChangeLOD( Tr2Lod lod );
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// ITr2LightOwner
-	void GetLights( Tr2LightManager& lightManager ) const override;
+	void GetLights( Tr2LightManager & lightManager ) const override;
 
 	void SetOrigin( Origin origin );
 
@@ -149,15 +146,15 @@ public:
 	void PlayAllCurveSets() override;
 	void StopAllCurveSets() override;
 
-	void GetDebugOptions( Tr2DebugRendererOptions& options );
-	void RenderDebugInfo( ITr2DebugRenderer2& renderer );
+	void GetDebugOptions( Tr2DebugRendererOptions & options );
+	void RenderDebugInfo( ITr2DebugRenderer2 & renderer );
 
-	void GetWorldVelocity( Vector3& velocity ) const;
+	void GetWorldVelocity( Vector3 & velocity ) const;
 	void SetInheritProperties( const Color* colorSet ) override;
 
 	float GetOwnerMaxSpeed() const;
 
-	void SetAnimationOwner( ITr2GrannyAnimationOwner* animationOwner );
+	void SetAnimationOwner( ITr2GrannyAnimationOwner * animationOwner );
 
 	enum DisplayQualityModifier
 	{
@@ -177,7 +174,7 @@ public:
 	PIEveSpaceObjectChildVector m_objects;
 
 protected:
-	void DoUpdateAsyncronous( const EveUpdateContext & updateContext, const EveChildUpdateParams& params );
+	void DoUpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
 
 	void MuteChildren();
 
@@ -199,6 +196,8 @@ protected:
 	bool m_display;
 	bool m_updateOnDisplay;
 	bool m_mute;
+	// Has UpdateSynchronous/UpdateAsynchronous been called: until it was, the object can not be rendered
+	bool m_hasUpdated = false;
 	DisplayQualityModifier m_displayFilter;
 	bool m_isAlwaysOn;
 	bool m_isPlacementRoot;

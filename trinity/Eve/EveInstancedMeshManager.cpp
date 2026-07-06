@@ -1,3 +1,5 @@
+// Copyright © 2026 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveInstancedMeshManager.h"
 #include "../Tr2GpuStructuredBuffer.h"
@@ -402,7 +404,7 @@ EveInstancedMeshManager::InstanceBuffer::Allocation EveInstancedMeshManager::Ins
 
 std::optional<uint32_t> EveInstancedMeshManager::InstanceBuffer::GetUnusedRegion( uint32_t count )
 {
-	if( !buffer )
+	if( !buffer || !buffer->IsValid() )
 	{
 		return {};
 	}
@@ -692,7 +694,7 @@ size_t EveInstancedMeshManager::GetShadowBatches( const TriFrustum& cameraFrustu
 	return GetBatches( batches );
 }
 
-void EveInstancedMeshManager::GetPickingBatches( const TriFrustum& viewFrustum, const TriFrustum& pickingFrustum, float invLodFactor, uint32_t objectIdOffset, const std::vector<std::pair<TriBatchType, ITriRenderBatchAccumulator&>>& batches )
+void EveInstancedMeshManager::GetPickingBatches( EvePendingPickingReadback& readback, const TriFrustum& viewFrustum, const TriFrustum& pickingFrustum, float invLodFactor, uint32_t objectIdOffset, const std::vector<std::pair<TriBatchType, ITriRenderBatchAccumulator&>>& batches )
 {
 	InstanceFlags filter;
 	for( auto& pair : batches )
@@ -701,10 +703,10 @@ void EveInstancedMeshManager::GetPickingBatches( const TriFrustum& viewFrustum, 
 	}
 	PerformFrustumCulling( viewFrustum, pickingFrustum, invLodFactor, filter );
 
-	GetPickingBatches( objectIdOffset, batches );
+	GetPickingBatches( readback, objectIdOffset, batches );
 }
 
-std::pair<IRootPtr, uint32_t> EveInstancedMeshManager::GetPickedObject( uint16_t objectId, uint16_t areaId )
+std::pair<IRootPtr, uint32_t> EveInstancedMeshManager::GetPickedObject( uint32_t objectId, uint32_t areaId )
 {
 	for( auto& [mesh, meshInfo] : m_meshInstances )
 	{
@@ -725,7 +727,7 @@ std::pair<IRootPtr, uint32_t> EveInstancedMeshManager::GetPickedObject( uint16_t
 			BinVisibleInstances( mesh, meshInfo, group );
 			auto& lod = meshInfo.lodIndices[objectId - group.pickingObjectId];
 			uint32_t instanceId = 0;
-			if ( areaId < lod.size() )
+			if( areaId < lod.size() )
 			{
 				instanceId = uint32_t( mesh.isDynamic ? static_cast<const DynamicPerInstanceData*>( lod[areaId].first ) - group.dynamicInstances : static_cast<const StaticPerInstanceData*>( lod[areaId].first ) - group.staticInstances );
 			}
@@ -759,9 +761,12 @@ void EveInstancedMeshManager::BinVisibleInstances( const std::initializer_list<s
 }
 
 
-void EveInstancedMeshManager::GetPickingBatches( uint32_t objectIdOffset, const std::vector<std::pair<TriBatchType, ITriRenderBatchAccumulator&>>& batches )
+void EveInstancedMeshManager::GetPickingBatches( EvePendingPickingReadback& readback, uint32_t objectIdOffset, const std::vector<std::pair<TriBatchType, ITriRenderBatchAccumulator&>>& batches )
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
+
+
+	std::vector<std::pair<IRootPtr, uint32_t>>& traceback = readback.m_instancedTraceback;
 
 	for( auto& [mesh, meshInfo] : m_meshInstances )
 	{
@@ -834,6 +839,8 @@ void EveInstancedMeshManager::GetPickingBatches( uint32_t objectIdOffset, const 
 				batch.SetPerObjectData( perObjectData );
 
 				accumulator->Commit( batch );
+
+				traceback.push_back( { group.owner, group.ownerIndex } );
 			}
 			objectIdOffset += static_cast<uint32_t>( meshInfo.lodIndices.size() );
 		}

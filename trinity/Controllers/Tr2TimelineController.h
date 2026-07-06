@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   August 2025
-//    Copyright: CCP 2025
-//
+// Copyright © 2025 CCP ehf.
 
 #pragma once
 
@@ -40,7 +36,7 @@ public:
 	EXPOSE_TO_BLUE();
 
 	void Link( IRoot & owner ) override;
-	void Unlink() override;
+	void Unlink( UnlinkReason reason = UnlinkReason::UNLINKING ) override;
 	bool IsLinked() const override;
 	void Start() override;
 	void Stop() override;
@@ -70,7 +66,7 @@ public:
 	BlueStdResult SetActionStartTime( size_t index, float startTime );
 	BlueStdResult SetActionEndTime( size_t index, float endTime );
 	BlueStdResult SetActionTrackID( size_t index, uint32_t trackID );
-	void AddAction( ITr2ControllerAction* action, float startTime, float endTime, uint32_t trackID = 0 );
+	void AddAction( ITr2ControllerAction * action, float startTime, float endTime, uint32_t trackID = 0 );
 	BlueStdResult RemoveAction( size_t index );
 
 	bool IsActionEnabled( size_t index ) const;

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   December 2011
-//    Copyright: CCP 2011
-//
+// Copyright © 2011 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2RandomDirectionAttributeGenerator.h"
@@ -16,13 +12,13 @@ const Be::ClassInfo* Tr2RandomDirectionAttributeGenerator::ExposeToBlue()
 	EXPOSURE_BEGIN( Tr2RandomDirectionAttributeGenerator, "" )
 		MAP_INTERFACE( Tr2RandomDirectionAttributeGenerator )
 		MAP_INTERFACE( ITr2AttributeGenerator )
-		
+
 		MAP_PROPERTY_READONLY( "name", GetName, "Element name (composed of type and customName)" )
-		MAP_ATTRIBUTE_WITH_CHOOSER( 
-			"elementType", 
-			m_name.m_type, 
-			"Pre-defined type of particle element", 
-			Be::READWRITE | Be::PERSIST | Be::ENUM, 
+		MAP_ATTRIBUTE_WITH_CHOOSER(
+			"elementType",
+			m_name.m_type,
+			"Pre-defined type of particle element",
+			Be::READWRITE | Be::PERSIST | Be::ENUM,
 			Tr2ParticleElementDeclarationNameTypeChooser )
 		MAP_ATTRIBUTE( "customName", m_name.m_name, "Name for custom type element", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "valid", m_valid, "Was the generator successfully bound to particle system", Be::READ )

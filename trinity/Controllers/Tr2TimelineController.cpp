@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   August 2025
-//    Copyright: CCP 2025
-//
+// Copyright © 2025 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2TimelineController.h"
@@ -93,7 +89,7 @@ void Tr2TimelineController::Link( IRoot& owner )
 	}
 }
 
-void Tr2TimelineController::Unlink()
+void Tr2TimelineController::Unlink( UnlinkReason reason )
 {
 	if( !m_owner )
 	{
@@ -102,7 +98,10 @@ void Tr2TimelineController::Unlink()
 
 	CCP_STATS_ZONE( __FUNCTION__ );
 
-	Stop();
+	if( reason != UnlinkReason::DELETING )
+	{
+		Stop();
+	}
 	for( auto& var : m_variables )
 	{
 		var->SetDestinationBuffer( nullptr );
@@ -511,7 +510,7 @@ void Tr2TimelineController::AddAction( ITr2ControllerAction* action, float start
 
 	m_actions.Append( action );
 
-	if ( m_owner )
+	if( m_owner )
 	{
 		action->Link( *this );
 	}
@@ -595,7 +594,7 @@ void Tr2TimelineController::EnableTrack( uint32_t trackID, bool enable )
 		{
 			auto action = m_actions[i];
 			auto& entry = m_entries[i];
-			if ( InRange( m_time, entry ) && entry.trackID == trackID )
+			if( InRange( m_time, entry ) && entry.trackID == trackID )
 			{
 				if( enable )
 				{

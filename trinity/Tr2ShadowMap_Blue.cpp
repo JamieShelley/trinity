@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2ShadowMap.h"
 
@@ -41,11 +43,11 @@ const Be::ClassInfo* Tr2ShadowMap::ExposeToBlue()
 			"Effect used for calculating which split the pixel belongs to and determing the shadow factor.",
 			Be::READWRITE )
 
-	
-		MAP_ATTRIBUTE( 
-			"denoiser", 
-			m_denoiser, 
-			"", 
+
+		MAP_ATTRIBUTE(
+			"denoiser",
+			m_denoiser,
+			"",
 			Be::READWRITE )
 
 		MAP_ATTRIBUTE(

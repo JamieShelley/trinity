@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   February 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #pragma once
 
@@ -30,25 +26,26 @@ public:
 	// IEveSpaceObjectChild
 	const char* GetName() const;
 	void SetName( const char* name );
-	void GetRenderables( std::vector<ITr2Renderable*>& renderables );
+	void GetRenderables( std::vector<ITr2Renderable*> & renderables );
 	void UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod );
-	bool GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query = EVE_BOUNDS_NORMAL ) const;
+	bool GetBoundingSphere( Vector4 & sphere, BoundingSphereQuery query = EVE_BOUNDS_NORMAL ) const;
 	void UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
-	void GetLocalToWorldTransform( Matrix& transform ) const;
+	void GetLocalToWorldTransform( Matrix & transform ) const;
 	void Setup( const Vector3* scale, const Quaternion* rotation, const Vector3* translation, Tr2Lod lowestLodVisible );
 	void ChangeLOD( Tr2Lod lod ) {};
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2Renderable
-	void GetBatches( ITriRenderBatchAccumulator* batches, TriBatchType batchType, const Tr2PerObjectData* perObjectData, Tr2RenderReason reason = TR2RENDERREASON_NORMAL );
+	void GetBatches( ITriRenderBatchAccumulator * batches, TriBatchType batchType, const Tr2PerObjectData* perObjectData, Tr2RenderReason reason = TR2RENDERREASON_NORMAL );
 	bool HasTransparentBatches();
 	float GetSortValue();
-	Tr2PerObjectData* GetPerObjectData( ITriRenderBatchAccumulator* accumulator );
+	Tr2PerObjectData* GetPerObjectData( ITriRenderBatchAccumulator * accumulator );
 
 	bool CheckBinding();
 
 	void Refresh();
+
 private:
 	void Update( const EveUpdateContext& updateContext );
 	void ApplyConstraint( const Vector3& previousReferencePosition, const Vector3& velocityDirection );
@@ -103,6 +100,8 @@ private:
 
 	bool m_useSpaceObjectData;
 	bool m_display;
+	// Has one of the update methods been called: until then, the object cannot be rendered
+	bool m_hasUpdated = false;
 };
 
 TYPEDEF_BLUECLASS( EveChildParticleSphere );

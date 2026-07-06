@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   November 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ScalarFader.h"
@@ -117,6 +113,3 @@ bool Tr2ScalarFader::IsKickInZero() const
 {
 	return ( m_fadeTime <= 0.f );
 }
-
-
-

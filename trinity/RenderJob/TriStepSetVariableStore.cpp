@@ -1,23 +1,18 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2010
-//    Copyright: CCP 2010
-//
+// Copyright © 2010 CCP ehf.
 
 #include "StdAfx.h"
 #include "TriStepSetVariableStore.h"
 #include "Tr2DepthStencil.h"
 #include "Tr2RenderTarget.h"
 
-TriStepSetVariableStore::TriStepSetVariableStore( IRoot* lockobj )
-:	m_type( TRIVARIABLE_INVALID )
+TriStepSetVariableStore::TriStepSetVariableStore( IRoot* lockobj ) :
+	m_type( TRIVARIABLE_INVALID )
 {
 	memset( m_data, 0, sizeof( m_data ) );
 }
 
-TriStepSetVariableStore::~TriStepSetVariableStore(void)
+TriStepSetVariableStore::~TriStepSetVariableStore( void )
 {
-
 }
 
 TriStepResult TriStepSetVariableStore::Execute( Be::Time realTime, Be::Time simTime, Tr2RenderContext& renderContext )

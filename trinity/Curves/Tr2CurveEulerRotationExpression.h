@@ -1,20 +1,17 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #pragma once
 
-
-#include "Include/ITriFunction.h"
-#include "Include/ITriCurveLength.h"
 #include "ccpparser.h"
+
+#include <ITriFunction.h>
+#include <ITriCurveLength.h>
 
 BLUE_DECLARE_IVECTOR( ITriScalarFunction );
 BLUE_DECLARE( Tr2ExpressionTermInfo );
 
-BLUE_CLASS( Tr2CurveEulerRotationExpression ) : public ITriQuaternionFunction, public IInitialize
+BLUE_CLASS( Tr2CurveEulerRotationExpression ) :
+	public ITriQuaternionFunction, public IInitialize
 {
 public:
 	Tr2CurveEulerRotationExpression( IRoot* lockobj = nullptr );
@@ -44,18 +41,19 @@ public:
 	float GetInputValue( int index, float time ) const;
 
 
-	virtual Quaternion* Update( Quaternion* in, Be::Time time );
-	virtual Quaternion* Update( Quaternion* in, double time );
-	virtual Quaternion* GetValueAt( Quaternion* in, Be::Time time );
-	virtual Quaternion* GetValueAt( Quaternion* in, double time );
-	virtual Quaternion* GetValueDotAt( Quaternion* in, Be::Time time );
-	virtual Quaternion* GetValueDotAt( Quaternion* in, double time );
-	virtual Quaternion* GetValueDoubleDotAt( Quaternion* in, Be::Time time );
-	virtual Quaternion* GetValueDoubleDotAt( Quaternion* in, double time );
+	virtual Quaternion* Update( Quaternion * in, Be::Time time );
+	virtual Quaternion* Update( Quaternion * in, double time );
+	virtual Quaternion* GetValueAt( Quaternion * in, Be::Time time );
+	virtual Quaternion* GetValueAt( Quaternion * in, double time );
+	virtual Quaternion* GetValueDotAt( Quaternion * in, Be::Time time );
+	virtual Quaternion* GetValueDotAt( Quaternion * in, double time );
+	virtual Quaternion* GetValueDoubleDotAt( Quaternion * in, Be::Time time );
+	virtual Quaternion* GetValueDoubleDotAt( Quaternion * in, double time );
 
 	void ResetRandomConstant();
 	std::vector<Tr2ExpressionTermInfoPtr> GetExpressionTermInfo() const;
 	BlueStdResult EvaluateExpression( const char* expression, float& value ) const;
+
 private:
 	std::string m_name;
 	std::string m_expressions[3];
@@ -67,11 +65,11 @@ private:
 	Quaternion m_currentValue;
 	float m_timeScale;
 	float m_randomConstant;
-    
+
 	struct Arguments
 	{
 		mutable float m_time = 0;
-        
+
 		float m_input1 = 0;
 		float m_input2 = 0;
 		float m_input3 = 0;

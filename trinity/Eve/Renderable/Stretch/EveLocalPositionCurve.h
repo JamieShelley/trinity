@@ -1,15 +1,12 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
 
 #ifndef _EVELOCALPOSITIONCURVE_H_
 #define _EVELOCALPOSITIONCURVE_H_
 
-#include "include/ITriFunction.h"
 #include "Eve/IEveSpaceObject2.h"
 #include "include/ITriTargetable.h"
+
+#include <ITriFunction.h>
 
 /* This is an ITriVectorFunction compatible object that calculates a\r\n 
 point local to a model. This class has a few behaviours determined by\r\n 
@@ -17,8 +14,7 @@ the LocalPositionBehavior enum.\r\n */
 
 BLUE_DECLARE( EveTurretSet );
 
-class EveLocalPositionCurve:
-	public ITriVectorFunction
+class EveLocalPositionCurve : public ITriVectorFunction
 {
 
 public:
@@ -44,7 +40,11 @@ public:
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITriVectorFunction
-	void UpdateValue( double time ) { Vector3 v; Update( &v, time ); }
+	void UpdateValue( double time )
+	{
+		Vector3 v;
+		Update( &v, time );
+	}
 
 	Vector3* Update( Vector3* in, Be::Time time );
 	Vector3* Update( Vector3* in, double time );
@@ -86,7 +86,7 @@ private:
 
 	// turret data
 	int m_muzzleIndex;
-	
+
 	Vector3* CalculateOffsetPlaneRotation( Vector3* in, Be::Time t );
 	Vector3* CalculateOffsetPosition( Vector3* in, Be::Time t );
 	Vector3* CalculateNearestBoundingPoint( Vector3* in, Be::Time t );
@@ -97,6 +97,6 @@ private:
 	Vector3* GetFiringTurretPosition( Vector3* in, Be::Time t );
 };
 
-TYPEDEF_BLUECLASS(EveLocalPositionCurve);
+TYPEDEF_BLUECLASS( EveLocalPositionCurve );
 
-#endif 
+#endif

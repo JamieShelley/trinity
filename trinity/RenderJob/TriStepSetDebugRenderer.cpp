@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   August 2010
-//    Copyright: CCP 2010
-//
+// Copyright © 2010 CCP ehf.
 
 #include "StdAfx.h"
 #include "TriStepSetDebugRenderer.h"
@@ -12,7 +8,7 @@ TriStepSetDebugRenderer::TriStepSetDebugRenderer( IRoot* lockobj )
 {
 }
 
-TriStepSetDebugRenderer::~TriStepSetDebugRenderer(void)
+TriStepSetDebugRenderer::~TriStepSetDebugRenderer( void )
 {
 }
 

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2010
-//    Copyright: CCP 2010
-//
+// Copyright © 2010 CCP ehf.
 
 #pragma once
 #ifndef ITr2MultiPassScene_H
@@ -17,7 +13,8 @@ class Tr2RenderContext;
 // SeeAlso:
 //   ITr2Scene
 // -------------------------------------------------------------
-BLUE_INTERFACE( ITr2MultiPassScene ) : public IRoot
+BLUE_INTERFACE( ITr2MultiPassScene ) :
+	public IRoot
 {
 	enum RenderPassResult
 	{
@@ -35,7 +32,7 @@ BLUE_INTERFACE( ITr2MultiPassScene ) : public IRoot
 		RP_END_RENDER,
 		RP_BACKGROUND_RENDER,
 		RP_MAIN_RENDER,
-		RP_REFLECTION_RENDER ,
+		RP_REFLECTION_RENDER,
 		RP_DEPTH_PASS,
 		RP_SET_PERFRAME_DATA,
 		RP_RENDER_UI,
@@ -43,7 +40,7 @@ BLUE_INTERFACE( ITr2MultiPassScene ) : public IRoot
 	};
 
 	// Renders a given pass
-	virtual RenderPassResult RenderPass( PassType pass, Tr2RenderContext& renderContext ) = 0;
+	virtual RenderPassResult RenderPass( PassType pass, Tr2RenderContext & renderContext ) = 0;
 };
 
 #endif // ITr2MultiPassScene_H

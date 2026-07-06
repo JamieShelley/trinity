@@ -1,13 +1,9 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   December 2011
-//    Copyright: CCP 2011
-//
+// Copyright © 2011 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ParticleFluidDragForce.h"
 
-Tr2ParticleFluidDragForce::Tr2ParticleFluidDragForce( IRoot* lockobj ):
+Tr2ParticleFluidDragForce::Tr2ParticleFluidDragForce( IRoot* lockobj ) :
 	m_dragConstant( 1.f )
 {
 }

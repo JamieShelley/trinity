@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2020
-//    Copyright: CCP 2020
-//
+// Copyright © 2020 CCP ehf.
 
 #pragma once
 
@@ -38,10 +34,9 @@ public:
 
 	//////////////////////////////////////////////////////////////////////////
 	// INotify
-	bool OnModified( Be::Var* val );
+	bool OnModified( Be::Var * val );
 
 private:
-
 	void Setup();
 	BlueSharedString m_name;
 

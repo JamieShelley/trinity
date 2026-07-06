@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriStepSetProjection.h"
 
@@ -6,7 +8,7 @@ TriStepSetProjection::TriStepSetProjection( IRoot* lockobj )
 {
 }
 
-TriStepSetProjection::~TriStepSetProjection(void)
+TriStepSetProjection::~TriStepSetProjection( void )
 {
 }
 

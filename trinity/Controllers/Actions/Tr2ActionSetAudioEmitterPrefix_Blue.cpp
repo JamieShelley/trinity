@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   February 2022 
-//    Copyright: CCP 2022
-//
+// Copyright © 2022 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ActionSetAudioEmitterPrefix.h"
@@ -23,7 +19,6 @@ const Be::ClassInfo* Tr2ActionSetAudioEmitterPrefix::ExposeToBlue()
 			"StartWithController",
 			StartWithController,
 			"Starts the action manually without changing state machine state.\n"
-			":param controller: The controller sent to the start method of the action.\n" 
-        )
+			":param controller: The controller sent to the start method of the action.\n" )
 	EXPOSURE_END()
 }

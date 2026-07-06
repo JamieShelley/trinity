@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef TriFloat_h
 #define TriFloat_h
@@ -11,12 +13,12 @@
 // a circular reference (stretch->curve set->binding->stretch).
 // Separating the length into its own object breaks the circle.
 
-BLUE_CLASS( TriFloat ):
-     public IRoot
+BLUE_CLASS( TriFloat ) :
+	public IRoot
 {
 public:
-    EXPOSE_TO_BLUE();
-    TriFloat( IRoot* lockobj = NULL );
+	EXPOSE_TO_BLUE();
+	TriFloat( IRoot* lockobj = NULL );
 
 	float m_value;
 };

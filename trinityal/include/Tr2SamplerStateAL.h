@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 #include "../ALResult.h"
@@ -8,15 +10,15 @@ class Tr2PrimaryRenderContextAL;
 struct Tr2SamplerDescription;
 namespace TrinityALImpl
 {
-	class Tr2SamplerStateAL;
-	class Tr2ResourceSetAL;
+class Tr2SamplerStateAL;
+class Tr2ResourceSetAL;
 }
 
 class Tr2SamplerStateAL
 {
 public:
 	Tr2SamplerStateAL();
-	ALResult Create( const Tr2SamplerDescription& description, Tr2PrimaryRenderContextAL &renderContext );
+	ALResult Create( const Tr2SamplerDescription& description, Tr2PrimaryRenderContextAL& renderContext );
 
 	uint32_t GetIndexInHeap() const;
 
@@ -38,5 +40,5 @@ private:
 
 namespace TrinityALImpl
 {
-	typedef Tr2ObjectFactory<Tr2SamplerStateAL, Tr2SamplerDescription> Tr2SamplerStateALFactory;
+typedef Tr2ObjectFactory<Tr2SamplerStateAL, Tr2SamplerDescription> Tr2SamplerStateALFactory;
 }

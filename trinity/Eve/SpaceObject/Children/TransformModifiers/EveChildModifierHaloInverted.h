@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
+
 #pragma once
 #ifndef EveChildModifierHaloInverted_H
 #define EveChildModifierHaloInverted_H
@@ -18,7 +15,7 @@ public:
 	EveChildModifierHaloInverted( IRoot* lockobj = NULL );
 	~EveChildModifierHaloInverted();
 
-	Matrix ApplyTransform( const Matrix& transform, size_t boneCount, const granny_matrix_3x4* bones ) const;
+	Matrix ApplyTransform( const Matrix& transform, size_t boneCount, const Float4x3* bones ) const;
 };
 
 TYPEDEF_BLUECLASS( EveChildModifierHaloInverted );

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2FollowCurve.h"
@@ -18,6 +14,6 @@ const Be::ClassInfo* Tr2FollowCurve::ExposeToBlue()
 		MAP_ATTRIBUTE( "name", m_name, "The name of the curve", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "keys", m_keys, "The keys of the curve", Be::READ | Be::PERSIST )
 		MAP_ATTRIBUTE( "currentValue", m_currentValue, "The current value of the curve", Be::READ )
-		
+
 	EXPOSURE_END()
 }

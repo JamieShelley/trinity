@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 #include "../Tr2DeviceResourceAL.h"
@@ -9,9 +11,9 @@ class Tr2PrimaryRenderContextAL;
 struct Tr2RegisterMapAL;
 namespace TrinityALImpl
 {
-	class Tr2ShaderProgramAL;
-	class Tr2ResourceSetAL;
-	class PSODescription;
+class Tr2ShaderProgramAL;
+class Tr2ResourceSetAL;
+class PSODescription;
 }
 
 struct Tr2ConstantBufferRegisterAL

@@ -1,16 +1,13 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #pragma once
 
 #include "Include/ITr2Updateable.h"
-#include "Include/ITriFunction.h"
 #include "ITr2ControllerAction.h"
 #include "Controllers/Tr2BindingPoint.h"
 #include "Controllers/Tr2ControllerExpression.h"
+
+#include <ITriFunction.h>
 
 
 BLUE_DECLARE( Tr2ExpressionTermInfo );
@@ -26,15 +23,15 @@ public:
 
 	EXPOSE_TO_BLUE();
 
-	void Link( ITr2ActionController& controller ) override;
+	void Link( ITr2ActionController & controller ) override;
 	void Unlink() override;
-	void Start( ITr2ActionController& controller ) override;
-	void Stop( ITr2ActionController& controller ) override;
+	void Start( ITr2ActionController & controller ) override;
+	void Stop( ITr2ActionController & controller ) override;
 	void RebaseSimTime( Be::Time diff ) override;
 
 	virtual void Update( Be::Time realTime, Be::Time simTime );
 
-	virtual bool OnModified( Be::Var* value );
+	virtual bool OnModified( Be::Var * value );
 
 	bool IsBindingValid() const;
 	bool IsExpressionValid() const;
@@ -44,6 +41,7 @@ public:
 	IRootPtr GetDestination() const;
 	std::vector<Tr2ExpressionTermInfoPtr> GetExpressionTermInfo() const;
 	BlueStdResult EvaluateExpression( const char* expression, float& value ) const;
+
 private:
 	bool IsAttrExpressionValid( const char* attributeName ) const;
 	void LinkDestination( const ITr2ActionController& controller );

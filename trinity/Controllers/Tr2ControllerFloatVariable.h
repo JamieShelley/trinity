@@ -1,13 +1,10 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #pragma once
 
 
-BLUE_CLASS( Tr2ControllerFloatVariable ) : public IInitialize, public INotify
+BLUE_CLASS( Tr2ControllerFloatVariable ) :
+	public IInitialize, public INotify
 {
 public:
 	enum Type

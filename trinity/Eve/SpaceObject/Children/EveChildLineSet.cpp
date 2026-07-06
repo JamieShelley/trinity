@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   Jan 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveChildLineSet.h"
@@ -234,7 +230,7 @@ void EveChildLineSet::UpdateVisibility( const EveUpdateContext& updateContext, c
 
 void EveChildLineSet::GetRenderables( std::vector<ITr2Renderable*>& renderables )
 {
-	if( !IsUpdating() )
+	if( !IsUpdating() || !m_hasUpdated )
 	{
 		return;
 	}
@@ -420,6 +416,8 @@ void EveChildLineSet::UpdateAsyncronous( const EveUpdateContext& updateContext, 
 	m_psData.worldTransform = m_vsData.worldTransform;
 	m_psData.worldTransformLast = m_vsData.worldTransformLast;
 	m_psData.invWorldTransform = m_vsData.invWorldTransform;
+
+	m_hasUpdated = true;
 }
 
 

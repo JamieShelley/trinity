@@ -1,15 +1,11 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		August 2013
-// Copyright:	CCP 2013
-//
+// Copyright © 2013 CCP ehf.
 
 #pragma once
 #ifndef Tr2PresentParameters_h
 #define Tr2PresentParameters_h
 
-BLUE_CLASS( Tr2PresentParameters ) : 
-	public IRoot, 
+BLUE_CLASS( Tr2PresentParameters ) :
+	public IRoot,
 	public Tr2PresentParametersAL
 {
 public:

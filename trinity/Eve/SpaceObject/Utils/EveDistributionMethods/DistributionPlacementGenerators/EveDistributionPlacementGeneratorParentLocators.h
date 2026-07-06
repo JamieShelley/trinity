@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #pragma once
 #include "IEveDistributionPlacementGenerators.h"
 #include "Eve/SpaceObject/EveSpaceObject2.h"
@@ -13,9 +15,9 @@ public:
 	EveDistributionPlacementGeneratorParentLocators( IRoot* lockobj = nullptr );
 	~EveDistributionPlacementGeneratorParentLocators();
 
-	void GetInitialPlacements( std::vector<InitialPlacement> & placements, uint32_t & trackingID ) override;
+	void GetInitialPlacements( std::vector<InitialPlacement> & placements, uint32_t& trackingID ) override;
 	bool IsRequestingRegeneration() override;
-	void UpdateSyncronous( const EveUpdateContext & updateContext, const EveChildUpdateParams& params, IEveDistributionRulesParent& owner ) override;
+	void UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params, IEveDistributionRulesParent& owner ) override;
 
 	// INotify
 	bool OnModified( Be::Var * value ) override;

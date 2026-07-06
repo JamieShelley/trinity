@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriStepSetRenderTarget.h"
 #include "Tr2Renderer.h"
@@ -7,13 +9,13 @@ TriStepSetRenderTarget::TriStepSetRenderTarget( IRoot* lockobj )
 {
 }
 
-TriStepSetRenderTarget::~TriStepSetRenderTarget(void)
+TriStepSetRenderTarget::~TriStepSetRenderTarget( void )
 {
 }
 
 // --------------------------------------------------------------------------------------
 // Description:
-//   Blue-exposed initializer. 
+//   Blue-exposed initializer.
 // --------------------------------------------------------------------------------------
 void TriStepSetRenderTarget::py__init__( Tr2RenderTarget* renderTarget )
 {

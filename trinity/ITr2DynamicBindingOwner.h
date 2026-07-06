@@ -1,12 +1,9 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #pragma once
 
-BLUE_INTERFACE( ITr2DynamicBindingOwner ) : public IRoot
+BLUE_INTERFACE( ITr2DynamicBindingOwner ) :
+	public IRoot
 {
 	virtual std::unordered_map<std::string, IRoot*> GetParameterMap() const = 0;
 };

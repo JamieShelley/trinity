@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 #ifndef TRIDEBUGRESOURCEHELPER_H
@@ -7,8 +9,7 @@
 
 BLUE_DECLARE( Tr2Effect );
 
-class TriDebugResourceHelper :
-	public Tr2DeviceResource
+class TriDebugResourceHelper : public Tr2DeviceResource
 {
 public:
 	TriDebugResourceHelper();
@@ -18,11 +19,16 @@ public:
 	// ITriDeviceResource
 	//////////////////////////////////////////////////////////////////////////////////////////////
 	void ReleaseResources( TriStorage s );
+
 private:
 	bool OnPrepareResources();
+
 public:
 #ifdef TRINITYDEV
-	void GetDescription( std::string& desc ) { desc = "TriDebugResourceHelper"; }
+	void GetDescription( std::string& desc )
+	{
+		desc = "TriDebugResourceHelper";
+	}
 #endif
 
 	Tr2Effect* GetEffect();

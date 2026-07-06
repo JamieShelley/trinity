@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 #ifndef Tr2InteriorConstantBufferFormats_h
@@ -7,7 +9,7 @@
 #include "Tr2ConstantBufferFormats.h"
 
 // maximum number of pointlights per object
-#define MAX_INTERIOR_LIGHTS_PER_OBJECT (10)
+#define MAX_INTERIOR_LIGHTS_PER_OBJECT ( 10 )
 
 // interior pointlight data
 struct Tr2InteriorPerObjectLightData
@@ -62,7 +64,7 @@ struct Tr2InteriorPerLightPSData
 	Vector4 shadowRect[6];
 	Vector4 shadowInfluence[6];
 	Matrix boundingBox;
-	Vector4 additionalParameters;	// x - specular intensity, yzw - unused
+	Vector4 additionalParameters; // x - specular intensity, yzw - unused
 };
 
 struct Tr2PerObjectParticleVSData

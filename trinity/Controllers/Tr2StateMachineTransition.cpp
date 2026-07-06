@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2StateMachineTransition.h"
@@ -13,8 +9,8 @@
 #include "Tr2ControllerFloatVariable.h"
 
 
-Tr2StateMachineTransition::Tr2StateMachineTransition( IRoot* lockobj )
-	:m_source( nullptr )
+Tr2StateMachineTransition::Tr2StateMachineTransition( IRoot* lockobj ) :
+	m_source( nullptr )
 {
 }
 

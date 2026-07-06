@@ -1,11 +1,8 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   April 2025
-//    Copyright: CCP 2025
-//
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveTacticalTrails.h"
-#include "../../Include/ITriFunction.h"
+#include <ITriFunction.h>
 
 
 BLUE_DEFINE( EveTacticalTrails );
@@ -22,19 +19,17 @@ const Be::ClassInfo* EveTacticalTrails::ExposeToBlue()
 
 		MAP_ATTRIBUTE( "segments", m_segmentCount, "Number of segments rendered, for debugging", Be::READ )
 
-		MAP_METHOD_AND_WRAP( 
-			"RegisterObject", 
-			RegisterObject, 
+		MAP_METHOD_AND_WRAP(
+			"RegisterObject",
+			RegisterObject,
 			"Registers a new object with the trail system. After registering the object will leave trails when it moves.\n"
 			"The object is supposed to be a Destiny ball for a ship.\n\n"
-			":param obj: The object to register\n"
-		)
-		MAP_METHOD_AND_WRAP( 
-			"UnregisterObject", 
-			UnregisterObject, 
+			":param obj: The object to register\n" )
+		MAP_METHOD_AND_WRAP(
+			"UnregisterObject",
+			UnregisterObject,
 			"Unregisters a previously registered object from the trails system. The trails left by the object prior to\n"
 			"unregistering will fade out over time.\n\n"
-			":param obj: The object to unregister\n"
-		)
+			":param obj: The object to unregister\n" )
 	EXPOSURE_END()
 }

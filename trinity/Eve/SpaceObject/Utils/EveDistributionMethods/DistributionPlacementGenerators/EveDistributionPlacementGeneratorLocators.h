@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #pragma once
 #include "Tr2LightManager.h"
 #include "Tr2DebugRenderer.h"
@@ -15,9 +17,9 @@ public:
 
 	EveDistributionPlacementGeneratorLocators( IRoot* lockobj = nullptr );
 
-	void GetInitialPlacements( std::vector<InitialPlacement> & placements, uint32_t & trackingID ) override;
+	void GetInitialPlacements( std::vector<InitialPlacement> & placements, uint32_t& trackingID ) override;
 	bool IsRequestingRegeneration() override;
-	void UpdateSyncronous( const EveUpdateContext & updateContext, const EveChildUpdateParams& params, IEveDistributionRulesParent& owner ) override;
+	void UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params, IEveDistributionRulesParent& owner ) override;
 
 	// IBlueStructureListNotify
 	void OnStructureListModified( Event event, const void* item, size_t index, IBlueStructureList* list ) override;

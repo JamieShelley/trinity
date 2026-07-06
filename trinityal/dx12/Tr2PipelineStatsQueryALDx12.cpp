@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #if TRINITY_PLATFORM == TRINITY_DIRECTX12
 #include "Tr2PipelineStatsQueryALDx12.h"
@@ -63,7 +65,7 @@ ALResult Tr2PipelineStatsQueryAL::Create( Tr2PrimaryRenderContextAL& renderConte
 	CR_RETURN_HR( renderContext.m_device->CreateQueryHeap( &queryHeapDesc, IID_PPV_ARGS( &query ) ) );
 
 	auto scratchHeap = TrinityALImpl::HeapDesc( D3D12_HEAP_TYPE_READBACK );
-	auto bufferDesc = TrinityALImpl::BufferDesc( sizeof( D3D12_QUERY_DATA_PIPELINE_STATISTICS )  );
+	auto bufferDesc = TrinityALImpl::BufferDesc( sizeof( D3D12_QUERY_DATA_PIPELINE_STATISTICS ) );
 	CR_RETURN_HR( renderContext.m_device->CreateCommittedResource(
 		&scratchHeap,
 		D3D12_HEAP_FLAG_NONE,

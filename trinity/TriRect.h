@@ -1,27 +1,4 @@
-/* 
-	*************************************************************************************
-
-	TriRect.h
-
-	Author:    Hilmar Veigar Pétursson
-	Created:   May 2002
-	OS:        Win32
-	Project:   Trinity
-
-	Description:   
-
-		See TRIRECT_Description
-
-
-	Dependencies:
-
-		DirectX 9.0, Blue
-
-	(c) CCP 2000
-
-	*************************************************************************************
-*/
-
+// Copyright Â© 2000 CCP ehf.
 
 #ifndef _TRIRECT_H_
 #define _TRIRECT_H_
@@ -37,7 +14,7 @@ BLUE_CLASS( TriRect ) :
 public:
 	EXPOSE_TO_BLUE();
 
-	TriRect(IRoot* lockobj = NULL);
+	TriRect( IRoot* lockobj = NULL );
 	~TriRect();
 
 	/////////////////////////////////////////////////////////////////////////////////////
@@ -50,10 +27,10 @@ public:
 	void SetDimentions( int32_t _left, int32_t _top, int32_t _right, int32_t _bottom );
 	void SetRect( const ::Tr2Rect* c );
 	const ::Tr2Rect* GetRect() const;
-	::Tr2Rect* CopyRect( ::Tr2Rect* in ) const;
+	::Tr2Rect* CopyRect( ::Tr2Rect * in ) const;
 	::Tr2Rect* Rect();
 
-	void PySetRect(Be::Optional<int32_t> l, Be::Optional<int32_t> t, Be::Optional<int32_t> r, Be::Optional<int32_t> b );
+	void PySetRect( Be::Optional<int32_t> l, Be::Optional<int32_t> t, Be::Optional<int32_t> r, Be::Optional<int32_t> b );
 };
 TYPEDEF_BLUECLASS( TriRect );
 

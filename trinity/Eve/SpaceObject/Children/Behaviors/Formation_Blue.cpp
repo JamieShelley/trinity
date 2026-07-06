@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "Formation.h"
 
@@ -11,8 +13,7 @@ const Be::ClassInfo* Formation::ExposeToBlue()
 		MAP_INTERFACE( Formation )
 		MAP_INTERFACE( IBehavior )
 
-		MAP_ATTRIBUTE_WITH_CHOOSER( "behaviorPriority", m_priority, "control what priority this behavior should have", 
-			Be::READWRITE | Be::PERSIST | Be::NOTIFY | Be::ENUM, BehaviorPriorityChooser )
+		MAP_ATTRIBUTE_WITH_CHOOSER( "behaviorPriority", m_priority, "control what priority this behavior should have", Be::READWRITE | Be::PERSIST | Be::NOTIFY | Be::ENUM, BehaviorPriorityChooser )
 
 		MAP_ATTRIBUTE( "enabled", m_enabled, "Should this behavior be active", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "behaviorWeight", m_behaviorWeight, "", Be::READWRITE | Be::PERSIST )
@@ -22,5 +23,5 @@ const Be::ClassInfo* Formation::ExposeToBlue()
 
 		MAP_ATTRIBUTE( "inFormation", m_inFormation, "a debug to see when group is attemting to form", Be::READ )
 
-		EXPOSURE_END()
+	EXPOSURE_END()
 }

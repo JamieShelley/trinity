@@ -1,8 +1,10 @@
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveSmartLightAttributeModifierColor.h"
 #include "Eve/SpaceObjectFactory/EveSOFData.h"
 
-EveSmartLightAttributeModifierColor::EveSmartLightAttributeModifierColor( IRoot* lockobj ):
+EveSmartLightAttributeModifierColor::EveSmartLightAttributeModifierColor( IRoot* lockobj ) :
 	m_saturationMultiplier( 1.f ),
 	m_brightnessMultiplier( 1.f ),
 	m_blendValue( 1.f ),
@@ -59,7 +61,7 @@ void EveSmartLightAttributeModifierColor::ProcessAttributeModifier( Vector3& att
 		float i = ( activeColor.r * 0.299f ) + ( activeColor.g * 0.587f ) + ( activeColor.b * 0.114f );
 		activeColor = Lerp( Color( i, i, i, i ), activeColor, max( 0.0f, activationAdjustedSaturationMultiplier ) );
 	}
-	
+
 	activeColor *= activationAdjustedBrightnessMultiplier;
 	attribute.x = min( 1.f, max( 0.f, activeColor.r ) );
 	attribute.y = min( 1.f, max( 0.f, activeColor.g ) );

@@ -1,11 +1,13 @@
+// Copyright © 2023 CCP ehf.
+
 #include "stdafx.h"
 #include "StringTable.h"
 
 const StringReference INVALID_REFERENCE = StringTable::GetInvalidReference();
 
 
-StringTable::StringTable()
-	:m_sorted( true )
+StringTable::StringTable() :
+	m_sorted( true )
 {
 }
 

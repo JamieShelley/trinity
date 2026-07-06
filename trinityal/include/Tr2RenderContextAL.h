@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 #include TRINITY_AL_PLATFORM_INCLUDE( Tr2RenderContext )
@@ -5,8 +7,8 @@
 class Tr2GpuRegion
 {
 public:
-	Tr2GpuRegion( Tr2RenderContextAL& renderContext, const char* name )
-		:m_renderContext( renderContext )
+	Tr2GpuRegion( Tr2RenderContextAL& renderContext, const char* name ) :
+		m_renderContext( renderContext )
 	{
 		m_renderContext.PushGpuMarker( name );
 	}
@@ -14,6 +16,7 @@ public:
 	{
 		m_renderContext.PopGpuMarker();
 	}
+
 private:
 	Tr2RenderContextAL& m_renderContext;
 };

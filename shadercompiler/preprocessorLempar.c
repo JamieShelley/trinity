@@ -22,6 +22,7 @@
 ** The following is the concatenation of all %include directives from the
 ** input grammar file:
 */
+/* clang-format off */
 #include <stdio.h>
 #include <assert.h>
 /************ Begin %include sections from the grammar ************************/

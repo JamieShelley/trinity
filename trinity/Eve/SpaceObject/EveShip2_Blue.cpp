@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveShip2.h"
 
@@ -5,8 +7,8 @@ BLUE_DEFINE( EveShip2 );
 
 const Be::ClassInfo* EveShip2::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( EveShip2, "" )
-        MAP_INTERFACE( EveShip2 )
+	EXPOSURE_BEGIN( EveShip2, "" )
+		MAP_INTERFACE( EveShip2 )
 		MAP_INTERFACE( IEveSpaceObject2 )
 		MAP_INTERFACE( ITr2Renderable )
 		MAP_INTERFACE( IListNotify )

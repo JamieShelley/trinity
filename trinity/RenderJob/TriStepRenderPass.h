@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2010
-//    Copyright: CCP 2010
-//
+// Copyright © 2010 CCP ehf.
 
 #pragma once
 #ifndef TriStepRenderPass_H
@@ -19,18 +15,20 @@
 // SeeAlso:
 //   TriRenderStep, ITr2MultiPassScene
 // -------------------------------------------------------------
-BLUE_CLASS( TriStepRenderPass ) : public TriRenderStep
+BLUE_CLASS( TriStepRenderPass ) :
+	public TriRenderStep
 {
 public:
 	EXPOSE_TO_BLUE();
-	
+
 	TriStepRenderPass( IRoot* lockobj = 0 );
-	~TriStepRenderPass(void);
+	~TriStepRenderPass( void );
 
 	//RenderStep
-	TriStepResult Execute( Be::Time realTime, Be::Time simTime, Tr2RenderContext& renderContext );
+	TriStepResult Execute( Be::Time realTime, Be::Time simTime, Tr2RenderContext & renderContext );
 
-	void py__init__( ITr2MultiPassScene* scene, int passType );
+	void py__init__( ITr2MultiPassScene * scene, int passType );
+
 private:
 	ITr2MultiPassScene::PassType m_pass;
 	ITr2MultiPassScenePtr m_scene;

@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 #include <set>
@@ -49,7 +51,7 @@ enum class AddressSpace
 	Threadgroup_imageblock,
 
 	Constexpr,
-    RayData,
+	RayData,
 };
 
 typedef std::vector<SymbolAnnotation> SymbolAnnotations;
@@ -79,7 +81,7 @@ struct Symbol
 
 	// Specific to Metal shaders.
 	AddressSpace addressSpace;
-	bool resourceRefWrapped;  // type is wrapped in _ResourceRef structure
+	bool resourceRefWrapped; // type is wrapped in _ResourceRef structure
 
 	bool used;
 };
@@ -110,6 +112,7 @@ public:
 	ScopeSymbolTable* GetParent();
 
 	void ResetUsedFlag();
+
 private:
 	ScopeSymbolTable* m_parent;
 	std::vector<Symbol*> m_symbols;
@@ -141,6 +144,7 @@ public:
 	Symbol* LookupGlobal( const char* string ) const;
 
 	void ResetUsedFlag();
+
 private:
 	ScopeSymbolTable* m_root;
 	ScopeSymbolTable* m_current;

@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef TriSettingsRegistrar_H
 #define TriSettingsRegistrar_H
@@ -14,7 +16,8 @@
 class TriSettingsRegistrar
 {
 public:
-	template<typename T> TriSettingsRegistrar( const char* name, T* value )
+	template <typename T>
+	TriSettingsRegistrar( const char* name, T* value )
 	{
 		Tr2Renderer::GetSettings().RegisterSetting( name, value );
 	}

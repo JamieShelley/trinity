@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   August 2016
-//    Copyright: CCP 2016
-//
+// Copyright © 2016 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildQuad.h"
 
@@ -14,7 +11,7 @@
 #include "TriFrustum.h"
 
 
-EveChildQuad::EveChildQuad( IRoot* lockobj ):
+EveChildQuad::EveChildQuad( IRoot* lockobj ) :
 	m_effectKey( 0 ),
 	m_position( 0.f, 0.f, 0.f ),
 	m_viewRotation( 0.f ),
@@ -99,7 +96,7 @@ void EveChildQuad::AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRen
 {
 	if( m_display && m_effect && m_isVisible )
 	{
-			quadRenderer.AddQuads( m_effectKey, &m_quad, 1 );
+		quadRenderer.AddQuads( m_effectKey, &m_quad, 1 );
 	}
 }
 
@@ -169,10 +166,18 @@ void EveChildQuad::UpdateAsyncronous( const EveUpdateContext& updateContext, con
 	m_quad.m_color[3] = Float_16( m_color.a );
 	m_quad.m_brightness[0] = Float_16( m_brightness );
 	m_quad.m_brightness[1] = Float_16( 0.f );
+
+	m_hasUpdated = true;
 }
 
 void EveChildQuad::UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod )
 {
+	if( !m_hasUpdated || !m_display )
+	{
+		m_isVisible = false;
+		m_currentScreenSize = -1;
+		return;
+	}
 	Vector4 sphere = Vector4( 0.f, 0.f, 0.f, std::sqrt( 2.f ) );
 	BoundingSphereTransform( m_worldTransform, sphere );
 

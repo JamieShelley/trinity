@@ -1,19 +1,16 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   September 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #pragma once
 
 #include "ITr2ControllerAction.h"
-	
-BLUE_CLASS( Tr2ActionSetShaderOption ) : public ITr2ControllerAction
+
+BLUE_CLASS( Tr2ActionSetShaderOption ) :
+	public ITr2ControllerAction
 {
 public:
 	EXPOSE_TO_BLUE();
 
-	void Start( ITr2ActionController& controller ) override;
+	void Start( ITr2ActionController & controller ) override;
 
 private:
 	BlueSharedString m_optionKey;

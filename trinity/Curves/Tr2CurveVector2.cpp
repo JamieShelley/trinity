@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2CurveVector2.h"
@@ -10,8 +6,8 @@
 
 
 // --------------------------------------------------------------------------------
-Tr2CurveVector2::Tr2CurveVector2( IRoot* lockobj )
-	:PARENTLOCK( m_x ),
+Tr2CurveVector2::Tr2CurveVector2( IRoot* lockobj ) :
+	PARENTLOCK( m_x ),
 	PARENTLOCK( m_y ),
 	m_currentValue( 0, 0 )
 {

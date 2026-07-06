@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2VisibilityResults.h"
 
@@ -11,11 +13,10 @@ const Be::ClassInfo* Tr2VisibilityResults::ExposeToBlue()
 
 		MAP_METHOD_AND_WRAP( "Clear", Clear, "Clears the result set" )
 
-		MAP_METHOD_AND_WRAP( 
+		MAP_METHOD_AND_WRAP(
 			"GetNumVisibilityEvents",
 			GetNumVisibilityEvents,
-			"Gets the number of visibility events in the result set"
-		)
+			"Gets the number of visibility events in the result set" )
 
 	EXPOSURE_END()
 }

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   February 2023
-//    Copyright: CCP 2023
-//
+// Copyright © 2023 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2VolumetricsRenderer.h"
@@ -160,7 +156,6 @@ const Be::ClassInfo* Tr2VolumetricsRenderer::ExposeToBlue()
 			"Hardcoded back clip value, must match the back clip used by the game. This value makes sure that the fog looks correct even if the back clip is changed in Graphite. It can be changed for debugging/testing purposes, but will not be saved.\n"
 			":jessica-group: Froxel Fog",
 			Be::READWRITE )
-
 
 
 

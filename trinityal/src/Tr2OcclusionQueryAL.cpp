@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "include/Tr2OcclusionQueryAL.h"
 #include TRINITY_AL_PLATFORM_INCLUDE( Tr2OcclusionQueryAL )
@@ -5,16 +7,16 @@
 namespace
 {
 
-	std::shared_ptr<TrinityALImpl::Tr2OcclusionQueryAL> NullQuery()
-	{
-		static std::shared_ptr<TrinityALImpl::Tr2OcclusionQueryAL> nullQuery = std::make_shared<TrinityALImpl::Tr2OcclusionQueryAL>();
-		return nullQuery;
-	}
+std::shared_ptr<TrinityALImpl::Tr2OcclusionQueryAL> NullQuery()
+{
+	static std::shared_ptr<TrinityALImpl::Tr2OcclusionQueryAL> nullQuery = std::make_shared<TrinityALImpl::Tr2OcclusionQueryAL>();
+	return nullQuery;
+}
 }
 
 
-Tr2OcclusionQueryAL::Tr2OcclusionQueryAL()
-	:m_query( NullQuery() )
+Tr2OcclusionQueryAL::Tr2OcclusionQueryAL() :
+	m_query( NullQuery() )
 {
 }
 

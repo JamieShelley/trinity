@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2020
-//    Copyright: CCP 2020
-//
+// Copyright © 2020 CCP ehf.
 
 #include "StdAfx.h"
 
@@ -43,6 +39,14 @@ EveStretch3::EveStretch3( IRoot* lockobj ) :
 	m_dynamicBindings.SetNotify( this );
 }
 
+EveStretch3::~EveStretch3()
+{
+	for( auto& controller : m_controllers )
+	{
+		controller->Unlink( UnlinkReason::DELETING );
+	}
+}
+
 bool EveStretch3::Initialize()
 {
 	if( m_stretchObject )
@@ -69,7 +73,7 @@ bool EveStretch3::Initialize()
 
 IEveSpaceObject2* EveStretch3::GetSourceSpaceObject() const
 {
-	return m_sourceSpaceObject;		
+	return m_sourceSpaceObject;
 }
 
 void EveStretch3::SetSourceSpaceObject( IEveSpaceObject2* spaceObject )
@@ -334,6 +338,12 @@ void EveStretch3::OnListModified( long event, ssize_t key, ssize_t key2, IRoot* 
 			break;
 		case BELIST_REMOVED:
 			if( ITr2ControllerPtr controller = BlueCastPtr( value ) )
+			{
+				controller->Unlink();
+			}
+			break;
+		case BELIST_UNLOADSTART:
+			for( auto& controller : m_controllers )
 			{
 				controller->Unlink();
 			}
@@ -713,15 +723,13 @@ void EveStretch3::RegisterComponents()
 	auto registry = this->GetComponentRegistry();
 	if( registry && m_display )
 	{
-		RunOnComponents( 
-			[this]( IEveSpaceObjectChild* c ) 
-			{ 
+		RunOnComponents(
+			[this]( IEveSpaceObjectChild* c ) {
 				if( EveEntityPtr entity = BlueCastPtr( c ) )
 				{
 					entity->Register( GetComponentRegistry() );
 				}
-			} 
-		);
+			} );
 	}
 }
 
@@ -730,15 +738,13 @@ void EveStretch3::UnRegisterComponents()
 	auto registry = this->GetComponentRegistry();
 	if( registry )
 	{
-		RunOnComponents( 
-			[this]( IEveSpaceObjectChild* c ) 
-			{ 
+		RunOnComponents(
+			[this]( IEveSpaceObjectChild* c ) {
 				if( EveEntityPtr entity = BlueCastPtr( c ) )
 				{
 					entity->UnRegister( GetComponentRegistry() );
 				}
-			} 
-		);
+			} );
 	}
 }
 
@@ -839,12 +845,12 @@ void EveStretch3::GetDebugOptions( Tr2DebugRendererOptions& options )
 		}
 	} );
 
-	if(auto tmp = dynamic_cast<ITr2DebugRenderable*>( m_audio.p ) )
+	if( auto tmp = dynamic_cast<ITr2DebugRenderable*>( m_audio.p ) )
 	{
 		tmp->GetDebugOptions( options );
 	}
 
-	if( auto tmp = dynamic_cast< ITr2DebugRenderable* >( m_stretchAudio.p ) )
+	if( auto tmp = dynamic_cast<ITr2DebugRenderable*>( m_stretchAudio.p ) )
 	{
 		tmp->GetDebugOptions( options );
 	}
@@ -864,12 +870,12 @@ void EveStretch3::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 		}
 	} );
 
-	if( auto tmp = dynamic_cast< ITr2DebugRenderable* >( m_audio.p ) )
+	if( auto tmp = dynamic_cast<ITr2DebugRenderable*>( m_audio.p ) )
 	{
 		tmp->RenderDebugInfo( renderer );
 	}
 
-	if( auto tmp = dynamic_cast< ITr2DebugRenderable* >( m_stretchAudio.p ) )
+	if( auto tmp = dynamic_cast<ITr2DebugRenderable*>( m_stretchAudio.p ) )
 	{
 		tmp->RenderDebugInfo( renderer );
 	}

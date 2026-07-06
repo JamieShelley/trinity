@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2013
-//    Copyright: CCP 2013
-//
+// Copyright © 2013 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriRenderBatch.h"
 #include "TriFrustum.h"
@@ -173,7 +170,7 @@ void EvePlaneSet::RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer )
 	quadRenderer.RegisterEffect( m_effectHash, TRIBATCHTYPE_ADDITIVE, sizeof( PlaneVertex ), 1, s_spriteVertexDecl, m_effect );
 }
 
-void EvePlaneSet::AddToQuadRenderer( Tr2QuadRenderer& quadRenderer, const Matrix& parentTransform, float activation, float boosterGain, const granny_matrix_3x4* bones, size_t boneCount )
+void EvePlaneSet::AddToQuadRenderer( Tr2QuadRenderer& quadRenderer, const Matrix& parentTransform, float activation, float boosterGain, const Float4x3* bones, size_t boneCount )
 {
 	if( !m_display )
 	{
@@ -191,7 +188,7 @@ void EvePlaneSet::AddToQuadRenderer( Tr2QuadRenderer& quadRenderer, const Matrix
 	Matrix boneTransform = IdentityMatrix();
 	size_t idx = 0;
 
-	if ( m_isSkinned )
+	if( m_isSkinned )
 	{
 		for( auto& vertex : m_items )
 		{
@@ -213,7 +210,6 @@ void EvePlaneSet::AddToQuadRenderer( Tr2QuadRenderer& quadRenderer, const Matrix
 			vertex.transform3 = Vector4( transform._13, transform._23, transform._33, transform._43 );
 			vertex.color = data.color * activation;
 		}
-
 	}
 	else
 	{
@@ -237,7 +233,7 @@ void EvePlaneSet::AddToQuadRenderer( Tr2QuadRenderer& quadRenderer, const Matrix
 // Description:
 //   Get bounding box around planes, update visibility based on if box is visible or not
 // --------------------------------------------------------------------------------------
-bool EvePlaneSet::UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, const granny_matrix_3x4* bones, size_t boneCount )
+bool EvePlaneSet::UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, const Float4x3* bones, size_t boneCount )
 {
 	auto aabb = GetAabb( bones, boneCount );
 	if( !aabb.IsInitialized() )
@@ -249,9 +245,9 @@ bool EvePlaneSet::UpdateVisibility( const EveUpdateContext& updateContext, const
 	return updateContext.GetFrustum().IsBoxVisible( aabb.m_min, aabb.m_max );
 }
 
-void EvePlaneSet::UpdateLights( const Matrix& parentTransform, const granny_matrix_3x4* bones, size_t boneCount, float activationStrength, float boosterGain )
+void EvePlaneSet::UpdateLights( const Matrix& parentTransform, const Float4x3* bones, size_t boneCount, float activationStrength, float boosterGain )
 {
-	for( auto& light : m_lights ) 
+	for( auto& light : m_lights )
 	{
 		if( light.lightData.boneIndex > 0 && light.lightData.boneIndex < boneCount )
 		{
@@ -274,7 +270,7 @@ void EvePlaneSet::UpdateLights( const Matrix& parentTransform, const granny_matr
 // Description:
 //   Get bounding box surrounding planes
 // --------------------------------------------------------------------------------------
-AxisAlignedBoundingBox EvePlaneSet::GetAabb( const granny_matrix_3x4* bones, size_t boneCount ) const
+AxisAlignedBoundingBox EvePlaneSet::GetAabb( const Float4x3* bones, size_t boneCount ) const
 {
 	return GetItemSetAabb( m_aabb, m_boundingBoxes, bones, boneCount );
 }
@@ -382,7 +378,7 @@ void EvePlaneSet::GetDebugOptions( Tr2DebugRendererOptions& options )
 	options.insert( "Plane Sets Lights" );
 }
 
-void EvePlaneSet::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Matrix& parentTransform, const granny_matrix_3x4* bones, size_t boneCount )
+void EvePlaneSet::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Matrix& parentTransform, const Float4x3* bones, size_t boneCount )
 {
 	if( renderer.HasOption( GetRawRoot(), "Plane Sets" ) )
 	{
@@ -468,7 +464,6 @@ void EvePlaneSet::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Matrix& p
 				10,
 				Tr2DebugRenderer::Solid,
 				Tr2DebugColor( c ) );
-
 		}
 	}
 }
@@ -510,10 +505,10 @@ Color EvePlaneSet::GetAverageColor() const
 	image = GetAverageColor( m_imageMapParameter );
 	mask = GetAverageColor( m_maskMapParameter );
 
-	return Color( layer1.r * layer2.r * image.r * mask.r, 
-					layer1.g * layer2.g * image.g * mask.g,
-					layer1.b * layer2.b * image.b * mask.b, 
-					layer1.a * layer2.a * image.a * mask.a );
+	return Color( layer1.r * layer2.r * image.r * mask.r,
+				  layer1.g * layer2.g * image.g * mask.g,
+				  layer1.b * layer2.b * image.b * mask.b,
+				  layer1.a * layer2.a * image.a * mask.a );
 }
 
 Color EvePlaneSet::GetAverageColor( const TriTextureParameterPtr& map ) const

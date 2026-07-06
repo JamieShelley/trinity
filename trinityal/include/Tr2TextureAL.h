@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 #include "../Tr2DeviceResourceAL.h"
@@ -6,9 +8,9 @@
 
 namespace TrinityALImpl
 {
-	class Tr2TextureAL;
-	class Tr2ResourceSetAL;
-	class Tr2SwapChainAL;
+class Tr2TextureAL;
+class Tr2ResourceSetAL;
+class Tr2SwapChainAL;
 }
 
 
@@ -52,6 +54,7 @@ public:
 	bool operator==( const Tr2TextureAL& other ) const;
 
 	ALResult MapForReading( const Tr2TextureSubresource& region, const void*& data, uint32_t& pitch, Tr2RenderContextAL& renderContext );
+	ALResult MapForReading( const Tr2TextureSubresource& region, bool synchronize, const void*& data, uint32_t& pitch, Tr2RenderContextAL& renderContext );
 	void UnmapForReading( Tr2RenderContextAL& renderContext );
 	ALResult MapForWriting( const Tr2TextureSubresource& region, void*& data, uint32_t& pitch, Tr2RenderContextAL& renderContext );
 	void UnmapForWriting( Tr2RenderContextAL& renderContext );

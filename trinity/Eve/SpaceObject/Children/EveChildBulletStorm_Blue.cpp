@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   December 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveChildBulletStorm.h"
@@ -11,8 +7,8 @@ BLUE_DEFINE( EveChildBulletStorm );
 
 const Be::ClassInfo* EveChildBulletStorm::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( EveChildBulletStorm, "" )
-        MAP_INTERFACE( EveChildBulletStorm )
+	EXPOSURE_BEGIN( EveChildBulletStorm, "" )
+		MAP_INTERFACE( EveChildBulletStorm )
 		MAP_INTERFACE( IEveSpaceObjectChild )
 		MAP_INTERFACE( ITr2Renderable )
 		MAP_INTERFACE( INotify )

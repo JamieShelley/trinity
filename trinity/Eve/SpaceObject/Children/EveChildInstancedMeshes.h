@@ -1,3 +1,5 @@
+// Copyright © 2026 CCP ehf.
+
 #pragma once
 
 #include "IEveSpaceObjectChild.h"
@@ -13,7 +15,8 @@ BLUE_CLASS( EveChildInstancedMeshes ) :
 	public IBlueAsyncResNotifyTarget,
 	public IEveShadowCaster,
 	public IEveInstanceMeshProvider,
-	public ITr2DebugRenderable
+	public ITr2DebugRenderable,
+	public Tr2DeviceResource
 {
 public:
 	EXPOSE_TO_BLUE();
@@ -26,11 +29,11 @@ public:
 	const char* GetName() const override;
 	void SetName( const char* name ) override;
 	void UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod ) override;
-	void GetRenderables( std::vector<ITr2Renderable*>& renderables ) override;
-	bool GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query=EVE_BOUNDS_NORMAL ) const override;
+	void GetRenderables( std::vector<ITr2Renderable*> & renderables ) override;
+	bool GetBoundingSphere( Vector4 & sphere, BoundingSphereQuery query = EVE_BOUNDS_NORMAL ) const override;
 	void UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params ) override;
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params ) override;
-	void GetLocalToWorldTransform( Matrix& transform ) const override;
+	void GetLocalToWorldTransform( Matrix & transform ) const override;
 	void Setup( const Vector3* scale, const Quaternion* rotation, const Vector3* translation, Tr2Lod lowestLodVisible ) override;
 	void ChangeLOD( Tr2Lod lod ) override;
 	void SetShaderOption( const BlueSharedString& name, const BlueSharedString& value ) override;
@@ -69,14 +72,14 @@ public:
 		EveInstancedMeshManager::MeshGroupHandle meshGroupHandle;
 	};
 
-	void AddMesh( 
-		const char* geometryPath, 
-		bool castsShadow, 
-		EntityComponents::ReflectionMode reflectionMode, 
-		uint32_t meshIndex, 
+	void AddMesh(
+		const char* geometryPath,
+		bool castsShadow,
+		EntityComponents::ReflectionMode reflectionMode,
+		uint32_t meshIndex,
 		const MeshArea* areas,
 		size_t areaCount,
-		const Matrix* instanceTransforms, 
+		const Matrix* instanceTransforms,
 		size_t count,
 		const BlueSharedString& sofHullName,
 		const BlueSharedString& sofLocatorSetName );
@@ -131,6 +134,9 @@ private:
 	void RebuildCachedData( BlueAsyncRes * p ) override;
 	void UnregisterFromMeshManager();
 
+	void ReleaseResources( TriStorage s ) override;
+	bool OnPrepareResources() override;
+
 	BlueSharedString m_name;
 	Matrix m_worldTransform = IdentityMatrix();
 	EveSpacePerObjectData m_perObjectData;
@@ -139,6 +145,9 @@ private:
 	TriFrustum m_lastCameraFrustum;
 	mutable Tr2ConstantBufferAL m_rtPerObjectData;
 	bool m_allRegistered = false;
+
+	// Has UpdateSynchronous/UpdateAsynchronous been called: until it was, the object can not be rendered
+	bool m_hasUpdated = false;
 };
 
 TYPEDEF_BLUECLASS( EveChildInstancedMeshes );

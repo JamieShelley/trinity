@@ -1,16 +1,12 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2StateMachine.h"
 #include "Tr2StateMachineState.h"
 
 
-Tr2StateMachine::Tr2StateMachine( IRoot* lockobj )
-	:PARENTLOCK( m_states ),
+Tr2StateMachine::Tr2StateMachine( IRoot* lockobj ) :
+	PARENTLOCK( m_states ),
 	m_controller( nullptr ),
 	m_startTime( 0 ),
 	m_stateStartTime( 0 )
@@ -32,7 +28,7 @@ void Tr2StateMachine::OnSimClockRebase( Be::Time oldTime, Be::Time newTime )
 
 	for( auto state = m_states.begin(); state != m_states.end(); ++state )
 	{
-		(*state)->RebaseSimTime(diff);
+		( *state )->RebaseSimTime( diff );
 	}
 }
 
@@ -96,16 +92,19 @@ void Tr2StateMachine::Link( Tr2Controller& controller )
 	}
 }
 
-void Tr2StateMachine::Unlink()
+void Tr2StateMachine::Unlink( UnlinkReason reason )
 {
 	if( !m_controller )
 	{
 		return;
 	}
-	Stop();
+	if( reason != UnlinkReason::DELETING )
+	{
+		Stop();
+	}
 	for( auto it = begin( m_states ); it != end( m_states ); ++it )
 	{
-		( *it )->Unlink();
+		( *it )->Unlink( reason );
 	}
 	m_controller = nullptr;
 }

@@ -1,13 +1,10 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   September 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
+
 #pragma once
 
 #include "Tr2DeviceResource.h"
 
-class Tr2ProfileTimer: public Tr2DeviceResource
+class Tr2ProfileTimer : public Tr2DeviceResource
 {
 public:
 	Tr2ProfileTimer();
@@ -26,6 +23,7 @@ public:
 
 	const std::string& GetStatName() const;
 	void SetStatName( const char* name );
+
 private:
 	virtual void ReleaseResources( TriStorage );
 	virtual bool OnPrepareResources();

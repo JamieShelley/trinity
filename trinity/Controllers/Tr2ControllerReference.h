@@ -1,14 +1,10 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #pragma once
 
 #include "ITr2Controller.h"
 
-BLUE_CLASS( Tr2ControllerReference ): 
+BLUE_CLASS( Tr2ControllerReference ) :
 	public ITr2Controller,
 	public INotify,
 	public IInitialize
@@ -20,10 +16,10 @@ public:
 
 	virtual bool Initialize();
 
-	virtual bool OnModified( Be::Var* value );
+	virtual bool OnModified( Be::Var * value );
 
-	virtual void Link( IRoot& owner );
-	virtual void Unlink();
+	virtual void Link( IRoot & owner );
+	virtual void Unlink( UnlinkReason reason = UnlinkReason::UNLINKING );
 	bool IsLinked() const override;
 	virtual void Start();
 	virtual void Stop();
@@ -32,6 +28,7 @@ public:
 	void HandleEvent( const char* eventName ) override;
 
 	IRoot* GetOwner() const;
+
 private:
 	ITr2ControllerPtr m_controller;
 	std::string m_path;

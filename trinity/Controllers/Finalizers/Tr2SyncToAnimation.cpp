@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2SyncToAnimation.h"
 #include "Controllers/Tr2Controller.h"
@@ -17,7 +19,7 @@ bool Tr2SyncToAnimation::CanTransition( Tr2Controller& controller ) const
 	{
 		return true;
 	}
-	auto layer = ac->GetAnimationLayer( m_mask.empty()  ? nullptr : m_mask.c_str() );
+	auto layer = ac->GetAnimationLayer( m_mask.empty() ? nullptr : m_mask.c_str() );
 	if( !layer )
 	{
 		return true;

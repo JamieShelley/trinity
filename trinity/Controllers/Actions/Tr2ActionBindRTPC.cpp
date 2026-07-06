@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   September 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "ITr2SoundEmitterOwner.h"
@@ -14,35 +10,35 @@
 
 namespace
 {
-	struct ExtraBuffer
-	{
-		const Tr2ActionBindRTPC* action = nullptr;
-		float* stateTime = nullptr;
-	};
+struct ExtraBuffer
+{
+	const Tr2ActionBindRTPC* action = nullptr;
+	float* stateTime = nullptr;
+};
 
-	float StateTime( float* stateTime )
+float StateTime( float* stateTime )
+{
+	return *stateTime;
+}
+
+float Curve( Tr2ActionBindRTPC* action, float time )
+{
+	if( !action )
 	{
-		return *stateTime;
+		return 0;
 	}
+	return action->GetCurveValue( time );
+}
 
-	float Curve( Tr2ActionBindRTPC* action, float time )
-	{
-		if( !action )
-		{
-			return 0;
-		}
-		return action->GetCurveValue( time );
-	}
-
-	CcpParser::Function s_extraFunctions[] = {
-		CcpParser::Function( "StateTime", StateTime, Tr2ControllerExpression::EXTRA_BUFFER_INDEX, offsetof( ExtraBuffer, stateTime ) ),
-		CcpParser::Function( "Curve", Curve, Tr2ControllerExpression::EXTRA_BUFFER_INDEX, offsetof( ExtraBuffer, action ) ),
-	};
+CcpParser::Function s_extraFunctions[] = {
+	CcpParser::Function( "StateTime", StateTime, Tr2ControllerExpression::EXTRA_BUFFER_INDEX, offsetof( ExtraBuffer, stateTime ) ),
+	CcpParser::Function( "Curve", Curve, Tr2ControllerExpression::EXTRA_BUFFER_INDEX, offsetof( ExtraBuffer, action ) ),
+};
 
 }
 
 
-Tr2ActionBindRTPC::Tr2ActionBindRTPC( IRoot* ):
+Tr2ActionBindRTPC::Tr2ActionBindRTPC( IRoot* ) :
 	m_controller( nullptr ),
 	m_value( "" ),
 	m_startTime( 0 ),
@@ -109,7 +105,7 @@ void Tr2ActionBindRTPC::Update( Be::Time realTime, Be::Time simTime )
 	ExtraBuffer buffer = { this, &time };
 	auto value = m_evaluator.Eval( &buffer );
 
-	if ( value.first && m_emitter )
+	if( value.first && m_emitter )
 	{
 		m_emitter->SetRTPC( m_rtpcName, value.second );
 	}

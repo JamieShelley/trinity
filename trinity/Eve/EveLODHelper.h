@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   Sept 2012
-//    Copyright: CCP 2012
-//
+// Copyright © 2012 CCP ehf.
+
 #pragma once
 #ifndef EveLODHelper_h
 #define EveLODHelper_h
@@ -15,7 +12,11 @@ extern float g_eveSpaceSceneLowUpdateRate;
 extern float g_eveSpaceSceneMediumUpdateRate;
 
 
-enum BoundingSphereQuery { EVE_BOUNDS_NORMAL, EVE_BOUNDS_WITH_CHILDREN };
+enum BoundingSphereQuery
+{
+	EVE_BOUNDS_NORMAL,
+	EVE_BOUNDS_WITH_CHILDREN
+};
 
 class EveLODHelper
 {

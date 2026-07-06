@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2RaytracingManager.h"
 
@@ -13,5 +15,5 @@ const Be::ClassInfo* Tr2RaytracingManager::ExposeToBlue()
 		MAP_ATTRIBUTE( "applyDenoiser", m_applyDenoiser, "apply denoiser or not", Be::READWRITE )
 		MAP_ATTRIBUTE( "denoiser", m_denoiser, "", Be::READ )
 
-		EXPOSURE_END()
+	EXPOSURE_END()
 }

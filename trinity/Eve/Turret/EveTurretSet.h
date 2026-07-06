@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2010
-//    Copyright: CCP 2010
-//
+// Copyright © 2010 CCP ehf.
+
 #pragma once
 #ifndef EveTurretSet_H
 #define EveTurretSet_H
@@ -47,24 +44,26 @@ const unsigned int EVE_MAX_TURRETS_PER_SET = 24;
 // maximum time offset for turret firing
 const float EVE_TURRET_RANDOM_DELAY_MAX = 0.6f;
 
-struct EveTurretSetVSData {
-    Vector4 m_baseCutoffData;
-    Vector4 m_turretSetData;
-    Matrix m_shipMatrix;
+struct EveTurretSetVSData
+{
+	Vector4 m_baseCutoffData;
+	Vector4 m_turretSetData;
+	Matrix m_shipMatrix;
 	Matrix m_prevShipMatrix;
 
 	uint32_t m_currentBoneOffset;
 	uint32_t m_prevBoneOffset;
 	uint32_t _unused[2];
 
-    // per turret data
-    Vector4 m_turretTranslation[EVE_MAX_TURRETS_PER_SET];
-    Quaternion m_turretRotation[EVE_MAX_TURRETS_PER_SET];
+	// per turret data
+	Vector4 m_turretTranslation[EVE_MAX_TURRETS_PER_SET];
+	Quaternion m_turretRotation[EVE_MAX_TURRETS_PER_SET];
 };
 
-struct EveTurretSetPSData {
-    Vector4 m_shipData;
-    Vector4 m_clipData1;
+struct EveTurretSetPSData
+{
+	Vector4 m_shipData;
+	Vector4 m_clipData1;
 	float m_clipRadius2Sq;
 	Vector3 m_unused;
 	Vector4 m_shLightingCoefficients[Tr2ShLightingManager::PACKED_COEFFICIENT_COUNT];
@@ -83,10 +82,10 @@ public:
 	void ApplyConstantBuffers( Tr2IndirectDrawBufferWriter& writer, Tr2RenderContext& renderContext ) const override;
 
 	// vs per object data
-    EveTurretSetVSData m_vsData;
+	EveTurretSetVSData m_vsData;
 
 	// pixel shader per object data
-    EveTurretSetPSData m_psData;
+	EveTurretSetPSData m_psData;
 };
 
 // --------------------------------------------------------------------------------
@@ -99,7 +98,7 @@ public:
 // SeeAlso:
 //   EveShip2
 // --------------------------------------------------------------------------------
-BLUE_CLASS( EveTurretSet ):
+BLUE_CLASS( EveTurretSet ) :
 	public IInitialize,
 	public INotify,
 	public IBlueAsyncResNotifyTarget,
@@ -117,28 +116,28 @@ public:
 	using IInitialize::Unlock;
 	using IInitialize::Lock;
 
-	explicit EveTurretSet(IRoot* lockobj = nullptr);
+	explicit EveTurretSet( IRoot* lockobj = nullptr );
 	~EveTurretSet();
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// IInitialize
 	bool Initialize() override;
-	
+
 	//////////////////////////////////////////////////////////////////////////
 	// INotify
-	bool OnModified( Be::Var* value ) override;
+	bool OnModified( Be::Var * value ) override;
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2Renderable
 	bool HasTransparentBatches() override;
-	void GetBatches( ITriRenderBatchAccumulator* batches, TriBatchType batchType, const Tr2PerObjectData* perObjectData, Tr2RenderReason reason = TR2RENDERREASON_NORMAL ) override;
+	void GetBatches( ITriRenderBatchAccumulator * batches, TriBatchType batchType, const Tr2PerObjectData* perObjectData, Tr2RenderReason reason = TR2RENDERREASON_NORMAL ) override;
 	float GetSortValue() override;
-	Tr2PerObjectData* GetPerObjectData( ITriRenderBatchAccumulator* accumulator ) override;
+	Tr2PerObjectData* GetPerObjectData( ITriRenderBatchAccumulator * accumulator ) override;
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IBlueAsyncResNotifyTarget
-	void ReleaseCachedData( BlueAsyncRes* p ) override;
-	void RebuildCachedData( BlueAsyncRes* p ) override;
+	void ReleaseCachedData( BlueAsyncRes * p ) override;
+	void RebuildCachedData( BlueAsyncRes * p ) override;
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// ITriDeviceResource
@@ -149,12 +148,12 @@ public:
 	void SetControllerVariable( const char* name, float value );
 	void HandleControllerEvent( const char* name );
 	void StartControllers();
-	
+
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2DebugRenderable
-	void GetDebugOptions( Tr2DebugRendererOptions& options ) override;
-	void RenderDebugInfo( ITr2DebugRenderer2& renderer ) override;
-	
+	void GetDebugOptions( Tr2DebugRendererOptions & options ) override;
+	void RenderDebugInfo( ITr2DebugRenderer2 & renderer ) override;
+
 	//////////////////////////////////////////////////////////////////////////////////////
 	// EveEntity
 	void RegisterComponents() override;
@@ -163,8 +162,8 @@ public:
 	//////////////////////////////////////////////////////////////////////////////////////
 	// IEveShadowCaster
 	bool IsCastingShadow( const TriFrustum& cameraFrustum, const IEveShadowFrustum& shadowFrustum, Tr2RenderReason renderReason, float& sizeInShadow ) const override;
-	void GetShadowBatches( ITriRenderBatchAccumulator* batches, const Tr2PerObjectData* perObjectData, float shadowPixelSize ) override;
-	Tr2PerObjectData* GetShadowPerObjectData( ITriRenderBatchAccumulator* accumulator ) override;
+	void GetShadowBatches( ITriRenderBatchAccumulator * batches, const Tr2PerObjectData* perObjectData, float shadowPixelSize ) override;
+	Tr2PerObjectData* GetShadowPerObjectData( ITriRenderBatchAccumulator * accumulator ) override;
 	void PushRtGeometry( Tr2RaytracingManager & rtManager ) const override;
 
 	int GetState() const;
@@ -175,7 +174,7 @@ private:
 public:
 	// set local position
 	void SetLocalTransform( unsigned int turretIndex, const Matrix* localMatrix );
-	void UpdateTurretTransforms(const Matrix* parentWorldMatrix);
+	void UpdateTurretTransforms( const Matrix* parentWorldMatrix );
 
 	// timing and worldspace positioning
 	void UpdateSyncronous( const EveUpdateContext& updateContext, const Matrix* parentMatrix );
@@ -183,8 +182,8 @@ public:
 
 	// rendering
 	void UpdateVisibility( const EveUpdateContext& updateContext );
-	void GetRenderables( std::vector<ITr2Renderable*>& renderables, const Vector4* shLighting );
-	
+	void GetRenderables( std::vector<ITr2Renderable*> & renderables, const Vector4* shLighting );
+
 	// rebuild the bounding sphere size
 	void RebuildBoundingSphere();
 	// disable LODing
@@ -209,9 +208,12 @@ public:
 	// get locator names
 	const char* GetLocatorName() const;
 	int GetSlotNumber() const;
-	unsigned int GetSwarmID() const { return m_swarmID; }
+	unsigned int GetSwarmID() const
+	{
+		return m_swarmID;
+	}
 
-	bool GetLocalBoundingBox( Vector3& aabbMin, Vector3& aabbMax );
+	bool GetLocalBoundingBox( Vector3 & aabbMin, Vector3 & aabbMax );
 
 	// get worldmatrix of the currently firing bone
 	Matrix GetFiringBoneWorldTransform( unsigned int muzzle ) const;
@@ -219,12 +221,15 @@ public:
 	// missed shots
 	void SetShotMissed( bool missed );
 	double GetLastShotTime() const;
-	float GetShotTimeVariance() const { return EVE_TURRET_RANDOM_DELAY_MAX; }
+	float GetShotTimeVariance() const
+	{
+		return EVE_TURRET_RANDOM_DELAY_MAX;
+	}
 	size_t MissQueueSize() const;
 
 	void SetShaderOption( const BlueSharedString& name, const BlueSharedString& value ) override;
-	   
-	void RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer );
+
+	void RegisterWithQuadRenderer( Tr2QuadRenderer & quadRenderer );
 	void AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer );
 
 	// turret LOD
@@ -247,8 +252,8 @@ public:
 		STATE_FIRING,
 		STATE_RELOADING,
 	};
+
 private:
-	
 	// system-controlled bones
 	enum SystemBones
 	{
@@ -282,20 +287,25 @@ private:
 	void SetAmbientEffectControllerVariableOnInstance( int index, const char* name, float value );
 	bool IsAmbientVisible() const;
 
+	void InitializeAnimation();
+
 	// cleanup
 	void Cleanup();
 	// determine LOD and check for change
 	bool UpdateLOD( const EveUpdateContext& updateContext );
+
+	void UpdateSingleTurrets();
+
 	// set transform for tracking
-	void ModifySystemBoneTransform( SystemBones bone, const Vector3* target, granny_transform* transform, const Matrix* localTransform ) const;
+	void ModifySystemBoneTransform( SystemBones bone, const Vector3* target, const Matrix* localTransform, Vector3& position, Quaternion& rotation ) const;
 
 	// Calculates the pitch for a bone based on the parameters
-	void CalcTransformForPitchBone( const Vector3* target, granny_transform* transform, float minPitch, float maxPitch, unsigned int boneIndex, const Matrix* localTransform  ) const;
-	
+	void CalcTransformForPitchBone( const Vector3* target, float minPitch, float maxPitch, unsigned int boneIndex, const Matrix* localTransform, Quaternion& rotation ) const;
+
 	// Returns the correct pitch factor for a specific bone index
-	float GetBonePitchFactor(unsigned int boneIndex) const;
+	float GetBonePitchFactor( unsigned int boneIndex ) const;
 	// Returns the correct pitch offset for a specific bone index
-	float GetBonePitchOffset(unsigned int boneIndex) const;
+	float GetBonePitchOffset( unsigned int boneIndex ) const;
 
 	// animation
 	float PlayAnimation( unsigned int turretIndex, const std::string& animName, const std::string& animNameIdle, float delay = 0.f );
@@ -311,10 +321,10 @@ private:
 	void UpdateRtSkeleton();
 
 	EveTurretFiringFX* GetFiringEffect();
-	void SetFiringEffect( EveTurretFiringFX* firingEffect );
+	void SetFiringEffect( EveTurretFiringFX * firingEffect );
 
 	IEveSpaceObjectChild* GetAmbientEffect();
-	void SetAmbientEffect( IEveSpaceObjectChild* ambientEffect );
+	void SetAmbientEffect( IEveSpaceObjectChild * ambientEffect );
 
 	// name
 	std::string m_name;
@@ -345,19 +355,24 @@ private:
 	// keep a vector of data on each pair of the turret
 	struct SingleTurretData
 	{
-		bool					valid;
-		bool					visible;
+		bool valid;
+		bool visible;
 		// positions
-		Vector4					localPosition;
-		Quaternion				localQuaternion;
-		Matrix					localMatrix;
-		Matrix					worldMatrix;
+		Vector4 localPosition;
+		Quaternion localQuaternion;
+		Matrix localMatrix;
+		Matrix worldMatrix;
 
 		// animation
-		granny_skeleton*		grnSkeleton;
-		granny_model_instance*	grnModelInstance;
-		granny_local_pose*		grnLocalPose;
-		granny_world_pose*		grnWorldPose;
+#if WITH_GRANNY
+		granny_skeleton* grnSkeleton = nullptr;
+		granny_model_instance* grnModelInstance = nullptr;
+		granny_local_pose* grnLocalPose = nullptr;
+		granny_world_pose* grnWorldPose = nullptr;
+#endif
+		std::unique_ptr<cmf::AnimationSequencer> sequencer;
+		cmf::SkeletonPose pose;
+		std::vector<Matrix> worldTransforms;
 
 		std::unique_ptr<Tr2RaytracingMesh> rtMesh;
 		std::unique_ptr<Tr2RaytracingMeshArea> rtMeshArea;
@@ -366,8 +381,12 @@ private:
 	std::vector<SingleTurretData> m_singleTurrets;
 	std::vector<GrannyBoneBindingBounds> m_boneBounds;
 	bool m_useDynamicBounds;
-	
-	void InitializeDynamicBounds( granny_file_info* fi, granny_skeleton* skeleton );
+
+#if WITH_GRANNY
+	void InitializeGrannyDynamicBounds( granny_file_info * fi, granny_skeleton * skeleton );
+#endif
+	void InitializeDynamicBounds( const cmf::Data* cmfData, const cmf::Skeleton* skeleton );
+
 	bool GetDynamicBounds( const SingleTurretData& turret, Vector4* boundingSphere, Vector3* aabbMin, Vector3* aabbMax ) const;
 	void RenderDynamicBounds();
 
@@ -388,7 +407,7 @@ private:
 	Tr2SuballocatedBuffer::Allocation m_instanceBuffer;
 
 	// Assign the target object
-	void SetTargetObject( IRoot* target );
+	void SetTargetObject( IRoot * target );
 	ITriTargetablePtr GetTargetObject();
 	void SetTargetScale();
 
@@ -412,13 +431,17 @@ private:
 	// animation
 	struct AnimationRequest
 	{
-		int						turretIndex;
-		std::string				animName;
-		std::string				animNameIdle;
+		int turretIndex;
+		std::string animName;
+		std::string animNameIdle;
 	};
 	std::vector<AnimationRequest> m_animationQueue;
+#if WITH_GRANNY
 	granny_model* m_grnModel;
 	granny_mesh_binding* m_grnMeshBinding;
+#endif
+	const cmf::Skeleton* m_skeleton;
+	std::vector<int32_t> m_skeletonBoneIndices;
 
 	// firing animation specialties
 	bool m_useRandomFiringDelay;
@@ -441,13 +464,13 @@ private:
 	float m_sysBonePitch02Factor;
 	float m_sysBonePitch03Offset;
 	float m_sysBonePitch03Factor;
-	
+
 	Matrix GetTurretBoneTransform( uint32_t closestTurret, uint32_t boneID ) const;
 
 	// state of turret set
 	State m_state;
-    // the turret that's currently active(firing)
-    int m_activeTurret;
+	// the turret that's currently active(firing)
+	int m_activeTurret;
 
 	// time to re-check active turret
 	float m_recheckTimeLeft;
@@ -480,7 +503,6 @@ private:
 	std::wstring m_targetingToIdleMovementAudioEvent;
 
 	Tr2RingBufferOffsets m_boneOffsets;
-
 };
 
 TYPEDEF_BLUECLASS( EveTurretSet );

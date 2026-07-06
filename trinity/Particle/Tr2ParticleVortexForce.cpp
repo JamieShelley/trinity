@@ -1,14 +1,18 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   December 2011
-//    Copyright: CCP 2011
-//
+// Copyright © 2011 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ParticleVortexForce.h"
-#include "../Include/ITr2DebugRenderer2.h"
 
-Tr2ParticleVortexForce::Tr2ParticleVortexForce( IRoot* lockobj ):
+#ifdef BLUE_USE_LOCAL_ITr2DebugRenderer2
+// This is only needed for py2 as the file now belongs in blue.
+// Unfortunatly the blue py2 branch cannot be updated at present due to security vulnerability work.
+// The file version in the older blue versions had diverged from this one is incompatible.
+#include "Include/ITr2DebugRenderer2.h"
+#else
+#include <ITr2DebugRenderer2.h>
+#endif
+
+Tr2ParticleVortexForce::Tr2ParticleVortexForce( IRoot* lockobj ) :
 	m_magnitude( 1.f ),
 	m_position( 0.f, 0.f, 0.f ),
 	m_axis( 0.f, 1.f, 0.f )

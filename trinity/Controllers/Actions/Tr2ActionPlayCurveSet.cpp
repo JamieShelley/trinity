@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ActionPlayCurveSet.h"
@@ -15,8 +11,8 @@
 #include "Eve/EveEffectRoot2.h"
 
 
-Tr2ActionPlayCurveSet::Tr2ActionPlayCurveSet( IRoot* )
-	:m_startTime( 0 ),
+Tr2ActionPlayCurveSet::Tr2ActionPlayCurveSet( IRoot* ) :
+	m_startTime( 0 ),
 	m_prevTime( 0 ),
 	m_duration( 0 ),
 	m_syncToRange( false )

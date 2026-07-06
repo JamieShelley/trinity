@@ -1,15 +1,12 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   April 2025
-//    Copyright: CCP 2025
-//
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveTacticalTrails.h"
 #include "../../Shader/Tr2Effect.h"
 #include "../../Tr2Renderer.h"
 #include "../../TriPoolAllocator.h"
 #include "../../TriRenderBatch.h"
-#include "../../Include/ITriFunction.h"
+#include <ITriFunction.h>
 #include <numeric>
 
 namespace
@@ -122,7 +119,7 @@ void EveTacticalTrails::UpdateSyncronous( const EveUpdateContext& updateContext 
 		if( object.positions.size() >= 2 )
 		{
 			auto it = begin( object.positions );
-			while ( it + 1 != end( object.positions ) && TimeAsFloat( now - ( it + 1 )->time ) > m_fadeOutTime )
+			while( it + 1 != end( object.positions ) && TimeAsFloat( now - ( it + 1 )->time ) > m_fadeOutTime )
 			{
 				++it;
 			}
@@ -176,8 +173,7 @@ void EveTacticalTrails::UpdateSyncronous( const EveUpdateContext& updateContext 
 
 void EveTacticalTrails::UpdateGraphicsState( Be::Time now )
 {
-	m_segmentCount = accumulate( m_trackedObjects.begin(), m_trackedObjects.end(), 0u, 
-		[]( uint32_t sum, const auto& object ) { return sum + static_cast<uint32_t>( std::max( object.positions.size(), size_t( 1 ) ) - 1 ); } );
+	m_segmentCount = accumulate( m_trackedObjects.begin(), m_trackedObjects.end(), 0u, []( uint32_t sum, const auto& object ) { return sum + static_cast<uint32_t>( std::max( object.positions.size(), size_t( 1 ) ) - 1 ); } );
 	if( m_segmentCount == 0 )
 	{
 		return;
@@ -302,7 +298,7 @@ void EveTacticalTrails::GetLocalToWorldTransform( Matrix& transform ) const
 
 void EveTacticalTrails::GetBatches( ITriRenderBatchAccumulator* batches, TriBatchType batchType, const Tr2PerObjectData* perObjectData, Tr2RenderReason reason )
 {
-	if ( batchType != TRIBATCHTYPE_TRANSPARENT )
+	if( batchType != TRIBATCHTYPE_TRANSPARENT )
 	{
 		return;
 	}

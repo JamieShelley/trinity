@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   July 2012
-//    Copyright: CCP 2012
-//
+// Copyright © 2012 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveSpotlightSet.h"
@@ -28,8 +24,8 @@ const Tr2VertexDefinition& EveSpotlightSet::GlowPoolVertex::GetDefinition()
 		vd.Add( vd.FLOAT32_4, vd.TEXCOORD, 0, 1, 1 );
 		vd.Add( vd.FLOAT32_4, vd.TEXCOORD, 1, 1, 1 );
 		vd.Add( vd.FLOAT32_4, vd.TEXCOORD, 2, 1, 1 );
-		vd.Add( vd.FLOAT16_4 , vd.COLOR, 0, 1, 1 );
-		vd.Add( vd.FLOAT16_4 , vd.COLOR, 1, 1, 1 );
+		vd.Add( vd.FLOAT16_4, vd.COLOR, 0, 1, 1 );
+		vd.Add( vd.FLOAT16_4, vd.COLOR, 1, 1, 1 );
 		vd.Add( vd.FLOAT16_4, vd.TEXCOORD, 3, 1, 1 );
 	}
 	return s_definition;
@@ -46,7 +42,7 @@ const Tr2VertexDefinition& EveSpotlightSet::ConePoolVertex::GetDefinition()
 		vd.Add( vd.FLOAT32_4, vd.TEXCOORD, 0, 1, 1 );
 		vd.Add( vd.FLOAT32_4, vd.TEXCOORD, 1, 1, 1 );
 		vd.Add( vd.FLOAT32_4, vd.TEXCOORD, 2, 1, 1 );
-		vd.Add( vd.FLOAT16_4 , vd.COLOR, 0, 1, 1 );
+		vd.Add( vd.FLOAT16_4, vd.COLOR, 0, 1, 1 );
 		vd.Add( vd.FLOAT16_2, vd.TEXCOORD, 3, 1, 1 );
 	}
 	return s_definition;
@@ -63,10 +59,9 @@ const int SPRITE_QUAD_COUNT = 2;
 EveSpotlightLight::EveSpotlightLight() :
 	lightData( LightData() ),
 	index( 0 ),
-	boneMatrix( IdentityMatrix() ), 
+	boneMatrix( IdentityMatrix() ),
 	boosterGainInfluence( false )
 {
-
 }
 
 EveSpotlightLight::EveSpotlightLight( const LightData& lightData, uint32_t index, const std::wstring& profilePath, bool boosterGainInfluence ) :
@@ -140,7 +135,7 @@ inline void EveSpotlightSet::RegisterQuadRendererGlow( Tr2QuadRenderer& quadRend
 // Description:
 //   Get bounding box around spot lights, update visibility based on if box is visible or not
 // --------------------------------------------------------------------------------------
-bool EveSpotlightSet::UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, const granny_matrix_3x4* bones, size_t boneCount )
+bool EveSpotlightSet::UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, const Float4x3* bones, size_t boneCount )
 {
 	auto aabb = GetItemSetAabb( m_aabb, m_boundingBoxes, bones, m_skinned ? boneCount : 0 );
 	if( !aabb.IsInitialized() )
@@ -152,9 +147,9 @@ bool EveSpotlightSet::UpdateVisibility( const EveUpdateContext& updateContext, c
 	return updateContext.GetFrustum().IsBoxVisible( aabb.m_min, aabb.m_max );
 }
 
-void EveSpotlightSet::UpdateLights( const Matrix& parentTransform, const granny_matrix_3x4* bones, size_t boneCount, float activationStrength, float boosterGain )
+void EveSpotlightSet::UpdateLights( const Matrix& parentTransform, const Float4x3* bones, size_t boneCount, float activationStrength, float boosterGain )
 {
-	for( auto& light : m_lights ) 
+	for( auto& light : m_lights )
 	{
 		if( light.lightData.boneIndex > 0 && light.lightData.boneIndex < boneCount )
 		{
@@ -178,14 +173,14 @@ void EveSpotlightSet::UpdateLights( const Matrix& parentTransform, const granny_
 // Description:
 //   Get bounding box surrounding spot lights
 // --------------------------------------------------------------------------------------
-AxisAlignedBoundingBox EveSpotlightSet::GetAabb( const granny_matrix_3x4* bones, size_t boneCount ) const
+AxisAlignedBoundingBox EveSpotlightSet::GetAabb( const Float4x3* bones, size_t boneCount ) const
 {
 	return GetItemSetAabb( m_aabb, m_boundingBoxes, bones, m_skinned ? boneCount : 0 );
 }
 
 // --------------------------------------------------------------------------------
 // Description:
-//   Registers set effects with quad renderer if quad rendering was enabled with 
+//   Registers set effects with quad renderer if quad rendering was enabled with
 //   UseQuadRenderer call.
 // Arguments:
 //   quadRenderer - quad renderer
@@ -198,7 +193,7 @@ void EveSpotlightSet::RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer )
 
 // --------------------------------------------------------------------------------
 // Description:
-//   Adds sprites to render with quad renderer if quad rendering was enabled with 
+//   Adds sprites to render with quad renderer if quad rendering was enabled with
 //   UseQuadRenderer call.
 // Arguments:
 //   quadRenderer - quad renderer
@@ -208,7 +203,7 @@ void EveSpotlightSet::RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer )
 //   bones - array of bone transforms
 //   boneCount - number of bones
 // --------------------------------------------------------------------------------
-void EveSpotlightSet::AddToQuadRenderer( Tr2QuadRenderer& quadRenderer, const Matrix& world, float activation, float boosterGain, const granny_matrix_3x4* bones, size_t boneCount )
+void EveSpotlightSet::AddToQuadRenderer( Tr2QuadRenderer& quadRenderer, const Matrix& world, float activation, float boosterGain, const Float4x3* bones, size_t boneCount )
 {
 	if( !m_display || m_glowBuffer.empty() )
 	{
@@ -449,7 +444,7 @@ void EveSpotlightSet::GetDebugOptions( Tr2DebugRendererOptions& options )
 	options.insert( "Spotlight Sets Lights" );
 }
 
-void EveSpotlightSet::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Matrix& parentTransform, const granny_matrix_3x4* bones, size_t boneCount )
+void EveSpotlightSet::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Matrix& parentTransform, const Float4x3* bones, size_t boneCount )
 {
 	if( renderer.HasOption( GetRawRoot(), "Spotlight Sets" ) )
 	{
@@ -520,7 +515,6 @@ void EveSpotlightSet::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Matri
 				10,
 				Tr2DebugRenderer::Solid,
 				Tr2DebugColor( c ) );
-
 		}
 	}
 }
@@ -546,7 +540,8 @@ void EveSpotlightSet::GetLights( Tr2LightManager& lightManager ) const
 	for( auto& light : m_lights )
 	{
 		features.parentBrightness = m_activationStrength;
-		if( light.boosterGainInfluence ) {
+		if( light.boosterGainInfluence )
+		{
 			features.parentBrightness *= m_boosterGain;
 		}
 		features.profileIndex = light.lightProfile == nullptr ? 0 : light.lightProfile->GetTextureIndex();

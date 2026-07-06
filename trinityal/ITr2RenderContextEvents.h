@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   July 2013
-//    Copyright: CCP 2013
-//
+// Copyright © 2013 CCP ehf.
 
 #pragma once
 #ifndef ITr2RenderContextEvents_H
@@ -13,7 +9,7 @@ class Tr2TextureAL;
 
 // --------------------------------------------------------------------------------------
 // Description:
-//   A set of callbacks from Tr2RenderContextAL. 
+//   A set of callbacks from Tr2RenderContextAL.
 // --------------------------------------------------------------------------------------
 struct ITr2RenderContextEvents
 {

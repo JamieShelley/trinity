@@ -1,3 +1,5 @@
+// Copyright © 2026 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2RingBuffer.h"
 
@@ -6,22 +8,6 @@ namespace
 constexpr uint32_t INITIAL_SIZE = 16 * 1024;
 }
 
-
-Float4x3::Float4x3( const Matrix& m )
-{
-	elements[0] = m._11;
-	elements[1] = m._21;
-	elements[2] = m._31;
-	elements[3] = m._41;
-	elements[4] = m._12;
-	elements[5] = m._22;
-	elements[6] = m._32;
-	elements[7] = m._42;
-	elements[8] = m._13;
-	elements[9] = m._23;
-	elements[10] = m._33;
-	elements[11] = m._43;
-}
 
 Tr2MorphTargetAnimationData::Tr2MorphTargetAnimationData( uint32_t index, float weight )
 {
@@ -144,7 +130,7 @@ Tr2RingBuffer& Tr2RingBuffer::GetInstance()
 void Tr2RingBuffer::SetName( const std::string& name )
 {
 	this->m_name = name;
-	if ( m_buffer.IsValid() )
+	if( m_buffer.IsValid() )
 	{
 		m_buffer.SetName( m_name.c_str() );
 	}

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   August 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
 
 #pragma once
 #ifndef EveChildMesh_H
@@ -86,18 +82,18 @@ public:
 	const char* GetName() const;
 	void SetName( const char* name );
 	void UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod );
-	void GetRenderables( std::vector<ITr2Renderable*>& renderables );
-	bool GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query=EVE_BOUNDS_NORMAL ) const;
+	void GetRenderables( std::vector<ITr2Renderable*> & renderables );
+	bool GetBoundingSphere( Vector4 & sphere, BoundingSphereQuery query = EVE_BOUNDS_NORMAL ) const;
 	void UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
-	void GetLocalToWorldTransform( Matrix& transform ) const;
+	void GetLocalToWorldTransform( Matrix & transform ) const;
 	void ChangeLOD( Tr2Lod lod ) override;
 	virtual void Setup( const Vector3* scale, const Quaternion* rotation, const Vector3* translation, Tr2Lod lowestLodVisible );
 	bool IsAlwaysOn() const;
 	void SetShaderOption( const BlueSharedString& name, const BlueSharedString& value ) override;
 	void SetScale( const Vector3& scale );
-	void AddTransformModifier( IEveChildTransformModifier* modifier ) override;
-	void RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer ) override;
+	void AddTransformModifier( IEveChildTransformModifier * modifier ) override;
+	void RegisterWithQuadRenderer( Tr2QuadRenderer & quadRenderer ) override;
 	void AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer ) const override;
 
 
@@ -113,9 +109,9 @@ public:
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2Renderable
 	virtual bool HasTransparentBatches();
-	virtual void GetBatches( ITriRenderBatchAccumulator* batches, TriBatchType batchType, const Tr2PerObjectData* perObjectData, Tr2RenderReason reason = TR2RENDERREASON_NORMAL );
+	virtual void GetBatches( ITriRenderBatchAccumulator * batches, TriBatchType batchType, const Tr2PerObjectData* perObjectData, Tr2RenderReason reason = TR2RENDERREASON_NORMAL );
 	virtual float GetSortValue();
-	virtual Tr2PerObjectData* GetPerObjectData( ITriRenderBatchAccumulator* accumulator );
+	virtual Tr2PerObjectData* GetPerObjectData( ITriRenderBatchAccumulator * accumulator );
 	virtual bool IsVisible( const EveUpdateContext& updateContext ) const override;
 
 	/////////////////////////////////////////////////////////////////////////////////////
@@ -128,19 +124,19 @@ public:
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// INotify
-	bool OnModified( Be::Var* value );
+	bool OnModified( Be::Var * value );
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IEveSpaceObjectAttachmentOwner
-	void AddAttachment( IEveSpaceObjectAttachment* attachment );
+	void AddAttachment( IEveSpaceObjectAttachment * attachment );
 	void ClearAttachments();
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IEveLightOwner
-	virtual void GetLights( Tr2LightManager& lightManager ) const override;
-	virtual void AddLight( Tr2Light* newLight ) override;
+	virtual void GetLights( Tr2LightManager & lightManager ) const override;
+	virtual void AddLight( Tr2Light * newLight ) override;
 	virtual void ClearLights() override;
-	
+
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IEveShadowCaster
 	bool IsCastingShadow( const TriFrustum& cameraFrustum, const IEveShadowFrustum& shadowFrustum, Tr2RenderReason renderReason, float& sizeInShadow ) const override;
@@ -151,8 +147,8 @@ public:
 	void MarkRtDirty() override;
 	bool IsShadowCastingDirty() const override;
 
-	void GetDebugOptions( Tr2DebugRendererOptions& options ) override;
-	void RenderDebugInfo( ITr2DebugRenderer2& renderer ) override;
+	void GetDebugOptions( Tr2DebugRendererOptions & options ) override;
+	void RenderDebugInfo( ITr2DebugRenderer2 & renderer ) override;
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// PerObjectData
@@ -165,14 +161,14 @@ public:
 	void GetPickingBatches( ITriRenderBatchAccumulator * batches, Tr2PickTypes pickTypes, const Tr2PerObjectData* perObjectData ) override;
 
 	// access
-	void SetMesh( Tr2MeshBase* mesh );
+	void SetMesh( Tr2MeshBase * mesh );
 	void SetOrigin( Origin origin );
 	void SetReflectionMode( EntityComponents::ReflectionMode reflectionMode );
 	void SetCastShadow( bool castShadow );
 	void SetMinScreenSize( float minScreenSize );
 
 	Tr2GrannyAnimation* GetAnimationController() const override;
-	void SetAnimationController( Tr2GrannyAnimation* animation );
+	void SetAnimationController( Tr2GrannyAnimation * animation );
 
 	void SetInstanceTransforms( std::vector<Matrix> instances );
 
@@ -204,7 +200,7 @@ protected:
 
 	bool PrepareMorphBuffers( Tr2RenderContext & renderContext );
 
-	std::pair<const granny_matrix_3x4*, size_t> GetBoneTransforms() const;
+	std::pair<const Float4x3*, size_t> GetBoneTransforms() const;
 	const std::pair<const int32_t*, size_t> GetMeshBindingIndices() const;
 	std::pair<const Tr2MorphTargetAnimationData*, size_t> GetMorphTargets( MorphTargetAnimationFilter filter );
 	void UpdateMorphAnimationBuffer();
@@ -214,7 +210,7 @@ protected:
 
 	// the mesh
 	Tr2MeshBasePtr m_mesh;
-	Tr2InstancedMeshPtr m_instancedMesh;  // Cached downcast of m_mesh
+	Tr2InstancedMeshPtr m_instancedMesh; // Cached downcast of m_mesh
 	IEveSpaceObject2::ParentData m_parentData;
 
 	PIEveChildTransformModifierVector m_transformModifiers;
@@ -248,6 +244,8 @@ protected:
 	bool m_updateAnimation;
 	bool m_bakeMorphs;
 	bool m_dirtyRtMesh;
+	// Has UpdateSyncronous/UpdateAsyncronous been called: until it has, the object cannot be rendered
+	bool m_hasUpdated = false;
 
 	float m_activationStrength;
 
@@ -258,6 +256,15 @@ protected:
 	PEveSpaceObjectDecalVector m_decals;
 	PIEveSpaceObjectAttachmentVector m_attachments;
 	PTr2LightVector m_lights;
+
+	bool m_allowAudioGeometry;
+	bool m_audioGeometryRegistered;
+	uint64_t m_audioGeometrySetId;
+	uint64_t m_audioInstanceId;
+	ITr2AudGeometryPtr m_audioGeometry;
+
+	void RegisterAudioGeometry();
+	void UnregisterAudioGeometry();
 
 	void UpdateRtMesh();
 	void UpdateRtSkeleton();

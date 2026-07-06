@@ -1,13 +1,9 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2010
-//    Copyright: CCP 2010
-//
+// Copyright © 2010 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveLensflare.h"
 
 #include "include/TriMath.h"
-#include "Include/ITriFunction.h"
 #include "TriFrustum.h"
 #include "Tr2VariableStore.h"
 #include "Tr2GpuBuffer.h"
@@ -18,6 +14,8 @@
 #include "Tr2Mesh.h"
 #include "Controllers/ITr2Controller.h"
 #include "Shader/Tr2Effect.h"
+
+#include <ITriFunction.h>
 
 
 
@@ -69,7 +67,7 @@ EveLensflare::EveLensflare( IRoot* lockobj ) :
 	m_update( true ),
 	m_isVisible( false ),
 	m_position( 0.0f, 0.0f, 0.0f ),
-	m_cameraFactor( 20.f ),	
+	m_cameraFactor( 20.f ),
 	m_sunSize( 0.f ),
 	m_directionVar( "LensflareFxDirectionScale", Vector4( 0.f, 0.f, 0.f, 1.f ) ),
 	m_occScaleVar( "LensflareFxOccScale", Vector4( 1.f, 0.f, 0.f, 0.f ) ),
@@ -112,6 +110,12 @@ void EveLensflare::OnListModified( long event, ssize_t key, ssize_t key2, IRoot*
 				controller->Unlink();
 			}
 			break;
+		case BELIST_UNLOADSTART:
+			for( auto& controller : m_controllers )
+			{
+				controller->Unlink();
+			}
+			break;
 		default:
 			break;
 		}
@@ -120,10 +124,14 @@ void EveLensflare::OnListModified( long event, ssize_t key, ssize_t key2, IRoot*
 
 // --------------------------------------------------------------------------------
 // Description:
-//   Empty
+//   Clean up controllers by unlinking them
 // --------------------------------------------------------------------------------
 EveLensflare::~EveLensflare()
 {
+	for( auto& controller : m_controllers )
+	{
+		controller->Unlink( UnlinkReason::DELETING );
+	}
 }
 
 // --------------------------------------------------------------------------------
@@ -208,12 +216,12 @@ void EveLensflare::PrepareRender( const TriFrustum& frustum )
 	// build the matrix that will rotate the flares into position
 	// by using the position of the camera and the direction to the world pos
 	Vector3 negDirVec = -m_direction;
-	TriMatrixArcFromForward(&m_transform, &negDirVec);
+	TriMatrixArcFromForward( &m_transform, &negDirVec );
 	m_transform._41 = cameraSpacePos.x;
 	m_transform._42 = cameraSpacePos.y;
 	m_transform._43 = cameraSpacePos.z;
-	m_transform._44 = 1.0f;	
-    
+	m_transform._44 = 1.0f;
+
 	// pass important data to shader
 	m_directionVar = Vector4( m_direction, m_sunSize );
 
@@ -222,7 +230,7 @@ void EveLensflare::PrepareRender( const TriFrustum& frustum )
 	direction = Transform( direction, frustum.m_projectionMatrix );
 	direction.x /= direction.w;
 	direction.y /= direction.w;
-    float distanceToEdge = 1 - std::min( 1 - std::abs( direction.x ), 1 - std::abs( direction.y ) );
+	float distanceToEdge = 1 - std::min( 1 - std::abs( direction.x ), 1 - std::abs( direction.y ) );
 	float distanceToCenter = Length( *reinterpret_cast<Vector2*>( &direction ) );
 	float radialAngle = atan2( direction.y, direction.x ) + TRI_PI;
 
@@ -270,7 +278,7 @@ void EveLensflare::PrepareRender( const TriFrustum& frustum )
 void EveLensflare::GetRenderables( const TriFrustum& frustum, std::vector<ITr2Renderable*>& renderables )
 {
 	// display?
-	if( !m_display || !m_isVisible)
+	if( !m_display || !m_isVisible )
 	{
 		return;
 	}
@@ -278,7 +286,7 @@ void EveLensflare::GetRenderables( const TriFrustum& frustum, std::vector<ITr2Re
 	// add all the single flares, which are renderbales
 	for( EveTransformVector::const_iterator it = m_flares.begin(); it != m_flares.end(); ++it )
 	{
-		(*it)->GetRenderables( renderables, nullptr );
+		( *it )->GetRenderables( renderables, nullptr );
 	}
 
 	if( m_mesh )
@@ -488,7 +496,7 @@ void EveLensflare::SetControllerVariable( const char* name, float value )
 
 void EveLensflare::HandleControllerEvent( const char* name )
 {
-	for( auto it = m_controllers.begin(); it !=  m_controllers.end(); ++it )
+	for( auto it = m_controllers.begin(); it != m_controllers.end(); ++it )
 	{
 		( *it )->HandleEvent( name );
 	}
