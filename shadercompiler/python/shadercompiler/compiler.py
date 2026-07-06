@@ -1,28 +1,32 @@
+# Copyright (c) 2023 CCP ehf.
 import os
 import subprocess
 import sys
 import json
-from . import paths
-from pathlib2 import Path
 
-BUILDER_DIR = Path(__file__).resolve().parent
+BUILDER_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def _find_branch_dir(start):
-    for directory in [start] + list(start.parents):
-        if (directory / 'carbon.json').is_file():
+    directory = start
+    while True:
+        if os.path.isfile(os.path.join(directory, 'carbon.json')):
             return directory
+        parent = os.path.dirname(directory)
+        if parent == directory:  # reached the filesystem root
+            break
+        directory = parent
     raise RuntimeError('could not locate carbon.json in any parent of %s' % start)
 
 BRANCH_DIR = _find_branch_dir(BUILDER_DIR)
 
-carbonjson = json.load(open(str(BRANCH_DIR / 'carbon.json')))
+carbonjson = json.load(open(os.path.join(BRANCH_DIR, 'carbon.json')))
 
-SHADER_COMPILER_PATH = BRANCH_DIR / "vendor" / carbonjson['libraries']['carbon_trinity'] / "shadercompiler" / "bin"
+SHADER_COMPILER_PATH = os.path.join(BRANCH_DIR, "vendor", carbonjson['libraries']['carbon_trinity'], "shadercompiler", "bin")
 
 if sys.platform == 'win32':
-    COMPILER_PATH = os.path.abspath(os.path.join(str(SHADER_COMPILER_PATH), 'Windows', 'x64', 'v141', 'ShaderCompiler.exe'))
+    COMPILER_PATH = os.path.abspath(os.path.join(SHADER_COMPILER_PATH, 'Windows', 'x64', 'v141', 'ShaderCompiler.exe'))
 elif sys.platform == 'darwin':
-    COMPILER_PATH = os.path.abspath(os.path.join(str(SHADER_COMPILER_PATH), 'macOS', 'universal', 'AppleClang', 'ShaderCompiler'))
+    COMPILER_PATH = os.path.abspath(os.path.join(SHADER_COMPILER_PATH, 'macOS', 'universal', 'AppleClang', 'ShaderCompiler'))
 else:
     raise RuntimeError('unsupported platform')
 
