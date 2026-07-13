@@ -196,7 +196,6 @@ Tr2PerObjectData* EveChildParticleSystem::GetPerObjectData( ITriRenderBatchAccum
 
 void EveChildParticleSystem::UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& )
 {
-
 }
 
 void EveChildParticleSystem::UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )
