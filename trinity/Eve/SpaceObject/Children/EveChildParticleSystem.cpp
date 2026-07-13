@@ -196,13 +196,7 @@ Tr2PerObjectData* EveChildParticleSystem::GetPerObjectData( ITriRenderBatchAccum
 
 void EveChildParticleSystem::UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& )
 {
-	if( m_mesh )
-	{
-		if( EntityComponents::ShouldReflect( m_reflectionMode ) )
-		{
-			m_mesh->ReverseIndexBuffers();
-		}
-	}
+
 }
 
 void EveChildParticleSystem::UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )

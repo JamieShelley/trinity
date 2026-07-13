@@ -655,7 +655,8 @@ void EveChildMesh::GetBatches( ITriRenderBatchAccumulator* batches, TriBatchType
 	{
 		if( m_mesh )
 		{
-			m_mesh->GetBatches( batches, m_mesh->GetAreas( batchType ), perObjectData, min( m_currentInstanceScreenSize, m_currentScreenSize ) );
+			const bool reverseWinding = Determinant( m_worldTransform ) < 0.0f;
+			m_mesh->GetBatches( batches, m_mesh->GetAreas( batchType ), perObjectData, min( m_currentInstanceScreenSize, m_currentScreenSize ), reverseWinding );
 		}
 
 		if( m_activationStrength != 0.0 )
@@ -674,7 +675,8 @@ void EveChildMesh::GetShadowBatches( ITriRenderBatchAccumulator* batches, const 
 	// Fix asap <Logi 27. aug 2015>
 	if( m_display && m_mesh && m_hasUpdated )
 	{
-		m_mesh->GetBatches( batches, m_mesh->GetAreas( TRIBATCHTYPE_OPAQUE ), perObjectData, shadowPixelSize );
+		const bool reverseWinding = Determinant( m_worldTransform ) < 0.0f;
+		m_mesh->GetBatches( batches, m_mesh->GetAreas( TRIBATCHTYPE_OPAQUE ), perObjectData, shadowPixelSize, reverseWinding );
 	}
 }
 
