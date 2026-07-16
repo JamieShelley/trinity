@@ -1898,6 +1898,7 @@ function(set_shared_trinity_properties target package_name)
         target_compile_definitions(${target}
         PRIVATE
             BLUE_USE_LOCAL_ITr2DebugRenderer2=1
+            PYTHON2_SUPPORT=1
     )
     endif()
 
