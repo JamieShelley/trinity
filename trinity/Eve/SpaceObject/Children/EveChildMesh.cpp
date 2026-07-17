@@ -204,16 +204,6 @@ bool EveChildMesh::OnModified( Be::Var* val )
 	return true;
 }
 
-const char* EveChildMesh::GetName() const
-{
-	return m_name.c_str();
-}
-
-void EveChildMesh::SetName( const char* name )
-{
-	m_name = BlueSharedString( name );
-}
-
 void EveChildMesh::InitializeAnimation()
 {
 	if( m_animationUpdater && m_animationUpdater->GetResPath().empty() )

@@ -49,10 +49,18 @@ EveEffectRoot2::~EveEffectRoot2()
 	{
 		controller->Unlink( UnlinkReason::DELETING );
 	}
+	for( auto& child : m_effectChildren )
+	{
+		child->SetOwner( nullptr );
+	}
 }
 
 bool EveEffectRoot2::Initialize()
 {
+	for( auto& child : m_effectChildren )
+	{
+		child->SetOwner( this );
+	}
 	for( auto& controller : m_controllers )
 	{
 		if( !controller->IsLinked() )
@@ -113,8 +121,9 @@ void EveEffectRoot2::OnListModified( long event, ssize_t key, ssize_t key2, IRoo
 		switch( event & BELIST_EVENTMASK )
 		{
 		case BELIST_INSERTED:
-			if( IEveSpaceObjectChildPtr child = BlueCastPtr( value ) )
+			if( EveSpaceObjectChildPtr child = BlueCastPtr( value ) )
 			{
+				child->SetOwner( this );
 				for( auto it = begin( m_controllerVariables ); it != end( m_controllerVariables ); ++it )
 				{
 					child->SetControllerVariable( it->first.c_str(), it->second );
@@ -137,6 +146,10 @@ void EveEffectRoot2::OnListModified( long event, ssize_t key, ssize_t key2, IRoo
 					entity->UnRegister( GetComponentRegistry() );
 				}
 			}
+			if( EveSpaceObjectChildPtr child = BlueCastPtr( value ) )
+			{
+				child->SetOwner( nullptr );
+			}
 			break;
 		case BELIST_UNLOADSTART:
 			if( IsInRegistry() )
@@ -148,6 +161,10 @@ void EveEffectRoot2::OnListModified( long event, ssize_t key, ssize_t key2, IRoo
 						entity->UnRegister( GetComponentRegistry() );
 					}
 				}
+			}
+			for( auto& child : m_effectChildren )
+			{
+				child->SetOwner( nullptr );
 			}
 		default:
 			break;
@@ -668,7 +685,7 @@ void EveEffectRoot2::GetMissPosition( const Vector3* hit, const Vector3* source,
 }
 
 // -----------------------------------------------------------------------------
-PIEveSpaceObjectChildVector& EveEffectRoot2::GetChildren()
+PEveSpaceObjectChildVector& EveEffectRoot2::GetChildren()
 {
 	return m_effectChildren;
 }
@@ -884,7 +901,7 @@ void EveEffectRoot2::StartControllers()
 }
 
 // --------------------------------------------------------------------------------
-IEveSpaceObjectChildPtr EveEffectRoot2::GetEffectChildByName( const char* name ) const
+EveSpaceObjectChildPtr EveEffectRoot2::GetEffectChildByName( const char* name ) const
 {
 	for( auto it = begin( m_effectChildren ); it != end( m_effectChildren ); ++it )
 	{
@@ -898,7 +915,7 @@ IEveSpaceObjectChildPtr EveEffectRoot2::GetEffectChildByName( const char* name )
 }
 
 // --------------------------------------------------------------------------------
-void EveEffectRoot2::AddToEffectChildrenList( IEveSpaceObjectChild* child )
+void EveEffectRoot2::AddToEffectChildrenList( EveSpaceObjectChild* child )
 {
 	if( IsInRegistry() && m_display )
 	{
@@ -911,7 +928,7 @@ void EveEffectRoot2::AddToEffectChildrenList( IEveSpaceObjectChild* child )
 }
 
 // --------------------------------------------------------------------------------
-void EveEffectRoot2::RemoveFromEffectChildrenList( IEveSpaceObjectChild* child )
+void EveEffectRoot2::RemoveFromEffectChildrenList( EveSpaceObjectChild* child )
 {
 	auto index = m_effectChildren.FindKey( child );
 	if( index >= 0 )
@@ -931,7 +948,7 @@ void EveEffectRoot2::SetShaderOption( const BlueSharedString& name, const BlueSh
 {
 	for( auto it = m_effectChildren.begin(); it != m_effectChildren.end(); ++it )
 	{
-		IEveSpaceObjectChild* child = *it;
+		EveSpaceObjectChild* child = *it;
 		child->SetShaderOption( name, value );
 	}
 }

@@ -170,16 +170,6 @@ void EveChildInstancedMeshes::PushRtGeometry( Tr2RaytracingManager& rtManager ) 
 }
 
 
-const char* EveChildInstancedMeshes::GetName() const
-{
-	return m_name.c_str();
-}
-
-void EveChildInstancedMeshes::SetName( const char* name )
-{
-	m_name = BlueSharedString( name );
-}
-
 void EveChildInstancedMeshes::UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod )
 {
 	m_lastCameraFrustum = updateContext.GetFrustum();
@@ -333,10 +323,6 @@ void EveChildInstancedMeshes::GetLocalToWorldTransform( Matrix& transform ) cons
 }
 
 void EveChildInstancedMeshes::Setup( const Vector3* scale, const Quaternion* rotation, const Vector3* translation, Tr2Lod lowestLodVisible )
-{
-}
-
-void EveChildInstancedMeshes::ChangeLOD( Tr2Lod lod )
 {
 }
 

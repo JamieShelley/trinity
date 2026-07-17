@@ -18,7 +18,7 @@
 #include "EveTurretFiringFX.h"
 #include "include/TriMath.h"
 #include "Tr2QuadRenderer.h"
-#include "Eve/SpaceObject/Children/IEveSpaceObjectChild.h"
+#include "Eve/SpaceObject/Children/EveSpaceObjectChild.h"
 
 CCP_STATS_DECLARED_ELSEWHERE( primitiveCount );
 
@@ -461,7 +461,7 @@ bool EveTurretSet::IsAmbientVisible() const
 }
 
 
-IEveSpaceObjectChild* EveTurretSet::GetAmbientEffectOrGeneratedEffect() const
+EveSpaceObjectChild* EveTurretSet::GetAmbientEffectOrGeneratedEffect() const
 {
 	if( m_ambientEffectEditingMode )
 	{
@@ -3654,12 +3654,12 @@ void EveTurretSet::SetFiringEffect( EveTurretFiringFX* firingEffect )
 	InitializeFiringEffect();
 }
 
-IEveSpaceObjectChild* EveTurretSet::GetAmbientEffect()
+EveSpaceObjectChild* EveTurretSet::GetAmbientEffect()
 {
 	return m_ambientEffect;
 }
 
-void EveTurretSet::SetAmbientEffect( IEveSpaceObjectChild* ambientEffect )
+void EveTurretSet::SetAmbientEffect( EveSpaceObjectChild* ambientEffect )
 {
 	auto registry = GetComponentRegistry();
 	if( EveEntityPtr entity = BlueCastPtr( m_ambientEffect ) )
