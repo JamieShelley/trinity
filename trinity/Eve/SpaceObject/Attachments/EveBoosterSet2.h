@@ -276,6 +276,12 @@ public:
 	// authority, so it is responsible for gathering locatorTransforms and calling this
 	// whenever locators change and on load (see EveShip2::RebuildBoosterSet/Initialize).
 	void RebuildBoosters( const std::vector<Matrix>& locatorTransforms );
+
+	// Feature-detection marker for cross-repo compatibility tooling (e.g. platformtools'
+	// HasPersistentBoosterItems()). Always true on any build where this is exposed to Blue.
+	// Deliberately exposes only this flag, not the per-booster data itself, which stays
+	// Be::PERSISTONLY (see the "boosters" MAP_ATTRIBUTE in EveBoosterSet2_Blue.cpp).
+	bool HasPersistentBoosterItems() const { return true; }
 	// set internal visual data
 	void SetData( 
 		float glowScale, 
