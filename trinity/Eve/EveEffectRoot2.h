@@ -9,7 +9,7 @@
 #include "EveTransform.h"
 #include "EveLODHelper.h"
 #include "IEveSpaceObject2.h"
-#include "Eve/SpaceObject/Children/IEveSpaceObjectChild.h"
+#include "Eve/SpaceObject/Children/EveSpaceObjectChild.h"
 #include "Eve/SpaceObject/Children/IEveEffectChildrenOwner.h"
 #include "Tr2ShLightingManager.h"
 #include "Include/ITriTargetable.h"
@@ -134,9 +134,9 @@ public:
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IEveEffectChildrenOwner
-	IEveSpaceObjectChildPtr GetEffectChildByName( const char* name ) const;
-	void AddToEffectChildrenList( IEveSpaceObjectChild * child );
-	void RemoveFromEffectChildrenList( IEveSpaceObjectChild * child );
+	EveSpaceObjectChildPtr GetEffectChildByName( const char* name ) const;
+	void AddToEffectChildrenList( EveSpaceObjectChild * child );
+	void RemoveFromEffectChildrenList( EveSpaceObjectChild * child );
 	void SetShaderOption( const BlueSharedString& name, const BlueSharedString& value ) override;
 
 	/////////////////////////////////////////////////////////////////////////////////////
@@ -160,7 +160,7 @@ public:
 	void Start();
 	void Stop();
 
-	PIEveSpaceObjectChildVector& GetChildren();
+	PEveSpaceObjectChildVector& GetChildren();
 
 	void SetTransform( const Matrix& transform );
 
@@ -204,7 +204,7 @@ protected:
 	std::string m_name;
 	bool m_display;
 	bool m_mute;
-	PIEveSpaceObjectChildVector m_effectChildren;
+	PEveSpaceObjectChildVector m_effectChildren;
 
 	Vector3 m_scaling;
 	Quaternion m_rotation;

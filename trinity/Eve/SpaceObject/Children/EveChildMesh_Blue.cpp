@@ -3,6 +3,7 @@
 #include "StdAfx.h"
 #include "EveChildMesh.h"
 
+BLUE_DEFINE_INTERFACE( IMultiPartObjectElement );
 BLUE_DEFINE( EveChildMesh );
 
 const Be::ClassInfo* EveChildMesh::ExposeToBlue()
@@ -11,6 +12,7 @@ const Be::ClassInfo* EveChildMesh::ExposeToBlue()
 		MAP_INTERFACE( EveChildMesh )
 		MAP_INTERFACE( EveEntity )
 		MAP_INTERFACE( IEveSpaceObjectDecalOwner )
+		MAP_INTERFACE( EveSpaceObjectChild )
 		MAP_INTERFACE( IEveSpaceObjectChild )
 		MAP_INTERFACE( ITr2Renderable )
 		MAP_INTERFACE( IInitialize )
@@ -88,5 +90,8 @@ const Be::ClassInfo* EveChildMesh::ExposeToBlue()
 			"GetMorphTargetWeight( name )\n\n"
 			"Returns the weight of the morph target. Returns 0 if no morph target with that name was found.\n"
 			":param name: morph target name\n" )
+		MAP_PROPERTY_READONLY( "partTag", GetPartTag, "Part tag for multi-part space objects" )
+		MAP_METHOD_AND_WRAP( "GetParent", GetParent, "Returns the parent space object child in the hierarchy" )
+		MAP_METHOD_AND_WRAP( "GetOwner", GetOwner, "Returns the owner space object" )
 	EXPOSURE_END()
 }

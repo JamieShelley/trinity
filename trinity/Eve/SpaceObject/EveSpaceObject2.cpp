@@ -239,6 +239,11 @@ EveSpaceObject2::~EveSpaceObject2()
 	}
 
 	UnregisterAudioGeometry();
+
+	for( auto& child : m_effectChildren )
+	{
+		child->SetOwner( nullptr );
+	}
 }
 
 bool EveSpaceObject2::Initialize()
@@ -247,6 +252,11 @@ bool EveSpaceObject2::Initialize()
 	if( m_mesh )
 	{
 		PrepareForAnimation();
+	}
+
+	for( auto& child : m_effectChildren )
+	{
+		child->SetOwner( this );
 	}
 
 	for( auto& controller : m_controllers )
@@ -307,8 +317,9 @@ void EveSpaceObject2::OnListModified( long event, ssize_t key, ssize_t key2, IRo
 		switch( event & BELIST_EVENTMASK )
 		{
 		case BELIST_INSERTED:
-			if( IEveSpaceObjectChildPtr child = BlueCastPtr( value ) )
+			if( EveSpaceObjectChildPtr child = BlueCastPtr( value ) )
 			{
+				child->SetOwner( this );
 				for( auto it = begin( m_controllerVariables ); it != end( m_controllerVariables ); ++it )
 				{
 					child->SetControllerVariable( it->first.c_str(), it->second );
@@ -327,6 +338,10 @@ void EveSpaceObject2::OnListModified( long event, ssize_t key, ssize_t key2, IRo
 			{
 				entity->UnRegister( this->GetComponentRegistry() );
 			}
+			if( EveSpaceObjectChildPtr child = BlueCastPtr( value ) )
+			{
+				child->SetOwner( nullptr );
+			}
 			break;
 		case BELIST_UNLOADSTART:
 			if( IsInRegistry() )
@@ -338,6 +353,10 @@ void EveSpaceObject2::OnListModified( long event, ssize_t key, ssize_t key2, IRo
 						entity->UnRegister( GetComponentRegistry() );
 					}
 				}
+			}
+			for( auto& child : m_effectChildren )
+			{
+				child->SetOwner( nullptr );
 			}
 			break;
 		default:
@@ -3005,7 +3024,7 @@ void EveSpaceObject2::AddObserver( TriObserverLocalPtr observer )
 }
 
 // --------------------------------------------------------------------------------
-IEveSpaceObjectChildPtr EveSpaceObject2::GetEffectChildByName( const char* name ) const
+EveSpaceObjectChildPtr EveSpaceObject2::GetEffectChildByName( const char* name ) const
 {
 	for( auto it = begin( m_effectChildren ); it != end( m_effectChildren ); ++it )
 	{
@@ -3022,7 +3041,7 @@ IEveSpaceObjectChildPtr EveSpaceObject2::GetEffectChildByName( const char* name 
 // Description:
 //   Add a child to the effectChildren list
 // --------------------------------------------------------------------------------
-void EveSpaceObject2::AddToEffectChildrenList( IEveSpaceObjectChild* child )
+void EveSpaceObject2::AddToEffectChildrenList( EveSpaceObjectChild* child )
 {
 	if( m_inheritProperties )
 	{
@@ -3036,7 +3055,7 @@ void EveSpaceObject2::AddToEffectChildrenList( IEveSpaceObjectChild* child )
 }
 
 // --------------------------------------------------------------------------------
-void EveSpaceObject2::RemoveFromEffectChildrenList( IEveSpaceObjectChild* child )
+void EveSpaceObject2::RemoveFromEffectChildrenList( EveSpaceObjectChild* child )
 {
 	auto index = m_effectChildren.FindKey( child );
 	if( index >= 0 )
@@ -3858,7 +3877,7 @@ void EveSpaceObject2::SetShaderOption( const BlueSharedString& name, const BlueS
 
 	for( auto it = m_effectChildren.begin(); it != m_effectChildren.end(); ++it )
 	{
-		IEveSpaceObjectChild* child = *it;
+		EveSpaceObjectChild* child = *it;
 		child->SetShaderOption( name, value );
 	}
 }

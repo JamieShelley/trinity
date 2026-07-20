@@ -4,7 +4,7 @@
 #ifndef EveChildMesh_H
 #define EveChildMesh_H
 
-#include "IEveSpaceObjectChild.h"
+#include "EveSpaceObjectChild.h"
 #include "EveChildTransform.h"
 #include "Eve/SpaceObject/EveSpaceObject2.h"
 #include "Eve/SpaceObject/Attachments/EveSpaceObjectDecal.h"
@@ -54,7 +54,7 @@ enum class MorphTargetAnimationFilter : uint8_t
 };
 
 BLUE_CLASS( EveChildMesh ) :
-	public IEveSpaceObjectChild,
+	public EveSpaceObjectChild,
 	public EveChildTransform,
 	public ITr2Renderable,
 	public IInitialize,
@@ -78,9 +78,7 @@ public:
 	~EveChildMesh();
 
 	/////////////////////////////////////////////////////////////////////////////////////
-	// IEveSpaceObjectChild
-	const char* GetName() const;
-	void SetName( const char* name );
+	// EveSpaceObjectChild
 	void UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod );
 	void GetRenderables( std::vector<ITr2Renderable*> & renderables );
 	bool GetBoundingSphere( Vector4 & sphere, BoundingSphereQuery query = EVE_BOUNDS_NORMAL ) const;
@@ -204,9 +202,6 @@ protected:
 	const std::pair<const int32_t*, size_t> GetMeshBindingIndices() const;
 	std::pair<const Tr2MorphTargetAnimationData*, size_t> GetMorphTargets( MorphTargetAnimationFilter filter );
 	void UpdateMorphAnimationBuffer();
-
-	// general data
-	BlueSharedString m_name;
 
 	// the mesh
 	Tr2MeshBasePtr m_mesh;
