@@ -236,66 +236,34 @@ void EveShip2::RebuildBoosterSet()
 		return;
 	}
 
-	// Snapshot the currently persisted booster data before clearing
-	std::vector<EveBoosterItem> snapshot = m_boosters->SnapshotPersistedItems();
-
-	// Clear only the booster items while preserving effects, glows, trails, and visual settings
-	m_boosters->RebuildPreservingSettings();
-
-	// Rebuild boosters from locators, restoring their original settings
+	// Gather this ship's booster locator transforms; EveBoosterSet2 owns restoring
+	// each booster's previous functionality/atlasIndex0/atlasIndex1/hasTrail/lightScale
+	// by index internally.
 	static const char* kLocatorPrefix = "locator_booster";
 	const unsigned int kLocatorPrefixLength = (unsigned int)strlen( kLocatorPrefix );
 
-	unsigned int boosterLocatorCount = 0;
+	std::vector<Matrix> locatorTransforms;
 	unsigned int n = (unsigned int)m_locators.size();
 	for( unsigned int i = 0; i < n; ++i )
 	{
 		const char* locatorName = m_locators[i]->GetName();
 		if( strncmp( locatorName, kLocatorPrefix, kLocatorPrefixLength ) == 0 )
 		{
-			++boosterLocatorCount;
-		}
-	}
-	const bool useSnapshot = ( snapshot.size() == boosterLocatorCount );
-
-	unsigned int boosterIndex = 0;
-	for( unsigned int i = 0; i < n; ++i )
-	{
-		EveLocator2Ptr locator = m_locators[i];
-		const char* locatorName = locator->GetName();
-		if( strncmp( locatorName, kLocatorPrefix, kLocatorPrefixLength ) == 0 )
-		{
-			Vector4 functionality( 0.f, 1.f, 1.f, 1.f );
-			bool hasTrail = true;
-			uint32_t atlasIndex0 = 0;
-			uint32_t atlasIndex1 = 0;
-			float lightScale = 1.0f;
-
-			if( useSnapshot )
-			{
-				const EveBoosterItem& saved = snapshot[boosterIndex];
-				functionality = saved.functionality;
-				hasTrail = saved.hasTrail != 0;
-				atlasIndex0 = saved.atlasIndex0;
-				atlasIndex1 = saved.atlasIndex1;
-				lightScale = saved.lightScale;
-			}
-
-			m_boosters->Add( &locator->GetTransform(), &functionality, hasTrail, atlasIndex0, atlasIndex1, lightScale );
-			++boosterIndex;
+			locatorTransforms.push_back( m_locators[i]->GetTransform() );
 		}
 	}
 
-	// Finalize the rebuild by rebuilding glows
-	m_boosters->FinalizeRebuild();
-
-	// Prepare resources to rebuild instance buffer and finalize
-	m_boosters->PrepareResources();
+	m_boosters->RebuildBoosters( locatorTransforms );
 }
 
 bool EveShip2::Initialize()
 {
 	EveMobile::Initialize();
+
+	// boosters own no positional data of their own once locators are available;
+	// rebuild them from this ship's locators now (mirrors RebuildTurretPositions()
+	// in EveMobile::Initialize())
+	RebuildBoosterSet();
 
 	return true;
 }

@@ -31,9 +31,12 @@ BLUE_DECLARE( Tr2DebugRenderer );
 
 // --------------------------------------------------------------------------------
 // Description:
-//   Persisted per-booster source data. POD record exposed to Blue via a
-//   BLUE_DECLARE_STRUCTURE_LIST. Runtime-derived fields (light position,
-//   radius, phase) are NOT stored here — they live in EveBoosterSet2's
+//   Per-booster source data. functionality/atlasIndex0/atlasIndex1/hasTrail/lightScale
+//   are persisted to Blue via a BLUE_DECLARE_STRUCTURE_LIST (see s_boosterItemStructureDef
+//   in EveBoosterSet2.cpp) so boosters survive save/load cycles. transform is NOT
+//   persisted: the ship owns locator authority and supplies a fresh transform on every
+//   rebuild via EveBoosterSet2::RebuildBoosters(). Runtime-derived fields (light position,
+//   radius, phase) are NOT stored here either — they live in EveBoosterSet2's
 //   m_runtimeLights vector, parallel to the persisted m_boosters list.
 // --------------------------------------------------------------------------------
 struct EveBoosterItem
@@ -192,7 +195,6 @@ BLUE_CLASS( EveBoosterSet2 ):
 	public INotify,
 	public Tr2DeviceResource,
 	public ITr2LightOwner,
-	public IBlueStructureListNotify,
 	public EveEntity
 {
 public:
@@ -256,8 +258,6 @@ public:
 	void UpdateTrails( float deltaT, Be::Time t );
 	// manage individual exhaust points
 	void Clear();
-	void RebuildPreservingSettings();
-	void FinalizeRebuild();
 
 	// Per-booster runtime light data, computed from EveBoosterItem entries by Add().
 	// Parallel to m_boosters: same index, same count. Never persisted.
@@ -269,6 +269,13 @@ public:
 	};
 
 	void Add( const Matrix* localMatrix, const Vector4* functionality, bool hasTrail, uint32_t atlasIndex0, uint32_t atlasIndex1, float lightScale = 1 );
+
+	// Rebuilds all boosters from the given locator transforms (in order), restoring each
+	// booster's previously-set functionality/atlasIndex0/atlasIndex1/hasTrail/lightScale by
+	// index where available, and falling back to defaults otherwise. The ship owns locator
+	// authority, so it is responsible for gathering locatorTransforms and calling this
+	// whenever locators change and on load (see EveShip2::RebuildBoosterSet/Initialize).
+	void RebuildBoosters( const std::vector<Matrix>& locatorTransforms );
 	// set internal visual data
 	void SetData( 
 		float glowScale, 
@@ -302,14 +309,6 @@ public:
 	// ITr2LightOwner
 	void GetLights( Tr2LightManager& lightManager ) const override;
 
-	//////////////////////////////////////////////////////////////////////////////////////
-	// IBlueStructureListNotify
-	void OnStructureListModified( Event event, const void* item, size_t index, IBlueStructureList* list ) override;
-
-	// Returns a defensive copy of the persisted booster items. Used by code that
-	// needs to snapshot data before clearing/rebuilding the structure list.
-	std::vector<EveBoosterItem> SnapshotPersistedItems();
-
 private:
 	PEveBoosterItemStructureList m_boosters;
 	std::vector<RuntimeLightData> m_runtimeLights;
@@ -319,10 +318,11 @@ private:
 	// derive runtime light data for one booster from its persisted entry
 	void ComputeRuntimeLightData( const EveBoosterItem& item, RuntimeLightData& out ) const;
 
-	// rebuild m_runtimeLights (and resources that depend on items) from the
-	// currently persisted m_boosters entries. Used on .red load and on
-	// structure-list edits.
-	void RebuildRuntimeFromPersistedItems();
+	// clear boosters/glows/trails/bounding info while preserving effects and visual
+	// settings; used internally by RebuildBoosters() before re-adding from fresh locators
+	void RebuildPreservingSettings();
+	// rebuild glows after all boosters have been re-added; used internally by RebuildBoosters()
+	void FinalizeRebuild();
 
 	// function to create the flares from boosterdata
 	void CreateFlares( const EveBoosterItem& item );

@@ -48,10 +48,6 @@ namespace
 {
 	BlueStructureDefinition s_boosterItemStructureDef[] =
 	{
-		{ "transformRow0", Be::FLOAT32_4,        offsetof( EveBoosterItem, transform ) +  0 },
-		{ "transformRow1", Be::FLOAT32_4,        offsetof( EveBoosterItem, transform ) + 16 },
-		{ "transformRow2", Be::FLOAT32_4,        offsetof( EveBoosterItem, transform ) + 32 },
-		{ "transformRow3", Be::FLOAT32_4,        offsetof( EveBoosterItem, transform ) + 48 },
 		{ "functionality", Be::FLOAT32_4,        offsetof( EveBoosterItem, functionality ) },
 		{ "atlasIndex0",   Be::UINT32_1,         offsetof( EveBoosterItem, atlasIndex0 )   },
 		{ "atlasIndex1",   Be::UINT32_1,         offsetof( EveBoosterItem, atlasIndex1 )   },
@@ -722,7 +718,6 @@ EveBoosterSet2::EveBoosterSet2( IRoot* lockobj ) :
 {
 	m_boosters.SetStructureDefinition( s_boosterItemStructureDef );
 	m_boosters.SetDefaultValue( &s_defaultBoosterItem );
-	m_boosters.SetNotify( this );
 
 	BoundingSphereInitialize( m_boosterBoundingSphere );
 	
@@ -771,17 +766,14 @@ EveBoosterSet2::~EveBoosterSet2()
 // --------------------------------------------------------------------------------
 // Description:
 //   If loading from a .red file, we now can start creating resources.
-//   If m_boosters was loaded from persistence, the entries contain source data
-//   but not the derived runtime fields (lightPosition, lightRadius, lightPhase).
-//   We snapshot the loaded entries, clear, then re-add through Add() which
-//   computes all derived fields correctly.
+//   transform is not persisted (the owning ship is the authority on booster
+//   locations), so the persisted m_boosters entries alone aren't enough to
+//   rebuild anything here. The owning ship is responsible for gathering its
+//   locator transforms and calling RebuildBoosters() from its own Initialize()
+//   once its locators are available (see EveShip2::Initialize).
 // --------------------------------------------------------------------------------
 bool EveBoosterSet2::Initialize()
 {
-	if( m_boosters.GetSize() > 0 )
-	{
-		RebuildRuntimeFromPersistedItems();
-	}
 	PrepareResources();
 	return true;
 }
@@ -912,6 +904,7 @@ void EveBoosterSet2::RebuildPreservingSettings()
 
 	// Reset bounding info
 	BoundingSphereInitialize( m_boosterBoundingSphere );
+	m_maxSize = 0.f;
 
 	// Release only the instance buffer resources
 	ReleaseResources( TRISTORAGE_ALL );
@@ -989,68 +982,48 @@ void EveBoosterSet2::ComputeRuntimeLightData( const EveBoosterItem& item, Runtim
 	out.phase    = float( g_lightNoiseSize ) * float( rand() ) / float( RAND_MAX );
 }
 
-void EveBoosterSet2::RebuildRuntimeFromPersistedItems()
+// --------------------------------------------------------------------------------
+// Description:
+//   Rebuilds all boosters from the given locator transforms (in order), restoring
+//   each booster's previously-set functionality/atlasIndex0/atlasIndex1/hasTrail/
+//   lightScale by index where a prior entry exists, and falling back to the same
+//   defaults SOF construction uses otherwise. Called by the owning ship whenever
+//   its locators change and once from its own Initialize() (see EveShip2).
+// --------------------------------------------------------------------------------
+void EveBoosterSet2::RebuildBoosters( const std::vector<Matrix>& locatorTransforms )
 {
-	if( m_glows )
-	{
-		m_glows->Clear();
-	}
-	if( m_trails )
-	{
-		m_trails->Clear();
-	}
-	BoundingSphereInitialize( m_boosterBoundingSphere );
-	m_maxSize = 0.f;
-
-	m_runtimeLights.clear();
-	m_runtimeLights.resize( m_boosters.GetSize() );
+	// snapshot current per-booster metadata before clearing, to restore by index below
+	std::vector<EveBoosterItem> previous;
+	previous.reserve( m_boosters.GetSize() );
 	for( size_t i = 0; i < m_boosters.GetSize(); ++i )
 	{
-		const EveBoosterItem& item = m_boosters[i];
-		ComputeRuntimeLightData( item, m_runtimeLights[i] );
+		previous.push_back( m_boosters[i] );
+	}
 
-		Vector3 pos( item.transform._41, item.transform._42, item.transform._43 );
-		float scale = std::max( Length( item.transform.GetX() ), Length( item.transform.GetY() ) );
+	RebuildPreservingSettings();
 
-		if( m_glows )
+	for( size_t i = 0; i < locatorTransforms.size(); ++i )
+	{
+		Vector4 functionality( 0.f, 1.f, 1.f, 1.f );
+		bool hasTrail = true;
+		uint32_t atlasIndex0 = 0;
+		uint32_t atlasIndex1 = 0;
+		float lightScale = 1.0f;
+
+		if( i < previous.size() )
 		{
-			CreateFlares( item );
+			const EveBoosterItem& saved = previous[i];
+			functionality = saved.functionality;
+			hasTrail      = saved.hasTrail != 0;
+			atlasIndex0   = saved.atlasIndex0;
+			atlasIndex1   = saved.atlasIndex1;
+			lightScale    = saved.lightScale;
 		}
 
-		if( m_trails && item.hasTrail )
-		{
-			Matrix offset = item.transform;
-			offset.GetTranslation() -= offset.GetZ() * 0.5f;
-			m_trails->Add( &offset, scale );
-		}
-
-		BoundingSphereUpdate( pos, m_boosterBoundingSphere );
-
-		if( scale > m_maxSize )
-		{
-			m_maxSize = scale;
-		}
+		Add( &locatorTransforms[i], &functionality, hasTrail, atlasIndex0, atlasIndex1, lightScale );
 	}
 
 	FinalizeRebuild();
-}
-
-std::vector<EveBoosterItem> EveBoosterSet2::SnapshotPersistedItems()
-{
-	std::vector<EveBoosterItem> out;
-	out.reserve( m_boosters.GetSize() );
-	for( size_t i = 0; i < m_boosters.GetSize(); ++i )
-	{
-		out.push_back( m_boosters[i] );
-	}
-	return out;
-}
-
-void EveBoosterSet2::OnStructureListModified( Event /*event*/, const void* /*item*/, size_t /*index*/, IBlueStructureList* /*list*/ )
-{
-	// External edit to m_boosters. Fully rebuild dependent state from the new list:
-	// runtime lights, glow sprites, trail entries, bounding sphere, m_maxSize and the GPU instance buffer.
-	RebuildRuntimeFromPersistedItems();
 	PrepareResources();
 }
 
