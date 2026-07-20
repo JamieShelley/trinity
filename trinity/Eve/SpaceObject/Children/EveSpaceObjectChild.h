@@ -308,6 +308,7 @@ protected:
 	}
 
 	BlueSharedString m_name;
+
 private:
 	IEveSpaceObject2* m_owner = nullptr;
 	EveSpaceObjectChild* m_parent = nullptr;

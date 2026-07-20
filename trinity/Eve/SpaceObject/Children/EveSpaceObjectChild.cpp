@@ -38,7 +38,7 @@ void EveSpaceObjectChild::RegisterWithQuadRenderer( Tr2QuadRenderer& )
 void EveSpaceObjectChild::AddQuadsToQuadRenderer( const TriFrustum&, Tr2QuadRenderer& ) const
 {
 }
-	
+
 void EveSpaceObjectChild::UpdateSyncronous( const EveUpdateContext&, const EveChildUpdateParams& )
 {
 }
