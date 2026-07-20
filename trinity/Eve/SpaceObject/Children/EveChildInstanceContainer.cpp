@@ -354,8 +354,7 @@ void EveChildInstanceContainer::PopFront()
 				front->UnRegister( GetComponentRegistry() );
 			}
 		}
-		m_instances[0]->SetOwner( nullptr );
-		m_instances[0]->SetParent( nullptr );
+		UnregisterChild( m_instances[0] );
 		m_instances.Remove( 0 );
 	}
 }
