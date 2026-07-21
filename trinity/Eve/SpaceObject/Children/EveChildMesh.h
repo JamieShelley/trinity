@@ -168,6 +168,11 @@ public:
 	void SetCastShadow( bool castShadow );
 	void SetMinScreenSize( float minScreenSize );
 
+	void AddOverlayEffect( EveMeshOverlayEffectPtr newOverlayEffect );
+	void RemoveOverlayEffect( EveMeshOverlayEffectPtr overlayEffectToRemove );
+	EveMeshOverlayEffectPtr GetOverlayEffectByName( const char* name ) const;
+	const PEveMeshOverlayEffectVector& GetOverlayEffects() const { return m_overlayEffects; }
+
 	Tr2GrannyAnimation* GetAnimationController() const override;
 	void SetAnimationController( Tr2GrannyAnimation * animation );
 
@@ -215,6 +220,10 @@ protected:
 	IEveSpaceObject2::ParentData m_parentData;
 
 	const PEveMeshOverlayEffectVector* m_parentOverlayEffects = nullptr;
+	// overlay effects owned by this child mesh, rendered underneath any inherited parent overlays
+	PEveMeshOverlayEffectVector m_overlayEffects;
+	Be::Time m_lastOverlayUpdateTime = 0;
+	Tr2Lod m_overlayUpdateLod = TR2_LOD_UNSPECIFIED;
 	std::vector<TriRenderBatchAreaBlock> m_overlayMeshAreaBlocks[EveMeshOverlayEffect::TYPE_COUNT];
 	bool m_overlayAreaBlocksBuilt = false;
 	void RebuildOverlayAreaBlocks();
@@ -244,6 +253,7 @@ protected:
 	CcpMath::Sphere m_worldBoundingSphere; // bounding sphere in world space
 
 	bool m_display;
+	bool m_inheritOverlayEffects;
 	bool m_isVisible;
 	bool m_instancesVisible;
 	bool m_castShadow;

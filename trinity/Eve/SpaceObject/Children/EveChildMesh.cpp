@@ -30,7 +30,9 @@ EveChildMesh::EveChildMesh( IRoot* lockobj ) :
 	PARENTLOCK( m_decals ),
 	PARENTLOCK( m_attachments ),
 	PARENTLOCK( m_lights ),
+	PARENTLOCK( m_overlayEffects ),
 	m_display( true ),
+	m_inheritOverlayEffects( true ),
 	m_isVisible( false ),
 	m_instancesVisible( false ),
 	m_castShadow( false ),
@@ -369,6 +371,7 @@ void EveChildMesh::UpdateVisibility( const EveUpdateContext& updateContext, cons
 	m_currentScreenSize = -1;
 	m_instancesVisible = false;
 	m_currentInstanceScreenSize = -1.0f;
+	m_overlayUpdateLod = parentLod;
 
 	if( !m_hasUpdated )
 	{
@@ -635,6 +638,14 @@ bool EveChildMesh::HasTransparentBatches()
 			return true;
 		}
 
+		for( auto it = m_overlayEffects.begin(); it != m_overlayEffects.end(); ++it )
+		{
+			if( ( *it )->HasTransparentArea() )
+			{
+				return true;
+			}
+		}
+
 		if( m_parentOverlayEffects != nullptr )
 		{
 			for( auto it = m_parentOverlayEffects->begin(); it != m_parentOverlayEffects->end(); ++it )
@@ -692,7 +703,8 @@ void EveChildMesh::RebuildOverlayAreaBlocks()
 
 void EveChildMesh::GetBatchesFromOverlayVector( ITriRenderBatchAccumulator* batches, const Tr2PerObjectData* perObjectData, TriBatchType batchType )
 {
-	if( !m_mesh || m_parentOverlayEffects == nullptr || m_parentOverlayEffects->empty() )
+	const bool hasParentOverlays = m_parentOverlayEffects != nullptr && !m_parentOverlayEffects->empty();
+	if( !m_mesh || ( m_overlayEffects.empty() && !hasParentOverlays ) )
 	{
 		return;
 	}
@@ -715,7 +727,17 @@ void EveChildMesh::GetBatchesFromOverlayVector( ITriRenderBatchAccumulator* batc
 		return;
 	}
 
-	EmitOverlayBatches( batches, perObjectData, batchType, *m_parentOverlayEffects, m_overlayMeshAreaBlocks, *lod );
+	// own effects are emitted before the inherited ones so the parent's overlays (e.g. cloak)
+	// draw on top of this child's own overlays (e.g. battle damage)
+	if( !m_overlayEffects.empty() )
+	{
+		EmitOverlayBatches( batches, perObjectData, batchType, m_overlayEffects, m_overlayMeshAreaBlocks, *lod );
+	}
+
+	if( hasParentOverlays )
+	{
+		EmitOverlayBatches( batches, perObjectData, batchType, *m_parentOverlayEffects, m_overlayMeshAreaBlocks, *lod );
+	}
 }
 
 void EveChildMesh::GetShadowBatches( ITriRenderBatchAccumulator* batches, const Tr2PerObjectData* perObjectData, float shadowPixelSize )
@@ -984,9 +1006,26 @@ void EveChildMesh::UpdateAsyncronous( const EveUpdateContext& updateContext, con
 		params.spaceObjectParent->GetPerObjectStructs( m_vsData, m_psData );
 		params.spaceObjectParent->GetParentData( &m_parentData );
 
-		if( EveSpaceObject2Ptr spaceObject2Parent = BlueCastPtr( params.spaceObjectParent ) )
+		if( m_inheritOverlayEffects )
 		{
-			m_parentOverlayEffects = &spaceObject2Parent->GetOverlayEffects();
+			if( EveSpaceObject2Ptr spaceObject2Parent = BlueCastPtr( params.spaceObjectParent ) )
+			{
+				m_parentOverlayEffects = &spaceObject2Parent->GetOverlayEffects();
+			}
+		}
+		else
+		{
+			// Opted out of the parent's overlay: also neutralize the inherited clip sphere,
+			// otherwise the part is dissolved with the rest of the ship instead of staying visible.
+			m_vsData.clipData.w = 0.f;
+			m_psData.clipRadiusSq = 0.f;
+			m_psData.clipRadius2Sq = 0.f;
+			m_psData.clipSphereFactor = 0.f;
+			m_psData.clipSphereFactor2 = 0.f;
+			m_parentData.clipRadiusSq = 0.f;
+			m_parentData.clipRadius2Sq = 0.f;
+			m_parentData.clipFactor = 0.f;
+			m_parentData.clipFactor2 = 0.f;
 		}
 
 		// need to move the clipdata inversely of the translation of the childmesh
@@ -1055,6 +1094,21 @@ void EveChildMesh::UpdateAsyncronous( const EveUpdateContext& updateContext, con
 
 void EveChildMesh::UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )
 {
+	if( !m_overlayEffects.empty() )
+	{
+		Be::Time time = updateContext.GetTime();
+		if( EveLODHelper::ShouldUpdate( m_overlayUpdateLod, float( TimeAsDouble( time - m_lastOverlayUpdateTime ) ) ) )
+		{
+			// overlay effect curves need to be updated on the game thread because they may have references
+			// to attributes that are not thread safe, particularly the parent's clipSphereFactor
+			m_lastOverlayUpdateTime = time;
+			for( auto it = m_overlayEffects.begin(); it != m_overlayEffects.end(); ++it )
+			{
+				( *it )->Update( time, time );
+			}
+		}
+	}
+
 	bool allowAudioGeometry = !params.spaceObjectParent || params.spaceObjectParent->IsAudioOccluder();
 
 	if( !allowAudioGeometry && m_audioGeometryRegistered )
@@ -1122,6 +1176,37 @@ void EveChildMesh::SetMesh( Tr2MeshBase* mesh )
 	{
 		m_overlayMeshAreaBlocks[i].clear();
 	}
+}
+
+void EveChildMesh::AddOverlayEffect( EveMeshOverlayEffectPtr newOverlayEffect )
+{
+	m_overlayEffects.Append( newOverlayEffect->GetRawRoot() );
+}
+
+void EveChildMesh::RemoveOverlayEffect( EveMeshOverlayEffectPtr overlayEffectToRemove )
+{
+	ssize_t index = m_overlayEffects.FindKey( overlayEffectToRemove->GetRawRoot() );
+	if( index >= 0 )
+	{
+		m_overlayEffects.Remove( index );
+	}
+}
+
+EveMeshOverlayEffectPtr EveChildMesh::GetOverlayEffectByName( const char* name ) const
+{
+	if( name == nullptr )
+	{
+		return nullptr;
+	}
+
+	for( auto overlay : m_overlayEffects )
+	{
+		if( strcmp( overlay->m_name.c_str(), name ) == 0 )
+		{
+			return overlay;
+		}
+	}
+	return nullptr;
 }
 
 void EveChildMesh::RegisterAudioGeometry()
@@ -1215,6 +1300,11 @@ void EveChildMesh::SetShaderOption( const BlueSharedString& name, const BlueShar
 	if( nullptr != m_mesh )
 	{
 		m_mesh->SetShaderOption( name, value );
+	}
+
+	for( auto it = m_overlayEffects.begin(); it != m_overlayEffects.end(); ++it )
+	{
+		( *it )->SetShaderOption( name, value );
 	}
 
 	for( EveSpaceObjectDecalVector::iterator it = m_decals.begin(); it != m_decals.end(); ++it )
