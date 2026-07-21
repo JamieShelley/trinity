@@ -14,7 +14,6 @@
 #include "Curves/TriCurveSet.h"
 #include "Tr2Mesh.h"
 #include "Tr2MeshBase.h"
-#include "TriMath.h"
 
 extern float g_eveSpaceSceneLowUpdateRate;
 

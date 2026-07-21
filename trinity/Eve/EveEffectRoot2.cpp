@@ -8,7 +8,6 @@
 #include "TriFrustum.h"
 #include "Lights/Tr2PointLight.h"
 #include "Tr2LightManager.h"
-#include "TriMath.h"
 #include "Controllers/ITr2Controller.h"
 #include "Curves/TriCurveSet.h"
 #include "Eve/EveUpdateContext.h"

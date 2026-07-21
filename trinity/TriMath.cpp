@@ -893,11 +893,6 @@ bool IsFinite( const Vector3& vec )
 	return IsFinite( vec.x ) && IsFinite( vec.y ) && IsFinite( vec.z );
 }
 
-bool IsFinite( const Vector4& vec )
-{
-	return IsFinite( vec.x ) && IsFinite( vec.y ) && IsFinite( vec.z ) && IsFinite( vec.w );
-}
-
 float TriClamp(
 	float f,
 	float min,

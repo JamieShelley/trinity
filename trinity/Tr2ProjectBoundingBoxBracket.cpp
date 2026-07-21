@@ -10,7 +10,6 @@
 #include "TriViewport.h"
 #include "Sprite2d/Tr2Sprite2dContainer.h"
 #include "Utilities/BoundingBox.h"
-#include "Utilities/BoundingSphere.h"
 #include "include/ITr2DebugRenderer.h"
 
 extern ITr2DebugRendererPtr g_debugRenderer;

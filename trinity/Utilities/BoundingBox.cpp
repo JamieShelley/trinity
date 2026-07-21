@@ -1,7 +1,6 @@
 // Copyright © 2023 CCP ehf.
 
 #include "StdAfx.h"
-#include "Include/TriMath.h"
 #include "BoundingBox.h"
 #include "BoundingSphere.h"
 #include "MatrixUtils.h"
