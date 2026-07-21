@@ -26,6 +26,10 @@ public:
 	void UpdateBracket();
 
 protected:
+	void SetFullViewportProjection( const TriViewport& viewport );
+	void ConstrainProjection( const Vector3& center, const Matrix& viewProjection, const TriViewport& viewport );
+	void PublishProjection( const TriViewport& viewport );
+
 	std::wstring m_name;
 
 	//////////////////////////////////////////////////////////////////////////

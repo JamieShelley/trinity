@@ -209,16 +209,6 @@ void BoundingBoxUpdate( Vector3& min, Vector3& max, const Vector4& sphere )
 	BoundingBoxUpdate( min, max, Vector3( sphere.x + sphere.w, sphere.y + sphere.w, sphere.z + sphere.w ) );
 }
 
-void BoundingBoxInclude( CcpMath::AxisAlignedBox& box, const Vector3& min, const Vector3& max )
-{
-	if( !IsFinite( min ) || !IsFinite( max ) )
-	{
-		return;
-	}
-
-	box.Include( CcpMath::AxisAlignedBox( min, max ) );
-}
-
 void BoundingBoxTransform( Vector3& min, Vector3& max, const Matrix& tf )
 {
 	Vector3 corners[8];

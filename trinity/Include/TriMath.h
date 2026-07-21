@@ -261,6 +261,7 @@ double* Matrix4dFromMatrix( double* result, const Matrix& mat );
 
 bool IsFinite( float value );
 bool IsFinite( const Vector3& vec );
+bool IsFinite( const Vector4& vec );
 
 float TriClamp( float f, float min, float max );
 int32_t ClampInt( int32_t f, int32_t min, int32_t max );

@@ -24,10 +24,6 @@ void BoundingBoxUpdate( Vector3& min, Vector3& max, const Vector3& pos );
 void BoundingBoxUpdate( Vector3& min, Vector3& max, const Vector3& otherMin, const Vector3& otherMax );
 void BoundingBoxUpdate( Vector3& min, Vector3& max, const Vector4& sphere );
 
-// Guarded accumulation: non-finite boxes and invalid spheres are ignored, since
-// CcpMath::AxisAlignedBox::Include would absorb NaN into the accumulated bounds.
-void BoundingBoxInclude( CcpMath::AxisAlignedBox& box, const Vector3& min, const Vector3& max );
-
 // Transforms an axis aligned bounding box by the given transform, returns
 // the new axis aligned bounding box
 void BoundingBoxTransform( Vector3& min, Vector3& max, const Matrix& tf );

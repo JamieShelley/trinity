@@ -19,14 +19,6 @@ namespace
 {
 const float CLIP_EPSILON = 1e-5f;
 
-struct ClipPoint
-{
-	float x;
-	float y;
-	float z;
-	float w;
-};
-
 struct ProjectedBounds
 {
 	float x;
@@ -38,19 +30,9 @@ struct ProjectedBounds
 	bool coversViewport;
 };
 
-bool IsFinite( float value )
+Vector4 TransformPointToClip( const Vector3& point, const Matrix& viewProjection )
 {
-	return std::isfinite( value );
-}
-
-bool IsFinite( const ClipPoint& point )
-{
-	return IsFinite( point.x ) && IsFinite( point.y ) && IsFinite( point.z ) && IsFinite( point.w );
-}
-
-ClipPoint TransformPointToClip( const Vector3& point, const Matrix& viewProjection )
-{
-	return ClipPoint{
+	return Vector4{
 		point.x * viewProjection._11 + point.y * viewProjection._21 + point.z * viewProjection._31 + viewProjection._41,
 		point.x * viewProjection._12 + point.y * viewProjection._22 + point.z * viewProjection._32 + viewProjection._42,
 		point.x * viewProjection._13 + point.y * viewProjection._23 + point.z * viewProjection._33 + viewProjection._43,
@@ -58,9 +40,9 @@ ClipPoint TransformPointToClip( const Vector3& point, const Matrix& viewProjecti
 	};
 }
 
-ClipPoint Lerp( const ClipPoint& a, const ClipPoint& b, float t )
+Vector4 Lerp( const Vector4& a, const Vector4& b, float t )
 {
-	return ClipPoint{
+	return Vector4{
 		a.x + ( b.x - a.x ) * t,
 		a.y + ( b.y - a.y ) * t,
 		a.z + ( b.z - a.z ) * t,
@@ -68,7 +50,7 @@ ClipPoint Lerp( const ClipPoint& a, const ClipPoint& b, float t )
 	};
 }
 
-bool AreAllOutsidePlane( const ClipPoint* points, float ( *planeDistance )( const ClipPoint& ) )
+bool AreAllOutsidePlane( const Vector4* points, float ( *planeDistance )( const Vector4& ) )
 {
 	for( int i = 0; i < 8; ++i )
 	{
@@ -80,32 +62,32 @@ bool AreAllOutsidePlane( const ClipPoint* points, float ( *planeDistance )( cons
 	return true;
 }
 
-float DistanceToLeftPlane( const ClipPoint& point )
+float DistanceToLeftPlane( const Vector4& point )
 {
 	return point.x + point.w;
 }
-float DistanceToRightPlane( const ClipPoint& point )
+float DistanceToRightPlane( const Vector4& point )
 {
 	return point.w - point.x;
 }
-float DistanceToBottomPlane( const ClipPoint& point )
+float DistanceToBottomPlane( const Vector4& point )
 {
 	return point.y + point.w;
 }
-float DistanceToTopPlane( const ClipPoint& point )
+float DistanceToTopPlane( const Vector4& point )
 {
 	return point.w - point.y;
 }
-float DistanceToNearPlane( const ClipPoint& point )
+float DistanceToNearPlane( const Vector4& point )
 {
 	return point.z;
 }
-float DistanceToFarPlane( const ClipPoint& point )
+float DistanceToFarPlane( const Vector4& point )
 {
 	return point.w - point.z;
 }
 
-bool IsTriviallyOutsideFrustum( const ClipPoint* points )
+bool IsTriviallyOutsideFrustum( const Vector4* points )
 {
 	return AreAllOutsidePlane( points, DistanceToLeftPlane ) ||
 		AreAllOutsidePlane( points, DistanceToRightPlane ) ||
@@ -115,12 +97,12 @@ bool IsTriviallyOutsideFrustum( const ClipPoint* points )
 		AreAllOutsidePlane( points, DistanceToFarPlane );
 }
 
-bool CanPerspectiveDivide( const ClipPoint& point )
+bool CanPerspectiveDivide( const Vector4& point )
 {
-	return IsFinite( point ) && fabsf( point.w ) > CLIP_EPSILON;
+	return fabsf( point.w ) > CLIP_EPSILON;
 }
 
-void AddIfProjectable( const ClipPoint& point, std::vector<ClipPoint>& points )
+void AddIfProjectable( const Vector4& point, std::vector<Vector4>& points )
 {
 	if( point.z >= 0.0f && CanPerspectiveDivide( point ) )
 	{
@@ -128,7 +110,7 @@ void AddIfProjectable( const ClipPoint& point, std::vector<ClipPoint>& points )
 	}
 }
 
-void AddNearPlaneIntersection( const ClipPoint& a, const ClipPoint& b, std::vector<ClipPoint>& points )
+void AddNearPlaneIntersection( const Vector4& a, const Vector4& b, std::vector<Vector4>& points )
 {
 	if( ( a.z < 0.0f ) == ( b.z < 0.0f ) )
 	{
@@ -142,14 +124,14 @@ void AddNearPlaneIntersection( const ClipPoint& a, const ClipPoint& b, std::vect
 	}
 
 	float t = a.z / denominator;
-	ClipPoint point = Lerp( a, b, t );
+	Vector4 point = Lerp( a, b, t );
 	if( CanPerspectiveDivide( point ) )
 	{
 		points.push_back( point );
 	}
 }
 
-bool ProjectClipPoint( const ClipPoint& point, const TriViewport& viewport, Vector3& projected )
+bool ProjectClipPoint( const Vector4& point, const TriViewport& viewport, Vector3& projected )
 {
 	if( !CanPerspectiveDivide( point ) )
 	{
@@ -160,7 +142,7 @@ bool ProjectClipPoint( const ClipPoint& point, const TriViewport& viewport, Vect
 	projected.x = viewport.x + ( 1.0f + point.x * reciprocalW ) * 0.5f * viewport.width;
 	projected.y = viewport.y + ( 1.0f - point.y * reciprocalW ) * 0.5f * viewport.height;
 	projected.z = viewport.minZ + point.z * reciprocalW * ( viewport.maxZ - viewport.minZ );
-	return IsFinite( projected.x ) && IsFinite( projected.y ) && IsFinite( projected.z );
+	return true;
 }
 
 bool ProjectBoundingBoxToViewport( const Vector3& bbMin, const Vector3& bbMax, const Matrix& viewProjection, const TriViewport& viewport, ProjectedBounds& bounds )
@@ -175,14 +157,10 @@ bool ProjectBoundingBoxToViewport( const Vector3& bbMin, const Vector3& bbMax, c
 	corners[6] = Vector3( bbMin.x, bbMax.y, bbMax.z );
 	corners[7] = Vector3( bbMin.x, bbMax.y, bbMin.z );
 
-	ClipPoint clipCorners[8];
+	Vector4 clipCorners[8];
 	for( int i = 0; i < 8; ++i )
 	{
 		clipCorners[i] = TransformPointToClip( corners[i], viewProjection );
-		if( !IsFinite( clipCorners[i] ) )
-		{
-			return false;
-		}
 	}
 
 	if( IsTriviallyOutsideFrustum( clipCorners ) )
@@ -190,7 +168,7 @@ bool ProjectBoundingBoxToViewport( const Vector3& bbMin, const Vector3& bbMax, c
 		return false;
 	}
 
-	std::vector<ClipPoint> projectablePoints;
+	std::vector<Vector4> projectablePoints;
 	projectablePoints.reserve( 20 );
 	for( int i = 0; i < 8; ++i )
 	{
@@ -219,7 +197,7 @@ bool ProjectBoundingBoxToViewport( const Vector3& bbMin, const Vector3& bbMax, c
 	float maxX = 0.0f;
 	float maxY = 0.0f;
 
-	for( const ClipPoint& point : projectablePoints )
+	for( const Vector4& point : projectablePoints )
 	{
 		if( !ProjectClipPoint( point, viewport, projected ) )
 		{
@@ -250,7 +228,7 @@ bool ProjectBoundingBoxToViewport( const Vector3& bbMin, const Vector3& bbMax, c
 
 	float width = maxX - minX;
 	float height = maxY - minY;
-	if( !IsFinite( width ) || !IsFinite( height ) || width <= 0.0f || height <= 0.0f )
+	if( width <= 0.0f || height <= 0.0f )
 	{
 		return false;
 	}
@@ -298,6 +276,19 @@ bool ClampToScreenMargin( const TriViewport& viewport, float margin, float& x, f
 	height = maxY - minY;
 	return true;
 }
+
+float ClampProjectedSize( float size, float minSize, float maxSize )
+{
+	if( minSize > 0.0f && size < minSize )
+	{
+		return minSize;
+	}
+	if( maxSize > 0.0f && size > maxSize )
+	{
+		return maxSize;
+	}
+	return size;
+}
 }
 
 
@@ -324,55 +315,26 @@ Tr2ProjectBoundingBoxBracket::Tr2ProjectBoundingBoxBracket( IRoot* lockobj /*= N
 
 void Tr2ProjectBoundingBoxBracket::UpdateValue( double time )
 {
-	if( !m_object )
-	{
-		SetEmptyProjection();
-		return;
-	}
-
-	if( !m_object->IsBoundingBoxReady() )
-	{
-		SetEmptyProjection();
-		return;
-	}
-
 	Vector3 bbMin, bbMax;
-	Vector3 center;
-	if( !m_object->GetWorldBoundingBox( bbMin, bbMax ) )
+	if( !m_object || !m_object->IsBoundingBoxReady() || !m_object->GetWorldBoundingBox( bbMin, bbMax ) )
 	{
 		SetEmptyProjection();
 		return;
 	}
-	center = ( bbMax + bbMin ) * 0.5f;
 
-	Vector3 d = Tr2Renderer::GetViewPosition() - center;
-	m_cameraDistance = Length( d );
+	const Vector3 center = ( bbMax + bbMin ) * 0.5f;
+	const Vector3 viewPosition = Tr2Renderer::GetViewPosition();
+	m_cameraDistance = Length( viewPosition - center );
 
 	const TriViewport& viewport = Tr2Renderer::GetViewport();
-	const bool cameraInside = BoundingBoxIsInside( bbMin, bbMax, Tr2Renderer::GetViewPosition() );
-	if( cameraInside )
+	if( BoundingBoxIsInside( bbMin, bbMax, viewPosition ) )
 	{
-		m_projectedX = static_cast<float>( viewport.x );
-		m_projectedY = static_cast<float>( viewport.y );
-		m_projectedZ = viewport.minZ;
-		m_projectedWidth = static_cast<float>( viewport.width );
-		m_projectedHeight = static_cast<float>( viewport.height );
-		if( !ClampToScreenMargin( viewport, m_screenMargin, m_projectedX, m_projectedY, m_projectedWidth, m_projectedHeight ) )
-		{
-			SetEmptyProjection();
-			return;
-		}
-		m_isProjectionValid = true;
-		m_containsCamera = true;
-		m_extendsOffscreen = true;
-		m_coversViewport = true;
-		UpdateBracket();
+		SetFullViewportProjection( viewport );
 		return;
 	}
 
 	Matrix viewProjection = Tr2Renderer::GetViewTransform() * Tr2Renderer::GetProjectionTransform();
 	ProjectedBounds projectedBounds;
-
 	if( !ProjectBoundingBoxToViewport( bbMin, bbMax, viewProjection, viewport, projectedBounds ) )
 	{
 		SetEmptyProjection();
@@ -388,73 +350,8 @@ void Tr2ProjectBoundingBoxBracket::UpdateValue( double time )
 	m_extendsOffscreen = projectedBounds.extendsOffscreen;
 	m_coversViewport = projectedBounds.coversViewport;
 
-	float centerX = m_projectedX + m_projectedWidth * 0.5f;
-	float centerY = m_projectedY + m_projectedHeight * 0.5f;
-	if( m_maxProjectedWidth > 0.0f || m_maxProjectedHeight > 0.0f )
-	{
-		// Bounded brackets are anchored on the projected 3d box center, not the projected
-		// rect center, unless the box center is behind the near plane.
-		ClipPoint clipCenter = TransformPointToClip( center, viewProjection );
-		Vector3 projectedCenter;
-		if( clipCenter.z >= 0.0f && clipCenter.w > 0.0f && ProjectClipPoint( clipCenter, viewport, projectedCenter ) )
-		{
-			centerX = projectedCenter.x;
-			centerY = projectedCenter.y;
-		}
-	}
-
-	if( m_minProjectedWidth > 0.0f && m_projectedWidth < m_minProjectedWidth )
-	{
-		m_projectedWidth = m_minProjectedWidth;
-	}
-	else if( m_maxProjectedWidth > 0.0f && m_projectedWidth > m_maxProjectedWidth )
-	{
-		m_projectedWidth = m_maxProjectedWidth;
-	}
-
-	if( m_minProjectedHeight > 0.0f && m_projectedHeight < m_minProjectedHeight )
-	{
-		m_projectedHeight = m_minProjectedHeight;
-	}
-	else if( m_maxProjectedHeight > 0.0f && m_projectedHeight > m_maxProjectedHeight )
-	{
-		m_projectedHeight = m_maxProjectedHeight;
-	}
-
-	m_projectedX = centerX - m_projectedWidth * 0.5f;
-	m_projectedY = centerY - m_projectedHeight * 0.5f;
-
-	if( m_integerCoordinates )
-	{
-		m_projectedX = floor( m_projectedX + 0.5f );
-		m_projectedY = floor( m_projectedY + 0.5f );
-		m_projectedWidth = floor( m_projectedWidth + 0.5f );
-		m_projectedHeight = floor( m_projectedHeight + 0.5f );
-	}
-
-	if( !IsFinite( m_projectedX ) || !IsFinite( m_projectedY ) || !IsFinite( m_projectedWidth ) || !IsFinite( m_projectedHeight ) || m_projectedWidth <= 0.0f || m_projectedHeight <= 0.0f )
-	{
-		SetEmptyProjection();
-		return;
-	}
-
-	if( !ClampToScreenMargin( viewport, m_screenMargin, m_projectedX, m_projectedY, m_projectedWidth, m_projectedHeight ) )
-	{
-		SetEmptyProjection();
-		return;
-	}
-
-	m_isProjectionValid = true;
-	UpdateBracket();
-
-	if( g_debugRenderer )
-	{
-		int x = static_cast<int>( m_projectedX );
-		int y = static_cast<int>( m_projectedY );
-		g_debugRenderer->Printf( x, y, 0xffffffff, "%S", m_name.c_str() );
-		y += 16;
-		g_debugRenderer->Printf( x, y, 0xffffffff, "(%5.2f, %5.2f)", m_projectedWidth, m_projectedHeight );
-	}
+	ConstrainProjection( center, viewProjection, viewport );
+	PublishProjection( viewport );
 }
 
 void Tr2ProjectBoundingBoxBracket::SetEmptyProjection()
@@ -480,5 +377,80 @@ void Tr2ProjectBoundingBoxBracket::UpdateBracket()
 		m_bracket->SetDisplayY( m_projectedY );
 		m_bracket->SetDisplayWidth( m_projectedWidth );
 		m_bracket->SetDisplayHeight( m_projectedHeight );
+	}
+}
+void Tr2ProjectBoundingBoxBracket::SetFullViewportProjection( const TriViewport& viewport )
+{
+	m_projectedX = static_cast<float>( viewport.x );
+	m_projectedY = static_cast<float>( viewport.y );
+	m_projectedZ = viewport.minZ;
+	m_projectedWidth = static_cast<float>( viewport.width );
+	m_projectedHeight = static_cast<float>( viewport.height );
+	if( !ClampToScreenMargin( viewport, m_screenMargin, m_projectedX, m_projectedY, m_projectedWidth, m_projectedHeight ) )
+	{
+		SetEmptyProjection();
+		return;
+	}
+	m_isProjectionValid = true;
+	m_containsCamera = true;
+	m_extendsOffscreen = true;
+	m_coversViewport = true;
+	UpdateBracket();
+}
+void Tr2ProjectBoundingBoxBracket::ConstrainProjection( const Vector3& center, const Matrix& viewProjection, const TriViewport& viewport )
+{
+	float centerX = m_projectedX + m_projectedWidth * 0.5f;
+	float centerY = m_projectedY + m_projectedHeight * 0.5f;
+	if( m_maxProjectedWidth > 0.0f || m_maxProjectedHeight > 0.0f )
+	{
+		// Bounded brackets are anchored on the projected 3d box center, not the projected
+		// rect center, unless the box center is behind the near plane.
+		Vector4 clipCenter = TransformPointToClip( center, viewProjection );
+		Vector3 projectedCenter;
+		if( clipCenter.z >= 0.0f && clipCenter.w > 0.0f && ProjectClipPoint( clipCenter, viewport, projectedCenter ) )
+		{
+			centerX = projectedCenter.x;
+			centerY = projectedCenter.y;
+		}
+	}
+
+	m_projectedWidth = ClampProjectedSize( m_projectedWidth, m_minProjectedWidth, m_maxProjectedWidth );
+	m_projectedHeight = ClampProjectedSize( m_projectedHeight, m_minProjectedHeight, m_maxProjectedHeight );
+
+	m_projectedX = centerX - m_projectedWidth * 0.5f;
+	m_projectedY = centerY - m_projectedHeight * 0.5f;
+
+	if( m_integerCoordinates )
+	{
+		m_projectedX = floor( m_projectedX + 0.5f );
+		m_projectedY = floor( m_projectedY + 0.5f );
+		m_projectedWidth = floor( m_projectedWidth + 0.5f );
+		m_projectedHeight = floor( m_projectedHeight + 0.5f );
+	}
+}
+void Tr2ProjectBoundingBoxBracket::PublishProjection( const TriViewport& viewport )
+{
+	if( m_projectedWidth <= 0.0f || m_projectedHeight <= 0.0f )
+	{
+		SetEmptyProjection();
+		return;
+	}
+
+	if( !ClampToScreenMargin( viewport, m_screenMargin, m_projectedX, m_projectedY, m_projectedWidth, m_projectedHeight ) )
+	{
+		SetEmptyProjection();
+		return;
+	}
+
+	m_isProjectionValid = true;
+	UpdateBracket();
+
+	if( g_debugRenderer )
+	{
+		int x = static_cast<int>( m_projectedX );
+		int y = static_cast<int>( m_projectedY );
+		g_debugRenderer->Printf( x, y, 0xffffffff, "%S", m_name.c_str() );
+		y += 16;
+		g_debugRenderer->Printf( x, y, 0xffffffff, "(%5.2f, %5.2f)", m_projectedWidth, m_projectedHeight );
 	}
 }

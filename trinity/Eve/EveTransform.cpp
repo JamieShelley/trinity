@@ -14,6 +14,7 @@
 #include "Curves/TriCurveSet.h"
 #include "Tr2Mesh.h"
 #include "Tr2MeshBase.h"
+#include "TriMath.h"
 
 extern float g_eveSpaceSceneLowUpdateRate;
 
@@ -373,44 +374,21 @@ void EveTransform::GetRenderables( std::vector<ITr2Renderable*>& renderables )
 
 bool EveTransform::GetLocalBoundingBox( Vector3& min, Vector3& max )
 {
-	CcpMath::AxisAlignedBox bounds;
-
-	Vector3 directMin;
-	Vector3 directMax;
-	if( GetDirectLocalBounds( m_overrideBoundsMin, m_overrideBoundsMax, m_mesh, directMin, directMax ) )
-	{
-		BoundingBoxInclude( bounds, directMin, directMax );
-	}
-
-	if( !bounds.IsInitialized() )
+	if( !GetDirectLocalBounds( m_overrideBoundsMin, m_overrideBoundsMax, m_mesh, min, max ) )
 	{
 		return false;
 	}
 
-	min = bounds.m_min;
-	max = bounds.m_max;
 	return true;
 }
 
 bool EveTransform::GetWorldBoundingBox( Vector3& min, Vector3& max ) const
 {
-	CcpMath::AxisAlignedBox bounds;
-
-	Vector3 localMin;
-	Vector3 localMax;
-	if( GetDirectLocalBounds( m_overrideBoundsMin, m_overrideBoundsMax, m_mesh, localMin, localMax ) )
-	{
-		BoundingBoxTransform( localMin, localMax, m_worldTransform );
-		BoundingBoxInclude( bounds, localMin, localMax );
-	}
-
-	if( !bounds.IsInitialized() )
+	if( !GetDirectLocalBounds( m_overrideBoundsMin, m_overrideBoundsMax, m_mesh, min, max ) )
 	{
 		return false;
 	}
-
-	min = bounds.m_min;
-	max = bounds.m_max;
+	BoundingBoxTransform( min, max, m_worldTransform );
 	return true;
 }
 

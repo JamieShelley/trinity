@@ -8,6 +8,7 @@
 #include "TriFrustum.h"
 #include "Lights/Tr2PointLight.h"
 #include "Tr2LightManager.h"
+#include "TriMath.h"
 #include "Controllers/ITr2Controller.h"
 #include "Curves/TriCurveSet.h"
 #include "Eve/EveUpdateContext.h"
@@ -416,24 +417,13 @@ void EveEffectRoot2::GetLocalToWorldTransform( Matrix& transform ) const
 
 bool EveEffectRoot2::GetWorldBoundingBox( Vector3& min, Vector3& max ) const
 {
-	CcpMath::AxisAlignedBox bounds;
-
-	if( m_boundingSphere.w > 0.0f )
-	{
-		Vector3 rootMin;
-		Vector3 rootMax;
-		BoundingBoxInitialize( m_boundingSphere, rootMin, rootMax );
-		BoundingBoxTransform( rootMin, rootMax, m_lastUpdateMatrix );
-		BoundingBoxInclude( bounds, rootMin, rootMax );
-	}
-
-	if( !bounds.IsInitialized() )
+	if( m_boundingSphere.w <= 0.0f )
 	{
 		return false;
 	}
 
-	min = bounds.m_min;
-	max = bounds.m_max;
+	BoundingBoxInitialize( m_boundingSphere, min, max );
+	BoundingBoxTransform( min, max, m_lastUpdateMatrix );
 	return true;
 }
 
