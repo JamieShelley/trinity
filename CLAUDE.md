@@ -4,9 +4,9 @@ Guidance for coding agents (and new developers) working in this repository.
 
 ## What this is
 
-Carbon trinity: Fenris Creations' rendering engine for the Carbon game engine. C++, built per graphics
-API as python extension modules named `_trinity_<api>[_<flavor>].pyd` (for example
-`_trinity_dx12_trinitydev.pyd`). The engine is scripted from Python through the "Blue" exposure
+Carbon Trinity: Fenris Creations' rendering engine for the Carbon game engine. C++, built per graphics
+API as Python extension modules named `_trinity_<api>[_<flavor>]` (for example
+`_trinity_dx12_trinitydev`; on Windows the extension suffix is `.pyd`, while on macOS/Linux it's typically `.so`). The engine is scripted from Python through the "Blue" exposure
 layer (see below). The primary consumer is Fenris's internal game codebase, which imports it as
 `import trinity`; the repo can also be built standalone (public headers in `trinity/Include/`).
 
@@ -57,13 +57,13 @@ Tripwires:
 ## The Blue exposure layer
 
 Most engine classes `Foo.{h,cpp}` have a sibling `Foo_Blue.cpp` (about 500 in the repo) defining
-Foo's python surface. Only members mapped there (`MAP_ATTRIBUTE`, `MAP_METHOD_AND_WRAP`,
-`MAP_INTERFACE`) are reachable from python. When editing any class that has a `_Blue.cpp` sibling:
+Foo's Python surface. Only members mapped there (`MAP_ATTRIBUTE`, `MAP_METHOD_AND_WRAP`,
+`MAP_INTERFACE`) are reachable from Python. When editing any class that has a `_Blue.cpp` sibling:
 
-1. A new public member intended for python use MUST be mapped in the `_Blue.cpp`, or it is
-   invisible from python. The symptom is "my change has no effect" despite a clean build and
+1. A new public member intended for Python use MUST be mapped in the `_Blue.cpp`, or it is
+   invisible from Python. The symptom is "my change has no effect" despite a clean build and
    deploy. Do not reflexively expose every new member either: exposure is a public-API
-   commitment, so confirm the member is actually meant for python before mapping it.
+   commitment, so confirm the member is actually meant for Python before mapping it.
 2. Renaming or removing a C++ member leaves a stale `_Blue.cpp` entry that breaks the build.
    Update the `_Blue.cpp` in the same change.
 3. Exposed names AND their semantics are a public API with consumers outside this repo. Before
