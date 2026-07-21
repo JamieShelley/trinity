@@ -10,12 +10,9 @@
 #include "Tr2LightManager.h"
 #include "Controllers/ITr2Controller.h"
 #include "Curves/TriCurveSet.h"
-#include "Eve/EveChildBounds.h"
 #include "Eve/EveUpdateContext.h"
 #include "Eve/SpaceObject/EveSpaceObject2.h"
 #include "Eve/SpaceObject/Children/EveChildContainer.h"
-
-#include <cmath>
 
 extern float g_eveSpaceObjectResourceUnloadingTimeThreshold;
 
@@ -402,7 +399,7 @@ void EveEffectRoot2::GetModelCenterWorldPosition( Vector3& position ) const
 
 bool EveEffectRoot2::GetLocalBoundingBox( Vector3& min, Vector3& max )
 {
-	if( !BoundingSphereIsValid( m_boundingSphere ) )
+	if( m_boundingSphere.w <= 0.0f )
 	{
 		return false;
 	}
@@ -421,24 +418,13 @@ bool EveEffectRoot2::GetWorldBoundingBox( Vector3& min, Vector3& max ) const
 {
 	CcpMath::AxisAlignedBox bounds;
 
-	if( BoundingSphereIsValid( m_boundingSphere ) )
+	if( m_boundingSphere.w > 0.0f )
 	{
 		Vector3 rootMin;
 		Vector3 rootMax;
 		BoundingBoxInitialize( m_boundingSphere, rootMin, rootMax );
 		BoundingBoxTransform( rootMin, rootMax, m_lastUpdateMatrix );
 		BoundingBoxInclude( bounds, rootMin, rootMax );
-	}
-
-	for( auto it = m_effectChildren.begin(); it != m_effectChildren.end(); ++it )
-	{
-		const IEveSpaceObjectChild* child = *it;
-		Vector3 childMin;
-		Vector3 childMax;
-		if( GetChildWorldBounds( child, childMin, childMax ) )
-		{
-			BoundingBoxInclude( bounds, childMin, childMax );
-		}
 	}
 
 	if( !bounds.IsInitialized() )
@@ -453,21 +439,7 @@ bool EveEffectRoot2::GetWorldBoundingBox( Vector3& min, Vector3& max ) const
 
 bool EveEffectRoot2::IsBoundingBoxReady() const
 {
-	if( BoundingSphereIsValid( m_boundingSphere ) )
-	{
-		return true;
-	}
-
-	for( auto it = m_effectChildren.begin(); it != m_effectChildren.end(); ++it )
-	{
-		Vector4 childBounds;
-		if( ( *it )->GetBoundingSphere( childBounds, EVE_BOUNDS_WITH_CHILDREN ) && BoundingSphereIsValid( childBounds ) )
-		{
-			return true;
-		}
-	}
-
-	return false;
+	return m_boundingSphere.w > 0.0f;
 }
 
 void EveEffectRoot2::RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer )

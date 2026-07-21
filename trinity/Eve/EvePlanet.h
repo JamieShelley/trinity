@@ -61,7 +61,6 @@ public:
 
 	// ITr2BoundingBox
 	bool GetWorldBoundingBox( Vector3 & min, Vector3 & max ) const override;
-	bool GetWorldBoundingSphere( Vector4 & sphere ) const override;
 	bool IsBoundingBoxReady() const override;
 
 	// ITr2SecondaryLightSource

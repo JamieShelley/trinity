@@ -10,7 +10,6 @@
 #include "Particle/Tr2ParticleSystem.h"
 #include "Particle/ITr2GenericEmitter.h"
 #include "EveUpdateContext.h"
-#include "EveChildBounds.h"
 #include "EveLODHelper.h"
 #include "Curves/TriCurveSet.h"
 #include "Tr2Mesh.h"
@@ -383,22 +382,6 @@ bool EveTransform::GetLocalBoundingBox( Vector3& min, Vector3& max )
 		BoundingBoxInclude( bounds, directMin, directMax );
 	}
 
-	Matrix inverseWorldTransform;
-	if( Inverse( inverseWorldTransform, m_worldTransform ) )
-	{
-		for( auto it = m_children.begin(); it != m_children.end(); ++it )
-		{
-			const IEveTransform* child = *it;
-			Vector3 childMin;
-			Vector3 childMax;
-			if( GetChildWorldBounds( child, childMin, childMax ) )
-			{
-				BoundingBoxTransform( childMin, childMax, inverseWorldTransform );
-				BoundingBoxInclude( bounds, childMin, childMax );
-			}
-		}
-	}
-
 	if( !bounds.IsInitialized() )
 	{
 		return false;
@@ -421,17 +404,6 @@ bool EveTransform::GetWorldBoundingBox( Vector3& min, Vector3& max ) const
 		BoundingBoxInclude( bounds, localMin, localMax );
 	}
 
-	for( auto it = m_children.begin(); it != m_children.end(); ++it )
-	{
-		const IEveTransform* child = *it;
-		Vector3 childMin;
-		Vector3 childMax;
-		if( GetChildWorldBounds( child, childMin, childMax ) )
-		{
-			BoundingBoxInclude( bounds, childMin, childMax );
-		}
-	}
-
 	if( !bounds.IsInitialized() )
 	{
 		return false;
@@ -446,29 +418,7 @@ bool EveTransform::IsBoundingBoxReady() const
 {
 	Vector3 min;
 	Vector3 max;
-	if( GetDirectLocalBounds( m_overrideBoundsMin, m_overrideBoundsMax, m_mesh, min, max ) )
-	{
-		return true;
-	}
-
-	for( auto it = m_children.begin(); it != m_children.end(); ++it )
-	{
-		if( auto childBoundingBox = dynamic_cast<const ITr2BoundingBox*>( *it ) )
-		{
-			if( childBoundingBox->IsBoundingBoxReady() )
-			{
-				return true;
-			}
-		}
-
-		Vector4 childSphere;
-		if( ( *it )->GetBoundingSphere( childSphere, EVE_BOUNDS_WITH_CHILDREN ) && BoundingSphereIsValid( childSphere ) )
-		{
-			return true;
-		}
-	}
-
-	return false;
+	return GetDirectLocalBounds( m_overrideBoundsMin, m_overrideBoundsMax, m_mesh, min, max );
 }
 
 bool EveTransform::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query ) const

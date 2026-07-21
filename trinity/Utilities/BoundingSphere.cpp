@@ -11,12 +11,6 @@ void BoundingSphereInitialize( Vector4& sphere )
 	sphere = Vector4( 0.f, 0.f, 0.f, 0.f );
 }
 
-bool BoundingSphereIsValid( const Vector4& sphere )
-{
-	// w > 0 rejects a NaN radius, but a NaN center needs the explicit checks.
-	return sphere.w > 0.0f && IsFinite( sphere.x ) && IsFinite( sphere.y ) && IsFinite( sphere.z ) && IsFinite( sphere.w );
-}
-
 bool BoundingSphereIsInside( const Vector4& sphere, const Vector3& pos )
 {
 	const float radiusEpsilon = 1e-4f;
