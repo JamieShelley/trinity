@@ -49,51 +49,58 @@ Vector4 Lerp( const Vector4& a, const Vector4& b, float t )
 	};
 }
 
-bool AreAllOutsidePlane( const Vector4* points, float ( *planeDistance )( const Vector4& ) )
+// Cohen-Sutherland style outcodes: one bit per plane of the D3D clip volume
+// (-w <= x <= w, -w <= y <= w, 0 <= z <= w); a set bit means the point is
+// outside that plane. In 2D (4 bits) the zones look like:
+//
+//          |        |
+//     1001 |  1000  | 1010
+//    ------+--------+------
+//     0001 |  0000  | 0010   <- 0000 = inside
+//    ------+--------+------
+//     0101 |  0100  | 0110
+//
+// AND of all corner codes != 0 => every corner shares an outside plane
+// => the box is fully off-frustum.
+// XOR of two corner codes & CLIP_NEAR => the edge crosses the near plane.
+enum ClipPlaneBits : uint32_t
 {
-	for( int i = 0; i < 8; ++i )
+	CLIP_LEFT = 1 << 0,
+	CLIP_RIGHT = 1 << 1,
+	CLIP_BOTTOM = 1 << 2,
+	CLIP_TOP = 1 << 3,
+	CLIP_NEAR = 1 << 4,
+	CLIP_FAR = 1 << 5,
+};
+
+uint32_t ClipOutcode( const Vector4& point )
+{
+	uint32_t code = 0;
+	if( point.x + point.w < 0.0f )
 	{
-		if( planeDistance( points[i] ) >= 0.0f )
-		{
-			return false;
-		}
+		code |= CLIP_LEFT;
 	}
-	return true;
-}
-
-float DistanceToLeftPlane( const Vector4& point )
-{
-	return point.x + point.w;
-}
-float DistanceToRightPlane( const Vector4& point )
-{
-	return point.w - point.x;
-}
-float DistanceToBottomPlane( const Vector4& point )
-{
-	return point.y + point.w;
-}
-float DistanceToTopPlane( const Vector4& point )
-{
-	return point.w - point.y;
-}
-float DistanceToNearPlane( const Vector4& point )
-{
-	return point.z;
-}
-float DistanceToFarPlane( const Vector4& point )
-{
-	return point.w - point.z;
-}
-
-bool IsTriviallyOutsideFrustum( const Vector4* points )
-{
-	return AreAllOutsidePlane( points, DistanceToLeftPlane ) ||
-		AreAllOutsidePlane( points, DistanceToRightPlane ) ||
-		AreAllOutsidePlane( points, DistanceToBottomPlane ) ||
-		AreAllOutsidePlane( points, DistanceToTopPlane ) ||
-		AreAllOutsidePlane( points, DistanceToNearPlane ) ||
-		AreAllOutsidePlane( points, DistanceToFarPlane );
+	if( point.w - point.x < 0.0f )
+	{
+		code |= CLIP_RIGHT;
+	}
+	if( point.y + point.w < 0.0f )
+	{
+		code |= CLIP_BOTTOM;
+	}
+	if( point.w - point.y < 0.0f )
+	{
+		code |= CLIP_TOP;
+	}
+	if( point.z < 0.0f )
+	{
+		code |= CLIP_NEAR;
+	}
+	if( point.w - point.z < 0.0f )
+	{
+		code |= CLIP_FAR;
+	}
+	return code;
 }
 
 bool CanPerspectiveDivide( const Vector4& point )
@@ -101,21 +108,10 @@ bool CanPerspectiveDivide( const Vector4& point )
 	return fabsf( point.w ) > CLIP_EPSILON;
 }
 
-void AddIfProjectable( const Vector4& point, std::vector<Vector4>& points )
-{
-	if( point.z >= 0.0f && CanPerspectiveDivide( point ) )
-	{
-		points.push_back( point );
-	}
-}
-
+// Both endpoints must be on opposite sides of the near plane; the caller
+// guarantees this via the outcode test.
 void AddNearPlaneIntersection( const Vector4& a, const Vector4& b, std::vector<Vector4>& points )
 {
-	if( ( a.z < 0.0f ) == ( b.z < 0.0f ) )
-	{
-		return;
-	}
-
 	float denominator = a.z - b.z;
 	if( fabsf( denominator ) <= CLIP_EPSILON )
 	{
@@ -157,12 +153,17 @@ bool ProjectBoundingBoxToViewport( const Vector3& bbMin, const Vector3& bbMax, c
 	corners[7] = Vector3( bbMin.x, bbMax.y, bbMin.z );
 
 	Vector4 clipCorners[8];
+	uint32_t outcodes[8];
+	uint32_t combinedOutcode = ~0u;
 	for( int i = 0; i < 8; ++i )
 	{
 		clipCorners[i] = TransformPointToClip( corners[i], viewProjection );
+		outcodes[i] = ClipOutcode( clipCorners[i] );
+		combinedOutcode &= outcodes[i];
 	}
 
-	if( IsTriviallyOutsideFrustum( clipCorners ) )
+	// A surviving bit means every corner is outside the same plane
+	if( combinedOutcode != 0 )
 	{
 		return false;
 	}
@@ -171,7 +172,10 @@ bool ProjectBoundingBoxToViewport( const Vector3& bbMin, const Vector3& bbMax, c
 	projectablePoints.reserve( 20 );
 	for( int i = 0; i < 8; ++i )
 	{
-		AddIfProjectable( clipCorners[i], projectablePoints );
+		if( !( outcodes[i] & CLIP_NEAR ) && CanPerspectiveDivide( clipCorners[i] ) )
+		{
+			projectablePoints.push_back( clipCorners[i] );
+		}
 	}
 
 	static const int EDGES[12][2] = {
@@ -180,7 +184,11 @@ bool ProjectBoundingBoxToViewport( const Vector3& bbMin, const Vector3& bbMax, c
 
 	for( int i = 0; i < 12; ++i )
 	{
-		AddNearPlaneIntersection( clipCorners[EDGES[i][0]], clipCorners[EDGES[i][1]], projectablePoints );
+		// XOR: the edge endpoints straddle the near plane
+		if( ( outcodes[EDGES[i][0]] ^ outcodes[EDGES[i][1]] ) & CLIP_NEAR )
+		{
+			AddNearPlaneIntersection( clipCorners[EDGES[i][0]], clipCorners[EDGES[i][1]], projectablePoints );
+		}
 	}
 
 	if( projectablePoints.empty() )
@@ -227,10 +235,6 @@ bool ProjectBoundingBoxToViewport( const Vector3& bbMin, const Vector3& bbMax, c
 
 	float width = maxX - minX;
 	float height = maxY - minY;
-	if( width <= 0.0f || height <= 0.0f )
-	{
-		return false;
-	}
 
 	float viewportLeft = static_cast<float>( viewport.x );
 	float viewportTop = static_cast<float>( viewport.y );
