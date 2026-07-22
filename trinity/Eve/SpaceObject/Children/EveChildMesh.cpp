@@ -201,6 +201,13 @@ bool EveChildMesh::OnModified( Be::Var* val )
 		m_instancedMesh = BlueCastPtr( m_mesh );
 		InitializeAnimation();
 	}
+	if( !m_ownedLocatorSets.empty() )
+	{
+		if( IsMatch( val, m_scaling ) || IsMatch( val, m_rotation ) || IsMatch( val, m_translation ) || IsMatch( val, m_localTransform ) )
+		{
+			InvalidateOwnerMergedLocators();
+		}
+	}
 	return true;
 }
 
@@ -1765,4 +1772,53 @@ BluePy EveChildMesh::GetSofSourceLocator( uint32_t areaId ) const
 		return result;
 	}
 	return BluePy( Py_None, true );
+}
+
+void EveChildMesh::CollectOwnedLocatorSets( const Matrix& parentTransform, std::vector<EveChildLocatorSetsSource>& out ) const
+{
+	if( m_ownedLocatorSets.empty() )
+	{
+		return;
+	}
+
+	Matrix localTransform = ( m_staticTransform || !m_useSRT ) ? m_localTransform : TransformationMatrix( m_scaling, m_rotation, m_translation );
+
+	for( const auto& entry : m_ownedLocatorSets )
+	{
+		EveChildLocatorSetsSource source;
+		source.childToObject = localTransform * parentTransform;
+		source.owner = this;
+		source.sets = entry;
+		out.push_back( source );
+	}
+}
+
+void EveChildMesh::CollectOwnedGeometry( const Matrix& parentTransform, std::vector<EveChildGeometry>& out ) const
+{
+	if( !m_mesh || !m_mesh->GetGeometryResource() )
+	{
+		return;
+	}
+
+	Matrix localTransform = ( m_staticTransform || !m_useSRT ) ? m_localTransform : TransformationMatrix( m_scaling, m_rotation, m_translation );
+
+	EveChildGeometry source;
+	source.childToObject = localTransform * parentTransform;
+	source.geometry = m_mesh->GetGeometryResource();
+	source.owner = this;
+	out.push_back( source );
+}
+
+void EveChildMesh::SetOwnedLocatorSets( const std::vector<EveLocatorSetsPtr>& sets )
+{
+	m_ownedLocatorSets = sets;
+	InvalidateOwnerMergedLocators();
+}
+
+void EveChildMesh::InvalidateOwnerMergedLocators()
+{
+	if( GetOwner() )
+	{
+		GetOwner()->InvalidateMergedLocators();
+	}
 }

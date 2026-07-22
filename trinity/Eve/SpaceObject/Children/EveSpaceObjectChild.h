@@ -7,6 +7,28 @@
 BLUE_CLASS_IMPL( EveSpaceObjectChild );
 
 /**
+ * @brief Struct bundling locator sets and owner information as well as transform, to be processed by the parent object.
+ * @see EveSpaceObjectChild::CollectOwnedLocatorSets
+ */
+struct EveChildLocatorSetsSource
+{
+	class EveLocatorSets* sets = nullptr;
+	Matrix childToObject = IdentityMatrix();
+	const class EveChildMesh* owner = nullptr;
+};
+
+/**
+ * @brief Struct bundling geometry and owner information as well as transform, to be processed by the parent object.
+ * @see EveSpaceObjectChild::CollectOwnedGeometry
+ */
+struct EveChildGeometry
+{
+	class TriGeometryRes* geometry = nullptr;
+	Matrix childToObject = IdentityMatrix();
+	const class EveChildMesh* owner = nullptr;
+};
+
+/**
  * @brief Base class for all space object children. This class provides common functionality and properties for all child objects in the space object hierarchy.
  */
 class EveSpaceObjectChild : public IEveSpaceObjectChild
@@ -229,6 +251,20 @@ public:
 	 * @param parent Parent child object to set for this child.
 	 */
 	void SetParent( EveSpaceObjectChild* parent );
+
+	/**
+	 * @brief Collects all locator sets that are locally owned by this child, so they can be merged by the parent object.
+	 * @param parentTransform The parent's transform, which is to be applied on the locators.
+	 * @param out The collected locator sets, bundled with owner information and transforms.
+	 */
+	virtual void CollectOwnedLocatorSets( const Matrix& parentTransform, std::vector<EveChildLocatorSetsSource>& out ) const;
+
+	/**
+	 * @brief Collects all geometries that are owned by this child, so they can be processed by the parent object.
+	 * @param parentTransform The parent's transform, which is to be applied on the locators.
+	 * @param out The collected geometries, bundled with owner information and transforms.
+	 */
+	virtual void CollectOwnedGeometry( const Matrix& parentTransform, std::vector<EveChildGeometry>& out ) const;
 
 protected:
 	/**

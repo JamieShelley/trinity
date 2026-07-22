@@ -187,6 +187,11 @@ public:
 	bool IsMorphsBaked() const;
 	BluePy GetSofSourceLocator( uint32_t areaId ) const;
 
+	void CollectOwnedLocatorSets( const Matrix& parentTransform, std::vector<EveChildLocatorSetsSource>& out ) const override;
+	void CollectOwnedGeometry( const Matrix& parentTransform, std::vector<EveChildGeometry>& out ) const override;
+	void SetOwnedLocatorSets( const std::vector<EveLocatorSetsPtr>& sets );
+	void InvalidateOwnerMergedLocators();
+
 protected:
 	virtual void ReleaseResources( TriStorage s );
 	virtual bool OnPrepareResources();
@@ -282,6 +287,8 @@ protected:
 		uint32_t m_bakedCount;
 		uint32_t m_allCount;
 	} m_morphAnimationOffsets;
+
+	std::vector<EveLocatorSetsPtr> m_ownedLocatorSets;
 };
 
 TYPEDEF_BLUECLASS( EveChildMesh );

@@ -1230,3 +1230,23 @@ bool EveChildContainer::Empty() const
 	return m_objects.empty() && m_lights.empty() && m_attachments.empty() && m_controllers.empty() &&
 		m_curveSets.empty() && m_transformModifiers.empty() && m_observers.empty();
 }
+
+void EveChildContainer::CollectOwnedLocatorSets( const Matrix& parentTransform, std::vector<EveChildLocatorSetsSource>& out ) const
+{
+	Matrix transform = ( m_staticTransform || !m_useSRT ) ? m_localTransform : TransformationMatrix( m_scaling, m_rotation, m_translation );
+	transform = transform * parentTransform;
+	for( const auto& object : m_objects )
+	{
+		object->CollectOwnedLocatorSets( transform, out );
+	}
+}
+
+void EveChildContainer::CollectOwnedGeometry( const Matrix& parentTransform, std::vector<EveChildGeometry>& out ) const
+{
+	Matrix transform = ( m_staticTransform || !m_useSRT ) ? m_localTransform : TransformationMatrix( m_scaling, m_rotation, m_translation );
+	transform = transform * parentTransform;
+	for( const auto& object : m_objects )
+	{
+		object->CollectOwnedGeometry( transform, out );
+	}
+}

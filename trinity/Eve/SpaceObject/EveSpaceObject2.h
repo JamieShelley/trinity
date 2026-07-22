@@ -169,6 +169,13 @@ struct EveSpacePerObjectData
 	Vector4 shLighting[7] = {};
 };
 
+struct LocatorSourceRange
+{
+	int32_t start;
+	int32_t count;
+	const class EveChildMesh* owner;
+	uint32_t partTag;
+};
 
 // ---------------------------------------------------------------------------------------
 //  Description:
@@ -288,6 +295,11 @@ public:
 	virtual void SetProceduralContainerVariable( const char* name, float value ) override;
 	virtual bool IsPickable() const;
 	virtual void GetParentData( IEveSpaceObject2::ParentData * pd ) const;
+	void InvalidateMergedLocators() override;
+
+	void EnsureChildLocatorMerged() const;
+	void RebuildMergedLocatorSets() const;
+	void UpdateDamageLocatorAutoFilter();
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// IEveShadowCaster
@@ -453,6 +465,7 @@ public:
 	Vector3 GetDamageLocatorDirectionLocal( uint32_t index ) const;
 	const LocatorStructureList* GetLocatorsForSet( const BlueSharedString& setName ) const;
 	void MergeToLocatorSet( const EveLocatorSets& locatorSet );
+	void MergeToLocatorSetTracked( const EveLocatorSets& locatorSet );
 
 	// clear stuff
 	void ClearLocatorSets();
@@ -772,6 +785,14 @@ private:
 	mutable Tr2ConstantBufferAL m_rtPerObjectData;
 
 	Tr2RingBufferOffsets m_boneOffsets;
+
+	std::vector<LocatorSourceRange> m_baseDamageLocatorSources;
+	mutable std::vector<LocatorSourceRange> m_mergedDamageLocatorSources;
+	mutable std::vector<EveLocatorSetsPtr> m_mergedLocatorSets;
+	std::vector<bool> m_damageLocatorEnabled;
+	mutable bool m_mergedLocatorSetsDirty;
+	bool m_damageLocatorAutoFilterEnabled;
+	mutable bool m_damageLocatorFilterDirty;
 };
 
 TYPEDEF_BLUECLASS( EveSpaceObject2 );

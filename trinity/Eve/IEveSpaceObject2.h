@@ -85,7 +85,13 @@ BLUE_INTERFACE( IEveSpaceObject2 ) :
 	{
 	}
 
-	virtual void GetParentData( IEveSpaceObject2::ParentData * pd ) const {};
+	virtual void GetParentData( IEveSpaceObject2::ParentData * pd ) const
+	{
+	}
+
+	virtual void InvalidateMergedLocators()
+	{
+	}
 };
 
 BLUE_DECLARE_IVECTOR( IEveSpaceObject2 );
