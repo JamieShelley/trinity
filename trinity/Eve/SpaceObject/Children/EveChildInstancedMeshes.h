@@ -175,6 +175,7 @@ private:
 	static void RebuildOverlayAreaBlocks( Mesh& mesh );
 	bool HasAnyOwnOverlayEffects() const;
 	bool AnyMeshInheritsOverlayEffects() const;
+	bool MeshHasActiveOverlayEffects( const Mesh& mesh ) const;
 
 	void ReleaseResources( TriStorage s ) override;
 	bool OnPrepareResources() override;

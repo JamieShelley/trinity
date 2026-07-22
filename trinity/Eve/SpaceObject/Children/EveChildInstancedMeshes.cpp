@@ -853,6 +853,11 @@ bool EveChildInstancedMeshes::AnyMeshInheritsOverlayEffects() const
 	return false;
 }
 
+bool EveChildInstancedMeshes::MeshHasActiveOverlayEffects( const Mesh& mesh ) const
+{
+	return !mesh.ownOverlayEffects.empty() || ( m_parentOverlayEffects != nullptr && mesh.inheritOverlayEffects );
+}
+
 uint32_t EveChildInstancedMeshes::OverlayInstancePod::GetPerObjectDataSize( Tr2RenderContextEnum::ShaderType shaderType ) const
 {
 	if( shaderType == Tr2RenderContextEnum::PIXEL_SHADER )
@@ -881,7 +886,7 @@ void EveChildInstancedMeshes::UpdateOverlayInstanceData( const EveSpaceObjectVSD
 
 	for( Mesh& mesh : m_meshes )
 	{
-		if( mesh.instances.empty() )
+		if( mesh.instances.empty() || !mesh.display || !MeshHasActiveOverlayEffects( mesh ) )
 		{
 			continue;
 		}
@@ -1006,6 +1011,14 @@ Tr2PerObjectData* EveChildInstancedMeshes::GetPerObjectData( ITriRenderBatchAccu
 	{
 		if( !mesh.overlayPods )
 		{
+			continue;
+		}
+		if( !mesh.display || !MeshHasActiveOverlayEffects( mesh ) )
+		{
+			for( OverlayInstancePod& pod : *mesh.overlayPods )
+			{
+				pod.framePod = nullptr;
+			}
 			continue;
 		}
 		for( OverlayInstancePod& pod : *mesh.overlayPods )
