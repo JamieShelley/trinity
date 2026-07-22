@@ -313,11 +313,12 @@ void CollectOverlayAreaBlocks( Tr2MeshBase* mesh, std::vector<TriRenderBatchArea
 	}
 }
 
-void EmitOverlayBatches(
+template <typename OverlayEffectContainer>
+static void EmitOverlayBatchesImpl(
 	ITriRenderBatchAccumulator* batches,
 	const Tr2PerObjectData* perObjectData,
 	TriBatchType batchType,
-	const PEveMeshOverlayEffectVector& overlayEffects,
+	const OverlayEffectContainer& overlayEffects,
 	const std::vector<TriRenderBatchAreaBlock> ( &areaBlocks )[EveMeshOverlayEffect::TYPE_COUNT],
 	const TriGeometryResLodData& lod )
 {
@@ -356,4 +357,26 @@ void EmitOverlayBatches(
 			}
 		}
 	}
+}
+
+void EmitOverlayBatches(
+	ITriRenderBatchAccumulator* batches,
+	const Tr2PerObjectData* perObjectData,
+	TriBatchType batchType,
+	const PEveMeshOverlayEffectVector& overlayEffects,
+	const std::vector<TriRenderBatchAreaBlock> ( &areaBlocks )[EveMeshOverlayEffect::TYPE_COUNT],
+	const TriGeometryResLodData& lod )
+{
+	EmitOverlayBatchesImpl( batches, perObjectData, batchType, overlayEffects, areaBlocks, lod );
+}
+
+void EmitOverlayBatches(
+	ITriRenderBatchAccumulator* batches,
+	const Tr2PerObjectData* perObjectData,
+	TriBatchType batchType,
+	const std::vector<EveMeshOverlayEffectPtr>& overlayEffects,
+	const std::vector<TriRenderBatchAreaBlock> ( &areaBlocks )[EveMeshOverlayEffect::TYPE_COUNT],
+	const TriGeometryResLodData& lod )
+{
+	EmitOverlayBatchesImpl( batches, perObjectData, batchType, overlayEffects, areaBlocks, lod );
 }

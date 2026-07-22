@@ -114,4 +114,12 @@ void EmitOverlayBatches(
 	const std::vector<TriRenderBatchAreaBlock> ( &areaBlocks )[EveMeshOverlayEffect::TYPE_COUNT],
 	const TriGeometryResLodData& lod );
 
+void EmitOverlayBatches(
+	ITriRenderBatchAccumulator* batches,
+	const Tr2PerObjectData* perObjectData,
+	TriBatchType batchType,
+	const std::vector<EveMeshOverlayEffectPtr>& overlayEffects,
+	const std::vector<TriRenderBatchAreaBlock> ( &areaBlocks )[EveMeshOverlayEffect::TYPE_COUNT],
+	const TriGeometryResLodData& lod );
+
 #endif // EveMeshOverlayEffect_H
