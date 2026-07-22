@@ -188,6 +188,7 @@ void EveChildInstancedMeshes::SetName( const char* name )
 void EveChildInstancedMeshes::UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod )
 {
 	m_lastCameraFrustum = updateContext.GetFrustum();
+	m_lastInvLodFactor = updateContext.GetInvLodFactor();
 }
 
 void EveChildInstancedMeshes::GetRenderables( std::vector<ITr2Renderable*>& renderables )
@@ -1054,19 +1055,27 @@ void EveChildInstancedMeshes::GetBatches( ITriRenderBatchAccumulator* batches, T
 			RebuildOverlayAreaBlocks( mesh );
 		}
 
-		float screenSize = m_lastCameraFrustum.GetPixelSizeAccross( mesh.worldBoundingSphere );
-		auto lod = mesh.geometry->GetMeshLod( mesh.meshIndex, screenSize );
-		if( !lod || !lod->m_allocationsValid )
+		for( size_t i = 0; i < mesh.overlayPods->size(); ++i )
 		{
-			continue;
-		}
-
-		for( OverlayInstancePod& pod : *mesh.overlayPods )
-		{
+			OverlayInstancePod& pod = ( *mesh.overlayPods )[i];
 			if( pod.framePod == nullptr )
 			{
 				continue;
 			}
+
+			// per-instance LOD selection matching the base hull in EveInstancedMeshManager
+			const CcpMath::Sphere& sphere = mesh.instanceSpheres[i];
+			if( !m_lastCameraFrustum.IsSphereVisible( sphere.center, sphere.radius ) )
+			{
+				continue;
+			}
+			float screenSize = m_lastCameraFrustum.GetPixelSizeAccrossEst( sphere.center, sphere.radius ) * m_lastInvLodFactor;
+			auto lod = mesh.geometry->GetMeshLod( mesh.meshIndex, screenSize );
+			if( !lod || !lod->m_allocationsValid )
+			{
+				continue;
+			}
+
 			// own effects are emitted before the inherited ones so the parent's overlays
 			// (e.g. cloak) draw on top of this mesh's own overlays
 			if( hasOwnOverlays )

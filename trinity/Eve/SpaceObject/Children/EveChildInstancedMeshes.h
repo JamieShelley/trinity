@@ -189,6 +189,7 @@ private:
 	EveInstancedMeshManager::PerObjectDataHandle m_perObjectDataNoClipHandle;
 	std::vector<Mesh> m_meshes;
 	TriFrustum m_lastCameraFrustum;
+	float m_lastInvLodFactor = 1.0f;
 	mutable Tr2ConstantBufferAL m_rtPerObjectData;
 	bool m_allRegistered = false;
 
