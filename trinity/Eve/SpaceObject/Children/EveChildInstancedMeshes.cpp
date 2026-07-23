@@ -907,24 +907,23 @@ void EveChildInstancedMeshes::UpdateOverlayInstanceData( const EveSpaceObjectVSD
 			local._31 = wt[0].z; local._32 = wt[1].z; local._33 = wt[2].z;
 			local._41 = wt[0].w; local._42 = wt[1].w; local._43 = wt[2].w;
 
-			Vector3 translation( wt[0].w, wt[1].w, wt[2].w );
-
 			Matrix worldTransform = Transpose( local * m_worldTransform );
 			Matrix worldTransformLast = Transpose( local * prevWorldTransform );
 			Matrix invWorldTransform = Inverse( worldTransform );
+			Matrix invLocal = Inverse( local );
 
 			pod.vsData = parentVsData;
 			pod.vsData.worldTransform = worldTransform;
 			pod.vsData.worldTransformLast = worldTransformLast;
 			pod.vsData.invWorldTransform = invWorldTransform;
-			// need to move the clipdata inversely of the translation of the instance
-			pod.vsData.clipData = Vector4( pod.vsData.clipData.GetXYZ() - translation, pod.vsData.clipData.w );
+			// need to move the clipdata inversely of the transform of the instance
+			pod.vsData.clipData = Vector4( TransformCoord( pod.vsData.clipData.GetXYZ(), invLocal ), pod.vsData.clipData.w );
 
 			pod.psData = parentPsData;
 			pod.psData.worldTransform = worldTransform;
 			pod.psData.worldTransformLast = worldTransformLast;
 			pod.psData.invWorldTransform = invWorldTransform;
-			pod.psData.clipSphereCenter = pod.psData.clipSphereCenter - translation;
+			pod.psData.clipSphereCenter = TransformCoord( pod.psData.clipSphereCenter, invLocal );
 
 			if( !mesh.inheritOverlayEffects )
 			{
