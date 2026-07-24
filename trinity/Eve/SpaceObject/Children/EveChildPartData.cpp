@@ -6,6 +6,7 @@
 #include "../EveStation2.h"
 #include "EveChildInstancedMeshes.h"
 #include "EveChildContainer.h"
+#include <cmf/transforms.h>
 
 
 EveChildPartData::EveChildPartData( IRoot* )
@@ -149,6 +150,27 @@ BlueStdResult EveModularObjectModifier::SetTransform( EveSpaceObjectChild::PartT
 	{
 		return BlueStdResultType::BLUE_STD_RESULT_KEY_ERROR;
 	}
+
+	cmf::Transform oldTransform{ found->position, found->rotation, found->scale };
+	cmf::Transform newTransform{ position, rotation, scale };
+	auto invOldTransform = cmf::Inverse( oldTransform );
+
+	for( auto& set : m_object->GetLocatorSets() )
+	{
+		auto& locators = *set->GetLocators();
+		for( auto& locator : locators )
+		{
+			if( locator.partTag == partId )
+			{
+				locator.scale.x = scale.x / found->scale.x;
+				locator.scale.y = scale.y / found->scale.y;
+				locator.scale.z = scale.z / found->scale.z;
+				locator.direction = invOldTransform.rotation * rotation;
+				locator.position = cmf::TransformPoint( cmf::TransformPoint( locator.position, invOldTransform ), newTransform );
+			}
+		}
+	}
+
 	found->position = position;
 	found->rotation = rotation;
 	found->scale = scale;
