@@ -12,7 +12,8 @@ BLUE_DECLARE( EveTurretTarget );
 BLUE_DECLARE( EveTurretTarget );
 BLUE_DECLARE( EveChildInstanceContainer );
 
-BLUE_CLASS( EveChildTurret ) : public EveChildMesh, public IBlueAsyncResNotifyTarget
+BLUE_CLASS( EveChildTurret ) :
+	public EveChildMesh, public IBlueAsyncResNotifyTarget
 {
 public:
 	EXPOSE_TO_BLUE();
@@ -92,17 +93,10 @@ protected:
 	// TODO: Need update LOD ?
 
 	// set transform for tracking
-	void ModifySystemBoneTransform(
-		SystemBones bone, const Vector3* target, const Matrix* localTransform, Vector3& position, Quaternion& rotation )
-		const;
+	void ModifySystemBoneTransform( SystemBones bone, const Vector3* target, const Matrix* localTransform, Vector3& position, Quaternion& rotation ) const;
 
 	// Calculates the pitch for a bone based on the parameters
-	void CalcTransformForPitchBone( const Vector3* target,
-									float minPitch,
-									float maxPitch,
-									unsigned int boneIndex,
-									const Matrix* localTransform,
-									Quaternion& rotation ) const;
+	void CalcTransformForPitchBone( const Vector3* target, float minPitch, float maxPitch, unsigned int boneIndex, const Matrix* localTransform, Quaternion& rotation ) const;
 
 	// Returns the correct pitch factor for a specific bone index
 	float GetBonePitchFactor( unsigned int boneIndex ) const;
