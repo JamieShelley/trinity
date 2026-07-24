@@ -38,10 +38,11 @@ public:
 		Vector3 scaling;
 		int32_t boneIndex;
 		int32_t uniqueID;
+		EveSpaceObjectChild::PartTag partTag = EveSpaceObjectChild::NO_PART_TAG;
 
 		operator Locator() const
 		{
-			return Locator{ position, rotation, scaling, boneIndex };
+			return Locator{ position, rotation, scaling, boneIndex, partTag };
 		};
 	};
 

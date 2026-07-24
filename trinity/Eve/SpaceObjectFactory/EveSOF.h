@@ -45,6 +45,7 @@ public:
 	IRootPtr Build( const char* hullName, const char* factionName, const char* raceName );
 	// build a spaceship from a dns string and return a EveShip2 object
 	IRootPtr BuildFromDNA( const char* dnaString );
+	bool BuildChild( EveSpaceObject2* owner, const char* dnaString, uint32_t partTag, const Matrix& transform );
 
 	// validate a dna string (slow!)
 	bool ValidateDNA( const char* dnaString );
@@ -104,7 +105,7 @@ private:
 	void SetupDecalSets( IEveSpaceObjectDecalOwnerPtr obj, const EveSOFDNAPtr dna ) const;
 	void SetupModelCurves( EveSpaceObject2Ptr obj, const EveSOFDNAPtr dna ) const;
 	void SetupLocators( EveSpaceObject2Ptr obj, const EveSOFDNAPtr dna ) const;
-	void SetupLocatorSets( EveSpaceObject2Ptr obj, const EveSOFDNAPtr dna, const std::vector<Matrix>& offsets );
+	void SetupLocatorSets( EveSpaceObject2Ptr obj, const EveSOFDNAPtr dna, const std::vector<Matrix>& offsets, EveSpaceObjectChild::PartTag partTag = EveSpaceObjectChild::NO_PART_TAG );
 	void SetupImpactEffects( EveSpaceObject2Ptr obj, const EveSOFDNAPtr dna ) const;
 	void SetupLights( ITr2LightOwnerPtr obj, const EveSOFDNAPtr dna, const std::vector<Matrix>& offsets ) const;
 	void SetupLayout( EveSpaceObject2Ptr obj, EveChildContainerPtr layoutContainer, EveChildInstancedMeshesPtr & sharedMeshes, const EveSOFDNAPtr dna, const std::vector<Matrix>& offsets, uint32_t seedOverwrite = 0 );

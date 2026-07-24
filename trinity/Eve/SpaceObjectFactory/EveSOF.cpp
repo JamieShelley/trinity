@@ -303,8 +303,199 @@ IRootPtr EveSOF::BuildFromDNA( const char* dnaString )
 	return newObj->GetRawRoot();
 }
 
+bool EveSOF::BuildChild( EveSpaceObject2* newObj, const char* dnaString, uint32_t partTag, const Matrix& transform )
+{
+	std::string s = "BuildChild ";
+	s += std::string( dnaString );
+	CCP_STATS_ZONE( s.c_str() );
+
+	EveSOFDNAPtr dna = CreateDna( dnaString );
+	if( dna == nullptr )
+	{
+		return false;
+	}
+	dna->SetParentBoundingSphere( {} );
+	dna->SetParentShapeEllipsoidInfo( {} );
+
+	EveChildInstancedMeshesPtr sharedMeshes;
+	for( auto& child : newObj->GetEffectChildren() )
+	{
+		if( EveChildInstancedMeshesPtr instancedMeshes = BlueCastPtr( child ) )
+		{
+			sharedMeshes = instancedMeshes;
+			break;
+		}
+	}
+
+	const bool hasChildEffects = ( !dna->GetHullChildSets().empty() && dna->UsingSof6() ) || ( !dna->GetHullChildren().empty() && !dna->UsingSof6() );
+	const bool hasControllers = !dna->GetHullControllers().empty();
+	const bool hasAnimation = dna->IsHullAnimated();
+	const bool hasEmitters = !dna->GetHullSoundEmitters().empty();
+	const bool hasLayouts = dna->GetLayoutCount() > 0;
+	bool hasAttachments = false;
+	for( size_t hullIdx = 0; hullIdx < dna->GetMultiHullCount(); ++hullIdx )
+	{
+		if( !dna->GetHullSpriteSets( hullIdx ).empty() || 
+			!dna->GetHullSpotlightSets( hullIdx ).empty() || 
+			!dna->GetHullPlaneSets( hullIdx ).empty() || 
+			!dna->GetHullSpriteLineSets( hullIdx ).empty() ||
+			!dna->GetHullHazeSets( hullIdx ).empty() ||
+			!dna->GetHullBanners( hullIdx ).empty() || 
+			!dna->GetHullBannerSets( hullIdx ).empty() ||
+			!dna->GetHullLightSets( hullIdx ).empty() )
+		{
+			hasAttachments = true;
+			break;
+		}
+	}
+
+	std::vector<Matrix> placementOffsets = { transform };
+
+	const bool needsPlacementContainer = hasControllers || hasAnimation || hasEmitters || hasChildEffects || hasLayouts || hasAttachments;
+	const uint32_t buildFlags = !hasAnimation ? EveSOFDataHullBuildFilter::INSTANCED_PLACEMENT : EveSOFDataHullBuildFilter::NON_INSTANCED_PLACEMENT;
+
+	Quaternion rotation;
+	Vector3 translation;
+	Vector3 scale;
+	Decompose( scale, rotation, translation, transform );
+
+	EveChildContainerPtr placementContainer;
+	if( needsPlacementContainer )
+	{
+		placementContainer.CreateInstance();
+		placementContainer->SetName( dna->GetHullNames()[0].c_str() );
+		placementContainer->SetPartTag( partTag );
+		placementContainer->SetupWithStaticTransform( &scale, &rotation, &translation, Tr2Lod::TR2_LOD_LOW );
+		newObj->AddToEffectChildrenList( placementContainer );
+	}
+
+	if( hasAnimation )
+	{
+		// create the child normally
+		// create the non instanced extension mesh
+		EveChildMeshPtr child;
+		child.CreateInstance();
+		auto mesh = CreateMesh( dna );
+		child->SetMesh( mesh );
+		child->SetReflectionMode( dna->GetReflectionMode() );
+		child->SetCastShadow( dna->CastShadow() );
+		child->SetMinScreenSize( MIN_MESH_SCREEN_SIZE );
+		child->SetName( dna->GetHullNames()[0].c_str() );
+		if( !placementContainer )
+		{
+			child->SetupWithStaticTransform( &scale, &rotation, &translation, Tr2Lod::TR2_LOD_LOW );
+		}
+		child->SetPartTag( partTag );
+
+		if( m_editorMode )
+		{
+			IWeakObjectPtr weak = BlueCastPtr( child );
+			BeObjectMetadata->Set( weak, "SofDna", dna->GetDnaString() );
+		}
+		Tr2GrannyAnimationPtr animationPtr;
+		animationPtr.CreateInstance();
+		child->SetAnimationController( animationPtr );
+		// This will set the child as the animation owner of the parent, don't think this will be a problem...
+		placementContainer->SetAnimationOwner( child );
+
+		SetupDecalSets( BlueCastPtr( child->GetRawRoot() ), dna );
+		SetupAttachments( BlueCastPtr( child->GetRawRoot() ), dna, { IdentityMatrix() }, buildFlags );
+		placementContainer->AddToEffectChildrenList( child );
+	}
+	else
+	{
+		if( !sharedMeshes )
+		{
+			sharedMeshes.CreateInstance();
+			sharedMeshes->SetName( "SharedInstancedMeshes" );
+			sharedMeshes->SetOrigin( EveSpaceObjectChild::SOF );
+			newObj->AddToEffectChildrenList( sharedMeshes );
+		}
+
+		TriBatchType types[] = {
+			TRIBATCHTYPE_OPAQUE, TRIBATCHTYPE_DECAL, TRIBATCHTYPE_TRANSPARENT, TRIBATCHTYPE_ADDITIVE, TRIBATCHTYPE_DISTORTION
+		};
+		std::vector<EveChildInstancedMeshes::MeshArea> areas;
+		for( auto type : types )
+		{
+			CTr2MeshAreaVector meshAreas;
+			// We are purpusely ignoring multi-hull logic assuming shared instanced meshes are single hull only
+			FillMeshAreaVector( &meshAreas, type, dna, 0, 0 );
+			for( auto area : meshAreas )
+			{
+				auto effect = area->GetMaterialInterface();
+				effect->SetOption( BlueSharedString( "SPACE_OBJECT_INSTANCED_ATTACHMENT" ), BlueSharedString( "SOIA_SHARED" ) );
+				areas.push_back( EveChildInstancedMeshes::MeshArea{ effect, type == TRIBATCHTYPE_DECAL ? TRIBATCHTYPE_OPAQUE : type, uint32_t( area->GetIndex() ), uint32_t( area->GetCount() ) } );
+			}
+		}
+		sharedMeshes->AddMesh(
+			dna->GetHullGeometryResPath().c_str(),
+			dna->CastShadow(),
+			dna->GetReflectionMode(),
+			0,
+			areas.data(),
+			areas.size(),
+			placementOffsets.data(),
+			1,
+			m_editorMode ? BlueSharedString( dna->GetHullNames()[0].c_str() ) : BlueSharedString(),
+			BlueSharedString(),
+			partTag );
+
+		SetupAttachments( BlueCastPtr( placementContainer ), dna, placementOffsets, buildFlags );
+	}
+
+	CcpMath::Sphere instanceSphere( dna->GetHullBoundingSphere() );
+	instanceSphere.Transform( transform );
+
+	// update the bounding sphere of the parent
+	newObj->SetBoundingSphereInformation( instanceSphere );
+
+	// update the shield ellipsoid of the parent
+	{
+		CcpMath::AxisAlignedBox instanceBox( instanceSphere );
+		if( dna->GetHullShapeEllipsoid() )
+		{
+			instanceBox = CcpMath::AxisAlignedBox( dna->GetHullShapeEllipsoid() );
+			instanceBox.Transform( transform );
+		}
+
+		// include the instance box in the ellipsoid
+		CcpMath::AxisAlignedEllipsoid updatedEllipsoid;
+		updatedEllipsoid.IncludeBox( instanceBox );
+		newObj->SetShapeEllipsoid( updatedEllipsoid );
+		dna->SetParentShapeEllipsoidInfo( updatedEllipsoid );
+	}
+
+	if( hasControllers )
+	{
+		// Controllers!
+		SetupControllers( BlueCastPtr( placementContainer->GetRawRoot() ), dna, buildFlags );
+	}
+
+	// And last but not least! AUDIO!
+	SetupAudio( BlueCastPtr( placementContainer ), dna, transform );
+
+
+	//SetupInstancedMeshes( newObj, dna, placementOffsets );
+
+	if( hasChildEffects )
+	{
+		SetupEffects( newObj, (IEveEffectChildrenOwnerPtr)placementContainer, dna, placementOffsets, buildFlags );
+	}
+
+	//SetupCustomMask( newObj, dna );
+	SetupLocatorSets( newObj, dna, placementOffsets, partTag );
+	// setup nested layout
+	SetupLayout( newObj, placementContainer, sharedMeshes, dna, placementOffsets );
+	return true;
+}
+
 void EveSOF::SetupAttachments( IEveSpaceObjectAttachmentOwnerPtr newObj, const EveSOFDNAPtr dna, const std::vector<Matrix>& offsets, uint32_t buildFlags ) const
 {
+	if( !newObj )
+	{
+		return;
+	}
 	// Add all the fluff!
 	SetupSpriteSets( newObj, dna, offsets, buildFlags );
 	SetupSpotlightSets( newObj, dna, offsets, buildFlags );
@@ -2980,7 +3171,7 @@ void EveSOF::SetupLocators( EveSpaceObject2Ptr obj, const EveSOFDNAPtr dna ) con
 // Description:
 //   add the hull locator sets to the new ship
 // --------------------------------------------------------------------------------
-void EveSOF::SetupLocatorSets( EveSpaceObject2Ptr obj, const EveSOFDNAPtr dna, const std::vector<Matrix>& offsets )
+void EveSOF::SetupLocatorSets( EveSpaceObject2Ptr obj, const EveSOFDNAPtr dna, const std::vector<Matrix>& offsets, EveSpaceObjectChild::PartTag partTag )
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
@@ -3006,10 +3197,11 @@ void EveSOF::SetupLocatorSets( EveSpaceObject2Ptr obj, const EveSOFDNAPtr dna, c
 					distributedLocators.reserve( offsets.size() * locators->size() );
 					for( auto& offset : offsets )
 					{
-						std::transform( ( *locators ).begin(), ( *locators ).end(), std::back_inserter( distributedLocators ), [offset, hullOffset]( EveSOFDataMgr::LocatorDirectionData d ) -> EveSOFDataMgr::LocatorDirectionData {
+						std::transform( ( *locators ).begin(), ( *locators ).end(), std::back_inserter( distributedLocators ), [offset, hullOffset, partTag]( EveSOFDataMgr::LocatorDirectionData d ) -> EveSOFDataMgr::LocatorDirectionData {
 							Matrix m = TransformationMatrix( Vector3( 1.0, 1.0, 1.0 ), d.rotation, d.position + hullOffset ) * offset;
 							Vector3 tmp;
 							Decompose( tmp, d.rotation, d.position, m );
+							d.partTag = partTag;
 							return d;
 						} );
 					}
@@ -3686,8 +3878,8 @@ void EveSOF::CreatePlacement(
 				BeObjectMetadata->Set( weak, "SofLocatorSetName", placement.locatorSetName.c_str() );
 			}
 
-			layoutContainer->AddToEffectChildrenList( child );
-		}
+				layoutContainer->AddToEffectChildrenList( child );
+			}
 
 		SetupAttachments( BlueCastPtr( layoutContainer->GetRawRoot() ), extensionDna, placementOffsets, buildFlags );
 	}
@@ -3730,8 +3922,8 @@ void EveSOF::CreatePlacement(
 			// we don't really know until now if we have an empty placement container
 			if( !placementContainer->Empty() )
 			{
-				layoutContainer->AddToEffectChildrenList( placementContainer );
-			}
+					layoutContainer->AddToEffectChildrenList( placementContainer );
+				}
 		}
 	}
 

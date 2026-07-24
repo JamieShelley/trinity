@@ -546,6 +546,9 @@ set(_SOURCES
     Eve/SpaceObject/Children/EveChildMesh.cpp
     Eve/SpaceObject/Children/EveChildMesh.h
     Eve/SpaceObject/Children/EveChildMesh_Blue.cpp
+    Eve/SpaceObject/Children/EveChildPartData.cpp
+    Eve/SpaceObject/Children/EveChildPartData.h
+    Eve/SpaceObject/Children/EveChildPartData_Blue.cpp
     Eve/SpaceObject/Children/EveChildParticleSphere.cpp
     Eve/SpaceObject/Children/EveChildParticleSphere.h
     Eve/SpaceObject/Children/EveChildParticleSphere_Blue.cpp

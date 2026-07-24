@@ -55,6 +55,15 @@ public:
 			other.owner = nullptr;
 			other.index = InvalidIndex;
 		}
+		DataHandle& operator=( DataHandle&& other )
+		{
+			owner = other.owner;
+			index = other.index;
+			other.owner = nullptr;
+			other.index = InvalidIndex;
+			return *this;
+		}
+
 
 		operator bool() const
 		{
