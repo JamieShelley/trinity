@@ -569,6 +569,9 @@ set(_SOURCES
     Eve/SpaceObject/Children/EveChildSpherePin_Blue.cpp
     Eve/SpaceObject/Children/EveChildTransform.cpp
     Eve/SpaceObject/Children/EveChildTransform.cpp
+    Eve/SpaceObject/Children/EveChildTurret.cpp
+    Eve/SpaceObject/Children/EveChildTurret.h
+    Eve/SpaceObject/Children/EveChildTurret_Blue.cpp
     Eve/SpaceObject/Children/EveCloudEditableVolume.cpp
     Eve/SpaceObject/Children/EveCloudEditableVolume.h
     Eve/SpaceObject/Children/EveCloudEditableVolume_Blue.cpp
