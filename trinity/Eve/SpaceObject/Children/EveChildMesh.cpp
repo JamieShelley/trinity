@@ -894,11 +894,11 @@ Tr2PerObjectData* EveChildMesh::GetPerObjectData( ITriRenderBatchAccumulator* ac
 				}
 			}
 		}
-
-		auto [bones, boneCount] = GetBoneTransforms();
-		m_vsData.boneOffsets[2] = uint32_t( boneCount );
-		m_boneOffsets.UploadTransforms( Tr2RingBuffer::GetInstance<Float4x3>(), reinterpret_cast<const Float4x3*>( bones ), uint32_t( boneCount ) );
 	}
+
+	auto [bones, boneCount] = GetBoneTransforms();
+	m_vsData.boneOffsets[2] = uint32_t( boneCount );
+	m_boneOffsets.UploadTransforms( Tr2RingBuffer::GetInstance<Float4x3>(), reinterpret_cast<const Float4x3*>( bones ), uint32_t( boneCount ) );
 	m_vsData.boneOffsets[0] = m_boneOffsets.GetCurrentFrameOffset();
 	m_vsData.boneOffsets[1] = m_boneOffsets.GetPreviousFrameOffset();
 
@@ -1439,7 +1439,7 @@ std::pair<const Float4x3*, size_t> EveChildMesh::GetBoneTransforms() const
 
 	if( !m_animationUpdater || !m_animationUpdater->IsInitialized() )
 	{
-		return std::make_pair( nullptr, 0 );
+		return GetRestPoseBoneTransforms();
 	}
 
 	auto accumulatedTransforms = m_animationUpdater->GetAnimationTransforms();
@@ -1453,7 +1453,32 @@ std::pair<const Float4x3*, size_t> EveChildMesh::GetBoneTransforms() const
 	{
 		return m_meshBinding->GetBoneTransforms();
 	}
-	return std::make_pair( nullptr, 0 );
+	return GetRestPoseBoneTransforms();
+}
+
+std::pair<const Float4x3*, size_t> EveChildMesh::GetRestPoseBoneTransforms() const
+{
+	if( !m_mesh || !m_mesh->GetGeometryResource() )
+	{
+		return std::make_pair( nullptr, 0 );
+	}
+
+	// Skinned shaders without an animation get rest-pose (identity) skin matrices, sized to the
+	// geometry's bone bindings. Unskinned geometry drawn with a skinned shader (e.g. a SOF hull
+	// flagged isSkinned) has no bindings and no blend indices in the vertex stream, so every
+	// vertex reads bone 0 - a single identity matrix covers it.
+	size_t boneCount = 1;
+	auto cmfData = m_mesh->GetGeometryResource()->GetCMFData();
+	auto meshIndex = m_mesh->GetMeshIndex();
+	if( cmfData && meshIndex < cmfData->meshes.size() )
+	{
+		boneCount = std::max<size_t>( cmfData->meshes[meshIndex].boneBindings.size(), 1 );
+	}
+	if( m_restPoseBoneTransforms.size() != boneCount )
+	{
+		m_restPoseBoneTransforms.assign( boneCount, Float4x3( Matrix() ) );
+	}
+	return std::make_pair( m_restPoseBoneTransforms.data(), boneCount );
 }
 
 std::pair<const Tr2MorphTargetAnimationData*, size_t> EveChildMesh::GetMorphTargets( MorphTargetAnimationFilter filter )

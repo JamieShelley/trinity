@@ -207,6 +207,7 @@ protected:
 	bool PrepareMorphBuffers( Tr2RenderContext & renderContext );
 
 	std::pair<const Float4x3*, size_t> GetBoneTransforms() const;
+	std::pair<const Float4x3*, size_t> GetRestPoseBoneTransforms() const;
 	const std::pair<const int32_t*, size_t> GetMeshBindingIndices() const;
 	std::pair<const Tr2MorphTargetAnimationData*, size_t> GetMorphTargets( MorphTargetAnimationFilter filter );
 	void UpdateMorphAnimationBuffer();
@@ -231,6 +232,8 @@ protected:
 	PIEveChildTransformModifierVector m_transformModifiers;
 	Tr2GrannyAnimationPtr m_animationUpdater;
 	std::unique_ptr<Tr2AnimationMeshBinding> m_meshBinding;
+	// identity skin matrices for skinned meshes with no animation (rest pose)
+	mutable std::vector<Float4x3> m_restPoseBoneTransforms;
 
 	Tr2Lod m_lowestLodVisible;
 
