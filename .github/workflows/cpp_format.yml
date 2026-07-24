@@ -6,9 +6,6 @@ on:
   push:
     branches: [main]
     paths: ['**.c', '**.cpp', '**.h', '**.hpp', '**.cxx', '**.hxx', '**.cc', '**.hh', '*.mm', '**CMakeLists.txt', '**.cmake']
-permissions:
-  contents: read
-  pull-requests: write
 jobs:
   cpp-linter:
     runs-on: ubuntu-latest
