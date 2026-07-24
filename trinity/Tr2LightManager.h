@@ -212,7 +212,7 @@ private:
 
 	uint32_t nextFrameShadowQuality; // bitmask, collecting ShadowQualities during the current frame
 	ShadowQuality m_currentSpaceSceneShadowQuality;
-	LightingQuality m_lightingQuality;
+	LightingQuality m_lightingQuality = LightingQuality::HIGH;
 	uint64_t m_currentFrameCounter;
 
 	struct

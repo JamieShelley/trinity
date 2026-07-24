@@ -95,7 +95,7 @@ void EveSmartLightPointLight::GetLights( Tr2LightManager& lightManager ) const
 		pointLightData.radius = m_lightGroupData.radius * scaling * perLightScaling;
 		pointLightData.innerRadius = Float_16( m_lightGroupData.innerRadius * scaling * perLightScaling );
 
-		pointLightData.flags = m_lightGroupData.flags | ( profileIndex << 4 );
+		pointLightData.flags = Tr2LightManager::PackFlags( m_lightGroupData.flags, profileIndex );
 
 		Quaternion rotation = placements[index].initialRotation * placements[index].additionalRotation;
 		if( m_staticOffsetTranslation != Vector3( 0.f, 0.f, 0.f ) )

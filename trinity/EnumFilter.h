@@ -16,7 +16,7 @@ class EnumFilter
 public:
 	EnumFilter() = default;
 	EnumFilter( const EnumFilter& other ) = default;
-	EnumFilter( Enum value ) : m_filter( StorageType( 1 << StorageType( value ) ) )
+	EnumFilter( Enum value ) : m_filter( StorageType( StorageType( 1 ) << StorageType( value ) ) )
 	{
 		CCP_ASSERT_M( uint64_t( value ) < 8 * sizeof( StorageType ), "Enum value out of range for the chosen storage type" );
 	}
@@ -24,7 +24,7 @@ public:
 	EnumFilter& operator|=( Enum value )
 	{
 		CCP_ASSERT_M( uint64_t( value ) < 8 * sizeof( StorageType ), "Enum value out of range for the chosen storage type" );
-		m_filter |= StorageType( 1 << StorageType( value ) );
+		m_filter |= StorageType( StorageType( 1 ) << StorageType( value ) );
 		return *this;
 	}
 
@@ -43,7 +43,7 @@ public:
 	bool HasBit( Enum value ) const
 	{
 		CCP_ASSERT_M( uint64_t( value ) < 8 * sizeof( StorageType ), "Enum value out of range for the chosen storage type" );
-		return ( m_filter & StorageType( 1 << StorageType( value ) ) ) != 0;
+		return ( m_filter & StorageType( StorageType( 1 ) << StorageType( value ) ) ) != 0;
 	}
 
 	/// @brief Creates an EnumFilter with all bits set.

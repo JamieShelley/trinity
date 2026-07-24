@@ -92,10 +92,9 @@ Tr2LightManager::PerLightData LightData::AsPerSpotLightData( CXMMATRIX transform
 }
 
 Tr2Light::Tr2Light( IRoot* lockobj ) :
+	m_type( UNDEFINED_LIGHT ),
 	m_isDynamic( false ),
 	m_scaleBrightness( g_scaleLightBrightnessByRadiusDefault ),
-	m_type( UNDEFINED_LIGHT ),
-	m_name( "" ),
 	m_brightnessMultiplier( 1.f ),
 	m_boneTransform( IdentityMatrix() )
 {
