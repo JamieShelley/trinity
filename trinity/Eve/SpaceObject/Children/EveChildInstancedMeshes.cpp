@@ -792,41 +792,57 @@ bool EveChildInstancedMeshes::OnPrepareResources()
 	return true;
 }
 
-void EveChildInstancedMeshes::AddMeshOverlayEffect( uint32_t meshId, EveMeshOverlayEffect* overlayEffect )
+BluePy EveChildInstancedMeshes::AddMeshOverlayEffect( uint32_t meshId, EveMeshOverlayEffect* overlayEffect )
 {
-	if( meshId >= m_meshes.size() || overlayEffect == nullptr )
+	if( meshId >= m_meshes.size() )
 	{
-		return;
+		PyErr_SetString( PyExc_IndexError, "Mesh index out of range" );
+		return {};
+	}
+	if( overlayEffect == nullptr )
+	{
+		PyErr_SetString( PyExc_TypeError, "overlayEffect must not be None" );
+		return {};
 	}
 	m_meshes[meshId].ownOverlayEffects.push_back( overlayEffect );
+	return BluePy( Py_None, true );
 }
 
-void EveChildInstancedMeshes::RemoveMeshOverlayEffect( uint32_t meshId, EveMeshOverlayEffect* overlayEffect )
+BluePy EveChildInstancedMeshes::RemoveMeshOverlayEffect( uint32_t meshId, EveMeshOverlayEffect* overlayEffect )
 {
 	if( meshId >= m_meshes.size() )
 	{
-		return;
+		PyErr_SetString( PyExc_IndexError, "Mesh index out of range" );
+		return {};
 	}
 	auto& overlays = m_meshes[meshId].ownOverlayEffects;
-	overlays.erase( std::remove( overlays.begin(), overlays.end(), EveMeshOverlayEffectPtr( overlayEffect ) ), overlays.end() );
+	auto it = std::find( overlays.begin(), overlays.end(), EveMeshOverlayEffectPtr( overlayEffect ) );
+	if( it != overlays.end() )
+	{
+		overlays.erase( it );
+	}
+	return BluePy( Py_None, true );
 }
 
-void EveChildInstancedMeshes::ClearMeshOverlayEffects( uint32_t meshId )
+BluePy EveChildInstancedMeshes::ClearMeshOverlayEffects( uint32_t meshId )
 {
 	if( meshId >= m_meshes.size() )
 	{
-		return;
+		PyErr_SetString( PyExc_IndexError, "Mesh index out of range" );
+		return {};
 	}
 	m_meshes[meshId].ownOverlayEffects.clear();
+	return BluePy( Py_None, true );
 }
 
-uint32_t EveChildInstancedMeshes::GetMeshOverlayEffectCount( uint32_t meshId ) const
+BluePy EveChildInstancedMeshes::GetMeshOverlayEffectCount( uint32_t meshId ) const
 {
 	if( meshId >= m_meshes.size() )
 	{
-		return 0;
+		PyErr_SetString( PyExc_IndexError, "Mesh index out of range" );
+		return {};
 	}
-	return uint32_t( m_meshes[meshId].ownOverlayEffects.size() );
+	return BluePy( ToPython( uint32_t( m_meshes[meshId].ownOverlayEffects.size() ) ) );
 }
 
 bool EveChildInstancedMeshes::HasAnyOwnOverlayEffects() const
@@ -1055,6 +1071,10 @@ void EveChildInstancedMeshes::GetBatches( ITriRenderBatchAccumulator* batches, T
 			continue;
 		}
 		if( !mesh.display || !mesh.overlayPods )
+		{
+			continue;
+		}
+		if( reason == TR2RENDERREASON_REFLECTION && !EntityComponents::ShouldReflect( mesh.reflectionMode ) )
 		{
 			continue;
 		}

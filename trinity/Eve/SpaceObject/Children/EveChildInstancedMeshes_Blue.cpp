@@ -84,7 +84,7 @@ const Be::ClassInfo* EveChildInstancedMeshes::ExposeToBlue()
 		MAP_METHOD_AND_WRAP(
 			"RemoveMeshOverlayEffect",
 			RemoveMeshOverlayEffect,
-			"Removes a previously added overlay effect from the given mesh.\n\n"
+			"Removes the first matching overlay effect previously added to the given mesh.\n\n"
 			":param meshId: Index of the mesh to modify\n"
 			":param overlayEffect: The EveMeshOverlayEffect to remove\n"
 			":rtype: None" )

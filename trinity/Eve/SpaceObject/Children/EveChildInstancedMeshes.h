@@ -104,10 +104,10 @@ public:
 	BluePy GetMeshInheritOverlayEffects( uint32_t meshId ) const;
 	BluePy SetMeshInheritOverlayEffects( uint32_t meshId, bool inherit );
 
-	void AddMeshOverlayEffect( uint32_t meshId, EveMeshOverlayEffect* overlayEffect );
-	void RemoveMeshOverlayEffect( uint32_t meshId, EveMeshOverlayEffect* overlayEffect );
-	void ClearMeshOverlayEffects( uint32_t meshId );
-	uint32_t GetMeshOverlayEffectCount( uint32_t meshId ) const;
+	BluePy AddMeshOverlayEffect( uint32_t meshId, EveMeshOverlayEffect* overlayEffect );
+	BluePy RemoveMeshOverlayEffect( uint32_t meshId, EveMeshOverlayEffect* overlayEffect );
+	BluePy ClearMeshOverlayEffects( uint32_t meshId );
+	BluePy GetMeshOverlayEffectCount( uint32_t meshId ) const;
 
 private:
 	// per-instance constant buffers for overlay draws
