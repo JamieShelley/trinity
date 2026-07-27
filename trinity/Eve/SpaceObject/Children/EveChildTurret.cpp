@@ -53,10 +53,7 @@ EveChildTurret::~EveChildTurret()
 		m_firingEffect->CleanUp();
 	}
 
-	m_cachedGeometryRes = nullptr;
-	m_skeleton = nullptr;
-	m_skeletonBoneIndices.clear();
-	m_boneBounds.clear();
+	ReleaseCachedGeometryData();
 
 	ReleaseResources( TRISTORAGE_ALL );
 }
@@ -264,7 +261,6 @@ void EveChildTurret::UpdateAsyncronous( const EveUpdateContext& updateContext, c
 	// setup and update attached firing effect
 	if( m_firingEffect )
 	{
-		// TODO: is this a valid replacement of if( m_activeTurret != INVALID_TURRET_INDEX )
 		if( m_mesh )
 		{
 			// update all muzzle points in the firing effect
@@ -356,7 +352,6 @@ void EveChildTurret::BuildCachedGeometryData( TriGeometryRes& geometryRes )
 
 void EveChildTurret::ReleaseCachedGeometryData()
 {
-	// TODO: for now duplicates destructor
 	m_cachedGeometryRes = nullptr;
 	m_skeleton = nullptr;
 	m_skeletonBoneIndices.clear();
@@ -503,19 +498,9 @@ void EveChildTurret::EnterStateFiring()
 		m_firingEffect->StopFiring();
 	}
 
-	// We're starting a firing sequence, we need to set up our firing effect time-delays
 	if( m_firingEffect )
 	{
-		// TODO: random firing delay yay or nay
-		//if( m_maxCyclingFirePos > 1 )
-		//{
-		//	m_firingEffect->PrepareFiring( m_randomFiringDelay, m_currentCyclingFiresPos, m_cyclingFireGroupCount );
-		//}
-		//else
-		//{
-		float randomFiringDelay = 0.f;
-		m_firingEffect->PrepareFiring( randomFiringDelay );
-		//}
+		m_firingEffect->PrepareFiring( 0.f );
 
 		if( m_target != nullptr )
 		{
@@ -555,11 +540,6 @@ bool EveChildTurret::SetupFiringState()
 	}
 	*/
 
-	// timing: apply a randomized fire delay
-	// TODO: remove?
-	// CalcRandomDelay();
-	float randomFiringDelay = 0.f; // TODO: temp value
-
 	// timing: is the length of the firing effect known?
 	float effectTotalTime = m_firingEffect ? m_firingEffect->GetFiringDuration() : 0.f;
 	float effectPeakTime = m_firingEffect ? m_firingEffect->GetFiringPeakTime() : 0.f;
@@ -571,19 +551,17 @@ bool EveChildTurret::SetupFiringState()
 	{
 	case STATE_IDLE:
 	case STATE_RELOADING:
-		// and delay the effect until we are facing target
-		randomFiringDelay += m_maxTrackingTime;
 		// fadein tracking, play fire anim (only one the firing turret!) and then the active anim
 		m_delayToFadeInTracking = 0.0001f;
 
-		PlayAnimation( GetFireAnimationName(), "Active", randomFiringDelay );
+		PlayAnimation( GetFireAnimationName(), "Active", m_maxTrackingTime );
 		// assign locator and turret
-		m_target->StartFireAtLocator( closestLocator, randomFiringDelay + effectPeakTime, effectTotalTime - effectPeakTime, &source );
+		m_target->StartFireAtLocator( closestLocator, m_maxTrackingTime + effectPeakTime, effectTotalTime - effectPeakTime, &source );
 		break;
 	case STATE_FIRING:
 	case STATE_TARGETING:
-		PlayAnimation( GetFireAnimationName(), "Active", randomFiringDelay );
-		m_target->StartFireAtLocator( closestLocator, randomFiringDelay + effectPeakTime, effectTotalTime - effectPeakTime, &source );
+		PlayAnimation( GetFireAnimationName(), "Active", m_maxTrackingTime );
+		m_target->StartFireAtLocator( closestLocator, m_maxTrackingTime + effectPeakTime, effectTotalTime - effectPeakTime, &source );
 		break;
 
 	default:
@@ -662,7 +640,6 @@ void EveChildTurret::ForceIdleAnimation()
 		break;
 	}
 
-	// set it to all turrets in this set
 	if( idleAnimName.length() > 0 )
 	{
 		PlayAnimation( "", idleAnimName, 0.f );
