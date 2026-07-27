@@ -8,7 +8,7 @@
 #include "TriObserverLocal.h"
 
 // names of system bones like they are in the granny file
-static std::string s_systemBoneSkeletonNames[] = {
+constexpr const char* s_systemBoneSkeletonNames[] = {
 	"invalid", // SYSBONE_INVALID
 	"Sys_Rotation_Arm", // SYSBONE_ROTATION
 	"Sys_Rotation_Arm01", // SYSBONE_ROTATION1
@@ -27,11 +27,11 @@ static std::string s_systemBoneSkeletonNames[] = {
 };
 
 // invalids
-const unsigned int INVALID_BONE_INDEX = 0xffffffff;
-const unsigned int INVALID_TURRET_INDEX = 0xffffffff;
+constexpr unsigned int INVALID_BONE_INDEX = 0xffffffff;
+constexpr unsigned int INVALID_TURRET_INDEX = 0xffffffff;
 
 // some very static timings, no need to confuse artists by exposing them
-const float TRACKING_FADE_TIME = 1.f;
+constexpr float TRACKING_FADE_TIME = 1.f;
 
 EveChildTurret::EveChildTurret( IRoot* lockobj ) :
 	EveChildMesh( lockobj )
@@ -309,15 +309,14 @@ void EveChildTurret::ReleaseCachedData( BlueAsyncRes* resource )
 
 void EveChildTurret::RebuildCachedData( BlueAsyncRes* resource )
 {
-	const auto geometryResource = m_mesh->GetGeometryResource();
+	const auto geometryResource = GetGeometryRes();
 	if( resource == geometryResource )
 	{
 		// finished loading the turret geometry resource, so grab vertex decl and bounding sphere
 		if( geometryResource->GetMeshCount() )
 		{
-			if( const TriGeometryResMeshData* meshData = geometryResource->GetMeshData( 0 ) )
+			if( geometryResource->GetMeshData( 0 ) )
 			{
-
 				// get a bounding box for visibility detection, if this is not already set in the redfile
 				// TODO: might not be needed
 				if( m_worldBoundingSphere.radius == 0.f )
@@ -337,7 +336,7 @@ void EveChildTurret::RebuildCachedData( BlueAsyncRes* resource )
 				for( int i = 0; i < SYSBONE_MAX; ++i )
 				{
 					// in case we don't find system bone, ::FindJoint() returns 0xffffffff
-					m_systemBoneID[i] = skeletonData->FindJoint( s_systemBoneSkeletonNames[i].c_str() );
+					m_systemBoneID[i] = skeletonData->FindJoint( s_systemBoneSkeletonNames[i] );
 				}
 
 				InitializeFiringEffect();
@@ -532,7 +531,7 @@ bool EveChildTurret::SetupFiringState()
 	if( m_state == STATE_DEACTIVE )
 	{
 		// this state change is forbidden!
-		CCP_LOGERR( "EveTurretSet %s wants to fire but is in deactive state.", m_name.c_str() );
+		CCP_LOGERR( "EveChildTurret %s wants to fire but is in deactive state.", m_name.c_str() );
 		return false;
 	}
 	int closestLocator = -1;
@@ -558,7 +557,7 @@ bool EveChildTurret::SetupFiringState()
 	// timing: apply a randomized fire delay
 	// TODO: remove?
 	// CalcRandomDelay();
-	float m_randomFiringDelay = 0.f; // TODO: temp value
+	float randomFiringDelay = 0.f; // TODO: temp value
 
 	// timing: is the length of the firing effect known?
 	float effectTotalTime = m_firingEffect ? m_firingEffect->GetFiringDuration() : 0.f;
@@ -572,18 +571,18 @@ bool EveChildTurret::SetupFiringState()
 	case STATE_IDLE:
 	case STATE_RELOADING:
 		// and delay the effect until we are facing target
-		m_randomFiringDelay += m_maxTrackingTime;
+		randomFiringDelay += m_maxTrackingTime;
 		// fadein tracking, play fire anim (only one the firing turret!) and then the active anim
 		m_delayToFadeInTracking = 0.0001f;
 
-		PlayAnimation( GetFireAnimationName(), "Active", m_randomFiringDelay );
+		PlayAnimation( GetFireAnimationName(), "Active", randomFiringDelay );
 		// assign locator and turret
-		m_target->StartFireAtLocator( closestLocator, m_randomFiringDelay + effectPeakTime, effectTotalTime - effectPeakTime, &source );
+		m_target->StartFireAtLocator( closestLocator, randomFiringDelay + effectPeakTime, effectTotalTime - effectPeakTime, &source );
 		break;
 	case STATE_FIRING:
 	case STATE_TARGETING:
-		PlayAnimation( GetFireAnimationName(), "Active", m_randomFiringDelay );
-		m_target->StartFireAtLocator( closestLocator, m_randomFiringDelay + effectPeakTime, effectTotalTime - effectPeakTime, &source );
+		PlayAnimation( GetFireAnimationName(), "Active", randomFiringDelay );
+		m_target->StartFireAtLocator( closestLocator, randomFiringDelay + effectPeakTime, effectTotalTime - effectPeakTime, &source );
 		break;
 
 	default:
@@ -706,7 +705,7 @@ void EveChildTurret::InitializeFiringEffect()
 	}
 	m_firingEffect->RegisterWithQuadRenderer( *Tr2QuadRenderer::Instance() );
 
-	auto geometryResource = m_mesh->GetGeometryResource();
+	auto geometryResource = GetGeometryRes();
 	if( geometryResource && geometryResource->GetSkeletonCount() )
 	{
 		if( TriGeometryResSkeletonData* skeletonData = geometryResource->GetSkeletonData( 0 ) )
@@ -735,7 +734,7 @@ void EveChildTurret::InitializeFiringEffect()
 void EveChildTurret::InitializeAnimation()
 {
 	EveChildMesh::InitializeAnimation();
-	if( const auto geometryResource = m_mesh->GetGeometryResource() )
+	if( const auto geometryResource = GetGeometryRes() )
 	{
 		// get a model, a meshbinding and animation stuff from the resource
 		const cmf::Data* cmfData = geometryResource->GetCMFData();
@@ -912,16 +911,13 @@ Matrix EveChildTurret::GetTurretBoneTransform( uint32_t boneID ) const
 {
 	Matrix matrix = m_worldTransform;
 
-	if( boneID == INVALID_BONE_INDEX )
-	{
-		// TODO: should support lowLodTransform? prob yes
-		// return lowLodTransform * matrix;
-		return matrix;
-	}
+
+	// TODO: should support lowLodTransform? prob yes
+	// return lowLodTransform * matrix;
 	if( m_animationUpdater )
 	{
 		const auto& worldTransforms = m_animationUpdater->GetWorldTransforms();
-		if( !worldTransforms.empty() )
+		if( boneID < worldTransforms.size() )
 		{
 			return worldTransforms[boneID] * matrix;
 		}
@@ -930,16 +926,21 @@ Matrix EveChildTurret::GetTurretBoneTransform( uint32_t boneID ) const
 	return matrix;
 }
 
+TriGeometryRes* EveChildTurret::GetGeometryRes() const
+{
+	return m_mesh ? m_mesh->GetGeometryResource() : nullptr;
+}
+
 float EveChildTurret::PlayAnimation( const std::string& animName, const std::string& animNameIdle, float delay )
 {
-	if( !m_animationUpdater )
+	auto geometryRes = GetGeometryRes();
+	if( !m_animationUpdater || !geometryRes )
 	{
 		return 0.f;
 	}
 	float animLength = 0.f;
 
-	auto cmfData = m_mesh->GetGeometryResource()->GetCMFData();
-	if( cmfData )
+	if( auto cmfData = geometryRes->GetCMFData() )
 	{
 		// there can be more animations in one res, so find right one
 		size_t animIx = cmfData->animations.size();
@@ -971,38 +972,35 @@ float EveChildTurret::PlayAnimation( const std::string& animName, const std::str
 		// stop all animation
 		StopAnimation( delay );
 
-		if( m_animationUpdater )
+		// granny, play first anim once, if provided & found
+		if( animIx != cmfData->animations.size() )
 		{
-			// granny, play first anim once, if provided & found
-			if( animIx != cmfData->animations.size() )
-			{
-				auto& animation = cmfData->animations[animIx];
-				animLength = animation.duration;
+			auto& animation = cmfData->animations[animIx];
+			animLength = animation.duration;
 
-				// ( const char* animName, bool replace, int loopCount, float delay, float speed, bool clearWhenDone )
-				std::string animationName = cmf::ToStdString( animation.name );
-				bool replace = false; // TODO: correct?
-				int loopCount = 1;
-				float speed = 1.f;
-				m_animationUpdater->PlayAnimation( animationName.c_str(), replace, loopCount, delay, speed );
-				// TODO: set start/stop time seems different from ^
-				// player->SetStartTime( delay + Tr2Renderer::GetAnimationTime() );
-				// player->SetStopTime( animLength + delay + Tr2Renderer::GetAnimationTime() );
-			}
+			// ( const char* animName, bool replace, int loopCount, float delay, float speed, bool clearWhenDone )
+			std::string animationName = cmf::ToStdString( animation.name );
+			bool replace = false; // TODO: correct?
+			int loopCount = 1;
+			float speed = 1.f;
+			m_animationUpdater->PlayAnimation( animationName.c_str(), replace, loopCount, delay, speed );
+			// TODO: set start/stop time seems different from ^
+			// player->SetStartTime( delay + Tr2Renderer::GetAnimationTime() );
+			// player->SetStopTime( animLength + delay + Tr2Renderer::GetAnimationTime() );
+		}
 
-			// then play idle anim on loop (after delay), if provided & found
-			if( idleIx != cmfData->animations.size() )
-			{
-				auto& animation = cmfData->animations[idleIx];
-				std::string animationName = cmf::ToStdString( animation.name );
-				bool replace = false; // TODO: correct?
-				int loopCount = 0;
-				float speed = 1.f;
+		// then play idle anim on loop (after delay), if provided & found
+		if( idleIx != cmfData->animations.size() )
+		{
+			auto& animation = cmfData->animations[idleIx];
+			std::string animationName = cmf::ToStdString( animation.name );
+			bool replace = false; // TODO: correct?
+			int loopCount = 0;
+			float speed = 1.f;
 
-				m_animationUpdater->PlayAnimation( animationName.c_str(), replace, loopCount, delay, speed );
-				// TODO: set start time seems different from ^
-				// player->SetStartTime( animLength + delay + Tr2Renderer::GetAnimationTime() );
-			}
+			m_animationUpdater->PlayAnimation( animationName.c_str(), replace, loopCount, delay, speed );
+			// TODO: set start time seems different from ^
+			// player->SetStartTime( animLength + delay + Tr2Renderer::GetAnimationTime() );
 		}
 	}
 
@@ -1012,9 +1010,8 @@ float EveChildTurret::PlayAnimation( const std::string& animName, const std::str
 void EveChildTurret::StopAnimation( float delay )
 {
 	// TODO: prob not needed and can just use animation class function instead of this probably useless middleman
-	auto geometryResource = m_mesh->GetGeometryResource();
 	// if we don't have a geometry, animation is useless and probably unwanted
-	if( !geometryResource )
+	if( !GetGeometryRes() )
 	{
 		return;
 	}

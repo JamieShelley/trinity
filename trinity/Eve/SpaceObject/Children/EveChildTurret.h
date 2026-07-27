@@ -103,6 +103,8 @@ protected:
 
 	Matrix GetTurretBoneTransform( uint32_t boneID ) const;
 
+	TriGeometryRes* GetGeometryRes() const;
+
 	// animation
 	float PlayAnimation( const std::string& animName, const std::string& animNameIdle, float delay = 0.f );
 	void StopAnimation( float delay = 0.f );
