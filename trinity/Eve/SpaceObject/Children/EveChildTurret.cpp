@@ -59,21 +59,17 @@ EveChildTurret::~EveChildTurret()
 }
 bool EveChildTurret::Initialize()
 {
-	// pass down some user-defined data into sub-modules we don't save out
-	// TODO: keep or discard
-	// m_target->SetBehaviour( m_laserMissBehaviour, m_projectileMissBehaviour, m_impactSize, m_impactBehaviour );
+	// pass down some user-defined data into sub-modules we don't save out.
+	m_target->SetImpactBehaviour( m_impactSize, m_impactBehaviour );
 
 	return EveChildMesh::Initialize();
 }
 bool EveChildTurret::OnModified( Be::Var* value )
 {
-	/*
-	if( IsMatch( value, m_laserMissBehaviour ) || IsMatch( value, m_projectileMissBehaviour ) || IsMatch( value, m_impactSize ) || IsMatch( value, m_impactBehaviour ) )
+	if( IsMatch( value, m_impactSize ) || IsMatch( value, m_impactBehaviour ) )
 	{
-		// TODO: keep or discard
-		m_target->SetBehaviour( m_laserMissBehaviour, m_projectileMissBehaviour, m_impactSize, m_impactBehaviour );
+		m_target->SetImpactBehaviour( m_impactSize, m_impactBehaviour );
 	}
-	*/
 	return EveChildMesh::OnModified( value );
 }
 void EveChildTurret::RegisterComponents()

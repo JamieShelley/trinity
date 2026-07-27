@@ -48,6 +48,7 @@ public:
 
 	// hit/miss
 	void SetBehaviour( bool laserMiss, bool projectileMiss, float impactSize, ImpactBehaviour::Type impactBehaviour );
+	void SetImpactBehaviour( float impactSize, ImpactBehaviour::Type impactBehaviour );
 	bool GetShotMissed() const;
 	void SetShotMissed( bool missed );
 	double GetLastShotTime() const;

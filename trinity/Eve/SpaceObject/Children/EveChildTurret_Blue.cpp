@@ -35,7 +35,7 @@ const Be::ClassInfo* EveChildTurret::ExposeToBlue()
 		MAP_PROPERTY( "firingEffect", GetFiringEffect, SetFiringEffect, "The module for the firing effect of this turret" )
 		MAP_ATTRIBUTE( "firingEffectResPath", m_firingEffectResPath, "A res path to the redfile containing the primary firing effect", Be::READWRITE | Be::PERSIST )
 
-		MAP_ATTRIBUTE( "impactSize", m_impactSize, "Size of impacts. No impact if size is 0 or less", Be::READWRITE | Be::PERSIST )
+		MAP_ATTRIBUTE( "impactSize", m_impactSize, "Size of impacts. No impact if size is 0 or less", Be::READWRITE | Be::NOTIFY | Be::PERSIST )
 		MAP_ATTRIBUTE_WITH_CHOOSER( "impactBehaviour", m_impactBehaviour, "What do we want to hit? ", Be::READWRITE | Be::NOTIFY | Be::PERSIST | Be::ENUM, ImpactBehaviourChooser )
 
 		MAP_ATTRIBUTE( "turretMovementObserver", m_turretMovementObserver, "The observer for turret movement sounds. Note: the positioning of this observer is automatic.", Be::READWRITE | Be::PERSIST )

@@ -332,6 +332,15 @@ void EveTurretTarget::SetBehaviour( bool laserMiss, bool projectileMiss, float i
 {
 	m_laserMissBehaviour = laserMiss;
 	m_projectileMissBehaviour = projectileMiss;
+	SetImpactBehaviour( impactSize, impactBehaviour );
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Set the impact configuration, leaving miss behaviour disabled/untouched
+// --------------------------------------------------------------------------------
+void EveTurretTarget::SetImpactBehaviour( float impactSize, ImpactBehaviour::Type impactBehaviour )
+{
 	m_impactSize = impactSize;
 	m_impactBehaviour = impactBehaviour;
 }
