@@ -589,7 +589,7 @@ bool TriGeometryRes::DoPrepare()
 				} );
 				if( !hasMeshBindings )
 				{
-					m_cmfContents = {};
+					//m_cmfContents = {};	// TODO: intern, decide how to handle this. Pulling data from buffers is problematic if we do cpu side raycasting. Never unloading is wasteful though.
 				}
 			}
 		}
@@ -1516,6 +1516,7 @@ static bool GetBoneIndex( Tr2VertexDefinition::DataType elementType, const void*
 	return true;
 }
 
+// TODO: intern, optimize this one as well. we can do this intersection test without matrix inversion
 static bool IntersectTri(
 	const Vector3* p0,
 	const Vector3* p1,
@@ -1585,23 +1586,59 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3* pos, const Vector3* d
 			continue;
 		}
 
+		Vector3 boundingSpherePosition = m_meshes[i]->m_boundingSphere.GetXYZ();
+		float boundingSphereRadius = m_meshes[i]->m_boundingSphere.w;
+		float t = Dot( boundingSpherePosition - *pos, *dir ) / Dot( *dir, *dir );
+		t = max( 0.f, t );
+		Vector3 diff = t * ( *dir ) + ( *pos ) - boundingSpherePosition;
+		if( Dot( diff, diff ) > boundingSphereRadius * boundingSphereRadius )
+		{
+			continue;
+		}
+
 		//Get the first LOD.
-		auto& lod = m_meshes[i]->m_lods[0];
+		auto& lod = m_meshes[i]->m_lods[m_meshes[i]->m_lods.size() - 1];	// TODO: intern, revert test lod index
 
 		const uint8_t* pVertices;
 		const uint8_t* pIndices;
 
 		int vertSize = m_meshes[i]->m_bytesPerVertex;
-		if( FAILED( lod->m_vertexAllocation.MapForReading( pVertices, renderContext ) ) )
+
+		if( this->m_useCMF )	// TODO: intern, this only works as long as data hasn't been unloaded...
 		{
-			return 0;
+			pVertices = (uint8_t*)this->m_cmfContents.GetViewData( this->m_cmfContents.GetData()->meshes[i].lods[lod->m_originalLodIndex].vb );
 		}
-		ON_BLOCK_EXIT( [&] { lod->m_vertexAllocation.UnmapForReading( renderContext ); } );
-		if( FAILED( lod->m_indexAllocation.MapForReading( pIndices, renderContext ) ) )
+		else
 		{
-			return false;
+			if( FAILED( lod->m_vertexAllocation.MapForReading( pVertices, renderContext ) ) )
+			{
+				return 0;
+			}
 		}
-		ON_BLOCK_EXIT( [&] { lod->m_indexAllocation.UnmapForReading( renderContext ); } );
+		ON_BLOCK_EXIT( [&] { 
+			if( !this->m_useCMF )
+			{
+				lod->m_vertexAllocation.UnmapForReading( renderContext );
+			}
+		} );
+
+		if( this->m_useCMF )	// TODO: intern, this only works as long as data hasn't been unloaded...
+		{
+			pIndices = (uint8_t*)this->m_cmfContents.GetViewData( this->m_cmfContents.GetData()->meshes[i].lods[lod->m_originalLodIndex].ib );
+		}
+		else
+		{
+			if( FAILED( lod->m_indexAllocation.MapForReading( pIndices, renderContext ) ) )
+			{
+				return false;
+			}
+		}
+		ON_BLOCK_EXIT( [&] {
+			if( !this->m_useCMF )
+			{
+				lod->m_indexAllocation.UnmapForReading( renderContext );
+			}
+		} );
 
 		const uint16_t* pShortIndices = (uint16_t*)pIndices;
 		const uint32_t* pLongIndices = (uint32_t*)pIndices;
@@ -2234,6 +2271,9 @@ bool TriGeometryRes::CreateMeshesFromCMFFile( Tr2CmfContents& cmfContents, Tr2Cp
 			}
 		}
 	}
+
+	m_bvh = BVH::CreateBVHContent( cmfContents, 0 );
+
 	CCP_STATS_ADD( geometryResBytes, m_memoryUse );
 
 	return true;

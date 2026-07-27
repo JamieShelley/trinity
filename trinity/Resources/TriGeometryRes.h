@@ -10,6 +10,7 @@
 
 #include "Tr2CmfContent.h"
 #include "Tr2SuballocatedBuffer.h"
+#include "../Utilities/BVH.h"
 
 constexpr uint32_t SHARED_BUFFER_BLOCK_SIZE = 32u * 1024u * 1024u;
 constexpr uint32_t SHARED_BUFFER_MAX_SIZE = 2048u * 1024u * 1024u;
@@ -363,6 +364,8 @@ private:
 	unsigned int m_memoryUse;
 	TrackableStdVector<std::unique_ptr<TriGeometryResMeshData>> m_meshes;
 	TrackableStdVector<std::unique_ptr<TriGeometryResSkeletonData>> m_skeletons;
+
+	BVH::BVHContent m_bvh;
 
 #if WITH_GRANNY
 	granny_file* m_pGrannyFile;

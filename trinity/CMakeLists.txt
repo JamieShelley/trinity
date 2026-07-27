@@ -1388,6 +1388,8 @@ set(_SOURCES
     Utilities/BoundingBox.h
     Utilities/BoundingSphere.cpp
     Utilities/BoundingSphere.h
+    Utilities/BVH.cpp
+    Utilities/BVH.h
     Utilities/GeometryUtils.cpp
     Utilities/GeometryUtils.h
     Utilities/GrannyCurveHelpers.h
