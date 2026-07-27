@@ -35,8 +35,12 @@ const float TRACKING_FADE_TIME = 1.f;
 
 EveChildTurret::EveChildTurret( IRoot* lockobj ) :
 	EveChildMesh( lockobj )
-// TODO: init rest of variables
 {
+	for( unsigned int i = 0; i < SYSBONE_MAX; ++i )
+	{
+		m_systemBoneID[i] = INVALID_BONE_INDEX;
+	}
+
 	m_target.CreateInstance();
 
 	PrepareResources();
@@ -1049,12 +1053,12 @@ std::string EveChildTurret::GetFireAnimationName() const
 	return "";
 }
 
-EveTurretFiringFXPtr EveChildTurret::GetFiringEffect()
+EveTurretFiringFX* EveChildTurret::GetFiringEffect()
 {
 	return m_firingEffect;
 }
 
-void EveChildTurret::SetFiringEffect( const EveTurretFiringFXPtr& firingEffect )
+void EveChildTurret::SetFiringEffect( EveTurretFiringFX* firingEffect )
 {
 	auto registry = GetComponentRegistry();
 	if( EveEntityPtr entity = BlueCastPtr( m_firingEffect ) )

@@ -9,8 +9,6 @@
 
 BLUE_DECLARE( EveTurretFiringFX );
 BLUE_DECLARE( EveTurretTarget );
-BLUE_DECLARE( EveTurretTarget );
-BLUE_DECLARE( EveChildInstanceContainer );
 
 BLUE_CLASS( EveChildTurret ) :
 	public EveChildMesh, public IBlueAsyncResNotifyTarget
@@ -110,8 +108,8 @@ protected:
 	void StopAnimation( float delay = 0.f );
 	std::string GetFireAnimationName() const;
 
-	EveTurretFiringFXPtr GetFiringEffect();
-	void SetFiringEffect( const EveTurretFiringFXPtr& firingEffect );
+	EveTurretFiringFX* GetFiringEffect();
+	void SetFiringEffect( EveTurretFiringFX* firingEffect );
 
 	// TODO: rename GrannyBoneBindingBounds?
 	std::vector<GrannyBoneBindingBounds> m_boneBounds;
@@ -125,15 +123,15 @@ protected:
 	EveTurretTargetPtr m_target;
 
 	// impacts
-	float m_impactSize;
-	ImpactBehaviour::Type m_impactBehaviour;
+	float m_impactSize = 0.f;
+	ImpactBehaviour::Type m_impactBehaviour = ImpactBehaviour::DAMAGE_LOCATOR;
 
 	// tracking
-	float m_trackingInfluence;
-	float m_trackingInfluenceDelta;
-	float m_delayToFadeOutTracking;
-	float m_delayToFadeInTracking;
-	float m_maxTrackingTime;
+	float m_trackingInfluence = 0.f;
+	float m_trackingInfluenceDelta = 0.f;
+	float m_delayToFadeOutTracking = 0.f;
+	float m_delayToFadeInTracking = 0.f;
+	float m_maxTrackingTime = 1.f;
 
 	// animation
 	// TODO: needed?
@@ -143,7 +141,7 @@ protected:
 		std::string animNameIdle;
 	};
 	std::vector<AnimationRequest> m_animationQueue;
-	const cmf::Skeleton* m_skeleton;
+	const cmf::Skeleton* m_skeleton = nullptr;
 	std::vector<int32_t> m_skeletonBoneIndices;
 	std::unique_ptr<cmf::AnimationSequencer> m_sequencer;
 	cmf::SkeletonPose m_pose;
@@ -151,22 +149,22 @@ protected:
 	// system bones
 	unsigned int m_systemBoneID[SYSBONE_MAX];
 	// specific system bone values
-	float m_sysBoneHeight;
-	float m_sysBonePitchOffset;
-	float m_sysBonePitchFactor;
-	float m_sysBonePitchMin;
-	float m_sysBonePitchMax;
-	float m_sysBonePitch01Offset;
-	float m_sysBonePitch01Factor;
-	float m_sysBonePitch02Offset;
-	float m_sysBonePitch02Factor;
-	float m_sysBonePitch03Offset;
-	float m_sysBonePitch03Factor;
+	float m_sysBoneHeight = 1.f;
+	float m_sysBonePitchOffset = 0.f;
+	float m_sysBonePitchFactor = 1.f;
+	float m_sysBonePitchMin = 0.f;
+	float m_sysBonePitchMax = 90.f;
+	float m_sysBonePitch01Offset = 0.f;
+	float m_sysBonePitch01Factor = 1.f;
+	float m_sysBonePitch02Offset = 0.f;
+	float m_sysBonePitch02Factor = 1.f;
+	float m_sysBonePitch03Offset = 0.f;
+	float m_sysBonePitch03Factor = 1.f;
 
 	// state of turret set
-	State m_state;
+	State m_state = STATE_IDLE;
 
-	float m_recheckTimeLeft;
+	float m_recheckTimeLeft = -1.f;
 
 	// firing effect redfile path
 	std::string m_firingEffectResPath;
@@ -174,10 +172,10 @@ protected:
 	// TODO: move firing effect into its own class?
 	// firing effect
 	EveTurretFiringFXPtr m_firingEffect;
-	bool m_firingEffectMuzzlePosSet;
+	bool m_firingEffectMuzzlePosSet = false;
 
 	// Audio specific attributes
-	bool m_playMovementSound;
+	bool m_playMovementSound = true;
 	TriObserverLocalPtr m_turretMovementObserver;
 	std::wstring m_idleToTargetingMovementAudioEvent;
 	std::wstring m_targetingToIdleMovementAudioEvent;
