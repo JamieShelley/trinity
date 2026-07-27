@@ -53,6 +53,7 @@ EveChildTurret::~EveChildTurret()
 		m_firingEffect->CleanUp();
 	}
 
+	m_cachedGeometryRes = nullptr;
 	m_skeleton = nullptr;
 	m_skeletonBoneIndices.clear();
 	m_boneBounds.clear();
@@ -159,6 +160,8 @@ void EveChildTurret::UpdateSyncronous( const EveUpdateContext& updateContext, co
 		}
 	}
 	*/
+
+	UpdateCachedGeometryData();
 
 	if( m_sequencer )
 	{
@@ -298,68 +301,66 @@ void EveChildTurret::UpdateAsyncronous( const EveUpdateContext& updateContext, c
 		}
 	}
 }
+void EveChildTurret::UpdateCachedGeometryData()
+{
+	auto* geometryRes = GetGeometryRes();
+	if( geometryRes == m_cachedGeometryRes )
+	{
+		return;
+	}
+	ReleaseCachedGeometryData();
+	if( geometryRes && geometryRes->IsGood() )
+	{
+		BuildCachedGeometryData( *geometryRes );
+		m_cachedGeometryRes = geometryRes;
+	}
+}
+void EveChildTurret::BuildCachedGeometryData( TriGeometryRes& geometryRes )
+{
+	// finished loading the turret geometry resource, so grab vertex decl and bounding sphere
+	if( geometryRes.GetMeshCount() )
+	{
+		if( geometryRes.GetMeshData( 0 ) )
+		{
+			// get a bounding box for visibility detection, if this is not already set in the redfile
+			// TODO: might not be needed
+			if( m_worldBoundingSphere.radius == 0.f )
+			{
+				geometryRes.RecalculateBoundingSphere();
+				Vector4 boundingSphere;
+				geometryRes.GetBoundingSphere( 0, boundingSphere );
+				m_worldBoundingSphere = CcpMath::Sphere( boundingSphere );
+			}
+		}
+	}
 
-void EveChildTurret::ReleaseCachedData( BlueAsyncRes* resource )
+	if( geometryRes.GetSkeletonCount() )
+	{
+		if( TriGeometryResSkeletonData* skeletonData = geometryRes.GetSkeletonData( 0 ) )
+		{
+			for( int i = 0; i < SYSBONE_MAX; ++i )
+			{
+				// in case we don't find system bone, ::FindJoint() returns 0xffffffff
+				m_systemBoneID[i] = skeletonData->FindJoint( s_systemBoneSkeletonNames[i] );
+			}
+
+			InitializeFiringEffect();
+		}
+	}
+
+	InitializeAnimation();
+
+	// TODO: forceXAnimation based on m_state?
+	ForceIdleAnimation();
+}
+
+void EveChildTurret::ReleaseCachedGeometryData()
 {
 	// TODO: for now duplicates destructor
+	m_cachedGeometryRes = nullptr;
 	m_skeleton = nullptr;
 	m_skeletonBoneIndices.clear();
 	m_boneBounds.clear();
-}
-
-void EveChildTurret::RebuildCachedData( BlueAsyncRes* resource )
-{
-	const auto geometryResource = GetGeometryRes();
-	if( resource == geometryResource )
-	{
-		// finished loading the turret geometry resource, so grab vertex decl and bounding sphere
-		if( geometryResource->GetMeshCount() )
-		{
-			if( geometryResource->GetMeshData( 0 ) )
-			{
-				// get a bounding box for visibility detection, if this is not already set in the redfile
-				// TODO: might not be needed
-				if( m_worldBoundingSphere.radius == 0.f )
-				{
-					geometryResource->RecalculateBoundingSphere();
-					Vector4 boundingSphere;
-					geometryResource->GetBoundingSphere( 0, boundingSphere );
-					m_worldBoundingSphere = CcpMath::Sphere( boundingSphere );
-				}
-			}
-		}
-
-		if( geometryResource->GetSkeletonCount() )
-		{
-			if( TriGeometryResSkeletonData* skeletonData = geometryResource->GetSkeletonData( 0 ) )
-			{
-				for( int i = 0; i < SYSBONE_MAX; ++i )
-				{
-					// in case we don't find system bone, ::FindJoint() returns 0xffffffff
-					m_systemBoneID[i] = skeletonData->FindJoint( s_systemBoneSkeletonNames[i] );
-				}
-
-				InitializeFiringEffect();
-			}
-		}
-
-		InitializeAnimation();
-
-		if( !m_animationQueue.empty() )
-		{
-			std::vector<AnimationRequest> pending;
-			pending.swap( m_animationQueue );
-			for( const auto& [animName, animNameIdle] : pending )
-			{
-				PlayAnimation( animName, animNameIdle );
-			}
-		}
-		else
-		{
-			// force an anim based on a state
-			ForceIdleAnimation();
-		}
-	}
 }
 
 void EveChildTurret::EnterStateDeactive()
@@ -931,6 +932,13 @@ TriGeometryRes* EveChildTurret::GetGeometryRes() const
 	return m_mesh ? m_mesh->GetGeometryResource() : nullptr;
 }
 
+// TODO: heavily refactor once animation ownership is decided (m_animationUpdater vs m_sequencer).
+// Known defects for the rewrite:
+// - a missing anim name aborts the whole request instead of playing what was found
+// - the idle anim starts at `delay` instead of after the one-shot finishes
+//   (original sequenced via player SetStartTime/SetStopTime, no equivalent wired here)
+// - StopAnimation is a stub, so the "stop all animation" call below does nothing
+// - duplicated find_if lookups
 float EveChildTurret::PlayAnimation( const std::string& animName, const std::string& animNameIdle, float delay )
 {
 	auto geometryRes = GetGeometryRes();
@@ -1015,9 +1023,6 @@ void EveChildTurret::StopAnimation( float delay )
 	{
 		return;
 	}
-
-	// empty queue, so no more buffered requests
-	m_animationQueue.clear();
 
 	// stop
 	if( m_animationUpdater )

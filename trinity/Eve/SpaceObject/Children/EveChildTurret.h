@@ -11,7 +11,7 @@ BLUE_DECLARE( EveTurretFiringFX );
 BLUE_DECLARE( EveTurretTarget );
 
 BLUE_CLASS( EveChildTurret ) :
-	public EveChildMesh, public IBlueAsyncResNotifyTarget
+	public EveChildMesh
 {
 public:
 	EXPOSE_TO_BLUE();
@@ -31,9 +31,9 @@ public:
 	void UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params ) override;
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params ) override;
 
-	// IBlueAsyncResNotifyTarget
-	void ReleaseCachedData( BlueAsyncRes * resource ) override;
-	void RebuildCachedData( BlueAsyncRes * resource ) override;
+	void UpdateCachedGeometryData();
+	void BuildCachedGeometryData( TriGeometryRes & geometryRes );
+	void ReleaseCachedGeometryData();
 
 	// action
 	void EnterStateDeactive();
@@ -111,7 +111,7 @@ protected:
 	std::string GetFireAnimationName() const;
 
 	EveTurretFiringFX* GetFiringEffect();
-	void SetFiringEffect( EveTurretFiringFX* firingEffect );
+	void SetFiringEffect( EveTurretFiringFX * firingEffect );
 
 	// TODO: rename GrannyBoneBindingBounds?
 	std::vector<GrannyBoneBindingBounds> m_boneBounds;
@@ -136,13 +136,6 @@ protected:
 	float m_maxTrackingTime = 1.f;
 
 	// animation
-	// TODO: needed?
-	struct AnimationRequest
-	{
-		std::string animName;
-		std::string animNameIdle;
-	};
-	std::vector<AnimationRequest> m_animationQueue;
 	const cmf::Skeleton* m_skeleton = nullptr;
 	std::vector<int32_t> m_skeletonBoneIndices;
 	std::unique_ptr<cmf::AnimationSequencer> m_sequencer;
@@ -181,6 +174,8 @@ protected:
 	TriObserverLocalPtr m_turretMovementObserver;
 	std::wstring m_idleToTargetingMovementAudioEvent;
 	std::wstring m_targetingToIdleMovementAudioEvent;
+
+	TriGeometryResPtr m_cachedGeometryRes;
 };
 
 TYPEDEF_BLUECLASS( EveChildTurret );
