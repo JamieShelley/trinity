@@ -15,6 +15,11 @@ if(BUILD_FOR_PYTHON_2)
 else()
     # Feature options
     option(BUILD_SHADER_COMPILER "Build shader compiler." OFF)
+
+    option(BUILD_NSAMDR_PREVIEW "Build the interactive NSAMDR DX11 preview test." OFF)
+    if(BUILD_NSAMDR_PREVIEW)
+        list(APPEND VCPKG_MANIFEST_FEATURES "nsamdr-preview")
+    endif()
     if(WIN32)
         option(BUILD_DX11 "Build dx11." OFF)
         option(BUILD_DX12 "Build dx12." OFF)

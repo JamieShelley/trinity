@@ -102,7 +102,7 @@
     },
     "dx11": {
       "description": "Create DirectX 11 targets",
-       "supports": "windows & x64",
+      "supports": "windows & x64",
       "dependencies": [
         {
           "name": "directx-dxc",
@@ -123,7 +123,19 @@
         {
           "name": "nvidia-streamline",
           "version>=": "2.8.0",
-          "features":["dlss-fg","dlss-sr","nis" ]
+          "features": [
+            "dlss-fg",
+            "dlss-sr",
+            "nis"
+          ]
+        },
+        {
+          "name": "imgui",
+          "version>=": "1.91.9",
+          "features": [
+            "dx11-binding",
+            "win32-binding"
+          ]
         }
       ]
     },
@@ -154,7 +166,12 @@
         {
           "name": "nvidia-streamline",
           "version>=": "2.8.0",
-          "features":["dlss-fg","dlss-sr","nis","reflex" ]
+          "features": [
+            "dlss-fg",
+            "dlss-sr",
+            "nis",
+            "reflex"
+          ]
         },
         {
           "name": "intel-xess",

@@ -11,6 +11,9 @@ const char* g_moduleName = "TrinityALTest";
 
 // Interactive test flag (set by --interactive option)
 bool g_interactive = false;
+// Most legacy interactive tests close on any character. The NSAMDR preview
+// disables that behaviour while it owns the interactive window.
+bool g_exitInteractiveOnCharacter = true;
 // Make screenshots for the first frame of interactive tests (set by --screenshots option)
 bool g_makeScreenShots = false;
 // Compare with existing screenshots

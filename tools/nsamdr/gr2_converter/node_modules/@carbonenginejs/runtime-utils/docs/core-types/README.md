@@ -1,0 +1,203 @@
+# @carbonenginejs/runtime-utils
+
+Status: Evolving
+Scope: `@carbonenginejs/runtime-utils` Carbon type and model families
+Audience: Runtime authors and integrators
+Summary: Explains Carbon type descriptors, schemas, models, lifecycle state, documents, and hydration.
+
+Shared CarbonEngineJS type, schema, document, hydration, and runtime model
+helpers.
+
+This package is the common contract for packages that read, write, or generate
+CarbonEngineJS data. Format packages can stop at plain JSON or a neutral
+`CjsCarbonDocument`; runtime packages can opt into registered classes and
+`CjsModel` when they want live objects.
+
+## Install
+
+```sh
+npm install @carbonenginejs/runtime-utils
+```
+
+## What It Owns
+
+- `document`: neutral `CjsCarbonDocument`, class/struct registries, hydration,
+  and dehydration.
+- `hydration`: adapter seam for construction, value application, and finalize
+  behavior.
+- `schema`: decorators, class/field/method metadata, the direct
+  name-to-constructor map, enum registration, Carbon-method provenance, and
+  component metadata helpers.
+- `types`: Carbon type descriptors, defaults, coercion, cloning, and export
+  helpers.
+- `model`: `CjsModel`, `CjsEventEmitter`, model dirty state, traversal helpers,
+  and source-record utilities.
+
+Generated enums and generated class catalogs should live in schema or generated
+runtime packages, not in this foundational package.
+
+## Hydration Contract
+
+`runtime-utils` does not impose a runtime lifecycle on callers. The hydrator only
+guarantees ordering:
+
+1. `construct`
+2. `applyValues`
+3. `finalize`
+
+The default behavior is intentionally minimal: construction through
+`CjsSchema.GetConstructor(name)`, `Object.assign` for values, and no finalize
+step. Callers opt into stricter population rules by supplying an adapter.
+
+Use `createLifecycleAdapter()` when your runtime classes follow a
+`SetValues`-style contract. `Initialize` is optional; disable it explicitly
+when a project only wants `SetValues`.
+
+## Usage
+
+### Hydrate a neutral document into runtime classes
+
+```js
+import {
+  CjsCarbonDocument,
+  CjsClassRegistry,
+  CjsDocumentHydrator
+} from "@carbonenginejs/runtime-utils/document";
+import { createLifecycleAdapter } from "@carbonenginejs/runtime-utils/hydration";
+import { CjsModel } from "@carbonenginejs/runtime-utils/model";
+import { CjsSchema } from "@carbonenginejs/runtime-utils/schema";
+
+class DemoNode extends CjsModel
+{
+  position = [0, 0, 0];
+}
+
+CjsSchema.define(DemoNode, {
+  className: "DemoNode",
+  alias: "LegacyDemoNode",
+  fields: [{
+    name: "position",
+    type: { kind: "vec3" },
+    io: {
+      read: true,
+      write: true,
+      persist: true,
+      notify: true
+    }
+  }]
+});
+
+const document = CjsCarbonDocument.create({
+  format: "example",
+  roots: [{ ref: { $ref: 1 } }],
+  nodes: [{
+    id: 1,
+    kind: "DemoNode",
+    fields: { position: [1, 2, 3] }
+  }]
+});
+
+const registry = CjsClassRegistry.fromMaps({
+  constructors: { DemoNode }
+});
+
+const adapter = createLifecycleAdapter({ initialize: false });
+const { root } = CjsDocumentHydrator.hydrate(document, { registry, adapter });
+```
+
+`CjsSchema` stores constructors in one direct name-to-constructor map.
+`CjsSchema.define` registers the explicit `className` and each alias as keys;
+manual code can use `CjsSchema.SetConstructor(name, Constructor)`. A supplied
+scoped registry replaces the default constructor lookup and must implement
+`GetConstructor(name)`.
+
+### Model references, value structs, and raw inline values
+
+Use `type.model("ClassName")` for reference-shaped fields that hydrate through
+the registered `CjsModel` constructor map. Legacy `type.objectRef` remains
+supported while runtime packages migrate.
+
+Use `type.struct("ClassName")` for a registered model with value semantics. If
+the owner constructor installs a struct instance, `SetValues` populates that
+instance in place instead of storing the incoming model by reference. This
+keeps constructor-owned identity and mutable math buffers stable.
+
+Opaque native payloads must not trigger model construction. Use
+`type.rawStruct("NativeType")`; it records the canonical `rawStruct`
+descriptor and keeps plain object values non-constructing.
+
+### Work with schema-backed runtime models directly
+
+```js
+const node = DemoNode.from({ position: [1, 2, 3] });
+
+node.OnEvent("modified", (_target, payload) => {
+  console.log([...payload.properties]);
+});
+
+node.SetValues({ position: [4, 5, 6] });
+node.Merge([{ position: [7, 8, 9] }, { position: [10, 11, 12] }]);
+
+const copy = new DemoNode();
+CjsModel.copy(copy, node, { markDirty: false });
+const plain = node.GetValues();
+```
+
+`CjsModel` is evented, tracks dirty/update state explicitly, and uses schema
+metadata as its field contract. Every model class requires an explicit, stable
+`CjsSchema` `className`; runtime type identity never falls back to
+`Constructor.name`, which is not stable under minification.
+
+`Merge`/`merge` accept an ordered array of raw value bags or model instances,
+deep-merge them, and apply the final bag through one `CjsModel.set` update cycle.
+They return the same changed-set, boolean, or `false` result as `SetValues`.
+`Copy`/`copy` instead require an instantiated
+`CjsModel` source and forward the supplied `SetValues` options.
+
+### Hide inherited schema fields
+
+Carbon Blue surfaces are defined per class, so a real JavaScript subclass may
+persist fewer fields than its parent. Use the class-level
+`schema.hideInherited()` decorator to remove named inherited fields from only
+that class's schema surface:
+
+```js
+import { schema, type } from "@carbonenginejs/runtime-utils/schema";
+
+@type.define({ className: "ExampleBucket", family: "example" })
+@schema.hideInherited(["distribution", "descriptor", "offset"])
+export class ExampleBucket extends ExamplePlacement
+{
+}
+```
+
+Hidden fields are omitted from schema introspection, `GetValues`, document
+dehydration, and every export option. `SetValues` and document hydration
+silently ignore them, matching `SetValues`' existing unknown-field behavior.
+The JavaScript properties, accessors, inheritance, and `instanceof` behavior
+are unchanged.
+
+Hides pass to descendants and may be extended by another
+`schema.hideInherited()` decorator. There is deliberately no unhide operation.
+Naming a field that the parent schema does not expose throws during class
+registration.
+
+Each model owns one non-enumerable `__state` object. Model-owned
+`__state.dirty` tracks broad, property, and notification invalidation;
+`__state.rebuild` is an independent `Set` of deferred work; and
+`__state.updating` plus `__state.suppressEvents` coordinate update processing.
+The event emitter adds `__state.events` only while listeners exist. A lifecycle
+manager may install `__state.lifecycle` with `initializeLifecycleState()`;
+without it, the object remains ordinarily alive and unmanaged. Dirty
+consumption and clearing do not modify rebuild or lifecycle state.
+
+## Subpaths
+
+```js
+import { CjsCarbonDocument, CjsDocumentHydrator } from "@carbonenginejs/runtime-utils/document";
+import { createLifecycleAdapter } from "@carbonenginejs/runtime-utils/hydration";
+import { CjsLifecycleState } from "@carbonenginejs/runtime-utils/lifecycle";
+import { CjsSchema, type, io, carbon, components } from "@carbonenginejs/runtime-utils/schema";
+import { CjsModel, CjsEventEmitter, CjsModelState } from "@carbonenginejs/runtime-utils/model";
+import { CARBON_TYPE, normalizeCarbonValue } from "@carbonenginejs/runtime-utils/types";
+```

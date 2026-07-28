@@ -170,6 +170,10 @@ if(WIN32)
         target_compile_definitions(TrinityALTest_dx11 PRIVATE TRINITY_PLATFORM=TRINITY_DIRECTX11)
         set_shared_trinityaltest_properties(TrinityALTest_dx11)
 
+        find_package(imgui CONFIG REQUIRED)
+        target_sources(TrinityALTest_dx11 PRIVATE nsamdr/NSAMDRShipPreview.cpp)
+        target_link_libraries(TrinityALTest_dx11 PRIVATE imgui::imgui d3dcompiler)
+
         #GTest
         set_target_properties(TrinityALTest_dx11 PROPERTIES FOLDER "Tests")
         #gtest_discover_tests(TrinityALTest_dx11 myListOfTests)
@@ -263,6 +267,3 @@ if(WIN32)
     endif()
 
 endif()
-
-
-

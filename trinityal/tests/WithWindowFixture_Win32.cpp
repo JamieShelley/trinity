@@ -6,6 +6,8 @@
 
 #ifdef _WIN32
 
+extern bool g_exitInteractiveOnCharacter;
+
 namespace
 {
 RenderWindow* s_wnd = nullptr;
@@ -34,7 +36,7 @@ bool WithWindow::DoLoopProcessing()
 	MSG msg;
 	while( PeekMessage( &msg, 0, 0, 0, 1 ) )
 	{
-		if( msg.message == WM_QUIT || msg.message == WM_CHAR )
+		if( msg.message == WM_QUIT || ( msg.message == WM_CHAR && g_exitInteractiveOnCharacter ) )
 		{
 			running = false;
 			break;

@@ -1,0 +1,1544 @@
+import { coerceCarbonMathInto, exportCarbonValue, normalizeCarbonValue } from "../types/index.js";
+import { CjsSchema } from "../schema/index.js";
+import { getRuntimeState } from "../runtime/CjsRuntimeState.js";
+import { CjsModelState } from "./CjsModelState.js";
+import { CjsEventEmitter } from "./CjsEventEmitter.js";
+
+const MAX_UPDATE_PASSES = 32;
+
+/**
+ * Shared base for schema-backed CarbonEngineJS runtime classes.
+ *
+ * Source fields are exported; runtime caches and bookkeeping are not.
+ */
+export class CjsModel extends CjsEventEmitter
+{
+    /**
+     * Creates a schema-backed model with initialized runtime state.
+     */
+    constructor()
+    {
+        super();
+        const className = CjsSchema.getClassName(this.constructor);
+        if (!className)
+        {
+            throw new TypeError("CjsModel subclasses require an explicit CjsSchema className.");
+        }
+        initializeModelState(this);
+    }
+
+    /**
+     * Exports the model's schema fields to a new plain object.
+     *
+     * @param {object} [options={}]
+     * @returns {object}
+     */
+    GetValues(options = {})
+    {
+        return CjsModel.get(this, {}, options);
+    }
+
+    /**
+     * Applies a plain value bag through the canonical schema-backed setter.
+     *
+     * @param {object} [values={}]
+     * @param {object} [options={}]
+     * @returns {Set<string>|boolean} The changed fields, or a boolean result.
+     */
+    SetValues(values = {}, options = {})
+    {
+        return CjsModel.set(this, values, options);
+    }
+
+    /**
+     * Copies the exported fields of another model into this model.
+     *
+     * @param {CjsModel} value
+     * @param {object} [options={}]
+     * @returns {CjsModel} This model.
+     */
+    Copy(value, options = {})
+    {
+        return CjsModel.copy(this, value, options);
+    }
+
+    /**
+     * Constructs a new model of this instance's class from its schema values.
+     *
+     * @param {object} [options={}]
+     * @returns {CjsModel}
+     */
+    Clone(options = {})
+    {
+        return this.constructor.clone(this, options);
+    }
+
+    /**
+     * Deep-merges ordered value sources and applies the result once.
+     *
+     * Plain objects merge recursively; arrays, typed arrays, and other values
+     * replace the preceding value.
+     *
+     * @param {Array<Object|CjsModel>} [values=[]]
+     * @param {object} [options={}]
+     * @returns {Set<string>|boolean} The result returned by {@link CjsModel.set}.
+     */
+    Merge(values = [], options = {})
+    {
+        return CjsModel.merge(this, values, options);
+    }
+
+    /**
+     * Applies pending changes: drives the OnModified hook until the model
+     * settles, clears the dirty mark, and emits one final modified event.
+     *
+     * Calling this IS the "I made changes, apply please" contract: it always
+     * runs at least one hook pass, dirty or not, so direct/untracked
+     * mutations (the cooperative-pipeline reality) can be applied
+     * explicitly. Class Update/per-frame methods typically gate on
+     * `__state.IsDirty()` before calling.
+     *
+     * @param {object} [options={}]
+     * @param {string|Iterable<string>} [options.property] Fields the caller changed directly; their declared flag/rebuild tokens are added first.
+     * @param {string|Iterable<string>} [options.properties] Alias of `property`.
+     * @param {*} [options.source=this] Origin forwarded to the hook and event (binding feedback control).
+     * @param {boolean} [options.skipEvents=false] Prevents the final modified event.
+     * @returns {boolean} False when the hook rejected the update (dirty is retained).
+     * @throws {Error} If local changes do not settle within the update-pass limit.
+     */
+    UpdateValues(options = {})
+    {
+        addExplicitUpdateProperties(this, options.property ?? options.properties);
+        if (this.__state.updating) return true;
+
+        const source = options.source ?? this;
+        this.__state.updating = true;
+
+        try
+        {
+            for (let pass = 0; ; pass++)
+            {
+                if (pass >= MAX_UPDATE_PASSES)
+                {
+                    throw new Error(`${CjsSchema.getClassName(this.constructor)}.UpdateValues exceeded ${MAX_UPDATE_PASSES} local settle passes.`);
+                }
+
+                this.__state.dirty = false;
+
+                if (this.OnModified({ ...options, source }) === false)
+                {
+                    this.__state.dirty = true;
+                    return false;
+                }
+
+                if (!this.__state.dirty) break;
+            }
+        }
+        catch (err)
+        {
+            this.__state.dirty = true;
+            throw err;
+        }
+        finally
+        {
+            this.__state.updating = false;
+        }
+
+        if (options.skipEvents !== true && this.__state.suppressEvents === 0)
+        {
+            this.EmitEvent("modified", this, { source });
+        }
+
+        return true;
+    }
+
+    /**
+     * The settle hook: reproduces the meaningful consequences of the
+     * corresponding Carbon INotify::OnModified implementation.
+     *
+     * Invoked only by UpdateValues. Receives the mutation options bag
+     * (source, caller context, skipEvents, ...). There is no changed-property
+     * list - the pipeline is cooperative and cannot guarantee one - so
+     * overrides are written broad-safe: consult own state, compare cached
+     * derivations, and rely on `__state.flags`/`__state.rebuild` tokens for
+     * targeted signals. Returning `false` rejects the update and retains the
+     * dirty mark.
+     *
+     * @param {object} [options={}]
+     * @returns {boolean} Whether the update may complete.
+     */
+    OnModified(options = {})
+    {
+        return true;
+    }
+
+    /**
+     * Visits this model and its schema-backed child models without revisiting cycles.
+     *
+     * In pre-order traversal, returning `false` prunes that model's descendants.
+     * Visitor return values are ignored in post-order traversal.
+     *
+     * @param {function(CjsModel): (boolean|void)} visitor
+     * @param {object} [options={}]
+     * @param {Set<CjsModel>} [options.visited] Existing cycle-detection set.
+     * @param {"pre"|"post"} [options.order="pre"]
+     * @param {boolean} [options.reverse=false] Reverses field and list-item order.
+     * @param {boolean} [options.ownedOnly=false] Traverses only owned relationships.
+     * @returns {CjsModel} This model.
+     * @throws {TypeError} If `visitor` is not a function.
+     */
+    Traverse(visitor, options = {})
+    {
+        if (typeof visitor !== "function")
+        {
+            throw new TypeError("CjsModel.Traverse requires a visitor function.");
+        }
+
+        const visited = options.visited instanceof Set ? options.visited : new Set();
+        const order = options.order === "post" ? "post" : "pre";
+        const reverse = options.reverse === true;
+
+        const visit = model =>
+        {
+            if (!(model instanceof CjsModel) || visited.has(model)) return;
+            visited.add(model);
+
+            let descend = true;
+            if (order === "pre") descend = visitor(model) !== false;
+
+            if (descend)
+            {
+                const fields = getModelFields(model);
+                const start = reverse ? fields.length - 1 : 0;
+                const end = reverse ? -1 : fields.length;
+                const step = reverse ? -1 : 1;
+
+                for (let i = start; i !== end; i += step)
+                {
+                    const field = fields[i];
+                    if (options.ownedOnly === true && field.io?.ownership !== "owned") continue;
+                    const value = model[field.name];
+
+                    if (Array.isArray(value))
+                    {
+                        const itemStart = reverse ? value.length - 1 : 0;
+                        const itemEnd = reverse ? -1 : value.length;
+                        for (let j = itemStart; j !== itemEnd; j += step) visit(value[j]);
+                    }
+                    else
+                    {
+                        visit(value);
+                    }
+                }
+            }
+
+            if (order === "post") visitor(model);
+        };
+
+        visit(this);
+        return this;
+    }
+
+    /**
+     * Collects unique resources reported by this model graph into an array.
+     *
+     * @param {Array<*>} [out=[]] Output array, whose contents are replaced.
+     * @returns {Array<*>} The supplied output array.
+     */
+    GetResources(out = [])
+    {
+        const resources = new Set();
+        AddResources(resources, out);
+
+        this.Traverse(model =>
+        {
+            if (typeof model.OnGetResources !== "function") return true;
+            AddResources(resources, model.OnGetResources(resources));
+            return false;
+        });
+
+        out.length = 0;
+        out.push(...resources);
+        return out;
+    }
+
+    /**
+     * Marks the model as changed; the next settle applies it.
+     *
+     * The cooperative-pipeline contract: anything mutating outside
+     * `SetValues` (direct writes, Object.assign, reader adapters) owes this
+     * call or an explicit `UpdateValues()`.
+     *
+     * @returns {CjsModel} This model.
+     */
+    MarkDirty()
+    {
+        this.__state.MarkDirty();
+        return this;
+    }
+
+    /**
+     * Clears the dirty mark without settling. Rarely correct outside tests
+     * and teardown - the settle clears it itself.
+     *
+     * @returns {CjsModel} This model.
+     */
+    ClearDirty()
+    {
+        this.__state.ClearDirty();
+        return this;
+    }
+
+    /**
+     * Checks whether a settle is owed.
+     *
+     * @returns {boolean}
+     */
+    IsDirty()
+    {
+        return this.__state.IsDirty();
+    }
+
+    /**
+     * Gets the shared schema registry and decorator facade.
+     *
+     * @returns {typeof CjsSchema}
+     */
+    static get schema()
+    {
+        return CjsSchema;
+    }
+
+    /**
+     * Exports a model's schema fields into an output object.
+     *
+     * All options default off, leaving the plain output identical to the
+     * historical shape. Options propagate recursively to nested models.
+     *
+     * @param {CjsModel} value
+     * @param {object} [out={}]
+     * @param {object} [options={}]
+     * @param {boolean} [options.persistOnly] Exports only persisted fields.
+     * @param {boolean} [options.typeTags] Emits `_type` only where the concrete
+     *     class is not derivable from the declared field type (the root and
+     *     polymorphic slots).
+     * @param {boolean} [options.forceTypeTags] Emits `_type` on every model.
+     * @param {boolean} [options.refs] Tracks shared models: repeats export as
+     *     `{ _ref }` and their first occurrence carries `_id`. Also guards
+     *     against cyclic graphs.
+     * @param {boolean} [options.forceIDs] Emits `_id` on every model.
+     * @param {boolean} [options.keyedLists] Exports a list as a name-keyed
+     *     object when every item is a model with a unique non-empty `name`;
+     *     the redundant item `name` field is dropped in that form. Empty
+     *     lists stay arrays.
+     * @param {string} [options.enumFormat] Enum-backed field emission:
+     *     "values" (default, numeric), "names" (exact member-name strings),
+     *     or "identity" (`[name, "OwnerClass.EnumName"]` tuples). Unknown
+     *     numeric values export as raw numbers in every mode.
+     * @returns {object} The supplied output object.
+     * @throws {TypeError} If the source or output target is invalid.
+     */
+    static get(value, out = {}, options = {})
+    {
+        if (!(value instanceof CjsModel))
+        {
+            throw new TypeError("CjsModel.get requires a CjsModel source.");
+        }
+
+        if (!out || typeof out !== "object" || Array.isArray(out) || ArrayBuffer.isView(out))
+        {
+            throw new TypeError("CjsModel.get requires an object output target.");
+        }
+
+        if (!hasAdvancedExportOptions(options))
+        {
+            for (const field of getModelFields(value))
+            {
+                out[field.name] = exportSourceValue(value[field.name], options);
+            }
+
+            return out;
+        }
+
+        return exportModelInto(value, out, null, options, createExportContext(value, options));
+    }
+
+    /**
+     * Applies schema-backed values to a model and processes resulting updates.
+     *
+     * Reserved metadata keys are honored, never treated as fields: a string
+     * `values._type` must name the target's class or one of its base classes;
+     * `values._id` registers the target for `{ _ref }` resolution; a
+     * `{ _ref }` incoming field value resolves to the registered instance
+     * (shared identity) and throws when the id never resolves.
+     *
+     * @param {CjsModel} out
+     * @param {object} [values={}]
+     * @param {object} [options={}]
+     * @param {boolean} [options.markDirty=true] Tracks changed properties and notification flags.
+     * @param {boolean} [options.notify=true] Tracks schema notification flags.
+     * @param {boolean} [options.skipUpdate=false] Leaves dirty changes unsettled.
+     * @param {boolean} [options.skipEvents=false] Suppresses direct modified events.
+     * @param {boolean} [options.returnBoolean=false] Returns a boolean instead of changed fields.
+     * @param {*} [options.source=out] Origin included in update callbacks and events.
+     * @returns {Set<string>|boolean} Changed fields, or a boolean result.
+     * @throws {TypeError} If the target is not a model.
+     */
+    static set(out, values = {}, options = {})
+    {
+        if (!(out instanceof CjsModel))
+        {
+            throw new TypeError("CjsModel.set requires a CjsModel target.");
+        }
+
+        if (!values || typeof values !== "object") return false;
+
+        if (typeof values._type === "string")
+        {
+            assertTargetTypeMatches(out, values._type, options);
+        }
+
+        // One import operation context is shared across the whole call tree so
+        // `_id` registrations and `{ _ref }` resolutions see the same identity
+        // table. The outermost call owns finalization of forward references.
+        const ownsImportContext = !options.importContext;
+        const importOptions = {
+            ...options,
+            importContext: options.importContext ?? createImportContext(),
+            ownerConstructor: out.constructor
+        };
+
+        if (values._id !== undefined && values._id !== null)
+        {
+            importOptions.importContext.register(values._id, out);
+        }
+
+        const enumTranslations = validateEnumInputs(out, values);
+
+        const changed = new Set();
+        for (const field of getModelFields(out))
+        {
+            if (!isWritableModelField(field)) continue;
+
+            const key = findIncomingKey(values, field);
+            if (key !== null)
+            {
+                const oldValue = out[field.name];
+                const incoming = enumTranslations.has(field.name) ? enumTranslations.get(field.name) : values[key];
+
+                let didChange;
+                if (isReferenceValue(incoming))
+                {
+                    didChange = applyIncomingReference(out, field, incoming, importOptions);
+                }
+                else
+                {
+                    // Registered struct fields have value semantics. Constructors may
+                    // install their canonical struct instance up front; populate that
+                    // instance rather than replacing it with an imported object.
+                    const structChanged = applyIncomingStructInPlace(oldValue, incoming, field, importOptions);
+
+                    if (structChanged !== null)
+                    {
+                        didChange = field.io?.always === true || structChanged;
+                    }
+                    else
+                    {
+                        // Fast path: a math field with an existing compatible typed array
+                        // is coerced IN PLACE (no allocation, buffer reference preserved).
+                        const mathChanged = coerceCarbonMathInto(oldValue, incoming, field);
+
+                        if (mathChanged !== null)
+                        {
+                            didChange = field.io?.always === true || mathChanged;
+                        }
+                        else
+                        {
+                            const newValue = importSourceValue(incoming, field, importOptions);
+                            didChange = field.io?.always === true || !areEquivalentSourceValues(oldValue, newValue);
+                            if (didChange) out[field.name] = newValue;
+                        }
+                    }
+                }
+
+                if (didChange)
+                {
+                    changed.add(field.name);
+                    if (options.markDirty !== false)
+                    {
+                        out.__state.dirty = true;
+                        // Write-time token adds: the knowledge of WHICH field
+                        // changed lives here, so declared consequences land
+                        // here (props are not tracked in state).
+                        if (options.notify !== false)
+                        {
+                            addDeclaredFieldTokens(out, field);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (ownsImportContext)
+        {
+            importOptions.importContext.finalize();
+            importOptions.importContext.initializeCreated(importOptions);
+        }
+
+        if (changed.size && options.markDirty === false)
+        {
+            if (options.skipUpdate !== true && options.skipEvents !== true && out.__state.suppressEvents === 0)
+            {
+                out.EmitEvent("modified", out, createModifiedPayload(changed, options.source ?? out));
+            }
+        }
+        else if (changed.size && options.skipUpdate !== true && !out.__state.updating)
+        {
+            out.UpdateValues(options);
+        }
+
+        return options.returnBoolean === true ? changed.size > 0 : changed.size ? changed : false;
+    }
+
+    /**
+     * Copies all exported fields from one model into another.
+     *
+     * @param {CjsModel} out
+     * @param {CjsModel} value
+     * @param {object} [options={}]
+     * @returns {CjsModel} The target model.
+     * @throws {TypeError} If either argument is not a model.
+     */
+    static copy(out, value, options = {})
+    {
+        if (!(out instanceof CjsModel))
+        {
+            throw new TypeError("CjsModel.copy requires a CjsModel target.");
+        }
+
+        if (!(value instanceof CjsModel))
+        {
+            throw new TypeError("CjsModel.copy requires a CjsModel source.");
+        }
+
+        CjsModel.set(out, CjsModel.get(value, {}, options), options);
+        return out;
+    }
+
+    /**
+     * Deep-merges ordered value sources and applies the result with one set call.
+     *
+     * @param {CjsModel} out
+     * @param {Array<object|CjsModel>} [values=[]]
+     * @param {object} [options={}]
+     * @returns {Set<string>|boolean} The result returned by {@link CjsModel.set}.
+     * @throws {TypeError} If the target, source array, or options are invalid.
+     */
+    static merge(out, values = [], options = {})
+    {
+        if (!(out instanceof CjsModel))
+        {
+            throw new TypeError("CjsModel.merge requires a CjsModel target.");
+        }
+
+        if (!Array.isArray(values))
+        {
+            throw new TypeError("CjsModel.merge requires an array of value sources.");
+        }
+
+        if (!options || typeof options !== "object" || Array.isArray(options) || ArrayBuffer.isView(options))
+        {
+            throw new TypeError("CjsModel.merge requires an options object.");
+        }
+
+        const merged = {};
+        for (const value of values) mergeValueBag(merged, value, options);
+        return CjsModel.set(out, merged, options);
+    }
+
+    /**
+     * Constructs, populates, initializes, and cleans an owned model graph.
+     *
+     * The invoked constructor must support zero arguments. Initial population
+     * suppresses updates and events; owned children initialize before parents.
+     *
+     * A string `values._type` selects the concrete constructor: it must name
+     * this class or a registered subclass, otherwise a TypeError is thrown. A
+     * `values._id` registers the instance in the import operation context
+     * before any field descends, so `{ _ref }` values elsewhere in the same
+     * operation — including cycles and self-references — resolve to this
+     * instance. The outermost call finalizes forward references before
+     * initialization; an unresolved `_ref` throws.
+     *
+     * @param {object} [values={}]
+     * @param {object} [options={}]
+     * @returns {CjsModel} An instance of the invoked model constructor.
+     * @throws {Error} If any owned model explicitly fails initialization.
+     */
+    static from(values = {}, options = {})
+    {
+        if (isReferenceValue(values))
+        {
+            throw new TypeError(`${CjsSchema.getClassName(this) || this.name}.from cannot construct from a { _ref } value; references resolve only inside the owning import operation.`);
+        }
+
+        if (values && typeof values === "object" && typeof values._type === "string")
+        {
+            const Constructor = resolveRegisteredModelClass(values._type, options);
+            if (Constructor !== this)
+            {
+                if (!(Constructor.prototype instanceof this))
+                {
+                    throw new TypeError(`_type "${values._type}" is not ${CjsSchema.getClassName(this) || this.name} or one of its registered subclasses.`);
+                }
+                return Constructor.from(values, options);
+            }
+        }
+
+        const ownsImportContext = !options.importContext;
+        const importOptions = ownsImportContext
+            ? { ...options, importContext: createImportContext() }
+            : options;
+
+        const result = new this();
+
+        importOptions.importContext.registerCreated(result);
+
+        // Register-before-descent: the instance is visible to `_ref` lookups
+        // before its own fields import, so back-references and cycles work.
+        if (values && typeof values === "object" && values._id !== undefined && values._id !== null)
+        {
+            importOptions.importContext.register(values._id, result);
+        }
+
+        result.__state.suppressEvents++;
+        try
+        {
+            result.SetValues(values, {
+                ...importOptions,
+                skipEvents: true,
+                skipUpdate: true
+            });
+
+            if (ownsImportContext)
+            {
+                importOptions.importContext.finalize();
+                importOptions.importContext.initializeCreated({
+                    ...importOptions,
+                    initChildren: true
+                });
+            }
+        }
+        finally
+        {
+            result.__state.suppressEvents--;
+        }
+        return result;
+    }
+
+    /**
+     * Constructs a model from another model-like value or a raw value bag.
+     *
+     * @param {CjsModel|object|null} value
+     * @param {object} [options={}]
+     * @returns {CjsModel} An instance of the invoked model constructor.
+     */
+    static clone(value, options = {})
+    {
+        if (!value || typeof value.GetValues !== "function")
+        {
+            return this.from(value || {}, options);
+        }
+
+        return this.from(value.GetValues(options), options);
+    }
+
+}
+
+CjsSchema.define(CjsModel, { className: "CjsModel" });
+
+export const carbon = CjsSchema.carbon;
+export { CjsSchema };
+export const impl = CjsSchema.impl;
+export const io = CjsSchema.io;
+export const jessica = CjsSchema.jessica;
+export const schema = CjsSchema;
+export const type = CjsSchema.type;
+
+function mergeValueBag(out, value, options = {})
+{
+    const source = value instanceof CjsModel ? CjsModel.get(value, {}, options) : value;
+    if (!isPlainRecord(source)) return out;
+
+    for (const [key, incoming] of Object.entries(source))
+    {
+        if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+
+        const normalized = incoming instanceof CjsModel ? CjsModel.get(incoming, {}, options) : incoming;
+        if (isPlainRecord(normalized))
+        {
+            if (!isPlainRecord(out[key])) out[key] = {};
+            mergeValueBag(out[key], normalized, options);
+        }
+        else
+        {
+            out[key] = normalized;
+        }
+    }
+    return out;
+}
+
+function isPlainRecord(value)
+{
+    if (!value || typeof value !== "object" || Array.isArray(value) || ArrayBuffer.isView(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+}
+
+function getModelFields(target)
+{
+    const schema = CjsSchema.getSchema(target.constructor);
+    return schema.fields.map(schemaFieldToModelField);
+}
+
+function initializeModelState(target)
+{
+    // Models own their runtime-state shape: __state is a CjsModelState,
+    // created at construction before anything else (the event emitter's
+    // lazily-added `events` map lives on the same instance as an expando).
+    const existing = getRuntimeState(target);
+    if (existing instanceof CjsModelState) return existing;
+    if (existing)
+    {
+        throw new TypeError("CjsModel requires __state to be a CjsModelState.");
+    }
+
+    const state = new CjsModelState();
+    Object.defineProperty(target, "__state", {
+        value: state,
+        enumerable: false,
+        configurable: false,
+        writable: false
+    });
+    return state;
+}
+
+function initializeOwnedGraph(root, options = {})
+{
+    root.Traverse(value =>
+    {
+        value.__state.suppressEvents++;
+
+        try
+        {
+            if (value.__state instanceof CjsModelState)
+            {
+                // Construction: everything is new, so every declared consequence
+                // applies - all flag/rebuild tokens are added, and the object is
+                // marked for one settle.
+                addAllDeclaredTokens(value);
+                value.__state.dirty = true;
+            }
+
+            // Initialize arguments belong to the class's Carbon/adapted contract.
+            // Owned-graph traversal is coordinated here and must not occupy arg 0.
+            // A conforming Initialize performs its own final
+            // UpdateValues({ skipEvents: true }), leaving nothing dirty.
+            if (typeof value.Initialize === "function")
+            {
+                if (value.Initialize() === false)
+                {
+                    throw new Error(`${CjsSchema.getClassName(value.constructor)}.from initialization failed.`);
+                }
+            }
+
+            // Settle anything Initialize did not (including the no-Initialize
+            // case): the one construction settle, events suppressed.
+            if (value.__state instanceof CjsModelState && value.__state.dirty)
+            {
+                value.UpdateValues({
+                    ...options,
+                    source: options.source ?? value,
+                    skipEvents: true
+                });
+            }
+        }
+        finally
+        {
+            value.__state.suppressEvents--;
+        }
+    }, {
+        order: "post",
+        reverse: true,
+        ownedOnly: true,
+        visited: options.visited
+    });
+    return root;
+}
+
+function AddResources(target, values)
+{
+    if (values === null || values === undefined) return;
+    if (values?.isResource === true)
+    {
+        target.add(values);
+        return;
+    }
+    if (typeof values !== "string" && typeof values[Symbol.iterator] === "function")
+    {
+        for (const value of values) AddResources(target, value);
+    }
+}
+
+function schemaFieldToModelField(field)
+{
+    return {
+        ...field,
+        jsType: field.type || field.jsType || null
+    };
+}
+
+function isWritableModelField(field)
+{
+    const io = field?.io;
+    if (!io) return true;
+    if (io.write || io.persist || io.persistOnly) return true;
+    if (io.read && !io.write) return false;
+    return true;
+}
+
+function findIncomingKey(values, field)
+{
+    for (const key of incomingKeyCandidates(field))
+    {
+        if (Object.prototype.hasOwnProperty.call(values, key)) return key;
+    }
+
+    return null;
+}
+
+function incomingKeyCandidates(field)
+{
+    const aliases = field.aliases === undefined
+        ? field.alias === undefined ? [] : [field.alias]
+        : Array.isArray(field.aliases) ? field.aliases : [field.aliases];
+    return [field.name, ...aliases].filter(value => typeof value === "string" && value.length);
+}
+
+// Adds one field's declared @io.flag / @io.rebuild tokens to their stores.
+// Duplicate adds are no-ops (Sets). Nothing in the model layer ever clears
+// these stores - getters clear flags, work methods clear rebuild tokens.
+function addDeclaredFieldTokens(target, field)
+{
+    const io = field?.io;
+    if (!io) return;
+    if (io.flag) for (const token of io.flag) target.__state.flags.add(token);
+    if (io.rebuild) for (const token of io.rebuild) target.__state.rebuild.add(token);
+}
+
+// Construction / broad invalidation: every declared token applies.
+function addAllDeclaredTokens(target)
+{
+    const fields = CjsSchema.getSchema(target.constructor)?.fields || [];
+    for (const field of fields) addDeclaredFieldTokens(target, field);
+}
+
+// Direct-mutation courtesy: a caller that knows which fields it touched
+// (bindings) passes them so declared consequences stay precise.
+function addExplicitUpdateProperties(target, properties)
+{
+    if (properties === null || properties === undefined) return;
+    target.__state.dirty = true;
+    for (const property of typeof properties === "string" ? [properties] : properties)
+    {
+        const field = CjsSchema.getField(target.constructor, property);
+        if (field) addDeclaredFieldTokens(target, field);
+    }
+}
+
+function createModifiedPayload(properties, source)
+{
+    return Object.freeze({
+        properties: new Set(properties),
+        source
+    });
+}
+
+function areEquivalentSourceValues(a, b)
+{
+    if (Object.is(a, b)) return true;
+
+    if (ArrayBuffer.isView(a) && ArrayBuffer.isView(b))
+    {
+        if (a.constructor !== b.constructor || a.length !== b.length) return false;
+        for (let i = 0; i < a.length; i++)
+        {
+            if (!Object.is(a[i], b[i])) return false;
+        }
+        return true;
+    }
+
+    if (Array.isArray(a) && Array.isArray(b))
+    {
+        if (a.length !== b.length) return false;
+        for (let i = 0; i < a.length; i++)
+        {
+            if (!areEquivalentSourceValues(a[i], b[i])) return false;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+export function exportSourceValue(value, options = {})
+{
+    if (value instanceof CjsModel) return value.GetValues(options);
+    return exportCarbonValue(value);
+}
+
+function hasAdvancedExportOptions(options)
+{
+    return !!(options && (options.persistOnly || options.typeTags || options.forceTypeTags
+        || options.refs || options.forceIDs || options.keyedLists
+        || (options.enumFormat && options.enumFormat !== "values")));
+}
+
+// Enum-aware value handling: @schema.enum("X") resolves through the owning
+// class's PascalCase static `Constructor.X`, lazily and leaf-first.
+const ENUM_REVERSE_CACHE = new WeakMap();
+
+function resolveEnumStaticForField(Constructor, field)
+{
+    const name = field?.enum?.enumType;
+    if (!name) return null;
+    const members = Constructor?.[name];
+    if (!members || typeof members !== "object") return null;
+    return { name, members };
+}
+
+function enumMemberName(members, value)
+{
+    let reverse = ENUM_REVERSE_CACHE.get(members);
+    if (!reverse)
+    {
+        reverse = new Map();
+        for (const key of Object.keys(members))
+        {
+            // Duplicate values: first-declared key wins.
+            if (!reverse.has(members[key])) reverse.set(members[key], key);
+        }
+        ENUM_REVERSE_CACHE.set(members, reverse);
+    }
+    return reverse.get(value);
+}
+
+function enumIdentity(Constructor, name)
+{
+    let current = Constructor;
+    while (typeof current === "function")
+    {
+        if (Object.hasOwn(current, name))
+        {
+            return `${CjsSchema.getClassName(current) || current.name}.${name}`;
+        }
+        current = Object.getPrototypeOf(current);
+    }
+    return `${CjsSchema.getClassName(Constructor) || Constructor.name}.${name}`;
+}
+
+// Returns the validated numeric member value, or undefined when the input is
+// not a member. Accepts numeric values, exact member-name strings, and arrays
+// (element 0 only, so identity tuples round-trip).
+function translateEnumInput(value, members)
+{
+    if (Array.isArray(value))
+    {
+        if (!value.length) return undefined;
+        return translateEnumInput(value[0], members);
+    }
+    if (typeof value === "string")
+    {
+        return Object.hasOwn(members, value) ? members[value] : undefined;
+    }
+    if (typeof value === "number")
+    {
+        return enumMemberName(members, value) === undefined ? undefined : value;
+    }
+    return undefined;
+}
+
+// Atomic pre-validation: every enum-backed incoming value is checked before
+// any mutation; one TypeError reports every invalid property.
+function validateEnumInputs(out, values)
+{
+    const translations = new Map();
+    let issues = null;
+    for (const field of getModelFields(out))
+    {
+        if (!isWritableModelField(field)) continue;
+        const key = findIncomingKey(values, field);
+        if (key === null) continue;
+        const spec = resolveEnumStaticForField(out.constructor, field);
+        if (!spec) continue;
+        const raw = values[key];
+        if (raw === null || raw === undefined || raw instanceof CjsModel) continue;
+        const translated = translateEnumInput(raw, spec.members);
+        if (translated === undefined)
+        {
+            issues = issues || [];
+            issues.push(`${field.name}: ${JSON.stringify(raw)} is not a member of ${enumIdentity(out.constructor, spec.name)}`);
+        }
+        else
+        {
+            translations.set(field.name, translated);
+        }
+    }
+    if (issues)
+    {
+        throw new TypeError(`Invalid enum values for ${CjsSchema.getClassName(out.constructor) || "model"} - ${issues.join("; ")}`);
+    }
+    return translations;
+}
+
+function exportEnumFieldValue(value, spec, Constructor, options)
+{
+    if (typeof value !== "number") return value;
+    const memberName = enumMemberName(spec.members, value);
+    if (memberName === undefined) return value;
+    if (options.enumFormat === "names") return memberName;
+    return [memberName, enumIdentity(Constructor, spec.name)];
+}
+
+function isPersistedModelField(field)
+{
+    const io = field?.io;
+    return !!(io && (io.persist || io.persistOnly));
+}
+
+function declaredExportClassName(fieldType)
+{
+    if (!fieldType) return null;
+    if (typeof fieldType === "string") return fieldType;
+    if (fieldType.kind === "array" || fieldType.kind === "list")
+    {
+        const item = fieldType.itemType ?? null;
+        return typeof item === "string" ? item : item?.className ?? null;
+    }
+    return fieldType.className ?? null;
+}
+
+function createExportContext(root, options)
+{
+    if (!options.refs && !options.forceIDs) return null;
+
+    let nextId = 1;
+    const idByModel = new Map();
+    const context = {
+        emitted: new Set(),
+        idByModel,
+        getId(model)
+        {
+            let id = idByModel.get(model);
+            if (id === undefined)
+            {
+                id = nextId++;
+                idByModel.set(model, id);
+            }
+            return id;
+        }
+    };
+
+    if (options.refs)
+    {
+        // Pre-count occurrences so only genuinely shared models receive ids.
+        const counts = new Map();
+        (function walk(value)
+        {
+            if (Array.isArray(value))
+            {
+                for (const item of value) walk(item);
+                return;
+            }
+            if (!(value instanceof CjsModel)) return;
+            const count = (counts.get(value) ?? 0) + 1;
+            counts.set(value, count);
+            if (count > 1) return;
+            for (const field of getModelFields(value))
+            {
+                if (options.persistOnly && !isPersistedModelField(field)) continue;
+                walk(value[field.name]);
+            }
+        })(root);
+        for (const [model, count] of counts)
+        {
+            if (count > 1) idByModel.set(model, nextId++);
+        }
+    }
+
+    return context;
+}
+
+function exportModelInto(model, out, declaredClassName, options, context)
+{
+    if (context)
+    {
+        context.emitted.add(model);
+    }
+
+    const className = CjsSchema.getClassName(model.constructor);
+    if (options.forceTypeTags || (options.typeTags && className && className !== declaredClassName))
+    {
+        out._type = className;
+    }
+    if (context && (options.forceIDs || context.idByModel.has(model)))
+    {
+        out._id = context.getId(model);
+    }
+
+    const enumMode = options.enumFormat && options.enumFormat !== "values";
+    for (const field of getModelFields(model))
+    {
+        if (options.persistOnly && !isPersistedModelField(field)) continue;
+        if (enumMode)
+        {
+            const spec = resolveEnumStaticForField(model.constructor, field);
+            if (spec)
+            {
+                out[field.name] = exportEnumFieldValue(model[field.name], spec, model.constructor, options);
+                continue;
+            }
+        }
+        out[field.name] = exportAdvancedValue(
+            model[field.name],
+            declaredExportClassName(field.jsType || field.type || null),
+            options,
+            context
+        );
+    }
+
+    return out;
+}
+
+function exportAdvancedValue(value, declaredClassName, options, context)
+{
+    if (value instanceof CjsModel)
+    {
+        if (context && options.refs && context.emitted.has(value))
+        {
+            return { _ref: context.getId(value) };
+        }
+        return exportModelInto(value, {}, declaredClassName, options, context);
+    }
+    if (Array.isArray(value))
+    {
+        if (options.keyedLists)
+        {
+            const keyed = exportKeyedList(value, declaredClassName, options, context);
+            if (keyed) return keyed;
+        }
+        return value.map(item => exportAdvancedValue(item, declaredClassName, options, context));
+    }
+    return exportCarbonValue(value);
+}
+
+function exportKeyedList(list, declaredClassName, options, context)
+{
+    if (!list.length) return null;
+
+    const seen = new Set();
+    for (const item of list)
+    {
+        if (!(item instanceof CjsModel)) return null;
+        const name = item.name;
+        if (typeof name !== "string" || name === "" || seen.has(name)) return null;
+        seen.add(name);
+    }
+
+    const out = {};
+    for (const item of list)
+    {
+        const exported = exportAdvancedValue(item, declaredClassName, options, context);
+        if (exported && typeof exported === "object" && exported._ref === undefined)
+        {
+            delete exported.name;
+        }
+        out[item.name] = exported;
+    }
+    return out;
+}
+
+export function importSourceValue(value, field = null, options = {})
+{
+    if (value instanceof CjsModel) return value;
+
+    if (isReferenceValue(value))
+    {
+        const resolved = resolveIncomingReference(value, options);
+        if (resolved instanceof CjsPendingReference)
+        {
+            throw new TypeError(`Forward { _ref: ${JSON.stringify(value._ref)} } cannot be deferred in this position.`);
+        }
+        return resolved;
+    }
+
+    const schemaType = getSchemaType(options.ownerConstructor, field?.name);
+    const declaredClassName = getSchemaClassName(schemaType, options);
+    if (value && typeof value === "object" && !(value instanceof CjsModel) && !Array.isArray(value) && !ArrayBuffer.isView(value))
+    {
+        // A registered `_type` selects the concrete class in singular
+        // schema-typed positions. Carbon contracts may be declared through
+        // interface names with no runtime inheritance, so the declared name
+        // is a fallback, not a constraint the concrete class must extend.
+        const explicitClassName = isSingularSchemaKind(schemaType) && typeof value._type === "string"
+            ? getSchemaClassName(value._type, options)
+            : null;
+        const className = explicitClassName || declaredClassName;
+        if (className)
+        {
+            return createModelValue(className, value, options);
+        }
+    }
+
+    if ((schemaType?.kind === "array" || schemaType?.kind === "list") && schemaType.itemType && Array.isArray(value))
+    {
+        const itemClassName = getSchemaClassName(schemaType.itemType, options);
+        const result = [];
+        for (let i = 0; i < value.length; i++)
+        {
+            const item = value[i];
+            if (isReferenceValue(item))
+            {
+                result.push(importReferenceInto(item, options, result, i));
+                continue;
+            }
+            if (!item || typeof item !== "object" || item instanceof CjsModel || ArrayBuffer.isView(item))
+            {
+                result.push(importSourceValue(item, null, options));
+                continue;
+            }
+
+            const explicitClassName = typeof item._type === "string"
+                ? getSchemaClassName(item._type, options)
+                : null;
+            if (explicitClassName)
+            {
+                result.push(createModelValue(explicitClassName, item, options));
+                continue;
+            }
+
+            result.push(itemClassName
+                ? createModelValue(itemClassName, item, options)
+                : importSourceValue(item, null, options));
+        }
+        return result;
+    }
+
+    // List fields also accept name-keyed object maps for unique-named items;
+    // the map is a wholesale list replacement, mirroring array semantics.
+    const effectiveType = field?.jsType || field?.type || schemaType;
+    if ((effectiveType?.kind === "array" || effectiveType?.kind === "list")
+        && value && typeof value === "object" && !Array.isArray(value) && !ArrayBuffer.isView(value))
+    {
+        return importListMapValue(value, effectiveType, options);
+    }
+
+    if (field) return normalizeCarbonValue(value, field);
+    if (ArrayBuffer.isView(value)) return normalizeCarbonValue(value, { jsType: { kind: "typedArray", js: value.constructor.name } });
+    if (typeof value === "bigint") return value;
+    if (Array.isArray(value))
+    {
+        const result = [];
+        for (let i = 0; i < value.length; i++)
+        {
+            const item = value[i];
+            result.push(isReferenceValue(item)
+                ? importReferenceInto(item, options, result, i)
+                : importSourceValue(item, null, options));
+        }
+        return result;
+    }
+    if (value && typeof value === "object" && !(value instanceof CjsModel))
+    {
+        const result = {};
+        for (const [key, item] of Object.entries(value))
+        {
+            result[key] = isReferenceValue(item)
+                ? importReferenceInto(item, options, result, key)
+                : importSourceValue(item, null, options);
+        }
+        return result;
+    }
+    return value;
+}
+
+function applyIncomingStructInPlace(current, incoming, field, options)
+{
+    const schemaType = getSchemaType(options.ownerConstructor, field?.name) || field?.type || field?.jsType;
+    if (schemaType?.kind !== "struct" || !(current instanceof CjsModel)) return null;
+    if (incoming === null || incoming === undefined) return false;
+    if (typeof incoming !== "object" || Array.isArray(incoming) || ArrayBuffer.isView(incoming))
+    {
+        throw new TypeError(`${field.name} requires an object value for registered struct ${schemaType.className || "unknown"}.`);
+    }
+
+    const values = incoming instanceof CjsModel ? incoming.GetValues() : incoming;
+    const changed = current.SetValues(values, options);
+    return changed instanceof Set ? changed.size > 0 : changed === true;
+}
+
+function importListMapValue(value, schemaType, options)
+{
+    const itemClassName = schemaType.itemType ? getSchemaClassName(schemaType.itemType, options) : null;
+    const result = [];
+    for (const key of Object.keys(value))
+    {
+        const item = value[key];
+        if (item === undefined || item === null) continue;
+
+        if (item instanceof CjsModel)
+        {
+            if (typeof item.name === "string" && item.name === "")
+            {
+                item.SetValues({ name: key });
+            }
+            result.push(item);
+            continue;
+        }
+
+        if (isReferenceValue(item))
+        {
+            // Shared items keep their own name; the map key is not restamped
+            // onto an instance owned by another position in the graph.
+            result.push(importReferenceInto(item, options, result, result.length));
+            continue;
+        }
+
+        if (typeof item !== "object" || Array.isArray(item) || ArrayBuffer.isView(item))
+        {
+            throw new TypeError(`List field maps require object or model values; "${key}" cannot become a list item.`);
+        }
+
+        const explicitClassName = typeof item._type === "string"
+            ? getSchemaClassName(item._type, options)
+            : null;
+        const className = explicitClassName || itemClassName;
+        if (!className)
+        {
+            throw new TypeError(`List field maps cannot resolve a model class for "${key}".`);
+        }
+
+        const values = item.name === undefined ? { ...item, name: key } : item;
+        result.push(createModelValue(className, values, options));
+    }
+    return result;
+}
+
+function getSchemaType(Constructor, fieldName)
+{
+    if (!Constructor || !fieldName) return null;
+    return CjsSchema.getField(Constructor, fieldName)?.type || null;
+}
+
+function getSchemaClassName(schemaType, options = {})
+{
+    if (!schemaType) return null;
+    if (typeof schemaType === "string")
+    {
+        const Schema = options.registry || CjsModel.schema;
+        return Schema.GetConstructor(schemaType) ? schemaType : null;
+    }
+    if (schemaType.kind === "model")
+    {
+        return schemaType.className || null;
+    }
+    if (schemaType.kind === "objectRef" || schemaType.kind === "struct")
+    {
+        const Schema = options.registry || CjsModel.schema;
+        return schemaType.className && Schema.GetConstructor(schemaType.className)
+            ? schemaType.className
+            : null;
+    }
+    return null;
+}
+
+function createModelValue(className, values, options)
+{
+    const Schema = options.registry || CjsModel.schema;
+    const Constructor = Schema.GetConstructor(className);
+    if (!Constructor)
+    {
+        throw new TypeError(`No CjsModel class is registered for schema type ${className}.`);
+    }
+    if (Constructor !== CjsModel && !(Constructor.prototype instanceof CjsModel))
+    {
+        throw new TypeError(`Registered schema type ${className} is not a CjsModel.`);
+    }
+    if (typeof Constructor.from !== "function")
+    {
+        throw new TypeError(`Registered CjsModel ${className} does not provide from().`);
+    }
+    return Constructor.from(values, options);
+}
+
+// --- Import operation context: `_id`/`_ref` identity across one call tree ---
+
+/** Represents one unresolved model reference during a single import operation. */
+class CjsPendingReference
+{
+
+    constructor(id, expectedClassName = null)
+    {
+        this.id = id;
+        this.expectedClassName = expectedClassName;
+    }
+
+}
+
+function createImportContext()
+{
+    const byId = new Map();
+    const created = [];
+    const pending = [];
+    return {
+        byId,
+        registerCreated(instance)
+        {
+            created.push(instance);
+        },
+        register(id, instance)
+        {
+            const existing = byId.get(id);
+            if (existing === instance) return;
+            if (existing !== undefined)
+            {
+                throw new TypeError(`Duplicate _id ${JSON.stringify(id)} in imported values.`);
+            }
+            byId.set(id, instance);
+        },
+        defer(id, assign)
+        {
+            pending.push({ id, assign });
+        },
+        finalize()
+        {
+            const unresolved = new Set();
+            for (const entry of pending)
+            {
+                const instance = byId.get(entry.id);
+                if (instance === undefined)
+                {
+                    unresolved.add(entry.id);
+                    continue;
+                }
+                entry.assign(instance);
+            }
+            pending.length = 0;
+            if (unresolved.size)
+            {
+                throw new TypeError(`Unresolved _ref ids: ${Array.from(unresolved, id => JSON.stringify(id)).join(", ")}. Every { _ref } must match a { _id } in the same import operation.`);
+            }
+        },
+        initializeCreated(options)
+        {
+            const visited = new Set();
+
+            for (let index = created.length - 1; index >= 0; index--)
+            {
+                initializeOwnedGraph(created[index], { ...options, visited });
+            }
+
+            created.length = 0;
+        }
+    };
+}
+
+function isReferenceValue(value)
+{
+    return !!value && typeof value === "object" && !Array.isArray(value)
+        && !ArrayBuffer.isView(value) && !(value instanceof CjsModel)
+        && value._ref !== undefined;
+}
+
+// Resolves a `{ _ref }` immediately when the target is registered, or returns
+// a CjsPendingReference for the finalize pass (forward references). Resolved
+// references assign like direct instances: no declared-type constraint, since
+// Carbon contracts may be declared through interface names that have no
+// runtime inheritance relationship with the concrete class.
+function resolveIncomingReference(value, options)
+{
+    const id = value._ref;
+    const context = options.importContext;
+    if (!context)
+    {
+        throw new TypeError(`Cannot resolve { _ref: ${JSON.stringify(id)} } outside an import operation; import the graph through SetValues/from so identity is tracked.`);
+    }
+    const resolved = context.byId.get(id);
+    if (resolved === undefined) return new CjsPendingReference(id);
+    return resolved;
+}
+
+// Resolves a reference into a container slot, deferring forward references to
+// the owning operation's finalize pass. Deferred slots hold null until then.
+function importReferenceInto(value, options, target, key)
+{
+    const resolved = resolveIncomingReference(value, options);
+    if (resolved instanceof CjsPendingReference)
+    {
+        options.importContext.defer(resolved.id, instance =>
+        {
+            target[key] = instance;
+        });
+        return null;
+    }
+    return resolved;
+}
+
+// Applies a `{ _ref }` incoming value to a model field, returning whether the
+// field changed. Forward references keep the current value until finalize.
+function applyIncomingReference(out, field, incoming, options)
+{
+    const fieldName = field.name;
+    const resolved = resolveIncomingReference(incoming, options);
+
+    if (resolved instanceof CjsPendingReference)
+    {
+        options.importContext.defer(resolved.id, instance =>
+        {
+            out[fieldName] = instance;
+        });
+        return true;
+    }
+
+    if (field.io?.always !== true && Object.is(out[fieldName], resolved)) return false;
+    out[fieldName] = resolved;
+    return true;
+}
+
+function resolveRegisteredModelClass(typeName, options = {})
+{
+    const Schema = options.registry || CjsModel.schema;
+    const Constructor = Schema.GetConstructor(typeName);
+    if (!Constructor)
+    {
+        throw new TypeError(`No CjsModel class is registered for _type "${typeName}".`);
+    }
+    return Constructor;
+}
+
+function isSingularSchemaKind(schemaType)
+{
+    if (!schemaType) return false;
+    if (typeof schemaType === "string") return true;
+    return schemaType.kind !== "array" && schemaType.kind !== "list"
+        && schemaType.kind !== "map" && schemaType.kind !== "set";
+}
+
+function assertTargetTypeMatches(out, typeName, options = {})
+{
+    const Constructor = resolveRegisteredModelClass(typeName, options);
+    if (!(out instanceof Constructor))
+    {
+        throw new TypeError(`Values with _type "${typeName}" cannot apply to a ${CjsSchema.getClassName(out.constructor) || "model"} target.`);
+    }
+}
