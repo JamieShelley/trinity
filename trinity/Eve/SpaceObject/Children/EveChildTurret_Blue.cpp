@@ -12,6 +12,9 @@ const Be::ClassInfo* EveChildTurret::ExposeToBlue()
 {
 	EXPOSURE_BEGIN( EveChildTurret, "" )
 		MAP_INTERFACE( EveChildTurret )
+
+
+		MAP_ATTRIBUTE( "isOnline", m_isOnline, "Indicate if turret is active", Be::READWRITE )
 		MAP_ATTRIBUTE( "trackingInfluence", m_trackingInfluence, "How much tracking is allowed?", Be::READ )
 		MAP_ATTRIBUTE( "maxTrackingTime", m_maxTrackingTime, "How long does tracking take?", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "state", m_state, "State of the turret", Be::READ | Be::PERSIST )
@@ -30,6 +33,11 @@ const Be::ClassInfo* EveChildTurret::ExposeToBlue()
 		MAP_ATTRIBUTE( "sysBonePitch02Offset", m_sysBonePitch02Offset, "pitch 02 offset (in degrees!)", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "sysBonePitch03Factor", m_sysBonePitch03Factor, "pitch 03 factor", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "sysBonePitch03Offset", m_sysBonePitch03Offset, "pitch 03 offset (in degrees!)", Be::READWRITE | Be::PERSIST )
+
+		MAP_ATTRIBUTE( "maxCyclingFirePos", m_maxCyclingFirePos, "If greater than one we cycle through the given number of muzzles.", Be::READWRITE | Be::PERSIST )
+		MAP_ATTRIBUTE( "cyclingFireGroupCount", m_cyclingFireGroupCount, "The number of muzzles in one cycle group, usually only one.", Be::READWRITE | Be::PERSIST )
+		MAP_ATTRIBUTE( "currentCyclingFiresPos", m_currentCyclingFiresPos, "Current muzzle id due to cycling muzzles", Be::READ )
+
 
 		MAP_ATTRIBUTE( "firingEffect", m_firingEffect, "", Be::HIDDEN ) // Needed to make Graphite able to detect bindings inside of the firing effect.
 		MAP_PROPERTY( "firingEffect", GetFiringEffect, SetFiringEffect, "The module for the firing effect of this turret" )

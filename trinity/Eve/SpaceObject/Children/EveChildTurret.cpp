@@ -7,7 +7,7 @@
 #include "TriMath.h"
 #include "TriObserverLocal.h"
 
-// names of system bones like they are in the granny file
+// names of system bones like they are in the cmf file
 constexpr const char* s_systemBoneSkeletonNames[] = {
 	"invalid", // SYSBONE_INVALID
 	"Sys_Rotation_Arm", // SYSBONE_ROTATION
@@ -59,7 +59,7 @@ EveChildTurret::~EveChildTurret()
 }
 bool EveChildTurret::Initialize()
 {
-	// pass down some user-defined data into sub-modules we don't save out.
+	// pass down some user-defined data into submodules we don't save out.
 	m_target->SetImpactBehaviour( m_impactSize, m_impactBehaviour );
 
 	return EveChildMesh::Initialize();
@@ -129,30 +129,10 @@ void EveChildTurret::UpdateSyncronous( const EveUpdateContext& updateContext, co
 {
 	float deltaT = updateContext.GetDeltaT();
 
-	/*
-	// TODO: LODs needed?
-	// LODing
-	if( UpdateLOD( updateContext ) )
+	if( m_firingEffect )
 	{
-		// LOD change, so just call ::InitializeGeometryResource(), takes care of everything
-		InitializeGeometryResource();
-
-		// LOD change: toggle source dest effect of the attached firingFX
-		if( m_firingEffect )
-		{
-			switch( m_lodLevel )
-			{
-			case LOD_DISABLED:
-			case LOD_HIGHEST:
-				m_firingEffect->SetDisplaySourceObject( true );
-				break;
-			default:
-				m_firingEffect->SetDisplaySourceObject( false );
-				break;
-			}
-		}
+		m_firingEffect->SetDisplaySourceObject( IsVisible( updateContext ) );
 	}
-	*/
 
 	UpdateCachedGeometryData();
 
@@ -192,8 +172,7 @@ void EveChildTurret::UpdateSyncronous( const EveUpdateContext& updateContext, co
 	}
 
 	// update the target locator position
-	// TODO: probably wrong
-	Vector3 position = m_parentData.transform.GetTranslation();
+	Vector3 position = m_worldTransform.GetTranslation();
 	if( m_firingEffect )
 	{
 		m_firingEffect->GetStartPosition( position );
@@ -203,16 +182,13 @@ void EveChildTurret::UpdateSyncronous( const EveUpdateContext& updateContext, co
 
 	if( m_mesh && m_turretMovementObserver != nullptr )
 	{
-		// TODO: new turret movementObserver prob needed
-		// m_turretMovementObserver->Update( m_singleTurrets[0].worldMatrix );
+		m_turretMovementObserver->Update( m_worldTransform );
 	}
 	EveChildMesh::UpdateSyncronous( updateContext, params );
 }
 
 void EveChildTurret::UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )
 {
-
-	// TODO: prob some freakyness in here
 	float deltaT = updateContext.GetDeltaT();
 	// handle fading of turret tracking
 	if( m_trackingInfluenceDelta != 0.f )
@@ -250,7 +226,6 @@ void EveChildTurret::UpdateAsyncronous( const EveUpdateContext& updateContext, c
 		}
 	}
 
-	// TODO: does this have to happen after the timing stuff over there ^
 	// Should handle all the mesh data and transforms
 	EveChildMesh::UpdateAsyncronous( updateContext, params );
 
@@ -277,14 +252,13 @@ void EveChildTurret::UpdateAsyncronous( const EveUpdateContext& updateContext, c
 		{
 			// if we haven't initialised muzzle positions, do it now
 			// this can happen, and if we don't do this all effects originate from
-			// the player ship until turret geometry is loaded and muzzle positions
+			// the turret root until turret geometry is loaded and muzzle positions
 			// properly set
 			if( !m_firingEffectMuzzlePosSet )
 			{
 				for( unsigned int i = 0; i < m_firingEffect->GetPerMuzzleEffectCount(); ++i )
 				{
-					// use something relatively sensible, even absent geometry
-					m_firingEffect->SetMuzzleTransform( i, &m_parentData.transform );
+					m_firingEffect->SetMuzzleTransform( i, &m_worldTransform );
 				}
 
 				m_firingEffectMuzzlePosSet = true;
@@ -309,23 +283,6 @@ void EveChildTurret::UpdateCachedGeometryData()
 }
 void EveChildTurret::BuildCachedGeometryData( TriGeometryRes& geometryRes )
 {
-	// finished loading the turret geometry resource, so grab vertex decl and bounding sphere
-	if( geometryRes.GetMeshCount() )
-	{
-		if( geometryRes.GetMeshData( 0 ) )
-		{
-			// get a bounding box for visibility detection, if this is not already set in the redfile
-			// TODO: might not be needed
-			if( m_worldBoundingSphere.radius == 0.f )
-			{
-				geometryRes.RecalculateBoundingSphere();
-				Vector4 boundingSphere;
-				geometryRes.GetBoundingSphere( 0, boundingSphere );
-				m_worldBoundingSphere = CcpMath::Sphere( boundingSphere );
-			}
-		}
-	}
-
 	if( geometryRes.GetSkeletonCount() )
 	{
 		if( TriGeometryResSkeletonData* skeletonData = geometryRes.GetSkeletonData( 0 ) )
@@ -342,7 +299,6 @@ void EveChildTurret::BuildCachedGeometryData( TriGeometryRes& geometryRes )
 
 	InitializeAnimation();
 
-	// TODO: forceXAnimation based on m_state?
 	ForceIdleAnimation();
 }
 
@@ -352,6 +308,7 @@ void EveChildTurret::ReleaseCachedGeometryData()
 	m_skeleton = nullptr;
 	m_skeletonBoneIndices.clear();
 	m_boneBounds.clear();
+	m_firingEffectMuzzlePosSet = false;
 }
 
 void EveChildTurret::EnterStateDeactive()
@@ -391,11 +348,10 @@ void EveChildTurret::EnterStateDeactive()
 
 void EveChildTurret::EnterStateIdle()
 {
-	// TODO: might want to remove this state
-	// if( !m_isOnline )
-	// {
-	// 	return;
-	// }
+	if( !m_isOnline )
+	{
+		return;
+	}
 
 	switch( m_state )
 	{
@@ -435,11 +391,10 @@ void EveChildTurret::EnterStateIdle()
 void EveChildTurret::EnterStateTargeting()
 {
 	float animLength = 0.f;
-	// TODO: might want to remove this state
-	// if( !m_isOnline )
-	// {
-	// 	return;
-	// }
+	if( !m_isOnline )
+	{
+		return;
+	}
 
 	// what state are we in?
 	switch( m_state )
@@ -496,7 +451,14 @@ void EveChildTurret::EnterStateFiring()
 
 	if( m_firingEffect )
 	{
-		m_firingEffect->PrepareFiring( 0.f );
+		if( m_maxCyclingFirePos > 1 )
+		{
+			m_firingEffect->PrepareFiring( 0.f, m_currentCyclingFiresPos, m_cyclingFireGroupCount );
+		}
+		else
+		{
+			m_firingEffect->PrepareFiring( 0.f );
+		}
 
 		if( m_target != nullptr )
 		{
@@ -523,9 +485,7 @@ bool EveChildTurret::SetupFiringState()
 		closestLocator = m_target->FindClosestLocator( &source, &position );
 	}
 
-	// TODO: remove or keep?
 	// if this turret is set to cycle through the muzzles for firing, do it here
-	/*
 	if( m_maxCyclingFirePos > 1 )
 	{
 		m_currentCyclingFiresPos += m_cyclingFireGroupCount;
@@ -534,7 +494,6 @@ bool EveChildTurret::SetupFiringState()
 			m_currentCyclingFiresPos = 0;
 		}
 	}
-	*/
 
 	// timing: is the length of the firing effect known?
 	float effectTotalTime = m_firingEffect ? m_firingEffect->GetFiringDuration() : 0.f;
@@ -627,6 +586,7 @@ void EveChildTurret::ForceIdleAnimation()
 		idleAnimName = "Inactive";
 		break;
 	case STATE_IDLE:
+	case STATE_RELOADING:
 	case STATE_TARGETING:
 	case STATE_FIRING:
 		idleAnimName = "Active";
@@ -657,7 +617,7 @@ Matrix EveChildTurret::GetFiringBoneWorldTransform( unsigned int muzzle ) const
 {
 	if( !m_mesh )
 	{
-		return m_parentData.transform;
+		return m_worldTransform;
 	}
 
 	Matrix matrix = m_worldTransform;
@@ -673,6 +633,7 @@ Matrix EveChildTurret::GetFiringBoneWorldTransform( unsigned int muzzle ) const
 
 void EveChildTurret::InitializeFiringEffect()
 {
+	m_firingEffectMuzzlePosSet = false;
 	if( !m_firingEffect )
 	{
 		return;
@@ -755,8 +716,6 @@ void EveChildTurret::ModifySystemBoneTransform( SystemBones bone, const Vector3*
 		Quaternion quat = RotationQuaternion( alpha, 0.f, 0.f );
 		// 2nd: apply this quat after the original one
 		quat = rotation * quat;
-		// TODO: cmf_transform ?
-		// 3rd: make granny_transform from quat
 		rotation = quat;
 	}
 	break;
@@ -769,7 +728,6 @@ void EveChildTurret::ModifySystemBoneTransform( SystemBones bone, const Vector3*
 		Quaternion quat = RotationQuaternion( alpha, 0.f, 0.f );
 		// 2nd: apply this quat after the original one
 		quat = rotation * quat;
-		// 3rd: make granny_transform from quat
 		rotation = quat;
 	}
 	break;
@@ -840,7 +798,6 @@ void EveChildTurret::CalcTransformForPitchBone( const Vector3* target, float min
 	Quaternion quat = RotationQuaternion( 0.f, -alpha, 0.f );
 	// 2nd: apply this quat after the original one
 	quat = rotation * quat;
-	// 2nd: make granny_transform from quat
 	rotation = quat;
 }
 
@@ -884,19 +841,15 @@ float EveChildTurret::GetBonePitchOffset( unsigned int boneIndex ) const
 Matrix EveChildTurret::GetTurretBoneTransform( uint32_t boneID ) const
 {
 	Matrix matrix = m_worldTransform;
-
-
-	// TODO: should support lowLodTransform? prob yes
-	// return lowLodTransform * matrix;
 	if( m_animationUpdater )
 	{
 		const auto& worldTransforms = m_animationUpdater->GetWorldTransforms();
+		// covers Invalid since INVALID_BONE_INDEX is max_float
 		if( boneID < worldTransforms.size() )
 		{
 			return worldTransforms[boneID] * matrix;
 		}
 	}
-	// TODO: port rest of function?
 	return matrix;
 }
 
@@ -953,7 +906,7 @@ float EveChildTurret::PlayAnimation( const std::string& animName, const std::str
 		// stop all animation
 		StopAnimation( delay );
 
-		// granny, play first anim once, if provided & found
+		// play first anim once, if provided & found
 		if( animIx != cmfData->animations.size() )
 		{
 			auto& animation = cmfData->animations[animIx];

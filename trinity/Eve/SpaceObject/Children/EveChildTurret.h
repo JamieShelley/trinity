@@ -124,6 +124,8 @@ protected:
 	// target (object we are tracking)
 	EveTurretTargetPtr m_target;
 
+	bool m_isOnline = true;
+
 	// impacts
 	float m_impactSize = 0.f;
 	ImpactBehaviour::Type m_impactBehaviour = ImpactBehaviour::DAMAGE_LOCATOR;
@@ -140,6 +142,10 @@ protected:
 	std::vector<int32_t> m_skeletonBoneIndices;
 	std::unique_ptr<cmf::AnimationSequencer> m_sequencer;
 	cmf::SkeletonPose m_pose;
+
+	uint32_t m_maxCyclingFirePos = 1;
+	uint32_t m_cyclingFireGroupCount = 1;
+	uint32_t m_currentCyclingFiresPos = 0;
 
 	// system bones
 	unsigned int m_systemBoneID[SYSBONE_MAX];
