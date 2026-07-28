@@ -13,6 +13,7 @@ BLUE_DECLARE( TriGeometryRes );
 BLUE_DECLARE( Tr2GrannyAnimation );
 
 class Tr2AnimationMeshBinding;
+class ITr2PoseModifier;
 
 namespace Tr2GrannyAnimationUtils
 {
@@ -93,6 +94,9 @@ public:
 	void SetLayerControlParamSkewRate( const char* layerName, float skewRate );
 	void AimBone( const char* boneName, float target_x, float target_y, float target_z, float axis_x, float axis_y, float axis_z );
 	void DisableAimBone();
+
+	ITr2PoseModifier* GetPoseModifier() const;
+	void SetPoseModifier( ITr2PoseModifier * poseModifier );
 
 	void SetAdditiveBlendMode( bool additive );
 	bool GetAdditiveBlendMode();
@@ -218,6 +222,8 @@ private:
 	std::string m_aimBone;
 	Vector3 m_aimBoneOrientation;
 	Vector3 m_aimAxis;
+
+	ITr2PoseModifier* m_poseModifier;
 
 	bool m_useMeshBinding;
 	bool m_animationEnabled;

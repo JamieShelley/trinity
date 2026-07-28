@@ -6,12 +6,14 @@
 
 #include "EveChildMesh.h"
 #include "Eve/Turret/EveTurretTarget.h"
+#include "Include/ITr2PoseModifier.h"
 
 BLUE_DECLARE( EveTurretFiringFX );
 BLUE_DECLARE( EveTurretTarget );
 
 BLUE_CLASS( EveChildTurret ) :
-	public EveChildMesh
+	public EveChildMesh,
+	public ITr2PoseModifier
 {
 public:
 	EXPOSE_TO_BLUE();
@@ -60,9 +62,10 @@ public:
 		STATE_RELOADING,
 	};
 
+	void ModifyPose( const cmf::Skeleton& skeleton, cmf::SkeletonPose& pose ) override;
+
 protected:
 	// system-controlled bones
-	// TODO: needed?
 	enum SystemBones
 	{
 		SYSBONE_INVALID = 0,
@@ -88,8 +91,6 @@ protected:
 
 	void InitializeAnimation() override;
 
-	// TODO: Need update LOD ?
-
 	// set transform for tracking
 	void ModifySystemBoneTransform( SystemBones bone, const Vector3* target, const Matrix* localTransform, Vector3& position, Quaternion& rotation ) const;
 
@@ -113,9 +114,6 @@ protected:
 	EveTurretFiringFX* GetFiringEffect();
 	void SetFiringEffect( EveTurretFiringFX * firingEffect );
 
-	// TODO: rename GrannyBoneBindingBounds?
-	std::vector<GrannyBoneBindingBounds> m_boneBounds;
-
 	// Assign the target object
 	void SetTargetObject( IRoot * target );
 	ITriTargetablePtr GetTargetObject();
@@ -137,11 +135,8 @@ protected:
 	float m_delayToFadeInTracking = 0.f;
 	float m_maxTrackingTime = 1.f;
 
-	// animation
-	const cmf::Skeleton* m_skeleton = nullptr;
-	std::vector<int32_t> m_skeletonBoneIndices;
-	std::unique_ptr<cmf::AnimationSequencer> m_sequencer;
-	cmf::SkeletonPose m_pose;
+	// animation: updater we last hooked our pose modifier into (to unhook on swap)
+	Tr2GrannyAnimationPtr m_hookedUpdater;
 
 	uint32_t m_maxCyclingFirePos = 1;
 	uint32_t m_cyclingFireGroupCount = 1;
@@ -170,7 +165,6 @@ protected:
 	// firing effect redfile path
 	std::string m_firingEffectResPath;
 
-	// TODO: move firing effect into its own class?
 	// firing effect
 	EveTurretFiringFXPtr m_firingEffect;
 	bool m_firingEffectMuzzlePosSet = false;

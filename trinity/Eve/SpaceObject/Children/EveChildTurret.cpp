@@ -3,6 +3,7 @@
 #include "StdAfx.h"
 #include "EveChildTurret.h"
 #include "Eve/Turret/EveTurretFiringFX.h"
+#include "Tr2GrannyAnimation.h"
 #include "Tr2MeshBase.h"
 #include "TriMath.h"
 #include "TriObserverLocal.h"
@@ -48,6 +49,11 @@ EveChildTurret::EveChildTurret( IRoot* lockobj ) :
 
 EveChildTurret::~EveChildTurret()
 {
+	if( m_hookedUpdater && m_hookedUpdater->GetPoseModifier() == this )
+	{
+		m_hookedUpdater->SetPoseModifier( nullptr );
+	}
+
 	if( m_firingEffect )
 	{
 		m_firingEffect->CleanUp();
@@ -135,11 +141,6 @@ void EveChildTurret::UpdateSyncronous( const EveUpdateContext& updateContext, co
 	}
 
 	UpdateCachedGeometryData();
-
-	if( m_sequencer )
-	{
-		m_sequencer->RemoveFinishedAnimations( Tr2Renderer::GetAnimationTime() );
-	}
 
 	// setup and update attached firing effect
 	if( m_firingEffect )
@@ -305,9 +306,6 @@ void EveChildTurret::BuildCachedGeometryData( TriGeometryRes& geometryRes )
 void EveChildTurret::ReleaseCachedGeometryData()
 {
 	m_cachedGeometryRes = nullptr;
-	m_skeleton = nullptr;
-	m_skeletonBoneIndices.clear();
-	m_boneBounds.clear();
 	m_firingEffectMuzzlePosSet = false;
 }
 
@@ -668,33 +666,44 @@ void EveChildTurret::InitializeFiringEffect()
 
 void EveChildTurret::InitializeAnimation()
 {
-	EveChildMesh::InitializeAnimation();
-	if( const auto geometryResource = GetGeometryRes() )
+	if( !m_animationUpdater )
 	{
-		// get a model, a meshbinding and animation stuff from the resource
-		const cmf::Data* cmfData = geometryResource->GetCMFData();
-		if( cmfData && cmfData->skeletons.size() )
+		m_animationUpdater.CreateInstance();
+	}
+	EveChildMesh::InitializeAnimation();
+
+	if( m_hookedUpdater != m_animationUpdater )
+	{
+		if( m_hookedUpdater && m_hookedUpdater->GetPoseModifier() == this )
 		{
-			const auto mesh = std::find_if( cmfData->meshes.begin(), cmfData->meshes.end(), []( const cmf::Mesh& m ) {
-				return m.skeleton == 0;
-			} );
+			m_hookedUpdater->SetPoseModifier( nullptr );
+		}
+		m_animationUpdater->SetPoseModifier( this );
+		m_hookedUpdater = m_animationUpdater;
+	}
+}
 
-			if( mesh != cmfData->meshes.end() && mesh->boneBindings.size() )
-			{
-				if( m_skeletonBoneIndices.empty() )
-				{
-					m_skeleton = &cmfData->skeletons[0];
+void EveChildTurret::ModifyPose( const cmf::Skeleton& skeleton, cmf::SkeletonPose& pose )
+{
+	if( m_trackingInfluence == 0.f )
+	{
+		return;
+	}
 
+	Vector3 targetPosOS = TransformCoord( *m_target->GetTrackingPosition(), Inverse( m_worldTransform ) );
 
-					if( !m_sequencer )
-					{
-						m_sequencer = std::make_unique<cmf::AnimationSequencer>( *m_skeleton );
-						cmf::RestPose( m_pose, *m_skeleton );
-					}
-
-					m_skeletonBoneIndices = Tr2GrannyAnimationUtils::CreateMapping( *m_skeleton, mesh->boneBindings, static_cast<uint32_t>( mesh->boneBindings.size() ) );
-				}
-			}
+	for( unsigned int bone = 0; bone < SYSBONE_MAX; ++bone )
+	{
+		// covers Invalid since INVALID_BONE_INDEX is max
+		if( m_systemBoneID[bone] < pose.boneTransforms.size() )
+		{
+			cmf::Transform& boneTransform = pose.boneTransforms[m_systemBoneID[bone]];
+			ModifySystemBoneTransform(
+				static_cast<SystemBones>( bone ),
+				&targetPosOS,
+				nullptr,
+				boneTransform.position,
+				boneTransform.rotation );
 		}
 	}
 }

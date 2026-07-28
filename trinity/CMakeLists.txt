@@ -842,6 +842,7 @@ set(_SOURCES
     Include/ITr2InstanceData.h
     Include/ITr2Interior.h
     Include/ITr2MultiPassScene.h
+    Include/ITr2PoseModifier.h
     Include/ITr2Scene.h
     Include/ITr2Updateable.h
     Include/ITr2ValueBinding.h
