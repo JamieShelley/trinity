@@ -76,6 +76,7 @@ public:
 	bool PlayAnimation( const char* animName, bool replace, int loopCount, float delay, float speed, bool clearWhenDone = true );
 	bool PlayLayerAnimationByName( const char* layer, const char* animName, bool replace, int loopCount, float delay, float speed, bool clearWhenDone );
 	void EndAnimation();
+	void StopAnimations( float delay );
 	void ClearAnimations();
 	float GetAnimationChainCompleteTime();
 

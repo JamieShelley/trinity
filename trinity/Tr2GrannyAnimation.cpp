@@ -1496,6 +1496,11 @@ void Tr2GrannyAnimation::EndAnimation()
 }
 
 
+void Tr2GrannyAnimation::StopAnimations( float delay )
+{
+	m_baseLayer.StopAnimations( delay );
+}
+
 void Tr2GrannyAnimation::ClearAnimations()
 {
 	m_baseLayer.ClearAnimations();

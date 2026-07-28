@@ -867,84 +867,26 @@ TriGeometryRes* EveChildTurret::GetGeometryRes() const
 	return m_mesh ? m_mesh->GetGeometryResource() : nullptr;
 }
 
-// TODO: heavily refactor once animation ownership is decided (m_animationUpdater vs m_sequencer).
-// Known defects for the rewrite:
-// - a missing anim name aborts the whole request instead of playing what was found
-// - the idle anim starts at `delay` instead of after the one-shot finishes
-//   (original sequenced via player SetStartTime/SetStopTime, no equivalent wired here)
-// - StopAnimation is a stub, so the "stop all animation" call below does nothing
-// - duplicated find_if lookups
 float EveChildTurret::PlayAnimation( const std::string& animName, const std::string& animNameIdle, float delay )
 {
-	auto geometryRes = GetGeometryRes();
-	if( !m_animationUpdater || !geometryRes )
+	if( !m_animationUpdater )
 	{
 		return 0.f;
 	}
+
+	m_animationUpdater->StopAnimations( delay );
+
 	float animLength = 0.f;
-
-	if( auto cmfData = geometryRes->GetCMFData() )
+	if( !animName.empty() )
 	{
-		// there can be more animations in one res, so find right one
-		size_t animIx = cmfData->animations.size();
-		if( !animName.empty() )
+		if( m_animationUpdater->PlayAnimation( animName.c_str(), false, 1, 0.f, 1.f, false ) )
 		{
-			auto animation = std::find_if( cmfData->animations.begin(), cmfData->animations.end(), [&animName]( const cmf::Animation& anim ) {
-				return cmf::ToStdStringView( anim.name ) == animName;
-			} );
-			if( animation == cmfData->animations.end() )
-			{
-				return 0.f;
-			}
-			animIx = std::distance( cmfData->animations.begin(), animation );
+			animLength = m_animationUpdater->FindAnimationDurationByName( animName.c_str() );
 		}
-
-		size_t idleIx = cmfData->animations.size();
-		if( !animNameIdle.empty() )
-		{
-			auto animation = std::find_if( cmfData->animations.begin(), cmfData->animations.end(), [&animNameIdle]( const cmf::Animation& anim ) {
-				return cmf::ToStdStringView( anim.name ) == animNameIdle;
-			} );
-			if( animation == cmfData->animations.end() )
-			{
-				return 0.f;
-			}
-			idleIx = std::distance( cmfData->animations.begin(), animation );
-		}
-
-		// stop all animation
-		StopAnimation( delay );
-
-		// play first anim once, if provided & found
-		if( animIx != cmfData->animations.size() )
-		{
-			auto& animation = cmfData->animations[animIx];
-			animLength = animation.duration;
-
-			// ( const char* animName, bool replace, int loopCount, float delay, float speed, bool clearWhenDone )
-			std::string animationName = cmf::ToStdString( animation.name );
-			bool replace = false; // TODO: correct?
-			int loopCount = 1;
-			float speed = 1.f;
-			m_animationUpdater->PlayAnimation( animationName.c_str(), replace, loopCount, delay, speed );
-			// TODO: set start/stop time seems different from ^
-			// player->SetStartTime( delay + Tr2Renderer::GetAnimationTime() );
-			// player->SetStopTime( animLength + delay + Tr2Renderer::GetAnimationTime() );
-		}
-
-		// then play idle anim on loop (after delay), if provided & found
-		if( idleIx != cmfData->animations.size() )
-		{
-			auto& animation = cmfData->animations[idleIx];
-			std::string animationName = cmf::ToStdString( animation.name );
-			bool replace = false; // TODO: correct?
-			int loopCount = 0;
-			float speed = 1.f;
-
-			m_animationUpdater->PlayAnimation( animationName.c_str(), replace, loopCount, delay, speed );
-			// TODO: set start time seems different from ^
-			// player->SetStartTime( animLength + delay + Tr2Renderer::GetAnimationTime() );
-		}
+	}
+	if( !animNameIdle.empty() )
+	{
+		m_animationUpdater->PlayAnimation( animNameIdle.c_str(), false, 0, 0.f, 1.f, false );
 	}
 
 	return animLength;
@@ -952,31 +894,14 @@ float EveChildTurret::PlayAnimation( const std::string& animName, const std::str
 
 void EveChildTurret::StopAnimation( float delay )
 {
-	// TODO: prob not needed and can just use animation class function instead of this probably useless middleman
-	// if we don't have a geometry, animation is useless and probably unwanted
-	if( !GetGeometryRes() )
-	{
-		return;
-	}
-
-	// stop
 	if( m_animationUpdater )
 	{
-		/*
-		// TODO: find correct functions
-		m_animationUpdater->EnumerateAnimations( [&]( const std::shared_ptr<cmf::AnimationPlayer>& player ) {
-			player->SetStopTime( delay + Tr2Renderer::GetAnimationTime() );
-		} );
-
-		m_animationUpdater->RemoveFinishedAnimations( Tr2Renderer::GetAnimationTime() );
-		*/
+		m_animationUpdater->StopAnimations( delay );
 	}
 }
 
 std::string EveChildTurret::GetFireAnimationName() const
 {
-	/*
-	// TODO: idk if this is useful skipping for now
 	// if m_currentCyclingFiresPos is 0, it's just "Fire"
 	std::string res = "Fire";
 	if( m_currentCyclingFiresPos > 0 )
@@ -986,8 +911,6 @@ std::string EveChildTurret::GetFireAnimationName() const
 	}
 
 	return res;
-	*/
-	return "";
 }
 
 EveTurretFiringFX* EveChildTurret::GetFiringEffect()
