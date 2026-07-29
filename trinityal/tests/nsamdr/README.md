@@ -35,7 +35,7 @@ No EVE assets, Granny files or third-party conversion binaries are included.
 - per-triangle UV stretch and anisotropy analysis
 - screen-space stretch evidence
 - damage-mask display
-- original versus stochastic/neural microdetail reconstruction
+- original material, validation, UV diagnostics, structure reconstruction and full NSAMDR comparison
 - interactive inspection lighting, orbit, pan and zoom
 - optional source albedo texture
 
@@ -129,11 +129,12 @@ scripts\build\build_nsamdr_obj_preview_dx11.bat
 | `F` / `Home` | Frame the complete ship |
 | `R` | Reset orientation and frame the ship |
 | `V` | Flip texture V |
-| `0` | Original mapped detail |
-| `1` | Full NSAMDR |
-| `2` | UV stretch damage mask |
-| `3` | Stochastic reconstruction |
-| `4` | Neural-residual prototype |
+| `0` | Original EVE material |
+| `1` | Material / input validation |
+| `2` | UV texel-density and stretch diagnostics |
+| `3` | Structure-preserving reconstruction |
+| `4` | Full NSAMDR result |
+| `5` | Difference / reconstructed contribution |
 | `Space` | Toggle original/last enabled mode |
 | `F9` | Save DDS screenshot |
 | `Esc` | Exit |
@@ -158,6 +159,6 @@ Granny     : OFF
 
 This path does not download or install the `granny` vcpkg package.
 
-## v7 inspection-tool additions
+## v8 reconstruction-tool additions
 
-The window title expands NSAMDR as **Neural Stretch-Aware Material Detail Reconstruction**. The viewer adds official-SDE ship names, grouped LOD/model variants, extracted EVE nebula environment lighting, brighter inspection presets, zoom-to-cursor, surface-focused orbiting and full-ship framing. The reconstruction algorithms remain unchanged in this revision.
+This revision changes the test workflow from noise-only enhancement to a two-stage inspection and reconstruction pass. Mode 1 validates the source inputs with split albedo/checker, normal and PGS-or-mip views. Mode 2 visualises UV stretch direction, estimated mip pressure and the damage heatmap. Mode 3 performs structure-preserving reconstruction of broad panel detail before any microdetail is added. Mode 4 applies the full NSAMDR result, and Mode 5 isolates only the reconstructed contribution.

@@ -9,7 +9,7 @@ set "SOURCE_STATE_HELPER=%~dp0nsamdr\SourceBuildState.ps1"
 set "VCPKG_DIR=%ROOT%\vendor\github.com\microsoft\vcpkg"
 set "REGISTRY_DIR=%ROOT%\vendor\github.com\carbonengine\vcpkg-registry"
 set "OVERLAY_PORTS=%~dp0nsamdr\vcpkg-overlay-ports"
-set "SOURCE_CONTEXT=viewer=NSAMDRRealObjPreview-v3;config=TrinityDev;dx11=ON;dx12=OFF;tests=ON;shader=OFF;granny=OFF"
+set "SOURCE_CONTEXT=viewer=NSAMDRRealObjPreview-v5;config=TrinityDev;dx11=ON;dx12=OFF;tests=ON;shader=OFF;granny=OFF"
 set "PREVIEW_EXE="
 set "BUILD_ONLY=0"
 if /I "%NSAMDR_BUILD_ONLY%"=="1" set "BUILD_ONLY=1"
@@ -81,6 +81,8 @@ if "%BUILD_ONLY%"=="0" call :resolve_optional_texture NSAMDR_PGS "PGS material m
 if errorlevel 1 exit /b !ERRORLEVEL!
 if "%BUILD_ONLY%"=="0" call :resolve_optional_texture NSAMDR_ENVIRONMENT "EVE nebula environment" "%~5"
 if errorlevel 1 exit /b !ERRORLEVEL!
+if "%BUILD_ONLY%"=="0" call :resolve_optional_file NSAMDR_MATERIALS "SOF material manifest" "%~6"
+if errorlevel 1 exit /b !ERRORLEVEL!
 
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass ^
     -File "%SOURCE_STATE_HELPER%" ^
@@ -109,6 +111,8 @@ if "%BUILD_ONLY%"=="0" if defined NSAMDR_NORMAL echo Normal     : !NSAMDR_NORMAL
 if "%BUILD_ONLY%"=="0" if defined NSAMDR_PGS echo PGS map    : !NSAMDR_PGS!
 if "%BUILD_ONLY%"=="0" if defined NSAMDR_ENVIRONMENT echo Environment: !NSAMDR_ENVIRONMENT!
 if "%BUILD_ONLY%"=="0" if not defined NSAMDR_ENVIRONMENT echo Environment: procedural fallback
+if "%BUILD_ONLY%"=="0" if defined NSAMDR_MATERIALS echo Materials  : !NSAMDR_MATERIALS!
+if "%BUILD_ONLY%"=="0" if not defined NSAMDR_MATERIALS echo Materials  : legacy global fallback
 if "%BUILD_ONLY%"=="1" echo Action     : build only
 echo ============================================================
 
@@ -196,7 +200,7 @@ if not defined MODEL_INPUT (
 )
 if not defined MODEL_INPUT (
     echo ERROR: No model path was supplied.
-    echo Usage: %~nx0 ^<ship.obj^|ship.gr2^> [albedo.png]
+    echo Usage: %~nx0 ^<ship.obj^|ship.gr2^> [albedo.png] [normal.png] [pgs.png] [environment.png] [ship.materials.tsv]
     exit /b 40
 )
 for %%I in ("!MODEL_INPUT!") do (
@@ -220,42 +224,59 @@ if /I not "!MODEL_EXTENSION!"==".gr2" (
     exit /b 42
 )
 
-set "CONVERTER=%EVEGR2TOOBJ_EXE%"
-if not defined CONVERTER set "CONVERTER=%ROOT%\tools\nsamdr\evegr2toobj\evegr2toobj.exe"
-if not exist "!CONVERTER!" (
-    echo ERROR: A GR2 file was supplied, but evegr2toobj.exe was not found.
-    echo.
-    echo Place a locally obtained converter here:
-    echo   "%ROOT%\tools\nsamdr\evegr2toobj\evegr2toobj.exe"
-    echo.
-    echo The converter and Granny runtime are not redistributed by this overlay.
-    echo Alternatively convert the GR2 separately and pass the resulting OBJ.
+where node.exe >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: Node.js 18 or newer is required for the Granny-free CarbonEngineJS GR2 converter.
     exit /b 43
 )
-for %%I in ("!CONVERTER!") do set "CONVERTER_DIR=%%~dpI"
-if not exist "!CONVERTER_DIR!granny2.dll" (
-    echo ERROR: granny2.dll was not found beside the local converter:
-    echo   "!CONVERTER_DIR!granny2.dll"
-    echo Use a legally obtained local runtime compatible with the converter.
+where npm.cmd >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: npm is required to install the open-source CarbonEngineJS converter dependency.
     exit /b 44
+)
+set "CONVERTER_DIR=%ROOT%\tools\nsamdr\gr2_converter"
+set "CONVERTER_SCRIPT=!CONVERTER_DIR!\convert_eve_asset.mjs"
+set "CONVERTER_PACKAGE=!CONVERTER_DIR!\package.json"
+set "CONVERTER_RUNTIME=!CONVERTER_DIR!\node_modules\@carbonenginejs\runtime-resource"
+if not exist "!CONVERTER_SCRIPT!" (
+    echo ERROR: Missing Granny-free CarbonEngineJS converter:
+    echo   "!CONVERTER_SCRIPT!"
+    exit /b 45
+)
+if not exist "!CONVERTER_PACKAGE!" (
+    echo ERROR: Missing CarbonEngineJS converter package manifest:
+    echo   "!CONVERTER_PACKAGE!"
+    exit /b 46
+)
+if not exist "!CONVERTER_RUNTIME!" (
+    echo Installing open-source CarbonEngineJS converter dependency...
+    pushd "!CONVERTER_DIR!" || exit /b 47
+    call npm.cmd install --no-audit --no-fund
+    set "NPM_RESULT=!ERRORLEVEL!"
+    popd
+    if not "!NPM_RESULT!"=="0" (
+        echo ERROR: CarbonEngineJS dependency installation failed.
+        exit /b !NPM_RESULT!
+    )
 )
 
 set "CONVERT_DIR=%ROOT%\artifacts\nsamdr\converted"
 if not exist "!CONVERT_DIR!" mkdir "!CONVERT_DIR!"
 set "CONVERTED_OBJ=!CONVERT_DIR!\!MODEL_BASENAME!.obj"
+set "CONVERSION_SUMMARY=!CONVERT_DIR!\!MODEL_BASENAME!.conversion.json"
 
-echo Converting GR2 to OBJ...
+echo Converting highest-detail GR2 mesh to OBJ without Granny...
 echo   Source: !MODEL_INPUT!
 echo   Output: !CONVERTED_OBJ!
-"!CONVERTER!" "!MODEL_INPUT!" "!CONVERTED_OBJ!"
+node.exe "!CONVERTER_SCRIPT!" gr2-to-obj "!MODEL_INPUT!" "!CONVERTED_OBJ!" "!CONVERSION_SUMMARY!"
 if errorlevel 1 (
-    echo ERROR: evegr2toobj failed.
-    exit /b 45
+    echo ERROR: CarbonEngineJS GR2 conversion failed.
+    exit /b 48
 )
 if not exist "!CONVERTED_OBJ!" (
     echo ERROR: Converter returned success but did not create:
     echo   "!CONVERTED_OBJ!"
-    exit /b 46
+    exit /b 49
 )
 set "NSAMDR_OBJ=!CONVERTED_OBJ!"
 exit /b 0
@@ -300,6 +321,21 @@ if not exist "!OPTIONAL_INPUT!" (
 if /I "!OPTIONAL_EXTENSION!"==".dds" (
     echo ERROR: !OPTIONAL_LABEL! must be converted to PNG for the WIC viewer path.
     exit /b 53
+)
+set "%OPTIONAL_VARIABLE%=!OPTIONAL_INPUT!"
+exit /b 0
+
+:resolve_optional_file
+set "OPTIONAL_VARIABLE=%~1"
+set "OPTIONAL_LABEL=%~2"
+set "OPTIONAL_INPUT=%~3"
+set "%OPTIONAL_VARIABLE%="
+if not defined OPTIONAL_INPUT exit /b 0
+for %%I in ("!OPTIONAL_INPUT!") do set "OPTIONAL_INPUT=%%~fI"
+if not exist "!OPTIONAL_INPUT!" (
+    echo ERROR: !OPTIONAL_LABEL! does not exist:
+    echo   "!OPTIONAL_INPUT!"
+    exit /b 54
 )
 set "%OPTIONAL_VARIABLE%=!OPTIONAL_INPUT!"
 exit /b 0

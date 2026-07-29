@@ -1,18 +1,13 @@
-# Local GR2 converter location
+# Retired proprietary converter path
 
-Place a legally obtained local converter installation here only when launching the NSAMDR preview directly from a `.gr2` file:
+The NSAMDR preview no longer uses `evegr2toobj.exe`, `granny2.dll`, or any Granny runtime component.
 
-```text
-evegr2toobj.exe
-granny2.dll
-```
-
-The launcher invokes:
+GR2 geometry is converted by the open-source CarbonEngineJS reader under:
 
 ```text
-evegr2toobj.exe <source.gr2> <destination.obj>
+tools/nsamdr/gr2_converter/
 ```
 
-Neither binary is included in this repository overlay. They must not be committed or redistributed without the relevant permission.
+The conversion path selects the highest-detail render mesh, preserves its mesh-area groups, and emits a Wavefront OBJ plus a draw-range summary. Minimal ship visuals are then reconstructed from `data.black` and SharedCache textures by `tools/nsamdr/eve_asset_test.py`.
 
-You may instead convert the mesh elsewhere and pass the resulting `.obj` directly to `run_nsamdr_obj_preview_dx11.bat`.
+This directory remains only to make the removal of the previous local proprietary-converter workflow explicit. Do not place Granny binaries here.
