@@ -918,10 +918,18 @@ void EveChildInstancedMeshes::UpdateOverlayInstanceData( const EveSpaceObjectVSD
 			OverlayInstancePod& pod = ( *mesh.overlayPods )[i];
 
 			Matrix local = IdentityMatrix();
-			local._11 = wt[0].x; local._12 = wt[1].x; local._13 = wt[2].x;
-			local._21 = wt[0].y; local._22 = wt[1].y; local._23 = wt[2].y;
-			local._31 = wt[0].z; local._32 = wt[1].z; local._33 = wt[2].z;
-			local._41 = wt[0].w; local._42 = wt[1].w; local._43 = wt[2].w;
+			local._11 = wt[0].x;
+			local._12 = wt[1].x;
+			local._13 = wt[2].x;
+			local._21 = wt[0].y;
+			local._22 = wt[1].y;
+			local._23 = wt[2].y;
+			local._31 = wt[0].z;
+			local._32 = wt[1].z;
+			local._33 = wt[2].z;
+			local._41 = wt[0].w;
+			local._42 = wt[1].w;
+			local._43 = wt[2].w;
 
 			Matrix worldTransform = Transpose( local * m_worldTransform );
 			Matrix worldTransformLast = Transpose( local * prevWorldTransform );

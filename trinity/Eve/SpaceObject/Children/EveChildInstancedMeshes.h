@@ -172,7 +172,7 @@ private:
 	void UnregisterFromMeshManager();
 
 	void UpdateOverlayInstanceData( const EveSpaceObjectVSData& parentVsData, const EveSpaceObjectPSData& parentPsData );
-	static void RebuildOverlayAreaBlocks( Mesh& mesh );
+	static void RebuildOverlayAreaBlocks( Mesh & mesh );
 	bool HasAnyOwnOverlayEffects() const;
 	bool AnyMeshInheritsOverlayEffects() const;
 	bool MeshHasActiveOverlayEffects( const Mesh& mesh ) const;

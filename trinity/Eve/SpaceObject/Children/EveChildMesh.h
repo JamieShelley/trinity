@@ -171,7 +171,10 @@ public:
 	void AddOverlayEffect( EveMeshOverlayEffectPtr newOverlayEffect );
 	void RemoveOverlayEffect( EveMeshOverlayEffectPtr overlayEffectToRemove );
 	EveMeshOverlayEffectPtr GetOverlayEffectByName( const char* name ) const;
-	const PEveMeshOverlayEffectVector& GetOverlayEffects() const { return m_overlayEffects; }
+	const PEveMeshOverlayEffectVector& GetOverlayEffects() const
+	{
+		return m_overlayEffects;
+	}
 
 	Tr2GrannyAnimation* GetAnimationController() const override;
 	void SetAnimationController( Tr2GrannyAnimation * animation );
