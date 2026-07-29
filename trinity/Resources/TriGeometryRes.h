@@ -374,17 +374,18 @@ public:
 	bool IsUsingCMF() const;
 	const cmf::Data* GetCMFData() const;
 
-private:
-	unsigned int m_memoryUse;
-	TrackableStdVector<std::unique_ptr<TriGeometryResMeshData>> m_meshes;
-	TrackableStdVector<std::unique_ptr<TriGeometryResSkeletonData>> m_skeletons;
-
+	// TODO: intern, don't make bvh public
 	struct
 	{
 		BVH::BVHContent content;
 		BVH::RayCaster rayCaster;
 		std::vector<BVH::IntersectedNode> mainThreadStack;
 	} m_bvh;
+
+private:
+	unsigned int m_memoryUse;
+	TrackableStdVector<std::unique_ptr<TriGeometryResMeshData>> m_meshes;
+	TrackableStdVector<std::unique_ptr<TriGeometryResSkeletonData>> m_skeletons;
 	
 #if WITH_GRANNY
 	granny_file* m_pGrannyFile;

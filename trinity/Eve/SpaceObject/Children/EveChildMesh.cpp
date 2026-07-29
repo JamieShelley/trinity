@@ -1180,6 +1180,7 @@ void EveChildMesh::GetDebugOptions( Tr2DebugRendererOptions& options )
 	options.insert( "Bones" );
 	options.insert( "Decals" );
 	options.insert( "Lights" );
+	options.insert( "BVH" );
 
 	for( auto it = begin( m_attachments ); it != end( m_attachments ); ++it )
 	{
@@ -1204,6 +1205,13 @@ void EveChildMesh::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 		else
 		{
 			m_mesh->RenderDebugInfo( m_worldTransform, renderer, nullptr );
+		}
+		if( renderer.HasOption( GetRawRoot(), "BVH" ) )
+		{
+			if( m_mesh->GetGeometryResource() )
+			{
+				BVH::Visualize( m_mesh->GetGeometryResource()->m_bvh.content, this, m_worldTransform, renderer );
+			}
 		}
 	}
 	if( m_animationUpdater && renderer.HasOption( GetRawRoot(), "Bones" ) )
