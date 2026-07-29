@@ -1992,6 +1992,8 @@ void EveSpaceObject2::RebuildMergedLocatorSets() const
 
 void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 {
+	CCP_STATS_ZONE( __FUNCTION__ );
+
 	if( !m_damageLocatorFilterDirty || !m_damageLocatorAutoFilterEnabled )
 	{
 		return;

@@ -1470,6 +1470,8 @@ Be::Result<std::string> TriGeometryRes::GetAreaIntersectionPointNormalBoneFromSc
 
 void ResetRayCasterFromGPUBuffer( BVH::RayCaster& self, const TriGeometryRes& geometry )
 {
+	CCP_STATS_ZONE( __FUNCTION__ );
+
 	USE_MAIN_THREAD_RENDER_CONTEXT();
 
 	if( self.m_prepared )
@@ -1497,6 +1499,8 @@ void ResetRayCasterFromGPUBuffer( BVH::RayCaster& self, const TriGeometryRes& ge
 
 bool PrepareRayCasterFromGPUBuffer( BVH::RayCaster& self, const TriGeometryRes& geometry, const std::vector<int32_t>& lodIndices )
 {
+	CCP_STATS_ZONE( __FUNCTION__ );
+
 	USE_MAIN_THREAD_RENDER_CONTEXT();
 
 	self.m_lodIndices = lodIndices;
