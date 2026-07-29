@@ -6,9 +6,61 @@
 
 #include "../Resources/Tr2CmfContent.h"
 #include "ITr2DebugRenderer2.h"
+#include "GeometryUtils.h"
 
 namespace BVH
 {
+
+struct RayCastIndexReader
+{
+	const uint8_t* data = nullptr;
+	bool stride16 = false;
+
+	uint32_t operator()( uint32_t i ) const
+	{
+		return stride16 ? ( (uint16_t*)data )[i] : ( (uint32_t*)data )[i];
+	}
+};
+
+struct RayCastPositionReader
+{
+	const uint8_t* data = nullptr;
+	uint32_t vertexSize = 0;
+	Tr2VertexDefinition::DataType dataType;
+
+	Vector3 operator()( uint32_t i ) const
+	{
+		Vector3 v;
+		ConvertDataToVector3( dataType, data + i * vertexSize, &v );
+		return v;
+	}
+};
+
+struct RayCastBoneReader
+{
+	const uint8_t* data = nullptr;
+	uint32_t vertexSize = 0;
+	Tr2VertexDefinition::DataType dataType;
+
+	int32_t operator()( uint32_t i ) const
+	{
+		int32_t boneIndex;
+		if( !GetBoneIndex( dataType, data + i * vertexSize, boneIndex ) )
+		{
+			boneIndex = -1;
+		}
+		return boneIndex;
+	}
+};
+
+struct RayCaster
+{
+	std::vector<RayCastIndexReader> m_indices;
+	std::vector<RayCastPositionReader> m_positions;
+	std::vector<RayCastBoneReader> m_bones;
+	std::vector<int32_t> m_lodIndices;
+	bool m_prepared = false;
+};
 
 const int32_t BVH_MAX_NODE_SIZE = 4; // TODO: intern, play around with this value and profile...
 struct BVHNode
@@ -38,13 +90,11 @@ struct BVHContent
 	std::vector<BoundingVolumeHierarchy> bvhs;
 };
 
-BVHContent CreateBVHContent( Tr2CmfContents& content, int32_t lodIndex );
+BVHContent CreateBVHContent( Tr2CmfContents& content, const std::vector<int32_t>& lodIndex );
 
-template <typename GetIndex, typename GetPosition>
 bool Intersection(
 	const BVHContent& bvhContent,
-	const GetIndex& indices,
-	const GetPosition& positions,
+	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -55,11 +105,9 @@ bool Intersection(
 	float& v,
 	float& distance );
 
-template <typename GetIndex, typename GetPosition>
 bool Intersection(
 	const BVHContent& bvhContent,
-	const GetIndex& indices,
-	const GetPosition& positions,
+	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -69,14 +117,26 @@ bool Intersection(
 	float& v,
 	float& distance );
 
-template <typename GetIndex, typename GetPosition>
 bool Intersection(
 	const BVHContent& bvhContent,
-	const std::vector<GetIndex>& indicesPerMesh,
-	const std::vector<GetPosition>& positionsPerMesh,
+	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
+	uint32_t& meshIndex,
+	uint32_t& primitive,
+	float& u,
+	float& v,
+	float& distance );
+
+bool Intersection(
+	const BVHContent& bvhContent,
+	const RayCaster& rayCaster,
+	std::vector<IntersectedNode>& stack,
+	const CcpMath::Ray& ray,
+	float rayLength,
+	uint32_t areaIndex,
+	uint32_t& meshIndex,
 	uint32_t& primitive,
 	float& u,
 	float& v,

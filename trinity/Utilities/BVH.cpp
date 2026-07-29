@@ -291,7 +291,7 @@ bool Intersection(
 		}
 		else
 		{
-			for( int i = currentNode->firstChildIndex; i < currentNode->firstChildIndex + currentNode->numObj; i++ )
+			for( uint32_t i = currentNode->firstChildIndex; i < currentNode->firstChildIndex + currentNode->numObj; i++ )
 			{
 				float hitU, hitV;
 				Vector3 vertex0 = positions( indices( bvh.primitives[i] * 3 + 0 ) );
@@ -339,12 +339,15 @@ struct BVHContent
 	std::vector<BoundingVolumeHierarchy> bvhs;
 };
 */
-BVHContent CreateBVHContent( Tr2CmfContents& content, int32_t lodIndex )
+BVHContent CreateBVHContent( Tr2CmfContents& content, const std::vector<int32_t>& lodIndices )
 {
 	BVHContent bvhContent;
 	bvhContent.data = content.GetData();
-	for( const auto& mesh : bvhContent.data->meshes )
+	for( int32_t i = 0; i < bvhContent.data->meshes.size(); i++ )
 	{
+		const auto& mesh = bvhContent.data->meshes[i];
+		int32_t lodIndex = lodIndices[i];
+
 		auto ib = mesh.lods[lodIndex].ib;
 		auto ibSectionData = content.GetSection( ib.index );
 		auto indices = cmf::ConstIndexBufferStream( ibSectionData, ib );
@@ -366,11 +369,9 @@ BVHContent CreateBVHContent( Tr2CmfContents& content, int32_t lodIndex )
 	return bvhContent;
 }
 
-template <typename GetIndex, typename GetPosition>
 bool Intersection(
 	const BVHContent& bvhContent,
-	const GetIndex& indices,
-	const GetPosition& positions,
+	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -381,20 +382,18 @@ bool Intersection(
 	float& v,
 	float& distance )
 {
-	int32_t areasOffset = 0;
+	size_t areasOffset = 0;
 	for( int32_t i = 0; i < meshIndex; i++ )
 	{
 		areasOffset += bvhContent.data->meshes[i].areas.size();
 	}
 
-	return Intersection( bvhContent.bvhs[areasOffset + areaIndex], indices, positions, stack, ray, rayLength, primitive, u, v, distance );
+	return Intersection( bvhContent.bvhs[areasOffset + areaIndex], rayCaster.m_indices[meshIndex], rayCaster.m_positions[meshIndex], stack, ray, rayLength, primitive, u, v, distance );
 }
 
-template <typename GetIndex, typename GetPosition>
 bool Intersection(
 	const BVHContent& bvhContent,
-	const GetIndex& indices,
-	const GetPosition& positions,
+	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -404,18 +403,18 @@ bool Intersection(
 	float& v,
 	float& distance )
 {
-	int32_t areasOffset = 0;
+	size_t areasOffset = 0;
 	for( int32_t i = 0; i < meshIndex; i++ )
 	{
 		areasOffset += bvhContent.data->meshes[i].areas.size();
 	}
 
 	bool hit = false;
-	for( int32_t areaIndex = 0; areaIndex < bvhContent.data->meshes[meshIndex].areas.size(); areaIndex++ )
+	for( size_t areaIndex = 0; areaIndex < bvhContent.data->meshes[meshIndex].areas.size(); areaIndex++ )
 	{
 		const auto& bvh = bvhContent.bvhs[areasOffset + areaIndex];
 		uint32_t hitPrimitive;
-		if( Intersection( bvh, indices, positions, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+		if( Intersection( bvh, rayCaster.m_indices[meshIndex], rayCaster.m_positions[meshIndex], stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
 		{
 			primitive = hitPrimitive;
 			distance = rayLength;
@@ -425,35 +424,78 @@ bool Intersection(
 	return hit;
 }
 
-template <typename GetIndex, typename GetPosition>
 bool Intersection(
 	const BVHContent& bvhContent,
-	const std::vector<GetIndex>& indicesPerMesh,
-	const std::vector<GetPosition>& positionsPerMesh,
+	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
+	uint32_t& mesh,
 	uint32_t& primitive,
 	float& u,
 	float& v,
 	float& distance )
 {
 	bool hit = false;
-	int32_t areasOffset = 0;
-	for( int meshIndex = 0; meshIndex < bvhContent.data->meshes.size(); meshIndex++ )
+	size_t areasOffset = 0;
+	for( size_t meshIndex = 0; meshIndex < bvhContent.data->meshes.size(); meshIndex++ )
 	{
-		for( int areaIndex = 0; areaIndex < bvhContent.data->meshes[meshIndex].areas.size(); areaIndex++ )
+		if( !rayCaster.m_indices[meshIndex].data || !rayCaster.m_positions[meshIndex].data )
+		{
+			continue;
+		}
+
+		for( size_t areaIndex = 0; areaIndex < bvhContent.data->meshes[meshIndex].areas.size(); areaIndex++ )
 		{
 			const auto& bvh = bvhContent.bvhs[areasOffset + areaIndex];
 			uint32_t hitPrimitive;
-			if( Intersection( bvh, indicesPerMesh[meshIndex], positionsPerMesh[meshIndex], stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+			if( Intersection( bvh, rayCaster.m_indices[meshIndex], rayCaster.m_positions[meshIndex], stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
 			{
+				mesh = (uint32_t)meshIndex;
 				primitive = hitPrimitive;
 				distance = rayLength;
 				hit = true;
 			}
 		}
 		areasOffset += bvhContent.data->meshes[meshIndex].areas.size();
+	}
+	return hit;
+}
+
+bool Intersection(
+	const BVHContent& bvhContent,
+	const RayCaster& rayCaster,
+	std::vector<IntersectedNode>& stack,
+	const CcpMath::Ray& ray,
+	float rayLength,
+	uint32_t areaIndex,
+	uint32_t& meshIndex,
+	uint32_t& primitive,
+	float& u,
+	float& v,
+	float& distance )
+{
+	bool hit = false;
+	size_t areasOffset = 0;
+	for( size_t i = 0; i < bvhContent.data->meshes.size(); i++ )
+	{
+		if( !rayCaster.m_indices[i].data || !rayCaster.m_positions[i].data || areaIndex >= bvhContent.data->meshes[i].areas.size() )
+		{
+			continue;
+		}
+
+		{
+			const auto& bvh = bvhContent.bvhs[areasOffset + areaIndex];
+			uint32_t hitPrimitive;
+			if( Intersection( bvh, rayCaster.m_indices[i], rayCaster.m_positions[i], stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+			{
+				meshIndex = (uint32_t)i;
+				primitive = hitPrimitive;
+				distance = rayLength;
+				hit = true;
+			}
+		}
+		areasOffset += bvhContent.data->meshes[i].areas.size();
 	}
 	return hit;
 }

@@ -267,16 +267,29 @@ public:
 
 	void RebuildCachedData();
 
-	bool GetIntersectionPoints(
-		const Vector3* pos,
-		const Vector3* dir,
-		Vector3* hitpointNear,
-		Vector3* hitpointNearNormal,
-		Vector3* hitpointFar,
-		Vector3* hitpointFarNormal,
-		int* boneIndexNear,
-		int* boneIndexFar,
-		unsigned int areaIx = -1 );
+	bool GetIntersectionPoints( 
+		const Vector3& pos, 
+		const Vector3& dir, 
+		Vector3* hitpointNear, 
+		Vector3* hitpointNearNormal, 
+		int* boneIndexNear, 
+		unsigned int areaIx, 
+		float rayLength );
+
+	void PrepareRayCaster();
+	void ResetRayCaster();
+
+	//bool GetIntersectionPoints(
+	//	const Vector3* pos,
+	//	const Vector3* dir,
+	//	Vector3* hitpointNear,
+	//	Vector3* hitpointNearNormal,
+	//	Vector3* hitpointFar,
+	//	Vector3* hitpointFarNormal,
+	//	int* boneIndexNear,
+	//	int* boneIndexFar,
+	//	unsigned int areaIx = -1,
+	//	float rayLength = INFINITY );
 
 	bool GetIntersectionPointNormalBone(
 		const Vector3* pos,
@@ -284,7 +297,8 @@ public:
 		Vector3* hitpoint,
 		Vector3* normal,
 		int* boneIndex,
-		unsigned int areaIx = -1 );
+		unsigned int areaIx = -1,
+		float rayLength = std::numeric_limits<float>::infinity() );
 
 	std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>> GetIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir );
 	Be::Result<std::string> GetAreaIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir, int areaIx, std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>>& result );
@@ -365,8 +379,13 @@ private:
 	TrackableStdVector<std::unique_ptr<TriGeometryResMeshData>> m_meshes;
 	TrackableStdVector<std::unique_ptr<TriGeometryResSkeletonData>> m_skeletons;
 
-	BVH::BVHContent m_bvh;
-
+	struct
+	{
+		BVH::BVHContent content;
+		BVH::RayCaster rayCaster;
+		std::vector<BVH::IntersectedNode> mainThreadStack;
+	} m_bvh;
+	
 #if WITH_GRANNY
 	granny_file* m_pGrannyFile;
 #endif

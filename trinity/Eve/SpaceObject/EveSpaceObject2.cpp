@@ -2057,6 +2057,11 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 		occluders.push_back( occluder );
 	}
 
+	for( auto& occluder : occluders )
+	{
+		occluder.geometry->PrepareRayCaster();
+	}
+
 	int32_t i = 0;
 	for( auto damageLocator = damageLocators->begin(); damageLocator != damageLocators->end(); damageLocator++ )
 	{
@@ -2068,13 +2073,14 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 
 		for( auto& occluder : occluders )
 		{
+			// TODO: intern, careful, do we need to normalize the ray? If yes, can we to the transformation in the first place so that scale is not affected?
 			Vector3 rayOrigin = Transform( origin, occluder.fromObject ).GetXYZ();
 			Vector3 rayDirection = TransformNormal( direction, occluder.fromObject );
 			
 			Vector3 hitPoint;
 			Vector3 hitNormal;
 			int32_t hitBoneIndex;
-			if( occluder.geometry->GetIntersectionPointNormalBone( &rayOrigin, &rayDirection, &hitPoint, &hitNormal, &hitBoneIndex ) )
+			if( occluder.geometry->GetIntersectionPointNormalBone( &rayOrigin, &rayDirection, &hitPoint, &hitNormal, &hitBoneIndex, -1, m_boundingSphereRadius ) )
 			{
 				Vector3 diff = TransformNormal( hitPoint - rayOrigin, occluder.toObject );
 				if( Dot( diff, diff ) < 0.001f * m_boundingSphereRadius * m_boundingSphereRadius )
@@ -2086,6 +2092,11 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 		}
 
 		m_damageLocatorEnabled[i++] = !occluded;
+	}
+
+	for( auto& occluder : occluders )
+	{
+		occluder.geometry->ResetRayCaster();
 	}
 
 	m_damageLocatorFilterDirty = false;
