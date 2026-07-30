@@ -2082,6 +2082,7 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 			Vector3 hitPoint;
 			Vector3 hitNormal;
 			int32_t hitBoneIndex;
+			// TODO: intern, shrink rayLength after hit... Also, we don't need to compute the distance anymore, unless scaling is an issue...
 			if( occluder.geometry->GetIntersectionPointNormalBone( &rayOrigin, &rayDirection, &hitPoint, &hitNormal, &hitBoneIndex, -1, m_boundingSphereRadius ) )
 			{
 				Vector3 diff = TransformNormal( hitPoint - rayOrigin, occluder.toObject );
