@@ -449,6 +449,12 @@ const Be::ClassInfo* EveSpaceObject2::ExposeToBlue()
 			"The last damagelocator hit.",
 			Be::READ )
 
+		MAP_ATTRIBUTE(
+			"damageLocatorAutoFilterEnabled",
+			m_damageLocatorAutoFilterEnabled,
+			"Damage locators will be filtered when they are occluded. Used by modular ships, which need this logic at runtime rather than build time.",
+			Be::READWRITE | Be::PERSIST )
+
 		MAP_METHOD_AND_WRAP( "GetDamageLocatorCount", GetDamageLocatorCount, "Get number of damage locators on this ship" )
 		MAP_METHOD_AND_WRAP(
 			"GetLocatorCount",

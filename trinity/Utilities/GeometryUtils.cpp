@@ -258,3 +258,103 @@ granny_data_type_definition MeshBoundsInfoType[] = {
 //
 //////////////////////////////////////////////////////////////////////////
 #endif
+
+
+void ConvertDataToVector3( Tr2VertexDefinition::DataType elementType, const void* src, Vector3* dest )
+{
+
+	switch( elementType )
+	{
+	case Tr2VertexDefinition::FLOAT16_4: {
+		*reinterpret_cast<Vector3*>( dest ) = *static_cast<const Vector3_16*>( src );
+		break;
+	}
+	case Tr2VertexDefinition::FLOAT32_3: {
+		memcpy( dest, src, 3 * sizeof( float ) );
+		break;
+	}
+	case Tr2VertexDefinition::FLOAT32_4: {
+		memcpy( dest, src, 3 * sizeof( float ) );
+		break;
+	}
+	case Tr2VertexDefinition::SHORT_4: {
+		ConvertShort4ToVector3( src, dest );
+		break;
+	}
+
+	case Tr2VertexDefinition::UBYTE_4: {
+		ConvertUByte4ToVector3( src, dest );
+		break;
+	}
+
+	default: {
+		dest->x = 0.0f;
+		dest->y = 0.0f;
+		dest->z = 0.0f;
+	}
+	}
+}
+
+// TODO: intern, optimize this one as well. we can do this intersection test without matrix inversion
+bool IntersectTri(
+	const Vector3* p0,
+	const Vector3* p1,
+	const Vector3* p2,
+	const Vector3* rayPos,
+	const Vector3* rayDir,
+	float* u,
+	float* v,
+	float* dist )
+{
+	Matrix m;
+	Vector4 vec;
+
+	m.m[0][0] = p1->x - p0->x;
+	m.m[1][0] = p2->x - p0->x;
+	m.m[2][0] = -rayDir->x;
+	m.m[3][0] = 0.0f;
+	m.m[0][1] = p1->y - p0->y;
+	m.m[1][1] = p2->y - p0->y;
+	m.m[2][1] = -rayDir->y;
+	m.m[3][1] = 0.0f;
+	m.m[0][2] = p1->z - p0->z;
+	m.m[1][2] = p2->z - p0->z;
+	m.m[2][2] = -rayDir->z;
+	m.m[3][2] = 0.0f;
+	m.m[0][3] = 0.0f;
+	m.m[1][3] = 0.0f;
+	m.m[2][3] = 0.0f;
+	m.m[3][3] = 1.0f;
+
+	vec.x = rayPos->x - p0->x;
+	vec.y = rayPos->y - p0->y;
+	vec.z = rayPos->z - p0->z;
+	vec.w = 0.0f;
+
+	if( Inverse( m, m ) )
+	{
+		vec = Transform( vec, m );
+		if( ( vec.x >= 0.0f ) && ( vec.y >= 0.0f ) && ( vec.x + vec.y <= 1.0f ) && ( vec.z >= 0.0f ) )
+		{
+			*u = vec.x;
+			*v = vec.y;
+			*dist = fabs( vec.z );
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool GetBoneIndex( Tr2VertexDefinition::DataType elementType, const void* src, int& dest )
+{
+	if( elementType != Tr2VertexDefinition::UBYTE_4 )
+	{
+		CCP_LOGERR( "BELNDINDICES using unsupported format." );
+		return false;
+	}
+
+	const uint8_t* vdata = static_cast<const uint8_t*>( src );
+	dest = vdata[0];
+	return true;
+}

@@ -203,17 +203,14 @@ bool EveChildMesh::OnModified( Be::Var* val )
 		m_instancedMesh = BlueCastPtr( m_mesh );
 		InitializeAnimation();
 	}
+	if( !m_ownedLocatorSets.empty() )
+	{
+		if( IsMatch( val, m_scaling ) || IsMatch( val, m_rotation ) || IsMatch( val, m_translation ) || IsMatch( val, m_localTransform ) )
+		{
+			InvalidateOwnerMergedLocators();
+		}
+	}
 	return true;
-}
-
-const char* EveChildMesh::GetName() const
-{
-	return m_name.c_str();
-}
-
-void EveChildMesh::SetName( const char* name )
-{
-	m_name = BlueSharedString( name );
 }
 
 void EveChildMesh::InitializeAnimation()
@@ -680,7 +677,8 @@ void EveChildMesh::GetBatches( ITriRenderBatchAccumulator* batches, TriBatchType
 	{
 		if( m_mesh )
 		{
-			m_mesh->GetBatches( batches, m_mesh->GetAreas( batchType ), perObjectData, min( m_currentInstanceScreenSize, m_currentScreenSize ) );
+			const bool reverseWinding = Determinant( m_worldTransform ) < 0.0f;
+			m_mesh->GetBatches( batches, m_mesh->GetAreas( batchType ), perObjectData, min( m_currentInstanceScreenSize, m_currentScreenSize ), reverseWinding );
 		}
 
 		if( m_activationStrength != 0.0 )
@@ -746,7 +744,8 @@ void EveChildMesh::GetShadowBatches( ITriRenderBatchAccumulator* batches, const 
 	// Fix asap <Logi 27. aug 2015>
 	if( m_display && m_mesh && m_hasUpdated )
 	{
-		m_mesh->GetBatches( batches, m_mesh->GetAreas( TRIBATCHTYPE_OPAQUE ), perObjectData, shadowPixelSize );
+		const bool reverseWinding = Determinant( m_worldTransform ) < 0.0f;
+		m_mesh->GetBatches( batches, m_mesh->GetAreas( TRIBATCHTYPE_OPAQUE ), perObjectData, shadowPixelSize, reverseWinding );
 	}
 }
 
@@ -1333,6 +1332,7 @@ void EveChildMesh::GetDebugOptions( Tr2DebugRendererOptions& options )
 	options.insert( "Bones" );
 	options.insert( "Decals" );
 	options.insert( "Lights" );
+	options.insert( "BVH" );
 
 	for( auto it = begin( m_attachments ); it != end( m_attachments ); ++it )
 	{
@@ -1357,6 +1357,13 @@ void EveChildMesh::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 		else
 		{
 			m_mesh->RenderDebugInfo( m_worldTransform, renderer, nullptr );
+		}
+		if( renderer.HasOption( GetRawRoot(), "BVH" ) )
+		{
+			if( m_mesh->GetGeometryResource() )
+			{
+				BVH::Visualize( m_mesh->GetGeometryResource()->m_bvh.content, this, m_worldTransform, renderer );
+			}
 		}
 	}
 	if( m_animationUpdater && renderer.HasOption( GetRawRoot(), "Bones" ) )
@@ -1950,4 +1957,53 @@ BluePy EveChildMesh::GetSofSourceLocator( uint32_t areaId ) const
 		return result;
 	}
 	return BluePy( Py_None, true );
+}
+
+void EveChildMesh::CollectOwnedLocatorSets( const Matrix& parentTransform, std::vector<EveChildLocatorSetsSource>& out ) const
+{
+	if( m_ownedLocatorSets.empty() )
+	{
+		return;
+	}
+
+	Matrix localTransform = ( m_staticTransform || !m_useSRT ) ? m_localTransform : TransformationMatrix( m_scaling, m_rotation, m_translation );
+
+	for( const auto& entry : m_ownedLocatorSets )
+	{
+		EveChildLocatorSetsSource source;
+		source.childToObject = localTransform * parentTransform;
+		source.owner = this;
+		source.sets = entry;
+		out.push_back( source );
+	}
+}
+
+void EveChildMesh::CollectOwnedGeometry( const Matrix& parentTransform, std::vector<EveChildGeometry>& out ) const
+{
+	if( !m_mesh || !m_mesh->GetGeometryResource() )
+	{
+		return;
+	}
+
+	Matrix localTransform = ( m_staticTransform || !m_useSRT ) ? m_localTransform : TransformationMatrix( m_scaling, m_rotation, m_translation );
+
+	EveChildGeometry source;
+	source.childToObject = localTransform * parentTransform;
+	source.geometry = m_mesh->GetGeometryResource();
+	source.owner = this;
+	out.push_back( source );
+}
+
+void EveChildMesh::SetOwnedLocatorSets( const std::vector<EveLocatorSetsPtr>& sets )
+{
+	m_ownedLocatorSets = sets;
+	InvalidateOwnerMergedLocators();
+}
+
+void EveChildMesh::InvalidateOwnerMergedLocators()
+{
+	if( GetOwner() )
+	{
+		GetOwner()->InvalidateMergedLocators();
+	}
 }

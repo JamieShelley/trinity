@@ -572,6 +572,9 @@ set(_SOURCES
     Eve/SpaceObject/Children/EveCloudEditableVolume.cpp
     Eve/SpaceObject/Children/EveCloudEditableVolume.h
     Eve/SpaceObject/Children/EveCloudEditableVolume_Blue.cpp
+    Eve/SpaceObject/Children/EveSpaceObjectChild.cpp
+    Eve/SpaceObject/Children/EveSpaceObjectChild.h
+    Eve/SpaceObject/Children/EveSpaceObjectChild_Blue.cpp
     Eve/SpaceObject/Children/IEveEffectChildrenOwner.h
     Eve/SpaceObject/Children/IEveSpaceObjectChild.h
     Eve/SpaceObject/Utils/EveDistributionMethods/DistributionAttributeModifiers/EveDistributionModifierProcessLifetime.cpp
@@ -1385,6 +1388,8 @@ set(_SOURCES
     Utilities/BoundingBox.h
     Utilities/BoundingSphere.cpp
     Utilities/BoundingSphere.h
+    Utilities/BVH.cpp
+    Utilities/BVH.h
     Utilities/GeometryUtils.cpp
     Utilities/GeometryUtils.h
     Utilities/GrannyCurveHelpers.h

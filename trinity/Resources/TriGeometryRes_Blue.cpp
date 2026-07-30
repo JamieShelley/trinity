@@ -101,6 +101,15 @@ const Be::ClassInfo* TriGeometryRes::ExposeToBlue()
 			"Forces a reload from disk" )
 
 		MAP_METHOD_AND_WRAP(
+			"PrepareRayCaster",
+			PrepareRayCaster,
+			"Call this before attempting to call any GetIntersection function! It will map buffers." )
+		MAP_METHOD_AND_WRAP(
+			"ResetRayCaster",
+			ResetRayCaster,
+			"Call this after being done with GetIntersection! It will unmap buffers." )
+
+		MAP_METHOD_AND_WRAP(
 			"GetIntersectionPointNormalBone",
 			GetIntersectionPointNormalBoneFromScript,
 			"( pos, dir ) ->( near, far )\nGet the near intersection points and the normal between a ray and the geometry.\n"

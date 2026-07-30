@@ -10,6 +10,7 @@
 
 #include "Tr2CmfContent.h"
 #include "Tr2SuballocatedBuffer.h"
+#include "../Utilities/BVH.h"
 
 constexpr uint32_t SHARED_BUFFER_BLOCK_SIZE = 32u * 1024u * 1024u;
 constexpr uint32_t SHARED_BUFFER_MAX_SIZE = 2048u * 1024u * 1024u;
@@ -266,16 +267,29 @@ public:
 
 	void RebuildCachedData();
 
-	bool GetIntersectionPoints(
-		const Vector3* pos,
-		const Vector3* dir,
-		Vector3* hitpointNear,
-		Vector3* hitpointNearNormal,
-		Vector3* hitpointFar,
-		Vector3* hitpointFarNormal,
-		int* boneIndexNear,
-		int* boneIndexFar,
-		unsigned int areaIx = -1 );
+	bool GetIntersectionPoints( 
+		const Vector3& pos, 
+		const Vector3& dir, 
+		Vector3* hitpointNear, 
+		Vector3* hitpointNearNormal, 
+		int* boneIndexNear, 
+		unsigned int areaIx, 
+		float& rayLength );
+
+	void PrepareRayCaster();
+	void ResetRayCaster();
+
+	//bool GetIntersectionPoints(
+	//	const Vector3* pos,
+	//	const Vector3* dir,
+	//	Vector3* hitpointNear,
+	//	Vector3* hitpointNearNormal,
+	//	Vector3* hitpointFar,
+	//	Vector3* hitpointFarNormal,
+	//	int* boneIndexNear,
+	//	int* boneIndexFar,
+	//	unsigned int areaIx = -1,
+	//	float rayLength = INFINITY );
 
 	bool GetIntersectionPointNormalBone(
 		const Vector3* pos,
@@ -283,7 +297,8 @@ public:
 		Vector3* hitpoint,
 		Vector3* normal,
 		int* boneIndex,
-		unsigned int areaIx = -1 );
+		unsigned int areaIx = -1,
+		float rayLength = std::numeric_limits<float>::infinity() );
 
 	std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>> GetIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir );
 	Be::Result<std::string> GetAreaIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir, int areaIx, std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>>& result );
@@ -347,8 +362,6 @@ public:
 	typedef void ( *PerTriangleCallback )( void* context, const Vector3& p1, const Vector3& p2, const Vector3& p3 );
 	void ProcessMeshTriangles( int meshIx, PerTriangleCallback cb, void* cbContext );
 
-	void RequestReversedIndexBuffers();
-
 	void Reload();
 
 	// name for logging/debugging
@@ -361,11 +374,19 @@ public:
 	bool IsUsingCMF() const;
 	const cmf::Data* GetCMFData() const;
 
+	// TODO: intern, don't make bvh public
+	struct
+	{
+		BVH::BVHContent content;
+		BVH::RayCaster rayCaster;
+		std::vector<BVH::IntersectedNode> mainThreadStack;
+	} m_bvh;
+
 private:
 	unsigned int m_memoryUse;
 	TrackableStdVector<std::unique_ptr<TriGeometryResMeshData>> m_meshes;
 	TrackableStdVector<std::unique_ptr<TriGeometryResSkeletonData>> m_skeletons;
-
+	
 #if WITH_GRANNY
 	granny_file* m_pGrannyFile;
 #endif
@@ -375,7 +396,6 @@ private:
 
 	int32_t m_forcedLodIndex = -1;
 	bool m_forceLod = false;
-	bool m_reversedIndexBuffersRequested = false;
 
 private:
 	// Provide the functions that do the actual work of loading and preparing.
