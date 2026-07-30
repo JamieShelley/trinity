@@ -1641,7 +1641,7 @@ void TriGeometryRes::ResetRayCaster()
 }
 
 // TODO: intern, add granny fallback
-bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, int* boneIndexNear, unsigned int areaIx, float rayLength )
+bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, int* boneIndexNear, unsigned int areaIx, float& rayLength )
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
@@ -1664,15 +1664,15 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 
 	uint32_t meshIndex;
 	uint32_t primitive;
-	float u, v, distance;
+	float u, v;
 	bool hit = false;
 	if( areaIx != -1 )
 	{
-		hit = BVH::Intersection( m_bvh.content, m_bvh.rayCaster, m_bvh.mainThreadStack, CcpMath::Ray{ pos, dir }, rayLength, areaIx, meshIndex, primitive, u, v, distance );
+		hit = BVH::Intersection( m_bvh.content, m_bvh.rayCaster, m_bvh.mainThreadStack, CcpMath::Ray{ pos, dir }, rayLength, areaIx, meshIndex, primitive, u, v, rayLength );
 	}
 	else
 	{
-		hit = BVH::Intersection( m_bvh.content, m_bvh.rayCaster, m_bvh.mainThreadStack, CcpMath::Ray{ pos, dir }, rayLength, meshIndex, primitive, u, v, distance );
+		hit = BVH::Intersection( m_bvh.content, m_bvh.rayCaster, m_bvh.mainThreadStack, CcpMath::Ray{ pos, dir }, rayLength, meshIndex, primitive, u, v, rayLength );
 	}
 
 	if( !hit )
@@ -1682,7 +1682,7 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 
 	if( hitpointNear )
 	{
-		*hitpointNear = pos + dir * distance;
+		*hitpointNear = pos + dir * rayLength;
 	}
 	uint32_t index1 = m_bvh.rayCaster.m_indices[meshIndex]( primitive * 3 + 0 );
 	if( hitpointNearNormal )

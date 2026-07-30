@@ -274,7 +274,7 @@ public:
 		Vector3* hitpointNearNormal, 
 		int* boneIndexNear, 
 		unsigned int areaIx, 
-		float rayLength );
+		float& rayLength );
 
 	void PrepareRayCaster();
 	void ResetRayCaster();
