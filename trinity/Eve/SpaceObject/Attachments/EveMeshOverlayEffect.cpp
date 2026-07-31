@@ -322,9 +322,8 @@ static void EmitOverlayBatchesImpl(
 	const std::vector<TriRenderBatchAreaBlock> ( &areaBlocks )[EveMeshOverlayEffect::TYPE_COUNT],
 	const TriGeometryResLodData& lod )
 {
-	for( auto it = overlayEffects.begin(); it != overlayEffects.end(); ++it )
+	for( const auto& overlay : overlayEffects )
 	{
-		EveMeshOverlayEffectPtr overlay = *it;
 		bool success = false;
 		const PTr2EffectVector& effects = overlay->GetEffects( batchType, success );
 		if( !success )
@@ -333,10 +332,8 @@ static void EmitOverlayBatchesImpl(
 		}
 
 		EveMeshOverlayEffect::OverlayType overlayType = overlay->GetType( batchType );
-		for( auto eff = effects.begin(); eff != effects.end(); ++eff )
+		for( const auto& effect : effects )
 		{
-			Tr2EffectPtr effect = *eff;
-
 			// add all mesh area blocks
 			for( auto& areaBlock : areaBlocks[overlayType] )
 			{
