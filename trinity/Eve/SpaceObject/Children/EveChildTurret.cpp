@@ -68,6 +68,12 @@ bool EveChildTurret::Initialize()
 	// pass down some user-defined data into submodules we don't save out.
 	m_target->SetImpactBehaviour( m_impactSize, m_impactBehaviour );
 
+	// an inline-authored firingEffect wins over the res path at load time
+	if( !m_firingEffect && !m_firingEffectResPath.empty() )
+	{
+		SetFiringEffect( BeResMan->LoadObject<EveTurretFiringFX>( m_firingEffectResPath.c_str() ).p );
+	}
+
 	return EveChildMesh::Initialize();
 }
 bool EveChildTurret::OnModified( Be::Var* value )
@@ -75,6 +81,10 @@ bool EveChildTurret::OnModified( Be::Var* value )
 	if( IsMatch( value, m_impactSize ) || IsMatch( value, m_impactBehaviour ) )
 	{
 		m_target->SetImpactBehaviour( m_impactSize, m_impactBehaviour );
+	}
+	if( IsMatch( value, m_firingEffectResPath ) && !m_firingEffectResPath.empty() )
+	{
+		SetFiringEffect( BeResMan->LoadObject<EveTurretFiringFX>( m_firingEffectResPath.c_str() ).p );
 	}
 	return EveChildMesh::OnModified( value );
 }
