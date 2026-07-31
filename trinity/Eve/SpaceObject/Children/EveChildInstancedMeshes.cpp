@@ -981,9 +981,9 @@ bool EveChildInstancedMeshes::HasTransparentBatches()
 {
 	if( m_parentOverlayEffects != nullptr && AnyMeshInheritsOverlayEffects() )
 	{
-		for( auto it = m_parentOverlayEffects->begin(); it != m_parentOverlayEffects->end(); ++it )
+		for( const auto& overlayEffect : *m_parentOverlayEffects )
 		{
-			if( ( *it )->HasTransparentArea() )
+			if( overlayEffect->HasTransparentArea() )
 			{
 				return true;
 			}

@@ -635,9 +635,9 @@ bool EveChildMesh::HasTransparentBatches()
 			return true;
 		}
 
-		for( auto it = m_overlayEffects.begin(); it != m_overlayEffects.end(); ++it )
+		for( const auto& overlayEffect : m_overlayEffects )
 		{
-			if( ( *it )->HasTransparentArea() )
+			if( overlayEffect->HasTransparentArea() )
 			{
 				return true;
 			}
@@ -645,9 +645,9 @@ bool EveChildMesh::HasTransparentBatches()
 
 		if( m_parentOverlayEffects != nullptr )
 		{
-			for( auto it = m_parentOverlayEffects->begin(); it != m_parentOverlayEffects->end(); ++it )
+			for( const auto& overlayEffect : *m_parentOverlayEffects )
 			{
-				if( ( *it )->HasTransparentArea() )
+				if( overlayEffect->HasTransparentArea() )
 				{
 					return true;
 				}
@@ -1101,9 +1101,9 @@ void EveChildMesh::UpdateSyncronous( const EveUpdateContext& updateContext, cons
 			// overlay effect curves need to be updated on the game thread because they may have references
 			// to attributes that are not thread safe, particularly the parent's clipSphereFactor
 			m_lastOverlayUpdateTime = time;
-			for( auto it = m_overlayEffects.begin(); it != m_overlayEffects.end(); ++it )
+			for( const auto& overlayEffect : m_overlayEffects )
 			{
-				( *it )->Update( time, time );
+				overlayEffect->Update( time, time );
 			}
 		}
 	}
@@ -1301,9 +1301,9 @@ void EveChildMesh::SetShaderOption( const BlueSharedString& name, const BlueShar
 		m_mesh->SetShaderOption( name, value );
 	}
 
-	for( auto it = m_overlayEffects.begin(); it != m_overlayEffects.end(); ++it )
+	for( const auto& overlayEffect : m_overlayEffects )
 	{
-		( *it )->SetShaderOption( name, value );
+		overlayEffect->SetShaderOption( name, value );
 	}
 
 	for( EveSpaceObjectDecalVector::iterator it = m_decals.begin(); it != m_decals.end(); ++it )
