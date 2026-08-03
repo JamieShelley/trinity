@@ -41,3 +41,27 @@ CMakeUserPresets.json
 .cmake-build*
 cmake-build*
 .claude/*
+
+### Local runtime state ###
+/imgui.ini
+
+### Generated NSAMDR outputs ###
+/artifacts/nsamdr/
+
+### Dependency trees ###
+node_modules/
+
+### Python environments and tool caches ###
+.venv/
+venv/
+python-env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+### Package-manager logs ###
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

@@ -1072,26 +1072,68 @@ def find_command(names: list[str]) -> str:
     raise RuntimeError(f"Required command not found: {' or '.join(names)}")
 
 
+CONVERTER_MODULE_PROBE = (
+    "await import('@carbonenginejs/format-gr2'); "
+    "await import('@carbonenginejs/runtime-resource/formats/dds'); "
+    "await import('black-reader'); "
+    "await import('black-reader/black-classes.js'); "
+    "await import('black-reader/black-readers.js');"
+)
+
+
+def probe_converter_modules(node: str, converter_dir: Path, *, show_failure: bool = False) -> bool:
+    result = subprocess.run(
+        [node, "--input-type=module", "--eval", CONVERTER_MODULE_PROBE],
+        cwd=converter_dir,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        errors="replace",
+    )
+    if result.returncode != 0 and show_failure:
+        diagnostic = (result.stderr or result.stdout or "").strip()
+        if diagnostic:
+            print("NSAMDR converter module-resolution probe failed:", flush=True)
+            print("\n".join(diagnostic.splitlines()[-20:]), flush=True)
+    return result.returncode == 0
+
+
 def ensure_converter(converter_dir: Path) -> tuple[str, Path]:
     node = find_command(["node.exe", "node"])
-    npm = find_command(["npm.cmd", "npm.exe", "npm"])
     script = converter_dir / "convert_eve_asset.mjs"
     package = converter_dir / "package.json"
-    installed = converter_dir / "node_modules" / "@carbonenginejs" / "runtime-resource"
     if not script.is_file() or not package.is_file():
         raise RuntimeError(f"Missing NSAMDR converter source under {converter_dir}")
-    if not installed.is_dir():
-        print("Installing the open-source CarbonEngineJS GR2/DDS reader (one-time setup)...", flush=True)
+
+    # npm is free to hoist or nest transitive packages. Directory-layout checks
+    # therefore produce false failures even when Node can resolve the two public
+    # entry points used by the converter. Test the imports themselves instead.
+    if not probe_converter_modules(node, converter_dir):
+        npm = find_command(["npm.cmd", "npm.exe", "npm"])
+        print("Installing the open-source CarbonEngineJS readers from public GitHub source archives (one-time setup)...", flush=True)
+        lock_file = converter_dir / "package-lock.json"
+        if lock_file.exists():
+            lock_file.unlink()
+        node_modules = converter_dir / "node_modules"
+        if node_modules.exists():
+            shutil.rmtree(node_modules)
         result = subprocess.run(
-            [npm, "install", "--no-audit", "--no-fund"],
+            [npm, "install", "--no-audit", "--no-fund", "--omit=dev", "--package-lock=false"],
             cwd=converter_dir,
             check=False,
         )
         if result.returncode != 0:
             raise RuntimeError(
-                "npm could not install @carbonenginejs/runtime-resource. "
-                "Check Node.js 18+ and npm connectivity, then rerun."
+                "npm could not install the open-source GR2, DDS and EVE Black readers from their public GitHub source archives. "
+                "Check Node.js 18+, HTTPS access to github.com, and npm connectivity, then rerun."
             )
+
+    if not probe_converter_modules(node, converter_dir, show_failure=True):
+        raise RuntimeError(
+            "Converter dependency installation finished, but Node could not import the GR2, DDS or EVE Black reader entry points. "
+            "The module-resolution error printed above identifies the unresolved package."
+        )
     return node, script
 
 
@@ -1185,65 +1227,100 @@ def _race_from_ship_model(logical_path: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+def _base_sof_hull_from_model(logical_path: str) -> str:
+    """Resolve the base SOF hull id from a direct model resource path.
+
+    A model such as ``.../cb1/cb1_t1.gr2`` belongs to SOF hull ``cb1``.  The
+    filename is a geometry variant, not the SOF hull identifier.
+    """
+    normalized = logical_path.strip().replace("\\", "/").lower()
+    path_value = Path(normalized)
+    directory_name = path_value.parent.name.strip()
+    stem = path_value.stem.strip()
+    if directory_name and (
+        stem == directory_name
+        or stem.startswith(directory_name + "_")
+        or stem.startswith(directory_name + "-")
+    ):
+        return directory_name
+    return _model_family_key(normalized)
+
+
+def _is_base_sof_faction(faction: str, race: str) -> bool:
+    normalized_faction = _normal_key(faction)
+    normalized_race = _normal_key(race)
+    return bool(normalized_race) and normalized_faction in {normalized_race, normalized_race + "base"}
+
+
 def _resolve_sof_identity(
     rows: list[ResourceRow],
     repo_root: Path,
     model: ResourceRow,
     selection_key: str,
-) -> dict[str, str | int | None]:
-    archive_path = _ensure_sde_archive(repo_root)
-    wanted_type: int | None = None
-    match = re.fullmatch(r"type:(\d+)", (selection_key or "").strip().lower())
-    if match:
-        wanted_type = int(match.group(1))
+) -> dict[str, str | int | bool | None]:
+    """Resolve SOF identity without guessing between ships that share a hull.
 
-    ship_rows = [row for row in rows if row.logical.lower().endswith(".gr2") and "/model/ship/" in row.logical.lower()]
-    by_logical = {row.logical.lower(): row for row in ship_rows}
+    The standalone default supplies a direct GR2 path and no type key.  Many
+    SDE graphic records can reference that same geometry; choosing the first
+    match silently changes the ship skin/faction.  Direct paths therefore use
+    the deterministic base hull identity.  An explicit ``type:<id>`` selection
+    from the viewer is the only path allowed to select a faction/skin variant.
+    """
+    model_race = _race_from_ship_model(model.logical)
+    base_hull = _base_sof_hull_from_model(model.logical)
+    match = re.fullmatch(r"type:(\d+)", (selection_key or "").strip().lower())
+    wanted_type = int(match.group(1)) if match else None
+
+    if wanted_type is None:
+        faction = f"{model_race}base" if model_race else ""
+        return {
+            "typeID": None,
+            "hull": base_hull,
+            "faction": faction,
+            "race": model_race,
+            "raceSource": "modelPath" if model_race else "unresolved",
+            "identitySource": "direct-model-base",
+            "preferFactionTextures": False,
+        }
+
+    archive_path = _ensure_sde_archive(repo_root)
     selected_graphic: dict | None = None
-    selected_type: int | None = None
     with zipfile.ZipFile(archive_path, "r") as archive:
         graphics = {
             value.get("_key"): value
             for value in _read_jsonl_member(archive, "graphics.jsonl")
             if isinstance(value.get("_key"), int)
         }
-        if wanted_type is not None:
-            for value in _read_jsonl_member(archive, "types.jsonl"):
-                if value.get("_key") == wanted_type:
-                    selected_type = wanted_type
-                    selected_graphic = graphics.get(value.get("graphicID"))
-                    break
-        else:
-            model_key = model.logical.lower()
-            for graphic in graphics.values():
-                candidates = _candidate_assets_for_graphic(ship_rows, by_logical, graphic)
-                if any(candidate.logical.lower() == model_key for candidate in candidates):
-                    selected_graphic = graphic
-                    break
+        for value in _read_jsonl_member(archive, "types.jsonl"):
+            if value.get("_key") == wanted_type:
+                selected_graphic = graphics.get(value.get("graphicID"))
+                break
 
-    model_race = _race_from_ship_model(model.logical)
     if selected_graphic is None:
-        hull = _model_family_key(model.logical)
+        faction = f"{model_race}base" if model_race else ""
         return {
-            "typeID": selected_type,
-            "hull": hull,
-            "faction": f"{model_race}base" if model_race else "",
+            "typeID": wanted_type,
+            "hull": base_hull,
+            "faction": faction,
             "race": model_race,
             "raceSource": "modelPath" if model_race else "unresolved",
+            "identitySource": "missing-sde-type-fallback",
+            "preferFactionTextures": False,
         }
 
-    # ``sofRaceName`` is absent on a number of valid SDE graphic records. Race
-    # is not optional for rendering: derive it from the selected hull path.
-    # The explicit SDE field wins when present, but no user input is required.
     explicit_race = str(selected_graphic.get("sofRaceName") or "").strip()
     race = explicit_race or model_race
     faction = str(selected_graphic.get("sofFactionName") or (f"{race}base" if race else "")).strip()
     return {
-        "typeID": selected_type,
-        "hull": str(selected_graphic.get("sofHullName") or _model_family_key(model.logical)).strip(),
+        "typeID": wanted_type,
+        "hull": str(selected_graphic.get("sofHullName") or base_hull).strip(),
         "faction": faction,
         "race": race,
         "raceSource": "sde" if explicit_race else ("modelPath" if model_race else "unresolved"),
+        "identitySource": "explicit-sde-type",
+        # Variant factions may intentionally replace the base hull maps. Base
+        # factions retain the exact selected source textures first.
+        "preferFactionTextures": not _is_base_sof_faction(faction, race),
     }
 
 
@@ -1254,10 +1331,14 @@ def convert_sof(
     hull: str,
     faction: str,
     race: str,
+    model_path: str,
 ) -> Path:
     converter_dir = repo_root / "tools" / "nsamdr" / "gr2_converter"
     node, script = ensure_converter(converter_dir)
-    run_checked([node, str(script), "sof-to-json", str(data_black), str(output_path), hull, faction, race], converter_dir)
+    run_checked([
+        node, str(script), "sof-to-json", str(data_black), str(output_path),
+        hull, faction, race, model_path,
+    ], converter_dir)
     if not output_path.is_file():
         raise RuntimeError(f"SOF converter did not create {output_path}")
     return output_path
@@ -1286,13 +1367,21 @@ def _resolve_sof_texture(
     resfiles: Path,
     logical: str,
     res_path_insert: str,
+    prefer_faction_texture: bool = False,
 ) -> ResourceRow | None:
-    modified = _resource_row(rows_by_logical, _faction_texture_path(logical, res_path_insert))
+    """Resolve one SOF texture while preserving the selected source identity.
+
+    Base/direct previews must not silently replace the authored hull texture
+    with the first available faction insertion. Explicit non-base SDE type
+    selections may prefer that faction replacement.
+    """
     original = _resource_row(rows_by_logical, logical)
-    for candidate in (modified, original):
+    modified = _resource_row(rows_by_logical, _faction_texture_path(logical, res_path_insert))
+    ordered = (modified, original) if prefer_faction_texture else (original, modified)
+    for candidate in ordered:
         if candidate is not None and source_path(resfiles, candidate).is_file():
             return candidate
-    return modified or original
+    return ordered[0] or ordered[1]
 
 
 def _numeric_vector(value: object) -> tuple[float, float, float, float] | None:
@@ -1711,8 +1800,9 @@ def _semantic_texture_layout(area: dict, textures: dict) -> dict[str, object]:
         })
         required = ['albedo', 'normal', 'material']
     elif family == 'legacy_pgs':
-        # Pre-PBR PGS: R=sub-mask, G=specular, B=mask, A=glow/opacity.
-        # The renderer keeps this family explicit rather than pretending it is V5.
+        # Pre-PBR PGS: R=sub-mask, G=specular and B=material mask. The
+        # authored hull colour remains in the selected _d texture; PGS must not
+        # be rebound as a generic emissive texture or used to recolour it.
         channels.update({
             'normalX': SEMANTIC_CHANNEL_ALPHA, 'normalY': SEMANTIC_CHANNEL_GREEN,
             'roughness': SEMANTIC_CHANNEL_GREEN, 'material': SEMANTIC_CHANNEL_BLUE,
@@ -1789,6 +1879,8 @@ def _prepare_sof_materials(
     conversion_summary: Path,
     sof_manifest_path: Path,
     race_name: str,
+    prefer_faction_textures: bool = False,
+    exact_source_textures: dict[str, Path] | None = None,
 ) -> tuple[Path, dict[str, dict]]:
     sof = json.loads(sof_manifest_path.read_text(encoding="utf-8"))
     conversion = json.loads(conversion_summary.read_text(encoding="utf-8"))
@@ -1798,11 +1890,25 @@ def _prepare_sof_materials(
     materials_dir.mkdir(parents=True, exist_ok=True)
     converted_cache: dict[str, Path] = {}
     copied_metadata: dict[str, dict] = {}
+    exact_source_textures = exact_source_textures or {}
+    lock_exact_legacy_source = (
+        not prefer_faction_textures
+        and bool(exact_source_textures.get("albedo"))
+        and bool(exact_source_textures.get("normal"))
+        and bool(exact_source_textures.get("pgs"))
+    )
+    if lock_exact_legacy_source:
+        print(
+            "Legacy source lock: exact selected _d/_n/_pgs; SOF area colours are not multiplied into authored albedo.",
+            flush=True,
+        )
 
     def prepare_texture(logical: str, usage: str) -> Path | None:
         if not logical:
             return None
-        row = _resolve_sof_texture(rows_by_logical, resfiles, logical, res_path_insert)
+        row = _resolve_sof_texture(
+            rows_by_logical, resfiles, logical, res_path_insert, prefer_faction_textures
+        )
         if row is None:
             print(f"WARNING: SOF texture not indexed: {logical}", flush=True)
             return None
@@ -1831,6 +1937,16 @@ def _prepare_sof_materials(
 
     draw_ranges = conversion.get("drawRanges", [])
     existing_groups = {int(draw.get("groupIndex", -1)) for draw in draw_ranges}
+    # GR2 MaterialIndex values are SOF area indices. The OBJ group index is a
+    # unique sequential draw identifier because the same SOF area can occur on
+    # several model-bound meshes. Keep both values instead of assuming they are
+    # interchangeable.
+    draws_by_material_index: dict[int, list[dict]] = {}
+    for draw in draw_ranges:
+        group_index = int(draw.get("groupIndex", -1))
+        material_index = int(draw.get("materialIndex", group_index))
+        if group_index >= 0:
+            draws_by_material_index.setdefault(material_index, []).append(draw)
     areas = sof.get("areas", []) if isinstance(sof.get("areas"), list) else []
     records: list[dict[str, object]] = []
     for area in areas:
@@ -1840,9 +1956,67 @@ def _prepare_sof_materials(
         group_count = max(1, int(area.get("count") or 1))
         textures = area.get("textures") if isinstance(area.get("textures"), dict) else {}
         layout = _semantic_texture_layout(area, textures)
+        pass_name = str(area.get("pass") or "opaque")
+        area_shader_family = str(layout.get("shaderFamily") or "unknown")
+        use_exact_legacy_area = (
+            lock_exact_legacy_source
+            and (
+                area_shader_family == "legacy_pgs"
+                or (area_shader_family == "unknown" and pass_name == "opaque")
+            )
+            and pass_name in {"opaque", "decal"}
+        )
         texture_usages = {key: str(layout.get(key) or "") for key in
                           ("albedo", "normal", "material", "glow", "dirt", "ao", "paintMask", "roughnessMap")}
-        prepared = {key: str(prepare_texture(value, key) or "") for key, value in texture_usages.items()}
+        prepared = {} if use_exact_legacy_area else {
+            key: str(prepare_texture(value, key) or "") for key, value in texture_usages.items()
+        }
+
+        # The direct/base Raven preview previously rendered correctly from the
+        # exact selected cb1_t1_d/_n/_pgs set. SOF extraction then replaced
+        # those maps per area and multiplied the already-coloured _d texture by
+        # material-library colours, producing the dark mixed-material result.
+        # Keep SOF area/pass/F0/gloss data, but lock legacy base previews to the
+        # exact selected texture triplet used before SOF extraction.
+        if use_exact_legacy_area:
+            layout = {
+                **layout,
+                "shaderFamily": "legacy_pgs",
+                "requiredSemantics": ["albedo", "normal", "material"],
+                "missingSemantics": [],
+                "semanticComplete": True,
+                "channels": {
+                    "normalX": SEMANTIC_CHANNEL_ALPHA,
+                    "normalY": SEMANTIC_CHANNEL_GREEN,
+                    "roughness": SEMANTIC_CHANNEL_GREEN,
+                    "material": SEMANTIC_CHANNEL_BLUE,
+                    "ao": SEMANTIC_CHANNEL_RED,
+                    "paint": SEMANTIC_CHANNEL_BLUE,
+                    "dirt": SEMANTIC_CHANNEL_RED,
+                    "glow": SEMANTIC_CHANNEL_ALPHA,
+                },
+            }
+            prepared.update({
+                "albedo": str(exact_source_textures["albedo"].resolve()),
+                "normal": str(exact_source_textures["normal"].resolve()),
+                "material": str(exact_source_textures["pgs"].resolve()),
+                "glow": "",
+                "dirt": "",
+                "ao": "",
+                "paintMask": "",
+                "roughnessMap": "",
+            })
+            texture_usages.update({
+                "albedo": "exact-selected-_d",
+                "normal": "exact-selected-_n",
+                "material": "exact-selected-_pgs",
+                "glow": "",
+                "dirt": "",
+                "ao": "",
+                "paintMask": "",
+                "roughnessMap": "",
+            })
+
         required_semantics = list(layout.get("requiredSemantics") or [])
         unresolved_declared = [key for key, value in texture_usages.items() if value and not prepared.get(key)]
         missing_semantics = list(dict.fromkeys(list(layout.get("missingSemantics") or []) + unresolved_declared))
@@ -1850,11 +2024,19 @@ def _prepare_sof_materials(
         slots, tint, glow_color, detail_scale, general_data_x, parameter_complete, unresolved_count = _resolved_area_material_slots(
             sof, area, area_type, race_name
         )
-        pass_name = str(area.get("pass") or "opaque")
+        if use_exact_legacy_area:
+            # Legacy _d is an authored colour texture. Preserve SOF surface
+            # parameters, but do not multiply its RGB by a second colour set.
+            slots = [{**slot, "color": (1.0, 1.0, 1.0)} for slot in slots]
+            tint = (1.0, 1.0, 1.0)
         alpha = 0.42 if pass_name == "transparent" else 1.0
         semantic_complete = bool(layout.get("semanticComplete")) and all(prepared.get(name) for name in required_semantics) and not unresolved_declared
         baseline_complete = parameter_complete and semantic_complete
-        for group_index in range(first_group, first_group + group_count):
+        matching_draws: list[dict] = []
+        for material_index in range(first_group, first_group + group_count):
+            matching_draws.extend(draws_by_material_index.get(material_index, []))
+        for draw in matching_draws:
+            group_index = int(draw.get("groupIndex", -1))
             if group_index not in existing_groups:
                 continue
             records.append({
@@ -1870,6 +2052,7 @@ def _prepare_sof_materials(
                 "materialLibraryMatches": list(area.get("materialLibraryMatches") or []),
                 "unresolvedParameters": list(area.get("unresolvedParameters") or []),
                 "parameterSources": dict(area.get("parameterSources") or {}),
+                "sourceTexturePolicy": "exact-selected-legacy" if use_exact_legacy_area else "sof-area",
                 **prepared,
                 "tint": tint,
                 "glowColor": glow_color,
@@ -1929,6 +2112,7 @@ def _prepare_sof_materials(
                 "materialLibraryMatches": record.get("materialLibraryMatches", []),
                 "unresolvedParameters": record.get("unresolvedParameters", []),
                 "parameterSources": record.get("parameterSources", {}),
+                "sourceTexturePolicy": record.get("sourceTexturePolicy", "sof-area"),
                 "semanticComplete": bool(record.get("semanticComplete")),
                 "parameterComplete": bool(record.get("parameterComplete")),
                 "baselineComplete": bool(record.get("baselineComplete")),
@@ -1945,60 +2129,139 @@ def _prepare_sof_materials(
     return manifest_path, copied_metadata
 
 
-def _write_tint_only_material_manifest(
+def _write_extracted_texture_material_manifest(
     output_dir: Path,
     conversion_summary: Path,
     race_name: str,
     reason: str,
+    albedo: Path | None,
+    normal: Path | None,
+    pgs: Path | None,
 ) -> Path:
-    """Emit an explicitly incomplete fallback without applying guessed texture assignments."""
+    """Build a usable fallback from the selected real DDS textures when SOF is unavailable.
+
+    This is deliberately not marked as a complete production-EVE material baseline: SOF
+    area assignments, faction colours and material-library parameters remain unresolved.
+    It does, however, keep the authored albedo and normal maps bound on every GR2 draw
+    range so Mode 1 is a real extracted-texture baseline and Mode 3 has material inputs
+    to reconstruct instead of becoming a 1x1 neutral fallback.
+    """
     conversion = json.loads(conversion_summary.read_text(encoding="utf-8"))
     draw_ranges = conversion.get("drawRanges", [])
     if not isinstance(draw_ranges, list) or not draw_ranges:
-        raise RuntimeError("Cannot build tint-only fallback: conversion summary has no draw ranges")
+        raise RuntimeError("Cannot build extracted-texture fallback: conversion summary has no draw ranges")
 
-    slots, tint, glow, detail_scale = _area_material_slots({}, "primary", race_name)
+    has_albedo = bool(albedo and albedo.is_file())
+    has_normal = bool(normal and normal.is_file())
+    has_pgs = bool(pgs and pgs.is_file())
+    shader_family = "legacy_pgs" if has_pgs else "unknown"
+    channels = {
+        # EVE's legacy _n textures use DXT5nm-style A/G normal storage.
+        "normalX": SEMANTIC_CHANNEL_ALPHA,
+        "normalY": SEMANTIC_CHANNEL_GREEN,
+        "roughness": SEMANTIC_CHANNEL_GREEN,
+        "material": SEMANTIC_CHANNEL_BLUE,
+        "ao": SEMANTIC_CHANNEL_RED,
+        "paint": SEMANTIC_CHANNEL_BLUE,
+        "dirt": SEMANTIC_CHANNEL_RED,
+        "glow": SEMANTIC_CHANNEL_ALPHA,
+    }
+    neutral_slots = [
+        {
+            "name": "extracted-texture-fallback",
+            "color": (1.0, 1.0, 1.0),
+            "f0": (0.04, 0.04, 0.04),
+            "roughness": 0.52,
+            "gloss": 0.48,
+        }
+        for _ in range(4)
+    ]
+    missing = ["sof_visual_manifest"]
+    if not has_albedo:
+        missing.append("albedo")
+    if not has_normal:
+        missing.append("normal")
+
     manifest_path = output_dir / "ship.materials.tsv"
     with manifest_path.open("w", encoding="utf-8", newline="") as handle:
         handle.write("# NSAMDR_MATERIALS_V3\n")
-        handle.write(f"# incomplete tint-only fallback: {_tsv_clean(reason)}\n")
+        handle.write(f"# extracted-texture fallback; production SOF material data unresolved: {_tsv_clean(reason)}\n")
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
         writer.writerow(_material_manifest_columns())
         for draw in draw_ranges:
             _write_material_record(writer, {
-                "group": int(draw.get("groupIndex", 0)), "pass": "opaque", "areaType": "primary", "areaName": "tint-only", "shader": "",
-                "shaderFamily": "unknown", "channels": {},
-                "albedo": "", "normal": "", "material": "", "glow": "", "dirt": "", "ao": "", "paintMask": "", "roughnessMap": "",
-                "tint": tint, "glowColor": glow, "detailScale": detail_scale, "generalDataX": 1.0, "alpha": 1.0, "slots": slots,
-                "semanticComplete": False, "parameterComplete": False, "baselineComplete": False,
-                "missingSemantics": ["sof_visual_manifest"], "unresolvedCount": 1,
+                "group": int(draw.get("groupIndex", 0)),
+                "pass": "opaque",
+                "areaType": "primary",
+                "areaName": "extracted-texture-fallback",
+                "shader": "",
+                "shaderFamily": shader_family,
+                "channels": channels,
+                "albedo": str(albedo.resolve()) if has_albedo and albedo else "",
+                "normal": str(normal.resolve()) if has_normal and normal else "",
+                "material": str(pgs.resolve()) if has_pgs and pgs else "",
+                "glow": "",
+                "dirt": "",
+                "ao": "",
+                "paintMask": "",
+                "roughnessMap": "",
+                # The selected _d texture already carries its authored colour. Avoid
+                # multiplying it by guessed faction tints when SOF is unavailable.
+                "tint": (1.0, 1.0, 1.0),
+                "glowColor": (0.34, 0.58, 0.95),
+                "detailScale": 1.0,
+                "generalDataX": 1.0,
+                "alpha": 1.0,
+                "slots": neutral_slots,
+                "semanticComplete": has_albedo and has_normal,
+                "parameterComplete": False,
+                "baselineComplete": False,
+                "missingSemantics": missing,
+                "unresolvedCount": len(missing),
             })
+
     report_path = output_dir / "ship.materials.report.json"
     report_path.write_text(json.dumps({
         "schema": "NSAMDR_BASELINE_REPORT_V1",
         "complete": False,
-        "unresolvedCount": len(draw_ranges),
+        "fallback": "real-extracted-textures",
+        "unresolvedCount": len(draw_ranges) * len(missing),
         "reason": reason,
+        "textures": {
+            "albedo": str(albedo.resolve()) if has_albedo and albedo else "",
+            "normal": str(normal.resolve()) if has_normal and normal else "",
+            "material": str(pgs.resolve()) if has_pgs and pgs else "",
+            "glow": "",
+        },
         "areas": [
             {
                 "group": int(draw.get("groupIndex", 0)),
-                "areaName": "tint-only",
+                "areaName": "extracted-texture-fallback",
                 "areaType": "primary",
                 "pass": "opaque",
                 "shader": "",
-                "shaderFamily": "unknown",
-                "channels": {},
-                "semanticComplete": False,
+                "shaderFamily": shader_family,
+                "semanticComplete": has_albedo and has_normal,
                 "parameterComplete": False,
                 "baselineComplete": False,
-                "missingSemantics": ["sof_visual_manifest"],
-                "textures": {},
+                "missingSemantics": missing,
             }
             for draw in draw_ranges
         ],
     }, indent=2) + "\n", encoding="utf-8")
-    print(f"WARNING: Created incomplete tint-only material fallback ({reason}): {manifest_path}", flush=True)
+
+    texture_summary = ", ".join((
+        f"albedo={'yes' if has_albedo else 'no'}",
+        f"normal={'yes' if has_normal else 'no'}",
+        f"material={'yes' if has_pgs else 'no'}",
+    ))
+    print(
+        f"WARNING: SOF production material extraction is unavailable; created a real extracted-texture "
+        f"fallback ({texture_summary}; {reason}): {manifest_path}",
+        flush=True,
+    )
     return manifest_path
+
 
 def prepare_asset(
     repo_root: Path,
@@ -2045,47 +2308,8 @@ def prepare_asset(
     for kind, row in textures.items():
         copied[kind] = copy_resource(resfiles, row, output_dir)
 
-    obj_path = convert_gr2(repo_root, gr2_path, output_dir / f"{asset_name}.obj")
-    conversion_summary = obj_path.with_suffix(".conversion.json")
-
-    material_manifest: Path | None = None
-    sof_manifest_path: Path | None = None
-    sof_texture_metadata: dict[str, dict] = {}
-    sof_identity = _resolve_sof_identity(rows, repo_root, model, selection_key)
-    print(
-        "SOF identity: "
-        f"hull={sof_identity.get('hull') or '<missing>'}, "
-        f"faction={sof_identity.get('faction') or '<missing>'}, "
-        f"race={sof_identity.get('race') or '<missing>'} "
-        f"({sof_identity.get('raceSource') or 'unknown'})",
-        flush=True,
-    )
-    data_black_row = next((row for row in rows if row.logical.lower() == SOF_DATA_PATH), None)
-    fallback_reason = ""
-    if data_black_row and sof_identity.get("hull") and sof_identity.get("faction"):
-        try:
-            data_black = copy_resource(resfiles, data_black_row, output_dir / "sof")
-            sof_manifest_path = convert_sof(
-                repo_root, data_black, output_dir / f"{asset_name}.sof-visuals.json",
-                str(sof_identity["hull"]), str(sof_identity["faction"]), str(sof_identity.get("race") or ""),
-            )
-            material_manifest, sof_texture_metadata = _prepare_sof_materials(
-                repo_root, rows, resfiles, output_dir, conversion_summary, sof_manifest_path, str(sof_identity.get("race") or ""),
-            )
-            print(f"SOF material manifest: {material_manifest}", flush=True)
-        except (OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:
-            fallback_reason = f"SOF extraction failed: {exc}"
-    else:
-        fallback_reason = "SOF identity or data.black unavailable"
-
-    if material_manifest is None:
-        material_manifest = _write_tint_only_material_manifest(
-            output_dir,
-            conversion_summary,
-            str(sof_identity.get("race") or ""),
-            fallback_reason or "SOF visual data unavailable",
-        )
-
+    # Convert the exact selected texture family before SOF material assembly so
+    # a direct/base preview can lock every legacy area to this known identity.
     converted_textures: dict[str, Path] = {}
     for kind, copied_path in copied.items():
         try:
@@ -2096,6 +2320,85 @@ def prepare_asset(
             )
         except RuntimeError as exc:
             print(f"WARNING: {kind} texture conversion failed: {exc}", flush=True)
+
+    obj_path = convert_gr2(repo_root, gr2_path, output_dir / f"{asset_name}.obj")
+    conversion_summary = obj_path.with_suffix(".conversion.json")
+    conversion_record = json.loads(conversion_summary.read_text(encoding="utf-8"))
+    if conversion_record.get("schema") != "NSAMDR_GR2_CONVERSION_V5_BAKED_EVE_TEXTURE_V":
+        raise RuntimeError(
+            "GR2 conversion did not use the LOD-collapsing renderer. "
+            f"Found schema={conversion_record.get('schema')!r}."
+        )
+    selected_meshes = list(conversion_record.get("selectedMeshIndices") or [])
+    rejected_lods = list(conversion_record.get("rejectedLodMeshIndices") or [])
+    if not selected_meshes:
+        raise RuntimeError("GR2 conversion selected no render meshes")
+    print(
+        "GR2 LOD selection: "
+        f"selected={selected_meshes}, rejectedAlternatives={rejected_lods}, "
+        f"draws={len(conversion_record.get('drawRanges') or [])}",
+        flush=True,
+    )
+
+    material_manifest: Path | None = None
+    sof_manifest_path: Path | None = None
+    sof_texture_metadata: dict[str, dict] = {}
+    sof_identity = _resolve_sof_identity(rows, repo_root, model, selection_key)
+    print(
+        "SOF identity: "
+        f"hull={sof_identity.get('hull') or '<missing>'}, "
+        f"faction={sof_identity.get('faction') or '<missing>'}, "
+        f"race={sof_identity.get('race') or '<missing>'} "
+        f"({sof_identity.get('raceSource') or 'unknown'}; "
+        f"identity={sof_identity.get('identitySource') or 'unknown'}; "
+        f"textures={'faction-first' if sof_identity.get('preferFactionTextures') else 'source-first'})",
+        flush=True,
+    )
+    data_black_row = next((row for row in rows if row.logical.lower() == SOF_DATA_PATH), None)
+    if not data_black_row:
+        raise RuntimeError("SOF data.black is unavailable; refusing to render an invented material fallback")
+    if not sof_identity.get("hull") or not sof_identity.get("faction"):
+        raise RuntimeError(
+            "SOF hull/faction identity is unresolved; refusing to render an invented material fallback"
+        )
+
+    data_black = copy_resource(resfiles, data_black_row, output_dir / "sof")
+    try:
+        sof_manifest_path = convert_sof(
+            repo_root, data_black, output_dir / f"{asset_name}.sof-visuals.json",
+            str(sof_identity["hull"]), str(sof_identity["faction"]),
+            str(sof_identity.get("race") or ""), model.logical,
+        )
+        material_manifest, sof_texture_metadata = _prepare_sof_materials(
+            repo_root, rows, resfiles, output_dir, conversion_summary, sof_manifest_path,
+            str(sof_identity.get("race") or ""),
+            bool(sof_identity.get("preferFactionTextures", False)),
+            converted_textures,
+        )
+    except (OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:
+        for stale in (
+            output_dir / f"{asset_name}.sof-visuals.json",
+            output_dir / "ship.materials.tsv",
+            output_dir / "ship.materials.report.json",
+        ):
+            try:
+                stale.unlink()
+            except FileNotFoundError:
+                pass
+        raise RuntimeError(
+            "SOF production material extraction failed; preview launch is blocked rather than "
+            f"showing the known-wrong shared-texture fallback. {exc}"
+        ) from exc
+
+    report_path = output_dir / "ship.materials.report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if not bool(report.get("complete")):
+        unresolved = int(report.get("unresolvedCount") or 0)
+        raise RuntimeError(
+            "SOF material baseline remains incomplete "
+            f"(unresolved={unresolved}); preview launch is blocked."
+        )
+    print(f"SOF material manifest: {material_manifest}", flush=True)
 
     environment_pngs: list[Path] = []
     environment_records: list[dict] = []
@@ -2171,6 +2474,7 @@ def launch_preview(
     catalog: Path,
     cache_root: Path,
     current_query: str,
+    strategy_candidates: dict[str, object] | None = None,
 ) -> int:
     if not launcher.is_file():
         raise RuntimeError(f"Missing preview launcher: {launcher}")
@@ -2192,6 +2496,14 @@ def launch_preview(
         "NSAMDR_MATERIALS": str(material_manifest or ""),
         "NSAMDR_PYTHON_EXE": sys.executable,
     })
+    if strategy_candidates:
+        env.update({
+            "NSAMDR_MODE3_OBJ": str(strategy_candidates.get("mode3Obj", "")),
+            "NSAMDR_MODE3_MATERIALS": str(strategy_candidates.get("mode3Materials", "")),
+            "NSAMDR_MODE3_ANALYSIS": str(strategy_candidates.get("mode3Analysis", "")),
+            "NSAMDR_MODE3_VALIDATION": str(strategy_candidates.get("mode3Validation", "")),
+            "NSAMDR_STRATEGY_CANDIDATES": str(Path(str(strategy_candidates.get("reportPath", ""))) if strategy_candidates.get("reportPath") else ""),
+        })
     print("Launching the Granny-free Trinity NSAMDR viewer...", flush=True)
     return subprocess.run(command, cwd=repo_root, env=env, check=False).returncode
 
@@ -2216,9 +2528,43 @@ def command_prepare_run(args: argparse.Namespace) -> int:
     manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
     selected_query = str(manifest_data.get("model", {}).get("logical") or args.query)
     selected_catalog_key = str(args.selection_key or selected_query)
+
+    strategy_candidates: dict[str, object] | None = None
+    if material_manifest and material_manifest.is_file():
+        generator = repo_root / "tools" / "nsamdr" / "generate_strategy_candidates.py"
+        candidate_root = obj_path.parent / "strategy_candidates_4096"
+        candidate_report = candidate_root / "strategy_candidates.json"
+        if generator.is_file():
+            neural_python_candidates = [
+                repo_root / "artifacts" / "nsamdr" / "python-env" / "Scripts" / "python.exe",
+                repo_root / "artifacts" / "nsamdr" / "python-env-cpu" / "Scripts" / "python.exe",
+            ]
+            candidate_python = next((path for path in neural_python_candidates if path.is_file()), Path(sys.executable))
+            command = [
+                str(candidate_python),
+                str(generator),
+                "--obj", str(obj_path),
+                "--materials", str(material_manifest),
+                "--asset-manifest", str(manifest),
+                "--output-root", str(candidate_root),
+                "--target-size", "4096",
+                "--install-dependencies",
+            ]
+            print("Preparing the public Mode 3 NSAMDR candidate...", flush=True)
+            result = subprocess.run(command, cwd=repo_root, check=False)
+            if result.returncode == 0 and candidate_report.is_file():
+                strategy_candidates = json.loads(candidate_report.read_text(encoding="utf-8"))
+                strategy_candidates["reportPath"] = str(candidate_report)
+            else:
+                print(
+                    "WARNING: Mode 3 candidate generation failed. Modes 1 and 2 remain available; Mode 3 will report the missing candidate.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
     return launch_preview(
         repo_root, Path(args.launcher).resolve(), obj_path, albedo, normal, pgs, environment, environments, material_manifest,
-        manifest, catalog, cache_root, selected_catalog_key
+        manifest, catalog, cache_root, selected_catalog_key, strategy_candidates
     )
 
 

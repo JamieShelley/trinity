@@ -1,164 +1,293 @@
-# NSAMDR real EVE asset test (automatic path)
+# NSAMDR V5.34 — tile-context material reconstruction
 
-The preferred test path now extracts a real EVE ship directly from the installed SharedCache and does **not** require you to locate or manually convert source assets.
+## V5.34 converter dependency resolution correction
 
-Run the build GUI:
+The converter now validates the two JavaScript entry points it actually imports instead of assuming npm hoisted every transitive package into a particular physical `node_modules` directory. npm may legally nest or hoist `runtime-utils` and the `core-math` compatibility package. A successful Node ESM import probe is the readiness contract; failures now print the real module-resolution diagnostic.
 
-```bat
-scripts\build\run_build_gui.bat
-```
+## V5.26 mode selector and icon correction
 
-In **NSAMDR real EVE asset test (Granny SDK-free)**, leave the default Raven resource selected and click **Extract Raven + convert + run**.
+- Mode 1 remains the startup default.
+- Modes 1, 2 and 3 are permanently visible in a fixed selector at the top of the controls panel.
+- Mode 3 remains selectable even when its candidate is unavailable; it displays an explicit error rather than disappearing or falling back to Mode 1.
+- The generated NSAMDR icon is embedded as the executable's primary icon and applied to both the window and its Win32 class for title-bar and taskbar use.
 
-Command-line equivalent:
 
-```bat
-scripts\build\run_nsamdr_eve_asset_dx11.bat
-```
+## V5.25 historical mode and icon changes — superseded by V5.26
 
-The helper reads `tq\resfileindex.txt`, copies the real `.gr2` and matching DDS textures from `ResFiles`, converts them through the open-source CarbonEngineJS reader, and launches this OBJ preview. Local extracted assets are placed under `artifacts/nsamdr/eve_assets` and are not intended for Git.
+- V5.25 temporarily started the viewer in Mode 3 with split comparison enabled; V5.26 restored Mode 1 as the startup default.
+- Mode 3 is always present in the UI, even before the first V4 training run.
+- Before training, Mode 3 uses a deterministic prepared-4K bootstrap candidate; retraining replaces it with the tile-context result.
+- Missing Mode 3 resources never fall back to Mode 1 under a Mode 3 label. The pane displays an explicit unavailable state instead.
+- A bundled multi-resolution NSAMDR icon is embedded in the executable and applied to both the window and Windows taskbar icon.
 
-See `tools/nsamdr/README_EVE_ASSET_TEST.md` for the full workflow.
 
----
+## Build-state and repository-marker repair
 
-# NSAMDR real-OBJ preview (Granny-free)
+CMake performs its normal incremental configure and build. If the tracked `trinityal/CMakeLists.txt` marker is missing, the verifier restores only that missing file from the current working-tree `HEAD`; it does not create a commit.
 
-This test loads a real ship mesh from Wavefront OBJ and runs the NSAMDR material-detail comparison in TrinityAL DX11 without enabling Carbon's Granny dependency.
+## Build dependency correction
 
-No EVE assets, Granny files or third-party conversion binaries are included.
+The NSAMDR launcher now disables automatic vcpkg manifest installation for this already-populated build directory and resolves `fxc.exe` from the installed Windows SDK. This prevents the preview build from trying to redownload CCP's private `fxc-v10.1.zip` package. It does not enable Granny and does not use a private overlay.
 
-## What this path proves
 
-- real converted ship geometry rather than the procedural block proxy
-- original OBJ UV coordinates
-- per-triangle UV stretch and anisotropy analysis
-- screen-space stretch evidence
-- damage-mask display
-- original material, validation, UV diagnostics, structure reconstruction and full NSAMDR comparison
-- interactive inspection lighting, orbit, pan and zoom
-- optional source albedo texture
+## V5.33 public-source converter dependency repair
 
-It does not recreate the complete EveSOF faction/material stack. It is an isolated visual test for the stretched-detail problem while the native Granny build is unavailable.
+V5.32 requested `@carbonenginejs/format-gr2` and `@carbonenginejs/runtime-resource` as npm-registry versions, but those package names are not published there. V5.33 installs the readers from their public GitHub source archives instead. It deletes the failed V5.32 `package-lock.json` and partial `node_modules` tree before the one-time install.
 
-## Run an existing OBJ
+The archived GR2 reader still imports its former `@carbonenginejs/core-math` subpaths. A checked-in compatibility package with that exact package name and compatible version re-exports `mesh`, `num`, `tangent`, and `vec3` from the maintained public `@carbonenginejs/runtime-utils` source. No npm-registry copy of the unpublished CarbonEngineJS packages is required.
 
-From the Trinity repository root:
+## V5.32 converter-source packaging repair
 
-```bat
-scripts\build\run_nsamdr_obj_preview_dx11.bat "D:\Models\raven.obj"
-```
+The complete source override now includes `tools/nsamdr/gr2_converter` rather than merely referencing it. The bridge uses `@carbonenginejs/format-gr2` for Granny-free `.gr2` geometry decoding and `@carbonenginejs/runtime-resource` for DDS decoding. On the first EVE-asset test run, npm installs those two open-source readers locally beneath the converter directory. No native Granny library or private CCP SDK is used.
 
-The first run builds `TrinityALTest_dx11` in a dedicated Granny-free directory and then launches only:
+The converter writes every mesh bound by the selected highest-detail GR2 model to OBJ, converts DDS material maps to PNG, converts DDS cube environments to an equirectangular PNG, and decodes the selected hull/faction material definition from SOF `data.black`. The tint-only path remains only as an explicit failure fallback.
 
-```text
-NSAMDRRendering.RealObjShipPreview
-```
+## V5.31 source-tree repair
 
-The compatibility command now uses the same real-OBJ path:
+The verifier preserves the upstream `trinityal/scripts`, `trinityal/tools` and `trinityal/trinityal` directories. It restores only tracked TrinityAL files that are absent from the working tree, excludes the override-owned `trinityal/tests/nsamdr` directory, and never overwrites an existing modified file. The launcher also requires the Windows SDK **x64** `fxc.exe`; ARM64 and x86 tools are rejected.
+
+## Quick start
+
+V5.24 replaces the old per-pixel V3 network with a fully convolutional tile-context model. **Retraining is mandatory** because the old V3 checkpoint is incompatible.
+
+From Command Prompt in the repository root:
 
 ```bat
-scripts\build\run_nsamdr_preview_dx11.bat "D:\Models\raven.obj"
+call scripts\build\verify_and_clean_nsamdr_layout.bat
+call scripts\build\setup_nsamdr_cuda.bat
+call scripts\build\train_nsamdr.bat --source-root "D:\actual\EVE\SharedCache" --device cuda
+call scripts\build\test_nsamdr.bat
+call scripts\build\test_nsamdr_real_eve_asset.bat
 ```
 
-The viewer refuses to fall back to procedural geometry. An OBJ with positions, faces and UV coordinates is required.
+Use the real SharedCache or extracted texture directory. Do not use the literal placeholder `D:\actual\EVE\SharedCache`.
 
-## Add an albedo texture
-
-Supply a PNG, JPG, BMP or TIFF as the second argument:
+For CPU training:
 
 ```bat
-scripts\build\run_nsamdr_obj_preview_dx11.bat ^
-  "D:\Models\raven.obj" ^
-  "D:\Models\raven_albedo.png"
+call scripts\build\setup_nsamdr_cpu.bat
+call scripts\build\train_nsamdr.bat --source-root "D:\actual\EVE\SharedCache" --device cpu
 ```
 
-DDS is not loaded directly by this lightweight path. Convert a DDS locally with Microsoft's `texconv`, for example:
+The RTX 5080 profile uses PyTorch 2.11.0 with the CUDA 12.8 wheel and verifies `sm_120` before training.
 
-```bat
-texconv -ft png "D:\Models\raven_d.dds"
-```
+## Comparison contract
 
-The viewer includes a **Flip texture V** checkbox and `V` shortcut because OBJ exporters differ in texture-coordinate orientation.
+The viewer is a strict material-cleanup A/B test:
 
-## Convert a GR2 automatically
-
-The launcher accepts a `.gr2` file when a local `evegr2toobj` installation is present at:
-
-```text
-tools\nsamdr\evegr2toobj\evegr2toobj.exe
-tools\nsamdr\evegr2toobj\granny2.dll
-```
-
-Then run:
-
-```bat
-scripts\build\run_nsamdr_obj_preview_dx11.bat "D:\EVEAssets\raven.gr2"
-```
-
-The launcher calls the converter as:
-
-```text
-evegr2toobj.exe <source.gr2> <destination.obj>
-```
-
-Converted files are written to:
-
-```text
-artifacts\nsamdr\converted
-```
-
-The converter and Granny runtime must be obtained and used legally. They are deliberately not downloaded or redistributed by this overlay. An OBJ converted by another application works equally well.
-
-## Build without launching
-
-```bat
-scripts\build\build_nsamdr_obj_preview_dx11.bat
-```
-
-## Controls
-
-| Input | Action |
+| Pane | Content |
 |---|---|
-| Right mouse | Orbit around the current focus point |
-| Middle mouse | Pan in the camera plane |
-| Shift + middle mouse | Fine pan |
-| Mouse wheel | Zoom toward the surface under the cursor |
-| Ctrl + mouse wheel | Fine zoom |
-| Double-click | Focus the clicked hull surface |
-| `F` / `Home` | Frame the complete ship |
-| `R` | Reset orientation and frame the ship |
-| `V` | Flip texture V |
-| `0` | Original EVE material |
-| `1` | Material / input validation |
-| `2` | UV texel-density and stretch diagnostics |
-| `3` | Structure-preserving reconstruction |
-| `4` | Full NSAMDR result |
-| `5` | Difference / reconstructed contribution |
-| `Space` | Toggle original/last enabled mode |
-| `F9` | Save DDS screenshot |
-| `Esc` | Exit |
+| **Mode 1 — original source, no cleanup** | Original extracted source material. |
+| **Mode 2 — UV/stretch diagnostics** | Stretch and sampling-pressure evidence. |
+| **Mode 3 — tile-context cleanup** | V4 reconstructed albedo baked into the Mode 3 material manifest. |
 
-The real-EVE launcher also builds a named, grouped ship selector from the official EVE SDE and the installed SharedCache. Raw LOD/model variants are hidden by default but can be exposed in the render window.
+Mode 1 and Mode 3 use the **same mesh, camera, lighting, environment and shader**. The intended difference is the albedo resource selected by each material manifest. Mode 3 does not receive hidden exposure, normal, specular, roughness or lighting advantages.
 
-When present locally, an EVE universe nebula/cubemap is used as the background, ambient environment and reflection source. The viewer provides Game-like, Studio, Harsh inspection and Dark silhouette presets.
-
-Screenshots are written to:
+This remains Granny-free:
 
 ```text
-artifacts\nsamdr
+WITH_GRANNY=OFF
 ```
 
-## Expected build banner
+The preview applies the bundled NSAMDR window and taskbar icon to the title bar and Windows taskbar while it is active.
+
+## Why V4
+
+The V3 model evaluated one pixel from a sparse local feature vector. It could soften isolated stair steps, but it could not maintain a panel contour over a long distance or distinguish coherent trim from repeated texture damage.
+
+V4 uses broad spatial context. It can see complete corners, parallel trim lines, repeated stair-step patterns and surrounding material evidence before deciding how to reconstruct a pixel.
+
+## Network architecture
+
+Schema:
 
 ```text
-NSAMDR REAL OBJ SHIP PREVIEW - GRANNY FREE DX11
-Target     : TrinityALTest_dx11
-Granny     : OFF
+NSAMDR_TILE_CONTEXT_MATERIAL_V4
 ```
 
-This path does not download or install the `granny` vcpkg package.
+Default model:
 
-## v8 reconstruction-tool additions
+```text
+8-channel material tile
+    -> two 3×3 stem convolutions
+    -> 8 dilated residual blocks
+       dilation: 1, 2, 4, 8, 8, 4, 2, 1
+    -> continuous flow XY
+    -> bounded RGB residual
+    -> confidence gate
+```
 
-This revision changes the test workflow from noise-only enhancement to a two-stage inspection and reconstruction pass. Mode 1 validates the source inputs with split albedo/checker, normal and PGS-or-mip views. Mode 2 visualises UV stretch direction, estimated mip pressure and the damage heatmap. Mode 3 performs structure-preserving reconstruction of broad panel detail before any microdetail is added. Mode 4 applies the full NSAMDR result, and Mode 5 isolates only the reconstructed contribution.
+Inputs:
+
+1. albedo RGB;
+2. authored normal XY;
+3. material selector;
+4. paint support;
+5. roughness.
+
+Outputs:
+
+1. continuous source offset X/Y;
+2. RGB residual;
+3. confidence.
+
+The default model has approximately 160,000 parameters and a **125-pixel receptive field**. It is large enough to understand extended panel structure while remaining practical for offline GPU inference.
+
+The model reconstructs material colour, not the final lit image. Lighting therefore remains controlled by the common preview renderer.
+
+## Offline overlapping inference
+
+Mode 3 generation runs the model over **overlapping 512×512 tiles** with a **64-pixel overlap**. A tapered blend window combines neighbouring predictions to prevent tile seams.
+
+Data flow:
+
+```text
+original EVE material maps
+    -> deterministic 4K preparation
+    -> 8-channel semantic material tensor
+    -> overlapping V4 tile inference
+    -> continuous colour transport + residual + confidence
+    -> baked Mode 3 albedo
+    -> common live preview shader
+```
+
+There is **No runtime neural compute shader**. There is no generated HLSL weight include and no transient neural-albedo resource. This removes the previous per-pixel runtime path and makes the A/B boundary explicit.
+
+Generated model files:
+
+```text
+artifacts\nsamdr\neural\nsamdr_tile_context.pt
+artifacts\nsamdr\neural\nsamdr_tile_context.json
+```
+
+Generated Mode 3 files:
+
+```text
+artifacts\nsamdr\eve_assets\<asset>\strategy_candidates_4096\mode3_nsamdr_neural
+```
+
+## Training data behaviour
+
+Synthetic training creates clean panel materials and then degrades the input with combinations of:
+
+- low-resolution resampling;
+- diagonal staircase contours;
+- broken bright trim;
+- compression-like blocks;
+- anisotropic blur;
+- halo and edge fuzz;
+- local normal/material disagreement.
+
+The clean material remains the target. Normal, material, paint and roughness maps provide structural guidance.
+
+Real source textures are also sampled for identity-preservation training. They are not silently treated as perfect contour truth. The identity loss discourages changes to valid flat panels and existing authored detail.
+
+Training losses cover:
+
+- reconstructed colour;
+- Sobel contour agreement;
+- identity preservation;
+- confidence supervision;
+- flow and residual smoothness.
+
+## Default training configuration
+
+File:
+
+```text
+tools\nsamdr\neural\default_training_config.json
+```
+
+| Key | Default | Purpose |
+|---|---:|---|
+| `epochs` | 24 | Complete passes over generated tiles. |
+| `tilesPerEpoch` | 2048 | Training tiles generated per epoch. |
+| `batchSize` | 8 | Tiles per optimiser step. |
+| `baseChannels` | 32 | Feature width. |
+| `residualBlocks` | 8 | Dilated context blocks. |
+| `tileSize` | 96 | Training crop size. |
+| `maxOffsetPixels` | 8 | Maximum learned source transport. |
+| `maxResidual` | 0.25 | Maximum bounded RGB residual. |
+| `edgeWeight` | 1.5 | Contour fidelity weight. |
+| `identityWeight` | 0.65 | Valid-region preservation weight. |
+| `inferenceTileSize` | 512 | Candidate-generation tile size. |
+| `inferenceOverlap` | 64 | Seam-prevention overlap. |
+
+The training panel writes an override JSON and launches:
+
+```text
+scripts\build\retrain_nsamdr_and_preview.bat
+```
+
+That process trains, validates, regenerates the Mode 3 candidate, rebuilds and relaunches the viewer.
+
+## Model validation
+
+Run:
+
+```bat
+call scripts\build\test_nsamdr.bat
+```
+
+The validator checks:
+
+- V4 schema;
+- model hash;
+- 8 input and 6 output channels;
+- parameter count between 100,000 and 500,000;
+- output dimensions and bounded values;
+- receptive field of at least 125 pixels;
+- stored validation metrics.
+
+Candidate generation rejects an old V3 checkpoint instead of silently producing an identity comparison.
+
+## C++ architecture
+
+The preview remains ordinary `.h` and `.cpp` composition:
+
+```text
+PreviewApplication
+    +-- CameraController
+    +-- MeshProcessor
+    +-- InputController
+    +-- StrategyModes
+    +-- NSAMDRPipeline
+    +-- AssetProcessor
+    +-- NSAMDRTrainingController
+    +-- SceneController
+    +-- RenderPipeline
+    +-- PreviewRenderer
+    +-- PreviewProcessing
+    +-- PreviewPanel
+```
+
+The former C++ runtime-compute subsystem is removed. Mode 3 preparation is now owned by the Python candidate generator, while C++ only loads and displays the resulting material resources.
+
+The only inheritance is the GoogleTest fixture required by the TrinityAL test host. `.inl` implementation files are forbidden.
+
+## Source ownership
+
+| Responsibility | File |
+|---|---|
+| V4 model, training and tiled inference | `tools/nsamdr/neural/train_nsamdr_kernel.py` |
+| V4 checkpoint validator | `tools/nsamdr/neural/test_nsamdr_kernel.py` |
+| Mode 3 4K candidate generation | `tools/nsamdr/generate_strategy_candidates.py` |
+| Real EVE asset preparation and launch | `tools/nsamdr/eve_asset_test.py` |
+| CUDA environment setup | `scripts/build/setup_nsamdr_cuda.bat` |
+| Training entry point | `scripts/build/train_nsamdr.bat` |
+| Full retrain/build/relaunch | `scripts/build/retrain_nsamdr_and_preview.bat` |
+| Layout and stale-runtime cleanup | `scripts/build/verify_and_clean_nsamdr_layout.bat` |
+| Same-renderer A/B draw path | `trinityal/tests/nsamdr/NSAMDRRenderPipeline.cpp` |
+| Common material shader | `trinityal/tests/nsamdr/NSAMDRPreview.hlsl` |
+| UI and training controls | `trinityal/tests/nsamdr/NSAMDRPreviewPanel.cpp` |
+
+## Acceptance criteria
+
+A V4 result is useful only when:
+
+1. long panel contours become continuous;
+2. bright trim loses staircase and fuzzy halo artefacts;
+3. valid surface grain and authored markings remain;
+4. no tile seams appear;
+5. Mode 1 remains unchanged when the model or candidate changes;
+6. lighting, geometry and shader state remain identical between panes.

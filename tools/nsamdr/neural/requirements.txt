@@ -1,0 +1,4 @@
+numpy>=1.26
+Pillow>=10.2
+# PyTorch is installed by scripts\build\setup_nsamdr_cuda.bat.
+# Do not add an unqualified torch dependency here: it can install a CPU-only wheel.

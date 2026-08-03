@@ -1,8 +1,0 @@
-{
-  "name": "fxc",
-  "version": "10.1",
-  "description": "FXC compiler supplied by the locally installed Windows SDK",
-  "homepage": "https://learn.microsoft.com/windows/win32/direct3dtools/fxc",
-  "license": "LicenseRef-Microsoft-Windows-SDK",
-  "supports": "windows & x64"
-}

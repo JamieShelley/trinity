@@ -5,13 +5,15 @@ for %%I in ("%~dp0..\..") do set "ROOT=%%~fI"
 set "BUILD_DIR=%ROOT%\.cmake-build-x64-windows-trinitydev-nsamdr-obj-dx11"
 set "SETUP_DRIVER=%~dp0setup_dependencies.bat"
 set "PROJECT_INCLUDE=%~dp0nsamdr\NSAMDROBJProjectInclude.cmake"
-set "SOURCE_STATE_HELPER=%~dp0nsamdr\SourceBuildState.ps1"
 set "VCPKG_DIR=%ROOT%\vendor\github.com\microsoft\vcpkg"
 set "REGISTRY_DIR=%ROOT%\vendor\github.com\carbonengine\vcpkg-registry"
-set "OVERLAY_PORTS=%~dp0nsamdr\vcpkg-overlay-ports"
-set "SOURCE_CONTEXT=viewer=NSAMDRRealObjPreview-v5;config=TrinityDev;dx11=ON;dx12=OFF;tests=ON;shader=OFF;granny=OFF"
+set "SOURCE_CONTEXT=viewer=NSAMDROriginalVsCleanup-v5.32;config=TrinityDev;dx11=ON;dx12=OFF;tests=ON;shader=OFF;granny=OFF"
 set "PREVIEW_EXE="
 set "BUILD_ONLY=0"
+
+rem Permanent constraint: this preview must never enable or install the proprietary SDK.
+set "VCPKG_MANIFEST_INSTALL=OFF"
+set "VCPKG_MANIFEST_FEATURES="
 if /I "%NSAMDR_BUILD_ONLY%"=="1" set "BUILD_ONLY=1"
 
 if not exist "%ROOT%\CMakePresets.json" (
@@ -27,11 +29,6 @@ if not exist "%PROJECT_INCLUDE%" (
     echo ERROR: Missing OBJ preview CMake injection:
     echo   "%PROJECT_INCLUDE%"
     exit /b 4
-)
-if not exist "%SOURCE_STATE_HELPER%" (
-    echo ERROR: Missing source-state helper:
-    echo   "%SOURCE_STATE_HELPER%"
-    exit /b 5
 )
 
 if not exist "%VCPKG_DIR%\scripts\buildsystems\vcpkg.cmake" goto :setup_dependencies
@@ -49,27 +46,25 @@ call "%SETUP_DRIVER%"
 if errorlevel 1 exit /b !ERRORLEVEL!
 
 :dependencies_ready
-if defined VCPKG_OVERLAY_PORTS (
-    set "VCPKG_OVERLAY_PORTS=%OVERLAY_PORTS%;%VCPKG_OVERLAY_PORTS%"
-) else (
-    set "VCPKG_OVERLAY_PORTS=%OVERLAY_PORTS%"
-)
+rem NSAMDR does not require a private vcpkg overlay.  Earlier packages
+rem exported a path to an empty directory that ZIP extraction could not
+rem preserve, causing vcpkg configuration to fail before the build began.
+rem Clear the process-local value and the CMake cache entry below.
+set "VCPKG_OVERLAY_PORTS="
 
 where cmake.exe >nul 2>nul
 if errorlevel 1 (
     echo ERROR: cmake.exe was not found in PATH.
     exit /b 7
 )
-where git.exe >nul 2>nul
-if errorlevel 1 (
-    echo ERROR: git.exe was not found in PATH.
-    exit /b 8
-)
 where powershell.exe >nul 2>nul
 if errorlevel 1 (
     echo ERROR: powershell.exe was not found.
     exit /b 9
 )
+
+call :resolve_fxc
+if errorlevel 1 exit /b !ERRORLEVEL!
 
 if "%BUILD_ONLY%"=="0" call :resolve_model "%~1"
 if errorlevel 1 exit /b !ERRORLEVEL!
@@ -84,17 +79,6 @@ if errorlevel 1 exit /b !ERRORLEVEL!
 if "%BUILD_ONLY%"=="0" call :resolve_optional_file NSAMDR_MATERIALS "SOF material manifest" "%~6"
 if errorlevel 1 exit /b !ERRORLEVEL!
 
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass ^
-    -File "%SOURCE_STATE_HELPER%" ^
-    -Mode Prepare ^
-    -RepoRoot "%ROOT%" ^
-    -BuildDir "%BUILD_DIR%" ^
-    -Context "%SOURCE_CONTEXT%"
-if errorlevel 1 (
-    echo ERROR: Could not determine or prepare the OBJ-preview source/build state.
-    exit /b 10
-)
-
 set "IMPORT_PATH=%BUILD_DIR%\vcpkg_installed\x64-windows-trinitydev"
 
 echo ============================================================
@@ -103,7 +87,7 @@ echo ============================================================
 echo Repository : %ROOT%
 echo Build dir  : %BUILD_DIR%
 echo Target     : TrinityALTest_dx11
-echo Granny     : OFF
+echo Proprietary geometry SDK: OFF
 if "%BUILD_ONLY%"=="0" echo Model      : !NSAMDR_OBJ!
 if "%BUILD_ONLY%"=="0" if defined NSAMDR_ALBEDO echo Albedo     : !NSAMDR_ALBEDO!
 if "%BUILD_ONLY%"=="0" if not defined NSAMDR_ALBEDO echo Albedo     : neutral fallback
@@ -118,6 +102,8 @@ echo ============================================================
 
 pushd "%ROOT%" || exit /b 11
 
+echo CMake will perform its normal incremental configure/build.
+
 cmake --preset x64-windows-trinitydev ^
     -S "%ROOT%" ^
     -B "%BUILD_DIR%" ^
@@ -126,6 +112,9 @@ cmake --preset x64-windows-trinitydev ^
     -DBUILD_TESTING=ON ^
     -DBUILD_SHADER_COMPILER=OFF ^
     -DWITH_GRANNY=OFF ^
+    -DVCPKG_MANIFEST_INSTALL=OFF ^
+    -DVCPKG_OVERLAY_PORTS= ^
+    -DFXC_TOOL:FILEPATH="!FXC_TOOL!" ^
     -DCMAKE_PROJECT_INCLUDE="%PROJECT_INCLUDE%"
 if errorlevel 1 (
     echo ERROR: CMake configuration failed.
@@ -143,17 +132,6 @@ popd
 if not "!BUILD_RESULT!"=="0" (
     echo ERROR: OBJ preview build failed with exit code !BUILD_RESULT!.
     exit /b !BUILD_RESULT!
-)
-
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass ^
-    -File "%SOURCE_STATE_HELPER%" ^
-    -Mode Commit ^
-    -RepoRoot "%ROOT%" ^
-    -BuildDir "%BUILD_DIR%" ^
-    -Context "%SOURCE_CONTEXT%"
-if errorlevel 1 (
-    echo ERROR: Build succeeded, but the source-state stamp could not be recorded.
-    exit /b 21
 )
 
 if "%BUILD_ONLY%"=="1" (
@@ -191,6 +169,40 @@ pushd "%ROOT%" || exit /b 31
 set "RUN_RESULT=!ERRORLEVEL!"
 popd
 exit /b !RUN_RESULT!
+
+:resolve_fxc
+set "FXC_TOOL="
+
+rem The preview is an x64 target. Never accept the ARM64 or x86 SDK tools.
+if defined WindowsSdkVerBinPath if exist "!WindowsSdkVerBinPath!x64\fxc.exe" set "FXC_TOOL=!WindowsSdkVerBinPath!x64\fxc.exe"
+if not defined FXC_TOOL if defined WindowsSdkDir if defined WindowsSDKVersion if exist "!WindowsSdkDir!bin\!WindowsSDKVersion!x64\fxc.exe" set "FXC_TOOL=!WindowsSdkDir!bin\!WindowsSDKVersion!x64\fxc.exe"
+if not defined FXC_TOOL if exist "!ProgramFiles(x86)!\Windows Kits\10\bin\x64\fxc.exe" set "FXC_TOOL=!ProgramFiles(x86)!\Windows Kits\10\bin\x64\fxc.exe"
+if not defined FXC_TOOL if exist "!ProgramFiles(x86)!\Windows Kits\10\bin" (
+    for /f "usebackq delims=" %%D in (`dir /b /ad /o-n "!ProgramFiles(x86)!\Windows Kits\10\bin" 2^>nul`) do (
+        if not defined FXC_TOOL if exist "!ProgramFiles(x86)!\Windows Kits\10\bin\%%D\x64\fxc.exe" set "FXC_TOOL=!ProgramFiles(x86)!\Windows Kits\10\bin\%%D\x64\fxc.exe"
+    )
+)
+if not defined FXC_TOOL (
+    for /f "usebackq delims=" %%F in (`where.exe fxc.exe 2^>nul`) do (
+        echo %%~fF| findstr /i /r "\\x64\\fxc\.exe$" >nul
+        if not errorlevel 1 if not defined FXC_TOOL set "FXC_TOOL=%%~fF"
+    )
+)
+if not defined FXC_TOOL (
+    echo ERROR: Windows SDK x64 fxc.exe was not found.
+    echo Install the Windows 10 SDK x64 tools in Visual Studio Installer.
+    echo NSAMDR will not download CCP's private fxc package.
+    exit /b 10
+)
+echo !FXC_TOOL!| findstr /i "\\x64\\fxc.exe" >nul
+if errorlevel 1 (
+    echo ERROR: Refusing non-x64 FXC compiler:
+    echo   !FXC_TOOL!
+    exit /b 10
+)
+echo FXC compiler ^(x64^): !FXC_TOOL!
+echo Vcpkg manifest installation: OFF ^(using the dependencies already installed in this build directory^)
+exit /b 0
 
 :resolve_model
 set "MODEL_INPUT=%~1"
@@ -237,7 +249,6 @@ if errorlevel 1 (
 set "CONVERTER_DIR=%ROOT%\tools\nsamdr\gr2_converter"
 set "CONVERTER_SCRIPT=!CONVERTER_DIR!\convert_eve_asset.mjs"
 set "CONVERTER_PACKAGE=!CONVERTER_DIR!\package.json"
-set "CONVERTER_RUNTIME=!CONVERTER_DIR!\node_modules\@carbonenginejs\runtime-resource"
 if not exist "!CONVERTER_SCRIPT!" (
     echo ERROR: Missing Granny-free CarbonEngineJS converter:
     echo   "!CONVERTER_SCRIPT!"
@@ -248,18 +259,38 @@ if not exist "!CONVERTER_PACKAGE!" (
     echo   "!CONVERTER_PACKAGE!"
     exit /b 46
 )
-if not exist "!CONVERTER_RUNTIME!" (
-    echo Installing open-source CarbonEngineJS converter dependency...
-    pushd "!CONVERTER_DIR!" || exit /b 47
-    call npm.cmd install --no-audit --no-fund
-    set "NPM_RESULT=!ERRORLEVEL!"
-    popd
-    if not "!NPM_RESULT!"=="0" (
-        echo ERROR: CarbonEngineJS dependency installation failed.
-        exit /b !NPM_RESULT!
-    )
-)
+pushd "!CONVERTER_DIR!" || exit /b 47
+node.exe --input-type=module --eval "await import('@carbonenginejs/format-gr2'); await import('@carbonenginejs/runtime-resource/formats/dds');" >nul 2>nul
+set "MODULE_PROBE_RESULT=!ERRORLEVEL!"
+popd
+if "!MODULE_PROBE_RESULT!"=="0" goto :converter_dependencies_ready
+goto :install_converter_dependencies
 
+:install_converter_dependencies
+echo Installing open-source CarbonEngineJS readers from public GitHub source archives...
+if exist "!CONVERTER_DIR!\package-lock.json" del /f /q "!CONVERTER_DIR!\package-lock.json" >nul 2>nul
+if exist "!CONVERTER_DIR!\node_modules" rmdir /s /q "!CONVERTER_DIR!\node_modules"
+pushd "!CONVERTER_DIR!" || exit /b 47
+call npm.cmd install --no-audit --no-fund --omit=dev --package-lock=false
+set "NPM_RESULT=!ERRORLEVEL!"
+popd
+if not "!NPM_RESULT!"=="0" (
+    echo ERROR: CarbonEngineJS GitHub-source dependency installation failed.
+    echo Check HTTPS access to github.com, then rerun.
+    exit /b !NPM_RESULT!
+)
+pushd "!CONVERTER_DIR!" || exit /b 47
+node.exe --input-type=module --eval "await import('@carbonenginejs/format-gr2'); await import('@carbonenginejs/runtime-resource/formats/dds');"
+set "MODULE_PROBE_RESULT=!ERRORLEVEL!"
+popd
+if not "!MODULE_PROBE_RESULT!"=="0" (
+    echo ERROR: npm finished, but Node could not import the converter entry points.
+    echo The module-resolution error above identifies the unresolved package.
+    exit /b 47
+)
+goto :converter_dependencies_ready
+
+:converter_dependencies_ready
 set "CONVERT_DIR=%ROOT%\artifacts\nsamdr\converted"
 if not exist "!CONVERT_DIR!" mkdir "!CONVERT_DIR!"
 set "CONVERTED_OBJ=!CONVERT_DIR!\!MODEL_BASENAME!.obj"

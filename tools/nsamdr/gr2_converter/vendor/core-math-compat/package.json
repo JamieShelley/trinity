@@ -1,0 +1,15 @@
+{
+  "name": "@carbonenginejs/core-math",
+  "version": "0.1.5",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./mesh": "./mesh.js",
+    "./num": "./num.js",
+    "./tangent": "./tangent.js",
+    "./vec3": "./vec3.js"
+  },
+  "dependencies": {
+    "@carbonenginejs/runtime-utils": "*"
+  }
+}

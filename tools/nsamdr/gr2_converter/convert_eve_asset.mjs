@@ -1,1140 +1,797 @@
+#!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
-import { CjsGr2Format } from "@carbonenginejs/runtime-resource/formats/gr2";
-import { CjsDdsFormat } from "@carbonenginejs/runtime-resource/formats/dds";
-import { CjsBlackFormat } from "@carbonenginejs/runtime-resource/formats/black";
+import { pathToFileURL } from "node:url";
+import CjsFormatGr2 from "@carbonenginejs/format-gr2";
+import CjsDdsFormat from "@carbonenginejs/runtime-resource/formats/dds";
+import * as BlackReader from "black-reader";
+import blackClasses from "black-reader/black-classes.js";
+import * as blackReaders from "black-reader/black-readers.js";
 
-function fail(message) {
-  console.error(`ERROR: ${message}`);
-  process.exitCode = 1;
-}
-
-function sanitizeName(value, fallback) {
-  const cleaned = String(value || fallback)
-    .replace(/[^A-Za-z0-9_.-]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return cleaned || fallback;
-}
-
-function finite(value) {
-  return Number.isFinite(value) ? value : 0;
-}
-
-function meshTriangleCount(mesh) {
-  return (mesh?.indices || []).reduce((total, group) => total + Math.floor((group?.faces?.length || 0) / 3), 0);
-}
-
-function chooseHighestDetailMesh(meshes) {
-  const renderable = meshes
-    .map((mesh, index) => ({ mesh, index, triangles: meshTriangleCount(mesh) }))
-    .filter((entry) => entry.triangles > 0 && (entry.mesh?.vertex?.position?.length || 0) >= 9);
-  if (!renderable.length) throw new Error("GR2 contained no renderable meshes");
-
-  const nonLod = renderable.filter((entry) => !/\bLOD\b/i.test(String(entry.mesh?.name || "")));
-  const candidates = nonLod.length ? nonLod : renderable;
-  candidates.sort((a, b) => b.triangles - a.triangles || a.index - b.index);
-  return candidates[0];
-}
-
-function writeObj(inputPath, outputPath, summaryPath) {
-  const bytes = fs.readFileSync(inputPath);
-  const graph = CjsGr2Format.read(bytes, {
-    emit: "json",
-    unpackTangents: true,
-    rebuildMissingNormals: true,
-    rebuildMissingTangents: true,
-    rebuildMissingBiNormals: true
-  });
-
-  if (!graph?.meshes?.length) throw new Error("GR2 contained no meshes");
-  const selected = chooseHighestDetailMesh(graph.meshes);
-  const mesh = selected.mesh;
-  const meshIndex = selected.index;
-  const positions = mesh?.vertex?.position || [];
-  const normals = mesh?.vertex?.normal || [];
-  const uvs = mesh?.vertex?.texcoord0 || [];
-  const vertexCount = Math.floor(positions.length / 3);
-  const normalCount = Math.floor(normals.length / 3);
-  const uvCount = Math.floor(uvs.length / 2);
-
-  if (!vertexCount) throw new Error("Selected GR2 mesh contained no vertices");
-  if (uvCount !== vertexCount) {
-    throw new Error(`Mesh ${meshIndex} (${mesh?.name || "unnamed"}) has ${vertexCount} vertices but ${uvCount} UV0 entries; NSAMDR needs original UVs`);
-  }
-
-  const hasNormals = normalCount === vertexCount;
-  const objectName = sanitizeName(mesh?.name, `mesh_${meshIndex}`);
-  const lines = [
-    "# NSAMDR Granny-free EVE GR2 conversion",
-    `# Source: ${path.basename(inputPath)}`,
-    `# Highest-detail mesh: ${mesh?.name || objectName}`,
-    "# Lower LOD meshes intentionally excluded",
-    "",
-    `o ${objectName}`
-  ];
-
-  for (let i = 0; i < vertexCount; i += 1) {
-    const base = i * 3;
-    lines.push(`v ${finite(positions[base])} ${finite(positions[base + 1])} ${finite(positions[base + 2])}`);
-  }
-  for (let i = 0; i < uvCount; i += 1) {
-    const base = i * 2;
-    lines.push(`vt ${finite(uvs[base])} ${finite(uvs[base + 1])}`);
-  }
-  if (hasNormals) {
-    for (let i = 0; i < normalCount; i += 1) {
-      const base = i * 3;
-      lines.push(`vn ${finite(normals[base])} ${finite(normals[base + 1])} ${finite(normals[base + 2])}`);
+const PNG_SIG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const CRC = (() => {
+    const table = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+        table[n] = c >>> 0;
     }
-  }
+    return table;
+})();
 
-  let totalTriangles = 0;
-  let firstIndex = 0;
-  const drawRanges = [];
-  const groups = mesh.indices || [];
-  groups.forEach((group, groupIndex) => {
-    const groupName = sanitizeName(group?.name, `area_${groupIndex}`);
-    const materialName = `area_${groupIndex}`;
-    lines.push(`g ${objectName}_${groupName}`, `usemtl ${materialName}`);
-    const faces = group?.faces || [];
-    let groupTriangles = 0;
-    for (let i = 0; i + 2 < faces.length; i += 3) {
-      const local = [faces[i], faces[i + 1], faces[i + 2]];
-      if (local.some((index) => !Number.isInteger(index) || index < 0 || index >= vertexCount)) {
-        throw new Error(`Mesh ${meshIndex}, group ${groupIndex} contains an invalid triangle index`);
-      }
-      const tokens = local.map((index) => {
-        const objIndex = index + 1;
-        return hasNormals ? `${objIndex}/${objIndex}/${objIndex}` : `${objIndex}/${objIndex}`;
-      });
-      lines.push(`f ${tokens.join(" ")}`);
-      groupTriangles += 1;
+function fail(message, code = 1) {
+    const error = new Error(message);
+    error.exitCode = code;
+    throw error;
+}
+
+function bytes(file) { return new Uint8Array(fs.readFileSync(file)); }
+function parent(file) { fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true }); }
+function nums(value) {
+    return value && typeof value.length === "number"
+        ? Array.from(value, item => Number.isFinite(+item) ? +item : 0)
+        : [];
+}
+function crc32(data) {
+    let c = 0xffffffff;
+    for (const b of data) c = CRC[(c ^ b) & 255] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+}
+function chunk(type, data) {
+    const typeBytes = Buffer.from(type), payload = Buffer.from(data);
+    const out = Buffer.alloc(12 + payload.length);
+    out.writeUInt32BE(payload.length, 0);
+    typeBytes.copy(out, 4);
+    payload.copy(out, 8);
+    out.writeUInt32BE(crc32(Buffer.concat([typeBytes, payload])), 8 + payload.length);
+    return out;
+}
+function png(width, height, rgba) {
+    const raw = Buffer.alloc(height * (width * 4 + 1));
+    for (let y = 0; y < height; y++) {
+        const offset = y * (width * 4 + 1);
+        raw[offset] = 0;
+        Buffer.from(rgba.buffer, rgba.byteOffset + y * width * 4, width * 4).copy(raw, offset + 1);
     }
-    const indexCount = groupTriangles * 3;
-    drawRanges.push({
-      groupIndex,
-      groupName: group?.name || groupName,
-      materialName,
-      firstIndex,
-      indexCount,
-      triangles: groupTriangles
+    const header = Buffer.alloc(13);
+    header.writeUInt32BE(width, 0);
+    header.writeUInt32BE(height, 4);
+    header[8] = 8;
+    header[9] = 6;
+    return Buffer.concat([PNG_SIG, chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+}
+function to8(payload, exposure = 1) {
+    const count = payload.width * payload.height * 4;
+    if (payload.data instanceof Uint8Array) return new Uint8Array(payload.data.slice(0, count));
+    const out = new Uint8Array(count);
+    for (let i = 0; i < count; i += 4) {
+        for (let c = 0; c < 3; c++) {
+            const value = Math.max(Number(payload.data[i + c]) || 0, 0) * exposure;
+            out[i + c] = Math.round(Math.pow(value / (1 + value), 1 / 2.2) * 255);
+        }
+        out[i + 3] = Math.round(Math.max(0, Math.min(1, Number(payload.data[i + 3]) || 1)) * 255);
+    }
+    return out;
+}
+
+function readGr2(file) {
+    const input = bytes(file);
+    const attempts = [
+        { emit: "json", unpackTangents: true, rebuildMissingNormals: true },
+        { emit: "json", unpackTangents: true },
+        { emit: "json" }
+    ];
+    let last;
+    for (const options of attempts) {
+        try { return { root: CjsFormatGr2.read(input, options), options }; }
+        catch (error) { last = error; }
+    }
+    fail(`GR2 decode failed: ${last?.message || "unknown error"}`, 20);
+}
+
+function meshScore(mesh) {
+    const vertices = Math.floor(nums(mesh?.vertex?.position).length / 3);
+    const triangles = (mesh?.indices || []).reduce(
+        (count, group) => count + Math.floor(nums(group?.faces).length / 3), 0);
+    return { vertices, triangles, score: triangles * 16 + vertices };
+}
+
+function meshFamilyKey(mesh, index) {
+    const raw = String(mesh?.name || `mesh_${index}`).trim();
+    // Granny files commonly bind every LOD of one render mesh to the model.
+    // LOD variants are alternatives, not additive submeshes.
+    const stripped = raw
+        .replace(/\s+LOD(?:\s+|[_-]?)(?:\d+(?:\.\d+)?)\s*$/iu, "")
+        .replace(/[_-]LOD[_-]?\d+(?:\.\d+)?\s*$/iu, "")
+        .trim();
+    return normalized(stripped || raw || `mesh_${index}`);
+}
+
+function isExplicitLodMesh(mesh) {
+    return /(?:^|[\s_-])LOD(?:[\s_-]*\d+(?:\.\d+)?)?\s*$/iu.test(String(mesh?.name || ""));
+}
+
+function chooseRenderMesh(items) {
+    return [...items].sort((left, right) => {
+        // Prefer the unsuffixed production/high-detail mesh. Fall back to the
+        // largest triangle/vertex payload if every candidate is LOD-labelled.
+        const leftLod = isExplicitLodMesh(left.mesh) ? 1 : 0;
+        const rightLod = isExplicitLodMesh(right.mesh) ? 1 : 0;
+        if (leftLod !== rightLod) return leftLod - rightLod;
+        if (left.quality.triangles !== right.quality.triangles) {
+            return right.quality.triangles - left.quality.triangles;
+        }
+        if (left.quality.vertices !== right.quality.vertices) {
+            return right.quality.vertices - left.quality.vertices;
+        }
+        return left.index - right.index;
+    })[0];
+}
+
+function collapseLodAlternatives(items) {
+    const families = new Map();
+    for (const item of items) {
+        const key = meshFamilyKey(item.mesh, item.index);
+        if (!families.has(key)) families.set(key, []);
+        families.get(key).push(item);
+    }
+    const selected = [];
+    const rejected = [];
+    for (const familyItems of families.values()) {
+        const chosen = chooseRenderMesh(familyItems);
+        selected.push(chosen);
+        for (const item of familyItems) {
+            if (item.index !== chosen.index) rejected.push(item);
+        }
+    }
+    selected.sort((left, right) => left.index - right.index);
+    rejected.sort((left, right) => left.index - right.index);
+    return { selected, rejected };
+}
+
+function selectModelMeshes(root) {
+    const meshes = Array.isArray(root?.meshes) ? root.meshes : [];
+    const renderable = meshes
+        .map((mesh, index) => ({ mesh, index, quality: meshScore(mesh) }))
+        .filter(item => item.quality.vertices >= 3 && item.quality.triangles >= 1);
+    if (!renderable.length) fail("GR2 contains no renderable triangular mesh", 21);
+
+    let bestModel = null;
+    for (const [modelIndex, model] of (root?.models || []).entries()) {
+        const indices = Array.from(new Set((model?.meshBindings || [])
+            .map(value => Number(value))
+            .filter(value => Number.isInteger(value) && value >= 0 && value < meshes.length)));
+        const bound = indices
+            .map(index => renderable.find(item => item.index === index))
+            .filter(Boolean);
+        if (!bound.length) continue;
+        const collapsed = collapseLodAlternatives(bound);
+        const score = collapsed.selected.reduce((total, item) => total + item.quality.score, 0);
+        if (!bestModel || score > bestModel.score) {
+            bestModel = {
+                modelIndex,
+                modelName: String(model?.name || ""),
+                selected: collapsed.selected,
+                rejectedLods: collapsed.rejected,
+                score
+            };
+        }
+    }
+
+    if (bestModel) return bestModel;
+    const collapsed = collapseLodAlternatives(renderable);
+    return {
+        modelIndex: -1,
+        modelName: "",
+        selected: collapsed.selected,
+        rejectedLods: collapsed.rejected,
+        score: collapsed.selected.reduce((n, item) => n + item.quality.score, 0)
+    };
+}
+function objToken(position, texcoord, normal) {
+    if (texcoord !== null && normal !== null) return `${position}/${texcoord}/${normal}`;
+    if (texcoord !== null) return `${position}/${texcoord}`;
+    if (normal !== null) return `${position}//${normal}`;
+    return `${position}`;
+}
+function safeName(value, fallback) {
+    const result = String(value || fallback || "item").trim().replace(/[^A-Za-z0-9_.-]+/gu, "_");
+    return result || fallback || "item";
+}
+function materialIndexFromGroup(group, fallback) {
+    const name = String(group?.name || "");
+    const match = /(?:^|[^a-z0-9])area[_\s-]?(\d+)/iu.exec(name);
+    return match ? Number(match[1]) : fallback;
+}
+
+function gr2ToObj(input, output, summary) {
+    const decoded = readGr2(input);
+    const selection = selectModelMeshes(decoded.root);
+    const lines = ["# NSAMDR complete model-bound GR2 to OBJ"];
+    const drawRanges = [];
+    let positionBase = 0, texcoordBase = 0, normalBase = 0;
+    let groupIndex = 0, totalVertices = 0, totalTriangles = 0;
+    let allNormals = true, allTexcoords = true;
+
+    for (const selected of selection.selected) {
+        const mesh = selected.mesh;
+        const positions = nums(mesh?.vertex?.position);
+        const normals = nums(mesh?.vertex?.normal);
+        const texcoords = nums(mesh?.vertex?.texcoord0);
+        const vertexCount = Math.floor(positions.length / 3);
+        const hasNormal = normals.length >= vertexCount * 3;
+        const hasTexcoord = texcoords.length >= vertexCount * 2;
+        const meshName = safeName(mesh?.name, `mesh_${selected.index}`);
+        const groups = Array.isArray(mesh?.indices) ? mesh.indices : [];
+
+        lines.push(`o ${meshName}`);
+        for (let i = 0; i < vertexCount; i++) {
+            lines.push(`v ${positions[i * 3]} ${positions[i * 3 + 1]} ${positions[i * 3 + 2]}`);
+        }
+        if (hasTexcoord) {
+            // The previous exporter wrote (1 - sourceV), then the preview had to
+            // invert V again at runtime to match EVE. Bake that proven runtime
+            // correction into the generated asset: OBJ V now equals GR2 source V.
+            // The preview's flip-V control remains a debug override and defaults off.
+            for (let i = 0; i < vertexCount; i++) {
+                const sourceU = texcoords[i * 2];
+                const sourceV = texcoords[i * 2 + 1];
+                const bakedTextureV = sourceV;
+                lines.push(`vt ${sourceU} ${bakedTextureV}`);
+            }
+        }
+        if (hasNormal) {
+            for (let i = 0; i < vertexCount; i++) lines.push(`vn ${normals[i * 3]} ${normals[i * 3 + 1]} ${normals[i * 3 + 2]}`);
+        }
+
+        for (let localGroupIndex = 0; localGroupIndex < groups.length; localGroupIndex++) {
+            const group = groups[localGroupIndex];
+            const faces = nums(group?.faces).map(Math.trunc);
+            const validTriangles = [];
+            for (let i = 0; i + 2 < faces.length; i += 3) {
+                const a = faces[i], b = faces[i + 1], c = faces[i + 2];
+                if (a < 0 || b < 0 || c < 0 || a >= vertexCount || b >= vertexCount || c >= vertexCount) continue;
+                validTriangles.push([a, b, c]);
+            }
+            if (!validTriangles.length) continue;
+            const materialIndex = materialIndexFromGroup(group, localGroupIndex);
+            const name = `mesh_${selected.index}_${meshName}_area_${materialIndex}_draw_${groupIndex}`;
+            const firstIndex = totalTriangles * 3;
+            const triangleCount = validTriangles.length;
+            lines.push(`g ${name}`);
+            lines.push(`usemtl area_${materialIndex}`);
+            const token = localIndex => objToken(
+                positionBase + localIndex + 1,
+                hasTexcoord ? texcoordBase + localIndex + 1 : null,
+                hasNormal ? normalBase + localIndex + 1 : null);
+            for (const [a, b, c] of validTriangles) lines.push(`f ${token(a)} ${token(b)} ${token(c)}`);
+            {
+                drawRanges.push({
+                    groupIndex,
+                    materialIndex,
+                    name,
+                    sourceGroupName: String(group?.name || ""),
+                    meshIndex: selected.index,
+                    meshName: String(mesh?.name || ""),
+                    firstIndex,
+                    indexCount: triangleCount * 3,
+                    triangleCount
+                });
+                groupIndex++;
+                totalTriangles += triangleCount;
+            }
+        }
+
+        positionBase += vertexCount;
+        if (hasTexcoord) texcoordBase += vertexCount;
+        if (hasNormal) normalBase += vertexCount;
+        totalVertices += vertexCount;
+        allNormals = allNormals && hasNormal;
+        allTexcoords = allTexcoords && hasTexcoord;
+    }
+
+    if (!totalTriangles) fail("Selected GR2 model produced no valid OBJ triangles", 22);
+    parent(output);
+    fs.writeFileSync(output, lines.join("\n") + "\n");
+    if (summary) {
+        parent(summary);
+        fs.writeFileSync(summary, JSON.stringify({
+            schema: "NSAMDR_GR2_CONVERSION_V5_BAKED_EVE_TEXTURE_V",
+            source: path.resolve(input),
+            output: path.resolve(output),
+            selectedModelIndex: selection.modelIndex,
+            selectedModelName: selection.modelName,
+            selectedMeshIndices: selection.selected.map(item => item.index),
+            rejectedLodMeshIndices: (selection.rejectedLods || []).map(item => item.index),
+            selectionMode: "highest-detail-per-mesh-family",
+            sourceMeshCount: decoded.root.meshes.length,
+            selectedMeshCount: selection.selected.length,
+            vertexCount: totalVertices,
+            triangleCount: totalTriangles,
+            hasNormal: allNormals,
+            hasTexcoord0: allTexcoords,
+            textureVConvention: "eve-gr2-source-v-baked",
+            textureVTransform: "v_out = v_gr2",
+            runtimeTextureVFlipRequired: false,
+            parserOptions: decoded.options,
+            drawRanges
+        }, null, 2) + "\n");
+    }
+    console.log(`GR2 render model: model=${selection.modelName || selection.modelIndex} meshes=${selection.selected.length} rejectedLods=${(selection.rejectedLods || []).length} vertices=${totalVertices} triangles=${totalTriangles} draws=${drawRanges.length}`);
+}
+
+function field(value, name, fallback = null) {
+    if (value instanceof Map) return value.has(name) ? value.get(name) : fallback;
+    if (value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, name)) return value[name];
+    return fallback;
+}
+function list(value, name) {
+    const result = field(value, name, []);
+    return Array.isArray(result) ? result : [];
+}
+function text(value, fallback = "") { return typeof value === "string" ? value.trim() : fallback; }
+function normalized(value) { return text(value).toLowerCase().replace(/[^a-z0-9]+/gu, ""); }
+function looseField(value, name) {
+    const wanted = normalized(name);
+    if (value instanceof Map) {
+        for (const [key, child] of value.entries()) if (normalized(String(key)) === wanted) return child;
+    } else if (value && typeof value === "object") {
+        for (const [key, child] of Object.entries(value)) if (normalized(key) === wanted) return child;
+    }
+    return null;
+}
+function plain(value, seen = new WeakSet()) {
+    if (value === null || value === undefined) return null;
+    if (typeof value !== "object") return value;
+    if (ArrayBuffer.isView(value)) return Array.from(value, Number);
+    if (seen.has(value)) return null;
+    seen.add(value);
+    if (Array.isArray(value)) return value.map(item => plain(item, seen));
+    const result = {};
+    if (value instanceof Map) {
+        for (const [key, child] of value.entries()) result[String(key)] = plain(child, seen);
+    } else {
+        for (const [key, child] of Object.entries(value)) result[key] = plain(child, seen);
+    }
+    return result;
+}
+function named(items, name) {
+    const wanted = normalized(name);
+    return items.find(item => normalized(field(item, "name", "")) === wanted) || null;
+}
+function normalizedResourcePath(value) {
+    return text(value)
+        .replace(/\\/gu, "/")
+        .replace(/\/+/gu, "/")
+        .toLowerCase()
+        .replace(/^res:\//u, "")
+        .replace(/^\/+/u, "");
+}
+function resourceBasename(value) {
+    const cleaned = normalizedResourcePath(value).replace(/[?#].*$/u, "");
+    return cleaned.slice(cleaned.lastIndexOf("/") + 1);
+}
+function resourceStem(value) {
+    return resourceBasename(value).replace(/\.[^.]*$/u, "");
+}
+function resourceDirectoryLeaf(value) {
+    const cleaned = normalizedResourcePath(value).replace(/[?#].*$/u, "");
+    const directory = cleaned.slice(0, Math.max(0, cleaned.lastIndexOf("/")));
+    return directory.slice(directory.lastIndexOf("/") + 1);
+}
+function uniqueHullMatch(matches, method, requestedHull, modelPath) {
+    if (matches.length === 1) return { hull: matches[0], method };
+    if (matches.length > 1) {
+        const details = matches.slice(0, 12).map(item =>
+            `${text(field(item, "name", "<unnamed>"))} -> ${text(field(item, "geometryResFilePath", "<no geometry>"))}`);
+        fail(
+            `SOF hull resolution is ambiguous (${method}) for requested=${requestedHull} model=${modelPath}: ${details.join("; ")}`,
+            41,
+        );
+    }
+    return null;
+}
+function resolveSofHull(hulls, requestedHull, modelPath) {
+    const targetPath = normalizedResourcePath(modelPath);
+    const targetBase = resourceBasename(targetPath);
+    const targetStem = resourceStem(targetPath);
+    const targetFamily = resourceDirectoryLeaf(targetPath);
+    const requested = normalized(requestedHull);
+
+    const geometry = hull => normalizedResourcePath(field(hull, "geometryResFilePath", ""));
+    const byExactPath = targetPath
+        ? hulls.filter(hull => geometry(hull) === targetPath)
+        : [];
+    let resolved = uniqueHullMatch(byExactPath, "exact-geometry-path", requestedHull, modelPath);
+    if (resolved) return resolved;
+
+    const byGeometryBase = targetBase
+        ? hulls.filter(hull => resourceBasename(geometry(hull)) === targetBase)
+        : [];
+    resolved = uniqueHullMatch(byGeometryBase, "geometry-basename", requestedHull, modelPath);
+    if (resolved) return resolved;
+
+    const targetName = normalized(targetStem);
+    const byTargetName = targetName
+        ? hulls.filter(hull => normalized(field(hull, "name", "")) === targetName)
+        : [];
+    resolved = uniqueHullMatch(byTargetName, "model-stem-name", requestedHull, modelPath);
+    if (resolved) return resolved;
+
+    const byRequestedName = requested
+        ? hulls.filter(hull => normalized(field(hull, "name", "")) === requested)
+        : [];
+    resolved = uniqueHullMatch(byRequestedName, "requested-name", requestedHull, modelPath);
+    if (resolved) return resolved;
+
+    // Some direct GR2 paths use a technical filename while SOF stores a family
+    // name. Only use the containing model-family directory when it identifies a
+    // single hull; never select the first partial match.
+    const byFamily = targetFamily
+        ? hulls.filter(hull => resourceDirectoryLeaf(geometry(hull)) === targetFamily)
+        : [];
+    resolved = uniqueHullMatch(byFamily, "geometry-family", requestedHull, modelPath);
+    if (resolved) return resolved;
+
+    const nearby = hulls
+        .filter(hull => {
+            const name = normalized(field(hull, "name", ""));
+            const geometryPath = geometry(hull);
+            return (requested && (name.includes(requested) || geometryPath.includes(`/${requested}/`))) ||
+                (targetFamily && (name.includes(normalized(targetFamily)) || geometryPath.includes(`/${targetFamily}/`)));
+        })
+        .slice(0, 20)
+        .map(hull => `${text(field(hull, "name", "<unnamed>"))} -> ${text(field(hull, "geometryResFilePath", "<no geometry>"))}`);
+    fail(
+        `SOF hull not found: requested=${requestedHull} model=${modelPath || "<missing>"}. ` +
+        `Nearby candidates: ${nearby.length ? nearby.join("; ") : "none"}`,
+        41,
+    );
+}
+function parameterMap(items) {
+    const out = {};
+    for (const item of items || []) {
+        const name = text(field(item, "name", ""));
+        if (name) out[name] = plain(field(item, "value", null));
+    }
+    return out;
+}
+function textureMap(items) {
+    const out = {};
+    let fallbackIndex = 0;
+    for (const item of items || []) {
+        const resource = text(field(item, "resFilePath", ""));
+        if (!resource) continue;
+        const name = text(field(item, "name", ""), `Texture${fallbackIndex++}`);
+        out[name] = resource.replace(/\\/gu, "/");
+    }
+    return out;
+}
+function genericStrings(items, fallbacks) {
+    const values = (items || []).map(item => text(field(item, "str", item))).filter(Boolean);
+    while (values.length < fallbacks.length) values.push(fallbacks[values.length]);
+    return values.slice(0, fallbacks.length);
+}
+
+function ensureBlackClass(name, definitions) {
+    let map = blackClasses.get(name);
+    if (!map) {
+        map = new Map();
+        blackClasses.set(name, map);
+    }
+    for (const [property, reader] of Object.entries(definitions)) if (!map.has(property)) map.set(property, reader);
+}
+function patchCurrentSofSchema() {
+    const r = blackReaders;
+    ensureBlackClass("EveSOFDataFaction", {
+        defaultPatternLayer2MaterialName: r.string,
+        defaultPatternName: r.string
     });
-    firstIndex += indexCount;
-    totalTriangles += groupTriangles;
-  });
-
-  if (!totalTriangles) throw new Error("GR2 conversion produced no renderable triangles");
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, `${lines.join("\n")}\n`, "utf8");
-
-  const summary = {
-    source: path.resolve(inputPath),
-    output: path.resolve(outputPath),
-    grannyFileFormatRevision: graph.grannyFileFormatRevision,
-    grannyFileSource: graph.grannyFileSource,
-    sourceMeshCount: graph.meshes.length,
-    selectedMesh: {
-      index: meshIndex,
-      name: mesh?.name || objectName,
-      vertices: vertexCount,
-      triangles: totalTriangles,
-      groups: groups.length,
-      hasNormals,
-      hasUv0: true
-    },
-    excludedMeshes: graph.meshes
-      .map((candidate, index) => ({ index, name: candidate?.name || `mesh_${index}`, triangles: meshTriangleCount(candidate) }))
-      .filter((entry) => entry.index !== meshIndex),
-    drawRanges,
-    totalVertices: vertexCount,
-    totalTriangles
-  };
-  if (summaryPath) fs.writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
-  console.log(`Converted highest-detail GR2 mesh -> OBJ: ${outputPath}`);
-  console.log(`Mesh=${summary.selectedMesh.name} vertices=${vertexCount} triangles=${totalTriangles} groups=${groups.length}`);
+    ensureBlackClass("EveSOFDataPattern", {
+        applicationGroups: r.array,
+        sof6: r.boolean
+    });
+    ensureBlackClass("EveSOFDataPatternLayerProperties", {
+        projectionTypeU: r.uint,
+        projectionTypeV: r.uint,
+        isTargetMtl1: r.boolean,
+        isTargetMtl2: r.boolean,
+        isTargetMtl3: r.boolean,
+        isTargetMtl4: r.boolean,
+        applicableAreas: r.array
+    });
+    ensureBlackClass("EveSOFDataPatternApplicationGroup", {
+        name: r.string,
+        layer1Properties: r.object,
+        layer2Properties: r.object,
+        projections: r.array
+    });
+    ensureBlackClass("EveSOFDNADescriptor", { pattern: r.string });
+    ensureBlackClass("EveSOFDataRace", {
+        hullPrimaryHeatColorType: r.uint,
+        hullReactorHeatColorType: r.uint
+    });
+    ensureBlackClass("EveSOFDataGeneric", {
+        shaderPrefix: r.string,
+        turretAreaType: r.uint,
+        hullCategoryData: r.array
+    });
+    ensureBlackClass("EveSOFDataGenericHullCategory", {
+        categoryName: r.string,
+        reflectionMode: r.uint
+    });
+    ensureBlackClass("EveSOFDataHull", { modelTranslationCurvePath: r.path });
+    // Current data.black adds this placement flag after extendsBoundingSphere.
+    // It is a boolean in Trinity's EveSOFDataHullExtensionPlacement schema.
+    ensureBlackClass("EveSOFDataHullExtensionPlacement", {
+        extendsShieldEllipsoid: r.boolean
+    });
 }
 
-function crc32(buffer) {
-  let crc = 0xffffffff;
-  for (const byte of buffer) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+function readBlack(file) {
+    patchCurrentSofSchema();
+    const input = fs.readFileSync(file);
+    const view = new DataView(input.buffer, input.byteOffset, input.byteLength);
+    const context = new BlackReader.Context();
+    try {
+        return BlackReader.read(view, context).object;
+    } catch (error) {
+        const details = [error?.name, error?.message, error?.type, error?.propertyName].filter(Boolean).join(" | ");
+        fail(`SOF data.black decode failed${details ? `: ${details}` : ""}`, 40);
     }
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function pngChunk(type, data) {
-  const typeBytes = Buffer.from(type, "ascii");
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(data.length, 0);
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(Buffer.concat([typeBytes, data])), 0);
-  return Buffer.concat([length, typeBytes, data, crc]);
-}
-
-function toRgba8(result) {
-  if (result.data instanceof Uint8Array) return Buffer.from(result.data);
-  if (result.data instanceof Float32Array) {
-    const output = Buffer.alloc(result.data.length);
-    for (let i = 0; i < result.data.length; i += 1) {
-      const value = Math.max(0, Math.min(1, finite(result.data[i])));
-      output[i] = Math.round(value * 255);
-    }
-    return output;
-  }
-  throw new Error(`Unsupported decoded DDS data type: ${result.data?.constructor?.name || typeof result.data}`);
-}
-
-function encodePng(width, height, rgba) {
-  if (rgba.length !== width * height * 4) {
-    throw new Error(`RGBA size mismatch: got ${rgba.length}, expected ${width * height * 4}`);
-  }
-  const scanlines = Buffer.alloc(height * (1 + width * 4));
-  const rowBytes = width * 4;
-  for (let y = 0; y < height; y += 1) {
-    const dst = y * (rowBytes + 1);
-    scanlines[dst] = 0;
-    rgba.copy(scanlines, dst + 1, y * rowBytes, (y + 1) * rowBytes);
-  }
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8;
-  ihdr[9] = 6;
-  ihdr[10] = 0;
-  ihdr[11] = 0;
-  ihdr[12] = 0;
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    pngChunk("IHDR", ihdr),
-    pngChunk("IDAT", zlib.deflateSync(scanlines, { level: 9 })),
-    pngChunk("IEND", Buffer.alloc(0))
-  ]);
-}
-
-function writePngFromDds(inputPath, outputPath) {
-  const bytes = fs.readFileSync(inputPath);
-  const decoded = CjsDdsFormat.read(bytes, { emit: "rgba", source: inputPath });
-  const rgba = toRgba8(decoded);
-  const png = encodePng(decoded.width, decoded.height, rgba);
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, png);
-  console.log(`Converted DDS -> PNG: ${outputPath}`);
-  console.log(`${decoded.width}x${decoded.height} ${decoded.metadata?.pixelFormat || decoded.pixelFormat}`);
-}
-
-
-function makeSingleFaceDds(sourceBytes, texture, subresource) {
-  const metadata = texture.metadata;
-  const dataOffset = metadata.dataOffset;
-  const header = Buffer.from(sourceBytes.subarray(0, dataOffset));
-  header.writeUInt32LE(1, 28); // mip count
-  if (header.length >= 128) {
-    const caps = header.readUInt32LE(108) & ~0x00400008; // DDSCAPS_MIPMAP | DDSCAPS_COMPLEX
-    header.writeUInt32LE(caps, 108);
-    header.writeUInt32LE(0, 112); // caps2 cubemap/volume flags
-    header.writeUInt32LE(0, 116);
-    header.writeUInt32LE(0, 120);
-    header.writeUInt32LE(0, 124);
-  }
-  if (metadata.hasDx10 && header.length >= 148) {
-    header.writeUInt32LE(header.readUInt32LE(136) & ~0x4, 136); // clear TEXTURECUBE
-    header.writeUInt32LE(1, 140); // one array layer
-  }
-  const source = Buffer.from(texture.data.buffer, texture.data.byteOffset, texture.data.byteLength);
-  const faceData = source.subarray(subresource.offset, subresource.offset + subresource.byteLength);
-  return Buffer.concat([header, faceData]);
-}
-
-function decodeCubeFaces(bytes, inputPath) {
-  const texture = CjsDdsFormat.read(bytes, { emit: "texture", source: inputPath });
-  if (!texture?.metadata?.isCube || texture.faces < 6) return null;
-  const faces = [];
-  for (let face = 0; face < 6; face += 1) {
-    const subresource = texture.subresources.find((entry) => entry.face === face && entry.mip === 0 && entry.arrayIndex === 0);
-    if (!subresource) throw new Error(`Cubemap is missing face ${face}`);
-    const faceDds = makeSingleFaceDds(bytes, texture, subresource);
-    const decoded = CjsDdsFormat.read(faceDds, { emit: "rgba", source: `${inputPath}#face${face}` });
-    faces.push({ width: decoded.width, height: decoded.height, rgba: toRgba8(decoded) });
-  }
-  return faces;
-}
-
-function directionToCubeFace(x, y, z) {
-  const ax = Math.abs(x), ay = Math.abs(y), az = Math.abs(z);
-  let face, u, v;
-  if (ax >= ay && ax >= az) {
-    if (x >= 0) { face = 0; u = -z / ax; v = -y / ax; }
-    else { face = 1; u = z / ax; v = -y / ax; }
-  } else if (ay >= ax && ay >= az) {
-    if (y >= 0) { face = 2; u = x / ay; v = z / ay; }
-    else { face = 3; u = x / ay; v = -z / ay; }
-  } else if (z >= 0) {
-    face = 4; u = x / az; v = -y / az;
-  } else {
-    face = 5; u = -x / az; v = -y / az;
-  }
-  return { face, u: u * 0.5 + 0.5, v: v * 0.5 + 0.5 };
-}
-
-function sampleFace(face, u, v, channel) {
-  const x = Math.max(0, Math.min(face.width - 1, u * (face.width - 1)));
-  const y = Math.max(0, Math.min(face.height - 1, v * (face.height - 1)));
-  const x0 = Math.floor(x), y0 = Math.floor(y);
-  const x1 = Math.min(x0 + 1, face.width - 1), y1 = Math.min(y0 + 1, face.height - 1);
-  const tx = x - x0, ty = y - y0;
-  const at = (px, py) => face.rgba[(py * face.width + px) * 4 + channel];
-  const a = at(x0, y0) * (1 - tx) + at(x1, y0) * tx;
-  const b = at(x0, y1) * (1 - tx) + at(x1, y1) * tx;
-  return Math.round(a * (1 - ty) + b * ty);
-}
-
-function writeEnvironmentPngFromDds(inputPath, outputPath) {
-  const bytes = fs.readFileSync(inputPath);
-  const faces = decodeCubeFaces(bytes, inputPath);
-  if (!faces) {
-    writePngFromDds(inputPath, outputPath);
-    console.log("Environment source is a 2D DDS; using it directly.");
-    return;
-  }
-
-  const faceWidth = faces[0].width;
-  const outputWidth = Math.min(Math.max(faceWidth * 4, 1024), 4096);
-  const outputHeight = Math.floor(outputWidth / 2);
-  const output = Buffer.alloc(outputWidth * outputHeight * 4);
-  for (let y = 0; y < outputHeight; y += 1) {
-    const latitude = (0.5 - (y + 0.5) / outputHeight) * Math.PI;
-    const cosLatitude = Math.cos(latitude);
-    const directionY = Math.sin(latitude);
-    for (let x = 0; x < outputWidth; x += 1) {
-      const longitude = (((x + 0.5) / outputWidth) * 2 - 1) * Math.PI;
-      const directionX = Math.sin(longitude) * cosLatitude;
-      const directionZ = Math.cos(longitude) * cosLatitude;
-      const mapping = directionToCubeFace(directionX, directionY, directionZ);
-      const face = faces[mapping.face];
-      const offset = (y * outputWidth + x) * 4;
-      output[offset] = sampleFace(face, mapping.u, mapping.v, 0);
-      output[offset + 1] = sampleFace(face, mapping.u, mapping.v, 1);
-      output[offset + 2] = sampleFace(face, mapping.u, mapping.v, 2);
-      output[offset + 3] = 255;
-    }
-  }
-  const png = encodePng(outputWidth, outputHeight, output);
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, png);
-  console.log(`Converted EVE cubemap DDS -> equirectangular PNG: ${outputPath}`);
-  console.log(`${outputWidth}x${outputHeight}, source face ${faces[0].width}x${faces[0].height}`);
 }
 
 const AREA_TYPE_NAMES = [
-  "primary", "glass", "sails", "reactor", "darkhull", "wreck",
-  "rock", "monument", "ornament", "simpleprimary", "turret"
+    "primary", "glass", "sails", "reactor", "darkhull", "wreck",
+    "rock", "monument", "ornament", "simpleprimary", "turret"
 ];
-
-function asArray(value) {
-  if (Array.isArray(value)) return value;
-  if (value === null || value === undefined) return [];
-  if (Array.isArray(value.items)) return value.items;
-  if (Array.isArray(value.values)) return value.values;
-  if (typeof value === "object" && !value._type && !value.name && !value.Name) return Object.values(value);
-  return [value];
+function areaTypeName(value) {
+    if (typeof value === "number" && value >= 0 && value < AREA_TYPE_NAMES.length) return AREA_TYPE_NAMES[value];
+    const result = normalized(String(value || "primary")).replace(/^type/iu, "");
+    return result || "primary";
 }
-
-function objectName(value) {
-  return String(value?.name ?? value?._id ?? value?.Name ?? "").trim();
+function areaMaterial(faction, areaType) {
+    const areaTypes = field(faction, "areaTypes", null);
+    const value = looseField(areaTypes, areaType);
+    if (value) return value;
+    return looseField(areaTypes, "primary");
 }
-
-function findNamed(values, name) {
-  const wanted = String(name || "").trim().toLowerCase();
-  if (!wanted) return null;
-  if (values && typeof values === "object" && !Array.isArray(values)) {
-    for (const [key, value] of Object.entries(values)) {
-      if (key.toLowerCase() === wanted) return value;
+function shaderMatches(candidate, wanted) {
+    const left = normalized(candidate), right = normalized(wanted);
+    return !!left && !!right && (left === right || left.endsWith(right) || right.endsWith(left));
+}
+function findGenericShader(generic, shader) {
+    return list(generic, "areaShaders").find(item => shaderMatches(field(item, "shader", ""), shader)) || null;
+}
+function mergeObject(target, source, sourceName, sources) {
+    for (const [key, value] of Object.entries(source || {})) {
+        target[key] = value;
+        if (sources) sources[key] = sourceName;
     }
-  }
-  return asArray(values).find((value) => objectName(value).toLowerCase() === wanted) || null;
+}
+function materialNamesForArea(faction, areaType) {
+    const material = areaMaterial(faction, areaType);
+    return [1, 2, 3, 4].map(index => text(field(material, `material${index}`, "")));
+}
+function factionAreaParameters(faction, areaName) {
+    const match = named(list(faction, "areas"), areaName);
+    return match ? parameterMap(list(match, "parameters")) : {};
 }
 
-function plainValue(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "number" || typeof value === "string" || typeof value === "boolean") return value;
-  if (ArrayBuffer.isView(value)) return Array.from(value, plainValue);
-  if (Array.isArray(value)) return value.map(plainValue);
-  if (value instanceof Map) {
-    const output = {};
-    for (const [key, child] of value.entries()) output[String(key)] = plainValue(child);
-    return output;
-  }
-  if (value instanceof Set) return Array.from(value, plainValue);
-  if (typeof value === "object") {
-    if (["x", "y", "z", "w"].some((key) => key in value)) {
-      return ["x", "y", "z", "w"].filter((key) => key in value).map((key) => finite(Number(value[key])));
-    }
-    if (["r", "g", "b", "a"].some((key) => key in value)) {
-      return ["r", "g", "b", "a"].filter((key) => key in value).map((key) => finite(Number(value[key])));
-    }
-    if ("value" in value && Object.keys(value).every((key) => ["_type", "name", "value"].includes(key))) {
-      return plainValue(value.value);
-    }
-    const output = {};
-    for (const [key, child] of Object.entries(value)) {
-      if (key === "_type" || child === undefined) continue;
-      output[key] = plainValue(child);
-    }
-    return output;
-  }
-  return null;
-}
+function projectArea(area, passName, faction, generic, materialsByName, prefixes) {
+    const areaType = areaTypeName(field(area, "areaType", 0));
+    const areaName = text(field(area, "name", ""));
+    const shader = text(field(area, "shader", ""));
+    const genericShader = findGenericShader(generic, shader);
+    const textures = {};
+    mergeObject(textures, textureMap(list(genericShader, "defaultTextures")));
+    mergeObject(textures, textureMap(list(area, "textures")));
 
-function parameterMap(values) {
-  const output = {};
-  if (values && typeof values === "object" && !Array.isArray(values) &&
-      !values.name && !values.Name && !Array.isArray(values.items) && !Array.isArray(values.values)) {
-    for (const [key, item] of Object.entries(values)) {
-      if (key === "_type" || item === undefined) continue;
-      const name = objectName(item) || key;
-      output[name] = plainValue(item?.value ?? item);
-    }
-    return output;
-  }
-  for (const item of asArray(values)) {
-    const name = objectName(item);
-    if (name) output[name] = plainValue(item?.value ?? item);
-  }
-  return output;
-}
+    const resolvedParameters = {};
+    const parameterSources = {};
+    mergeObject(resolvedParameters, parameterMap(list(genericShader, "defaultParameters")), "generic-shader", parameterSources);
+    mergeObject(resolvedParameters, factionAreaParameters(faction, areaName), "faction-area", parameterSources);
+    mergeObject(resolvedParameters, parameterMap(list(area, "parameters")), "hull-area", parameterSources);
 
-function textureMap(values) {
-  const output = {};
-  if (values && typeof values === "object" && !Array.isArray(values) &&
-      !values.name && !values.Name && !Array.isArray(values.items) && !Array.isArray(values.values)) {
-    for (const [key, item] of Object.entries(values)) {
-      if (key === "_type" || item === undefined || item === null) continue;
-      const name = objectName(item) || key;
-      const raw = typeof item === "string" ? item :
-        (item?.resFilePath ?? item?.resourcePath ?? item?.path ?? item?.value ?? "");
-      const resource = String(raw).trim();
-      if (name && resource) output[name] = resource.replace(/\\/g, "/");
-    }
-    return output;
-  }
-  for (const item of asArray(values)) {
-    const name = objectName(item);
-    const resource = String(item?.resFilePath ?? item?.resourcePath ?? item?.path ?? item?.value ?? "").trim();
-    if (name && resource) output[name] = resource.replace(/\\/g, "/");
-  }
-  return output;
-}
-
-function normalizeAreaType(value) {
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase().replace(/^type_/, "");
-    if (/^\d+$/.test(normalized)) {
-      const numeric = Number(normalized);
-      return AREA_TYPE_NAMES[numeric] || `type_${numeric}`;
-    }
-    return normalized;
-  }
-  const numeric = Number(value);
-  return AREA_TYPE_NAMES[numeric] || `type_${Number.isFinite(numeric) ? numeric : "unknown"}`;
-}
-
-function findGenericShader(generic, shaderPath, passName) {
-  const lists = passName === "decal"
-    ? [generic?.decalShaders, generic?.areaShaders]
-    : [generic?.areaShaders, generic?.decalShaders];
-  const wanted = String(shaderPath || "").toLowerCase();
-  const wantedBase = path.basename(wanted);
-  for (const list of lists) {
-    const shaders = asArray(list);
-    const exact = shaders.find((item) => String(item?.shader || "").toLowerCase() === wanted);
-    if (exact) return exact;
-    const basename = shaders.find((item) => path.basename(String(item?.shader || "").toLowerCase()) === wantedBase);
-    if (basename) return basename;
-  }
-  return null;
-}
-
-function stringList(value) {
-  return asArray(value)
-    .map((item) => typeof item === "string" ? item : String(item?.str ?? item?.value ?? item?.name ?? ""))
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function normalKey(value) {
-  return String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-function findStringifiedObject(value, pathName = "$", seen = new WeakSet()) {
-  if (value === "[object Object]") return pathName;
-  if (value === null || typeof value !== "object") return "";
-  if (seen.has(value)) return "";
-  seen.add(value);
-  if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index += 1) {
-      const found = findStringifiedObject(value[index], `${pathName}[${index}]`, seen);
-      if (found) return found;
-    }
-  } else {
-    for (const [key, child] of Object.entries(value)) {
-      const found = findStringifiedObject(child, `${pathName}.${key}`, seen);
-      if (found) return found;
-    }
-  }
-  return "";
-}
-
-function mapLookup(object, name) {
-  if (!object || typeof object !== "object") return undefined;
-  const wanted = normalKey(name);
-  for (const [key, value] of Object.entries(object)) {
-    if (normalKey(key) === wanted) return value;
-  }
-  return undefined;
-}
-
-function areaMaterialMap(areaTypes) {
-  const source = areaTypes?.materials && typeof areaTypes.materials === "object"
-    ? areaTypes.materials
-    : areaTypes;
-  const output = {};
-  if (source && typeof source === "object" && !Array.isArray(source)) {
-    for (const [key, value] of Object.entries(source)) {
-      if (key === "_type" || value === null || value === undefined) continue;
-      const normalized = plainValue(value);
-      if (normalized && typeof normalized === "object" && mapLookup(normalized, "colorType") === undefined) {
-        // EveSOFDataAreaMaterial.colorType defaults to primary (0). Document
-        // mode preserves only persisted fields, so restore the class default.
-        normalized.colorType = 0;
-      }
-      output[normalizeAreaType(key)] = normalized;
-    }
-  } else {
-    asArray(source).forEach((value, index) => {
-      if (!value) return;
-      const key = normalizeAreaType(value?.areaType ?? value?.type ?? index);
-      const normalized = plainValue(value);
-      if (normalized && typeof normalized === "object" && mapLookup(normalized, "colorType") === undefined) {
-        normalized.colorType = 0;
-      }
-      output[key] = normalized;
-    });
-  }
-  return output;
-}
-
-function mergeAreaMaterial(base, override) {
-  const baseValue = base && typeof base === "object" ? plainValue(base) : {};
-  const overrideValue = override && typeof override === "object" ? plainValue(override) : {};
-  return { ...baseValue, ...overrideValue };
-}
-
-function areaMaterialFor(materials, areaType) {
-  const primary = mapLookup(materials, "primary") || null;
-  const specific = mapLookup(materials, areaType) || null;
-  if (areaType === "primary") return primary;
-  if (primary && specific) return mergeAreaMaterial(primary, specific);
-  return specific || primary || null;
-}
-
-function materialNameValue(value, preferredKey = "") {
-  if (typeof value === "string" && value.trim()) return value.trim();
-  if (!value || typeof value !== "object") return "";
-
-  // Black document output preserves indexed source fields. A field such as
-  // material1 can therefore arrive as { material1: "black_satin_enamel" }.
-  // Unwrap those source-shape containers without flattening unrelated objects.
-  for (const key of [preferredKey, "value", "name", "str"]) {
-    if (!key) continue;
-    const nested = mapLookup(value, key);
-    if (typeof nested === "string" && nested.trim()) return nested.trim();
-  }
-  const entries = Object.entries(value).filter(([key, child]) => key !== "_type" && child !== undefined && child !== null);
-  if (entries.length === 1) {
-    return materialNameValue(entries[0][1], entries[0][0]);
-  }
-  return "";
-}
-
-function materialNameFromArea(areaMaterial, slot) {
-  if (!areaMaterial || typeof areaMaterial !== "object") return "";
-
-  const directCandidates = [
-    `material${slot + 1}`,
-    `mtl${slot + 1}`,
-    `m_material${slot + 1}`,
-    String(slot),
-  ];
-  for (const candidate of directCandidates) {
-    const value = mapLookup(areaMaterial, candidate);
-    const name = materialNameValue(value, candidate);
-    if (name) return name;
-  }
-
-  for (const collectionName of ["material", "materials", "m_material"]) {
-    const collection = mapLookup(areaMaterial, collectionName);
-    if (Array.isArray(collection)) {
-      const name = materialNameValue(collection[slot], `material${slot + 1}`);
-      if (name) return name;
-    } else if (collection && typeof collection === "object") {
-      for (const candidate of [String(slot), `material${slot + 1}`, `mtl${slot + 1}`]) {
-        const name = materialNameValue(mapLookup(collection, candidate), candidate);
-        if (name) return name;
-      }
-    }
-  }
-  return "";
-}
-
-function materialParameter(materialLibrary, materialName, parameterName) {
-  if (!materialName) return null;
-  const material = mapLookup(materialLibrary, materialName) || findNamed(materialLibrary, materialName);
-  if (!material) return null;
-  const parameters = parameterMap(material?.parameters ?? material?.parameter ?? material);
-  return plainValue(mapLookup(parameters, parameterName));
-}
-
-function buildMaterialLibrary(values) {
-  const output = {};
-  const addMaterial = (material, fallbackName = "") => {
-    if (material === null || material === undefined) return;
-    const name = objectName(material) || String(fallbackName || "").trim();
-    if (!name) return;
-    output[name] = {
-      name,
-      parameters: parameterMap(material?.parameters ?? material?.parameter ?? material),
-    };
-  };
-
-  if (values && typeof values === "object" && !Array.isArray(values) &&
-      !values.name && !values.Name && !Array.isArray(values.items) && !Array.isArray(values.values)) {
-    for (const [key, material] of Object.entries(values)) {
-      if (key === "_type") continue;
-      addMaterial(material, key);
-    }
-  } else {
-    for (const material of asArray(values)) addMaterial(material);
-  }
-  return output;
-}
-
-const COLOR_TYPE_NAMES = [
-  "primary", "secondary", "tertiary", "black", "white", "yellow", "orange", "red", "blue", "green", "cyan", "fire",
-  "hull", "glass", "reactor", "darkhull", "booster", "killmark", "primarylight", "secondarylight", "tertiarylight", "whitelight",
-  "primaryhologram", "secondaryhologram", "tertiaryhologram", "state0", "state1", "state2", "state3", "statevulnerable",
-  "stateinvulnerable", "primaryforcefield", "secondaryforcefield", "primarybanner", "primaryfx", "secondaryfx", "primaryspotlight",
-  "secondaryspotlight", "tertiaryspotlight", "primarybillboard", "primarywarpfx", "primaryattackfx", "primarysiegefx", "primarydockedfx"
-];
-
-function colorSetValue(colorSet, colorType) {
-  if (colorType === null || colorType === undefined) return null;
-  const source = colorSet?.colors && typeof colorSet.colors === "object"
-    ? colorSet.colors
-    : colorSet;
-  const numeric = Number(colorType);
-  const candidates = [];
-  if (Number.isInteger(numeric) && numeric >= 0 && numeric < COLOR_TYPE_NAMES.length) {
-    candidates.push(COLOR_TYPE_NAMES[numeric], `type_${COLOR_TYPE_NAMES[numeric]}`, String(numeric));
-    if (Array.isArray(source) && source[numeric] !== undefined) return plainValue(source[numeric]);
-  }
-  if (typeof colorType === "string") {
-    candidates.push(colorType, colorType.replace(/^TYPE_/i, ""));
-  }
-  for (const candidate of candidates) {
-    const found = mapLookup(source, candidate);
-    if (found !== undefined) return plainValue(found);
-  }
-  return null;
-}
-
-function scaleVector4(value, multiplier) {
-  const vector = plainValue(value);
-  if (!Array.isArray(vector)) return null;
-  return [0, 1, 2, 3].map((index) => finite(Number(vector[index] ?? (index === 3 ? 1 : 0))) * Number(multiplier[index] ?? 1));
-}
-
-function materialUsageSlots(faction) {
-  return [0, 1, 2, 3].map((fallback, slot) => {
-    const value = Number(faction?.[`materialUsageMtl${slot + 1}`]);
-    return Number.isInteger(value) && value >= 0 && value < 4 ? value : fallback;
-  });
-}
-
-function resolveAreaVisuals(area, passName, generic, faction, race, materialLibrary, factionAreaMaterials, raceAreaMaterials) {
-  const shader = String(area?.shader || "").replace(/\\/g, "/");
-  const shaderDefinition = findGenericShader(generic, shader, passName);
-  const areaType = normalizeAreaType(area?.areaType ?? 0);
-  const blockedMaterials = Number(area?.blockedMaterials || 0);
-  const materialPrefixes = stringList(generic?.materialPrefixes);
-  const fallbackPrefixes = ["Mtl1", "Mtl2", "Mtl3", "Mtl4"];
-  const prefixes = materialPrefixes.length >= 4 ? materialPrefixes : fallbackPrefixes;
-  const areaParameters = parameterMap(area?.parameters);
-  const genericArea = mapLookup(generic?.hullAreas, objectName(area)) ?? mapLookup(generic?.hullAreas, areaType);
-  const genericAreaParameters = parameterMap(genericArea?.parameters ?? genericArea);
-  const defaultParameters = parameterMap(shaderDefinition?.defaultParameters);
-  const parameterNames = new Set(stringList(shaderDefinition?.parameters));
-  for (const name of Object.keys(areaParameters)) parameterNames.add(name);
-  for (const name of Object.keys(defaultParameters)) parameterNames.add(name);
-
-  // These are the visible quad material inputs used by the EVE hull shader. Add
-  // them even when an older data.black omits the parameter list from generic data.
-  for (let slot = 0; slot < 4; slot += 1) {
-    parameterNames.add(`${prefixes[slot]}DiffuseColor`);
-    parameterNames.add(`${prefixes[slot]}FresnelColor`);
-    parameterNames.add(`${prefixes[slot]}Gloss`);
-  }
-  parameterNames.add("GeneralGlowColor");
-
-  const raceArea = (areaType === "primary" || areaType === "reactor")
-    ? areaMaterialFor(raceAreaMaterials, areaType)
-    : null;
-  const factionArea = areaMaterialFor(factionAreaMaterials, areaType);
-  const raceAreaParameters = parameterMap(raceArea?.parameters);
-  const factionAreaParameters = parameterMap(factionArea?.parameters);
-  const usageSlots = materialUsageSlots(faction);
-  const materialNames = [];
-  for (let slot = 0; slot < 4; slot += 1) {
-    const sourceSlot = usageSlots[slot];
-    materialNames.push(materialNameFromArea(raceArea, sourceSlot) || materialNameFromArea(factionArea, sourceSlot));
-  }
-
-  const resolvedParameters = {};
-  const parameterSources = {};
-  const unresolvedParameters = [];
-  for (const parameterName of parameterNames) {
-    let value;
-    let source = "";
-    let materialSlot = -1;
-    let shortName = parameterName;
-    for (let slot = 0; slot < prefixes.length; slot += 1) {
-      if (parameterName.toLowerCase().startsWith(prefixes[slot].toLowerCase())) {
-        materialSlot = slot;
-        shortName = parameterName.slice(prefixes[slot].length);
-        break;
-      }
-    }
-
-    if (materialSlot >= 0 && (blockedMaterials & (1 << materialSlot)) === 0) {
-      const sourceSlot = usageSlots[materialSlot];
-      const raceMaterialName = materialNameFromArea(raceArea, sourceSlot);
-      const factionMaterialName = materialNameFromArea(factionArea, sourceSlot);
-      for (const [materialName, label] of [[raceMaterialName, "race material"], [factionMaterialName, "faction material"]]) {
-        if (!materialName) continue;
-        const candidate = materialParameter(materialLibrary, materialName, shortName);
-        if (candidate !== null && candidate !== undefined) {
-          value = candidate;
-          source = `${label}:${materialName}`;
-          break;
+    const materialNames = materialNamesForArea(faction, areaType);
+    const materialLibraryMatches = [];
+    const unresolvedParameters = [];
+    for (let index = 0; index < 4; index++) {
+        const materialName = materialNames[index];
+        const material = materialsByName.get(normalized(materialName));
+        if (material) materialLibraryMatches.push(materialName);
+        const parameters = material ? parameterMap(list(material, "parameters")) : {};
+        const prefix = prefixes[index] || `Mtl${index + 1}`;
+        for (const [parameterName, value] of Object.entries(parameters)) {
+            const outputName = `${prefix}${parameterName}`;
+            resolvedParameters[outputName] = value;
+            parameterSources[outputName] = `material:${materialName}`;
         }
-      }
-    } else if (materialSlot < 0 && normalKey(parameterName) === "generalglowcolor") {
-      const factionColorType = mapLookup(factionArea, "colorType");
-      const glowColor = colorSetValue(faction?.colorSet, factionColorType);
-      if (glowColor !== null && glowColor !== undefined) {
-        // Match the SOF hull path: faction area colour multiplied by the
-        // standard GeneralGlowColor intensity multiplier.
-        value = scaleVector4(glowColor, [10, 10, 10, 1]);
-        source = "faction colorSet";
-      }
-    } else if (materialSlot < 0 && normalKey(parameterName) === "generalheatglowcolor") {
-      const heatColor = race?.booster?.glowColor;
-      if (heatColor !== null && heatColor !== undefined) {
-        value = scaleVector4(heatColor, [100, 100, 100, 1]);
-        source = "race booster glowColor";
-      }
+        for (const required of ("DiffuseColor", "FresnelColor", "Gloss")) {
+            if (!Object.prototype.hasOwnProperty.call(parameters, required)) unresolvedParameters.push(`${prefix}${required}`);
+        }
+    }
+    for (const required of ("GeneralGlowColor", "GeneralData")) {
+        if (!Object.prototype.hasOwnProperty.call(resolvedParameters, required)) unresolvedParameters.push(required);
     }
 
-    for (const [parameters, label] of [
-      [genericAreaParameters, "generic hull area"],
-      [raceAreaParameters, "race area"],
-      [factionAreaParameters, "faction area"],
-      [areaParameters, "hull area"],
-      [defaultParameters, "generic shader default"],
-    ]) {
-      if (value !== null && value !== undefined) break;
-      const candidate = mapLookup(parameters, parameterName);
-      if (candidate !== undefined) {
-        value = plainValue(candidate);
-        source = label;
-      }
+    return {
+        pass: passName,
+        index: Number(field(area, "index", 0)) || 0,
+        count: Math.max(1, Number(field(area, "count", 1)) || 1),
+        areaType,
+        name: areaName,
+        shader,
+        blockedMaterials: Number(field(area, "blockedMaterials", 0)) || 0,
+        textures,
+        materialNames,
+        materialLibraryMatches,
+        materialPrefixes: prefixes,
+        resolvedParameters,
+        parameterSources,
+        unresolvedParameters
+    };
+}
+
+function sofToJson(input, output, hullName, factionName, raceName, modelPath) {
+    const root = readBlack(input);
+    const hulls = list(root, "hull"), factions = list(root, "faction"), races = list(root, "race");
+    const hullSelection = resolveSofHull(hulls, hullName, modelPath);
+    const hull = hullSelection.hull;
+    const faction = named(factions, factionName);
+    const race = raceName ? named(races, raceName) : null;
+    if (!faction) fail(`SOF faction not found in data.black: ${factionName}`, 42);
+
+    const generic = field(root, "generic", null);
+    const materials = list(root, "material");
+    const materialsByName = new Map(materials.map(material => [normalized(field(material, "name", "")), material]));
+    const prefixes = genericStrings(list(generic, "materialPrefixes"), ["Mtl1", "Mtl2", "Mtl3", "Mtl4"]);
+    const areas = [];
+    const passFields = [
+        ["opaque", "opaqueAreas"],
+        ["decal", "decalAreas"],
+        ["transparent", "transparentAreas"],
+        ["additive", "additiveAreas"],
+        ["distortion", "distortionAreas"],
+        ["depth", "depthAreas"]
+    ];
+    for (const [passName, property] of passFields) {
+        for (const area of list(hull, property)) areas.push(projectArea(area, passName, faction, generic, materialsByName, prefixes));
     }
 
-    if (value !== null && value !== undefined) {
-      resolvedParameters[parameterName] = value;
-      parameterSources[parameterName] = source;
-    } else {
-      unresolvedParameters.push(parameterName);
+    const areaMaterials = {};
+    for (const areaType of AREA_TYPE_NAMES) {
+        const material = areaMaterial(faction, areaType);
+        if (material) areaMaterials[areaType] = plain(material);
     }
-  }
-
-  return {
-    shader,
-    shaderDefinition: String(shaderDefinition?.shader || ""),
-    areaType,
-    blockedMaterials,
-    materialPrefixes: prefixes.slice(0, 4),
-    materialNames,
-    resolvedParameters,
-    parameterSources,
-    unresolvedParameters,
-    materialLibraryMatches: materialNames.map((name) => Boolean(name && (mapLookup(materialLibrary, name) || findNamed(materialLibrary, name)))),
-    defaultTextures: textureMap(shaderDefinition?.defaultTextures)
-  };
-}
-
-function areaManifest(area, passName, generic, faction, race, materialLibrary, factionAreaMaterials, raceAreaMaterials) {
-  const visuals = resolveAreaVisuals(area, passName, generic, faction, race, materialLibrary, factionAreaMaterials, raceAreaMaterials);
-  return {
-    pass: passName,
-    index: Number(area?.index || 0),
-    count: Math.max(1, Number(area?.count || 1)),
-    name: objectName(area),
-    areaType: visuals.areaType,
-    shader: visuals.shader,
-    shaderDefinition: visuals.shaderDefinition,
-    blockedMaterials: visuals.blockedMaterials,
-    textures: { ...visuals.defaultTextures, ...textureMap(area?.textures) },
-    parameters: parameterMap(area?.parameters),
-    resolvedParameters: visuals.resolvedParameters,
-    parameterSources: visuals.parameterSources,
-    unresolvedParameters: visuals.unresolvedParameters,
-    materialPrefixes: visuals.materialPrefixes,
-    materialNames: visuals.materialNames,
-    materialLibraryMatches: visuals.materialLibraryMatches
-  };
-}
-
-function isBlackDocumentRef(value) {
-  return Boolean(value && typeof value === "object" && Number.isInteger(value.$ref));
-}
-
-function createBlackDocumentResolver(document) {
-  const nodes = Array.isArray(document?.nodes) ? document.nodes : [];
-  const byId = new Map(nodes.map((node) => [Number(node.id), node]));
-  const byKind = new Map();
-  for (const node of nodes) {
-    const list = byKind.get(node.kind) || [];
-    list.push(node);
-    byKind.set(node.kind, list);
-  }
-
-  function resolveValue(value, cache = new Map()) {
-    if (isBlackDocumentRef(value)) return resolveNode(value.$ref, cache);
-    if (ArrayBuffer.isView(value)) return Array.from(value);
-    if (Array.isArray(value)) return value.map((child) => resolveValue(child, cache));
-    if (!value || typeof value !== "object") return value;
-    const output = {};
-    for (const [key, child] of Object.entries(value)) output[key] = resolveValue(child, cache);
-    return output;
-  }
-
-  function resolveNode(id, cache = new Map()) {
-    const numericId = Number(id);
-    if (cache.has(numericId)) return cache.get(numericId);
-    const node = byId.get(numericId);
-    if (!node) throw new Error(`Black document reference ${numericId} was not found`);
-    const output = { _sourceClassName: node.kind };
-    cache.set(numericId, output);
-    for (const [key, child] of Object.entries(node.fields || {})) {
-      output[key] = resolveValue(child, cache);
+    const materialLibrary = {};
+    for (const material of materials) {
+        const name = text(field(material, "name", ""));
+        if (name) materialLibrary[name] = parameterMap(list(material, "parameters"));
     }
-    return output;
-  }
+    const instancedMeshes = list(hull, "instancedMeshes").map(item => ({
+        name: text(field(item, "name", "")),
+        geometryResPath: text(field(item, "geometryResPath", "")).replace(/\\/gu, "/"),
+        shader: text(field(item, "shader", "")),
+        lowestLodVisible: Number(field(item, "lowestLodVisible", 0)) || 0,
+        displayModifier: Number(field(item, "displayModifier", 0)) || 0,
+        textures: textureMap(list(item, "textures")),
+        instances: plain(field(item, "instances", []))
+    }));
 
-  function nodeByName(kind, name) {
-    const wanted = String(name || "").trim().toLowerCase();
-    if (!wanted) return null;
-    return (byKind.get(kind) || []).find((node) => String(node?.fields?.name ?? node?.fields?.Name ?? "").trim().toLowerCase() === wanted) || null;
-  }
-
-  return { byKind, resolveValue, resolveNode, nodeByName };
+    const result = {
+        schema: "NSAMDR_SOF_VISUALS_V2",
+        source: path.resolve(input),
+        requestedHull: hullName,
+        requestedModelPath: modelPath,
+        hullResolution: hullSelection.method,
+        hull: text(field(hull, "name", hullName)),
+        faction: text(field(faction, "name", factionName)),
+        race: race ? text(field(race, "name", raceName)) : raceName,
+        geometryResFilePath: text(field(hull, "geometryResFilePath", "")).replace(/\\/gu, "/"),
+        resPathInsert: text(field(faction, "resPathInsert", "")),
+        colors: plain(field(faction, "colorSet", null)) || {},
+        areaMaterials,
+        materialLibrary,
+        areas,
+        instancedMeshes,
+        children: list(hull, "children").map(item => plain(item)),
+        extractionDiagnostics: {
+            parser: "black-reader-js",
+            hullCount: hulls.length,
+            factionCount: factions.length,
+            materialCount: materials.length,
+            selectedAreaCount: areas.length,
+            selectedInstancedMeshCount: instancedMeshes.length,
+            selectedModelGeometry: text(field(hull, "geometryResFilePath", ""))
+        }
+    };
+    parent(output);
+    fs.writeFileSync(output, JSON.stringify(result, null, 2) + "\n");
+    console.log(`SOF hull resolution: requested=${hullName} resolved=${result.hull} method=${hullSelection.method} geometry=${result.geometryResFilePath}`);
+    console.log(`SOF visual extraction: hull=${result.hull} faction=${result.faction} areas=${areas.length} instancedMeshes=${instancedMeshes.length} materials=${materials.length}`);
 }
 
-function resolveDocumentHull(resolver, name) {
-  const node = resolver.nodeByName("EveSOFDataHull", name);
-  if (!node) return null;
-  const fields = node.fields || {};
-  const hull = {
-    _sourceClassName: node.kind,
-    name: fields.name,
-    geometryResFilePath: fields.geometryResFilePath,
-  };
-  for (const field of ["opaqueAreas", "decalAreas", "transparentAreas", "additiveAreas"]) {
-    hull[field] = resolver.resolveValue(fields[field] || []);
-  }
-  return hull;
+function write32(array, offset, value) {
+    new DataView(array.buffer, array.byteOffset, array.byteLength).setUint32(offset, value >>> 0, true);
 }
-
-function resolveDocumentFaction(resolver, name) {
-  const node = resolver.nodeByName("EveSOFDataFaction", name);
-  if (!node) return null;
-  const fields = node.fields || {};
-  const faction = {
-    _sourceClassName: node.kind,
-    name: fields.name,
-    resPathInsert: fields.resPathInsert,
-    areaTypes: resolver.resolveValue(fields.areaTypes),
-    colorSet: resolver.resolveValue(fields.colorSet),
-  };
-  for (let slot = 1; slot <= 4; slot += 1) {
-    const key = `materialUsageMtl${slot}`;
-    if (fields[key] !== undefined) faction[key] = fields[key];
-  }
-  return faction;
-}
-
-function resolveDocumentRace(resolver, name) {
-  const node = resolver.nodeByName("EveSOFDataRace", name);
-  if (!node) return null;
-  const fields = node.fields || {};
-  return {
-    _sourceClassName: node.kind,
-    name: fields.name,
-    booster: resolver.resolveValue(fields.booster),
-    areaTypes: resolver.resolveValue(fields.areaTypes),
-  };
-}
-
-function resolveDocumentGeneric(resolver) {
-  const node = (resolver.byKind.get("EveSOFDataGeneric") || [])[0] || null;
-  if (!node) return {};
-  const fields = node.fields || {};
-  return {
-    _sourceClassName: node.kind,
-    materialPrefixes: resolver.resolveValue(fields.materialPrefixes || []),
-    areaShaders: resolver.resolveValue(fields.areaShaders || []),
-    decalShaders: resolver.resolveValue(fields.decalShaders || []),
-    hullAreas: resolver.resolveValue(fields.hullAreas || {}),
-  };
-}
-
-function resolveDocumentMaterialLibrary(resolver) {
-  const materials = [];
-  for (const node of resolver.byKind.get("EveSOFDataMaterial") || []) {
-    materials.push({
-      _sourceClassName: node.kind,
-      name: node.fields?.name || "",
-      parameters: resolver.resolveValue(node.fields?.parameters || []),
-    });
-  }
-  return materials;
-}
-
-function raceNameFromGeometryPath(geometryPath) {
-  const normalized = String(geometryPath || "").replace(/\\/g, "/").toLowerCase();
-  const match = normalized.match(/(?:^|\/)model\/ship\/([^/]+)\//);
-  return match ? match[1] : "";
-}
-
-function extractSof(inputPath, outputPath, hullName, factionName, raceName) {
-  const bytes = fs.readFileSync(inputPath);
-
-  // Runtime hydration normalizes fields through the canonical schema. Some
-  // current EVE source shapes intentionally reuse indexed field names (for
-  // example EveSOFDataAreaMaterial.material1), and runtime normalization can
-  // coerce those source containers to "[object Object]". Document mode keeps
-  // the lossless source graph and numeric references. Resolve only the selected
-  // hull/faction/race plus generic shaders and materials into plain objects.
-  const document = CjsBlackFormat.readDocument(bytes);
-  const resolver = createBlackDocumentResolver(document);
-  const hull = resolveDocumentHull(resolver, hullName);
-  const faction = resolveDocumentFaction(resolver, factionName);
-  if (!hull) throw new Error(`SOF hull not found: ${hullName}`);
-  if (!faction) throw new Error(`SOF faction not found: ${factionName}`);
-
-  const requestedRace = String(raceName || "").trim() || raceNameFromGeometryPath(hull?.geometryResFilePath);
-  let race = resolveDocumentRace(resolver, requestedRace);
-  let raceSource = requestedRace;
-  if (!race) {
-    const factionNameLower = objectName(faction).toLowerCase();
-    for (const node of resolver.byKind.get("EveSOFDataRace") || []) {
-      const candidate = String(node?.fields?.name || "").trim().toLowerCase();
-      if (candidate && factionNameLower.startsWith(candidate)) {
-        race = resolveDocumentRace(resolver, candidate);
-        raceSource = candidate;
-        break;
-      }
+function cubeFaces(input) {
+    const texture = CjsDdsFormat.read(input, { emit: "texture" });
+    if (texture.dimension !== "cube" || texture.faces !== 6) return null;
+    const result = [];
+    for (let face = 0; face < 6; face++) {
+        const subresource = texture.subresources.find(item => item.face === face && item.arrayIndex === 0 && item.mip === 0);
+        if (!subresource) fail(`DDS cube missing face ${face}`, 30);
+        const dataOffset = texture.metadata.dataOffset;
+        const single = new Uint8Array(dataOffset + subresource.byteLength);
+        single.set(input.subarray(0, dataOffset));
+        single.set(input.subarray(dataOffset + subresource.offset, dataOffset + subresource.offset + subresource.byteLength), dataOffset);
+        write32(single, 28, 1);
+        write32(single, 112, 0);
+        if (texture.metadata.hasDx10) { write32(single, 136, 0); write32(single, 140, 1); }
+        const rgba = CjsDdsFormat.read(single, { emit: "rgba" });
+        result.push({ width: rgba.width, height: rgba.height, data: to8(rgba) });
     }
-  }
-  if (!race) {
-    throw new Error(`SOF race could not be derived for hull ${hullName} (${hull?.geometryResFilePath || "no geometry path"})`);
-  }
-
-  const generic = resolveDocumentGeneric(resolver);
-  const materialLibrary = buildMaterialLibrary(resolveDocumentMaterialLibrary(resolver));
-
-  const factionAreaMaterials = areaMaterialMap(faction?.areaTypes);
-  const raceAreaMaterials = areaMaterialMap(race?.areaTypes);
-  const areas = [];
-  for (const [field, passName] of [
-    ["opaqueAreas", "opaque"],
-    ["decalAreas", "decal"],
-    ["transparentAreas", "transparent"],
-    ["additiveAreas", "additive"]
-  ]) {
-    for (const area of asArray(hull?.[field])) {
-      areas.push(areaManifest(area, passName, generic, faction, race, materialLibrary, factionAreaMaterials, raceAreaMaterials));
-    }
-  }
-
-  const required = areas.reduce((total, area) => total + 12 + (area.textures?.AlbedoMap ? 1 : 0) + (area.textures?.NormalMap ? 1 : 0), 0);
-  const resolved = areas.reduce((total, area) => {
-    let count = 0;
-    for (let slot = 1; slot <= 4; slot += 1) {
-      if (mapLookup(area.resolvedParameters, `Mtl${slot}DiffuseColor`) !== undefined) count += 1;
-      if (mapLookup(area.resolvedParameters, `Mtl${slot}FresnelColor`) !== undefined) count += 1;
-      if (mapLookup(area.resolvedParameters, `Mtl${slot}Gloss`) !== undefined) count += 1;
-    }
-    if (area.textures?.AlbedoMap) count += 1;
-    if (area.textures?.NormalMap) count += 1;
-    return total + count;
-  }, 0);
-
-  const result = {
-    source: path.resolve(inputPath),
-    hull: objectName(hull),
-    faction: objectName(faction),
-    race: objectName(race) || raceSource,
-    raceSource: String(raceName || "").trim() ? "selectedShip" : "hullGeometry",
-    geometry: String(hull?.geometryResFilePath || "").replace(/\\/g, "/"),
-    resPathInsert: String(faction?.resPathInsert || ""),
-    colors: plainValue(faction?.colorSet || {}),
-    materialPrefixes: stringList(generic?.materialPrefixes),
-    areaMaterials: factionAreaMaterials,
-    raceAreaMaterials,
-    materialLibrary,
-    extractionDiagnostics: {
-      blackGraphMode: "document-resolved",
-      factionAreaTypes: Object.keys(factionAreaMaterials),
-      factionPrimaryMaterialNames: [0, 1, 2, 3].map((slot) => materialNameFromArea(areaMaterialFor(factionAreaMaterials, "primary"), slot)),
-      factionMaterialUsage: [
-        Number(faction?.materialUsageMtl1 ?? 0),
-        Number(faction?.materialUsageMtl2 ?? 1),
-        Number(faction?.materialUsageMtl3 ?? 2),
-        Number(faction?.materialUsageMtl4 ?? 3)
-      ],
-      blackReports: plainValue(document?.reports || [])
-    },
-    areas,
-    baselineCompleteness: {
-      resolved,
-      required,
-      ratio: required > 0 ? resolved / required : 0,
-      neuralAllowed: required > 0 && resolved === required
-    }
-  };
-  const corruptPath = findStringifiedObject(result);
-  if (corruptPath) {
-    throw new Error(`Black visual graph contains a coerced [object Object] value at ${corruptPath}`);
-  }
-
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
-  console.log(`Extracted SOF visual manifest: ${outputPath}`);
-  console.log(`Hull=${result.hull} faction=${result.faction} areas=${areas.length} baseline=${resolved}/${required}`);
+    return result;
 }
-
-function runSelfTest() {
-  const testDocument = {
-    nodes: [
-      { id: 1, kind: "Root", fields: { child: { $ref: 2 } } },
-      { id: 2, kind: "EveSOFDataAreaMaterial", fields: { material1: { material1: "test_mtl_1" } } },
-    ]
-  };
-  const testResolver = createBlackDocumentResolver(testDocument);
-  const hydrated = testResolver.resolveNode(1);
-  if (materialNameFromArea(hydrated.child, 0) !== "test_mtl_1") {
-    throw new Error("Black document reference/material unwrapping self-test failed");
-  }
-  if (findStringifiedObject({ nested: { bad: "[object Object]" } }) !== "$.nested.bad") {
-    throw new Error("stringified-object detection self-test failed");
-  }
-
-  const parameters = parameterMap({
-    Mtl1DiffuseColor: [0.1, 0.2, 0.3, 1.0],
-    Mtl1Gloss: { value: 0.7 },
-  });
-  if (!Array.isArray(parameters.Mtl1DiffuseColor) || parameters.Mtl1Gloss !== 0.7) {
-    throw new Error("parameterMap object-map self-test failed");
-  }
-  const textures = textureMap({
-    AlbedoMap: "res:/ship/test_ar.dds",
-    NormalMap: { resFilePath: "res:\\ship\\test_no.dds" },
-    PmdgMap: { value: "res:/ship/test_pmdg.dds" },
-  });
-  if (textures.AlbedoMap !== "res:/ship/test_ar.dds" ||
-      textures.NormalMap !== "res:/ship/test_no.dds" ||
-      textures.PmdgMap !== "res:/ship/test_pmdg.dds") {
-    throw new Error(`textureMap object-map self-test failed: ${JSON.stringify(textures)}`);
-  }
-
-  const factionAreas = areaMaterialMap({ materials: {
-    0: { material1: "test_mtl_1", material2: "test_mtl_2", material3: "test_mtl_3", material4: "test_mtl_4" }
-  }});
-  const primary = areaMaterialFor(factionAreas, "primary");
-  if (!primary || materialNameFromArea(primary, 0) !== "test_mtl_1" || normalizeAreaType("0") !== "primary") {
-    throw new Error(`SOF area material self-test failed: ${JSON.stringify(factionAreas)}`);
-  }
-  const inherited = areaMaterialFor({
-    primary: { material1: "base_1", material2: "base_2", colorType: 1 },
-    reactor: { material2: "reactor_2", colorType: 14 }
-  }, "reactor");
-  if (materialNameFromArea(inherited, 0) !== "base_1" || materialNameFromArea(inherited, 1) !== "reactor_2" || mapLookup(inherited, "colorType") !== 14) {
-    throw new Error(`SOF primary-area inheritance self-test failed: ${JSON.stringify(inherited)}`);
-  }
-  const nestedColor = colorSetValue({ colors: { primary: [0.1, 0.2, 0.3, 1] } }, 0);
-  if (!Array.isArray(nestedColor) || nestedColor[0] !== 0.1) {
-    throw new Error(`SOF nested faction colour self-test failed: ${JSON.stringify(nestedColor)}`);
-  }
-
-  const library = buildMaterialLibrary([
-    { name: "test_mtl_1", parameters: [
-      { name: "DiffuseColor", value: [0.2, 0.3, 0.4, 1.0] },
-      { name: "FresnelColor", value: [0.05, 0.05, 0.05, 1.0] },
-      { name: "Gloss", value: [0.65, 0.0, 0.0, 0.0] },
-    ] }
-  ]);
-  const diffuse = materialParameter(library, "test_mtl_1", "DiffuseColor");
-  const gloss = materialParameter(library, "test_mtl_1", "Gloss");
-  if (!Array.isArray(diffuse) || diffuse[0] !== 0.2 || !Array.isArray(gloss) || gloss[0] !== 0.65) {
-    throw new Error(`SOF material library self-test failed: ${JSON.stringify(library)}`);
-  }
-  console.log("SOF map and material resolution self-test passed");
+function sample(face, u, v) {
+    const x = Math.max(0, Math.min(face.width - 1, (u * .5 + .5) * (face.width - 1)));
+    const y = Math.max(0, Math.min(face.height - 1, (v * .5 + .5) * (face.height - 1)));
+    const x0 = Math.floor(x), y0 = Math.floor(y), x1 = Math.min(x0 + 1, face.width - 1), y1 = Math.min(y0 + 1, face.height - 1);
+    const tx = x - x0, ty = y - y0, out = new Uint8Array(4);
+    for (let c = 0; c < 4; c++) {
+        const a = face.data[(y0 * face.width + x0) * 4 + c], b = face.data[(y0 * face.width + x1) * 4 + c];
+        const d = face.data[(y1 * face.width + x0) * 4 + c], e = face.data[(y1 * face.width + x1) * 4 + c];
+        out[c] = Math.round((a * (1 - tx) + b * tx) * (1 - ty) + (d * (1 - tx) + e * tx) * ty);
+    }
+    return out;
+}
+function lookup(x, y, z) {
+    const ax = Math.abs(x), ay = Math.abs(y), az = Math.abs(z);
+    if (ax >= ay && ax >= az) return x >= 0 ? [0, -z / ax, -y / ax] : [1, z / ax, -y / ax];
+    if (ay >= ax && ay >= az) return y >= 0 ? [2, x / ay, z / ay] : [3, x / ay, -z / ay];
+    return z >= 0 ? [4, x / az, -y / az] : [5, -x / az, -y / az];
+}
+function equirect(faces) {
+    const width = Math.max(4, Math.min(Math.max(faces[0].width, faces[0].height) * 4, 4096));
+    const height = Math.floor(width / 2), out = new Uint8Array(width * height * 4);
+    for (let py = 0; py < height; py++) {
+        const theta = (py + .5) / height * Math.PI, st = Math.sin(theta), y = Math.cos(theta);
+        for (let px = 0; px < width; px++) {
+            const phi = ((px + .5) / width - .5) * Math.PI * 2, x = st * Math.sin(phi), z = st * Math.cos(phi);
+            const [faceIndex, u, v] = lookup(x, y, z);
+            out.set(sample(faces[faceIndex], u, v), (py * width + px) * 4);
+        }
+    }
+    return { width, height, data: out };
+}
+function ddsToPng(input, output, environment) {
+    const source = bytes(input), faces = environment ? cubeFaces(source) : null;
+    const decoded = faces ? equirect(faces) : CjsDdsFormat.read(source, { emit: "rgba" });
+    const rgba = decoded.data instanceof Uint8Array ? decoded.data : to8(decoded, environment ? 1.2 : 1);
+    parent(output);
+    fs.writeFileSync(output, png(decoded.width, decoded.height, rgba));
 }
 
 function usage() {
-  console.log("Usage:");
-  console.log("  node convert_eve_asset.mjs gr2-to-obj <input.gr2> <output.obj> [summary.json]");
-  console.log("  node convert_eve_asset.mjs dds-to-png <input.dds> <output.png>");
-  console.log("  node convert_eve_asset.mjs dds-to-environment-png <input.dds> <output.png>");
-  console.log("  node convert_eve_asset.mjs sof-to-json <data.black> <output.json> <hull> <faction> [race]");
-  console.log("  node convert_eve_asset.mjs self-test _ _");
+    return "Usage: convert_eve_asset.mjs <gr2-to-obj|dds-to-png|dds-to-environment-png|sof-to-json> <input> <output> [hull faction race modelPath]";
+}
+export function main(args = process.argv.slice(2)) {
+    const [command, input, output, ...extra] = args;
+    if (!command || !input || !output) fail(usage(), 2);
+    if (command === "gr2-to-obj") gr2ToObj(input, output, extra[0]);
+    else if (command === "dds-to-png") ddsToPng(input, output, false);
+    else if (command === "dds-to-environment-png") ddsToPng(input, output, true);
+    else if (command === "sof-to-json") sofToJson(input, output, extra[0] || "", extra[1] || "", extra[2] || "", extra[3] || "");
+    else fail(`Unknown command ${command}\n${usage()}`, 2);
+    return 0;
 }
 
-try {
-  const [command, inputPath, outputPath, arg3, arg4, arg5] = process.argv.slice(2);
-  if (command === "self-test") {
-    runSelfTest();
-  } else if (!command || !inputPath || !outputPath) {
-    usage();
-    process.exitCode = 2;
-  } else if (command === "gr2-to-obj") {
-    writeObj(inputPath, outputPath, arg3);
-  } else if (command === "dds-to-png") {
-    writePngFromDds(inputPath, outputPath);
-  } else if (command === "dds-to-environment-png") {
-    writeEnvironmentPngFromDds(inputPath, outputPath);
-  } else if (command === "sof-to-json") {
-    if (!arg3 || !arg4) throw new Error("sof-to-json requires hull and faction names");
-    extractSof(inputPath, outputPath, arg3, arg4, arg5 || "");
-  } else {
-    usage();
-    fail(`Unknown command ${command}`);
-  }
-} catch (error) {
-  fail(error?.stack || String(error));
+if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
+    try { process.exitCode = main(); }
+    catch (error) {
+        console.error(`ERROR: ${error?.message || error}`);
+        process.exitCode = Number.isInteger(error?.exitCode) ? error.exitCode : 1;
+    }
 }
