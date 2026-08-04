@@ -193,7 +193,7 @@ TriGeometryRes::TriGeometryRes( IRoot* lockobj ) :
 
 TriGeometryRes::~TriGeometryRes()
 {
-	ResetRayCaster();
+	DestroyRayCaster();
 	ReleaseResources( TRISTORAGE_ALL );
 #if WITH_GRANNY
 	ClearGrannyData();
@@ -479,7 +479,7 @@ void TriGeometryRes::ReleaseResources( TriStorage s )
 	{
 		CancelPendingLoad();
 
-		ResetRayCaster();
+		DestroyRayCaster();
 
 		ReleaseResourcesHelper();
 
@@ -1510,12 +1510,10 @@ void TriGeometryRes::PrepareRayCaster()
 {
 	m_bvh.sessions++;
 
-	if( m_bvh.sessions > 1 )
+	if( m_bvh.geometry )
 	{
 		return;
 	}
-
-	CCP_ASSERT( !m_bvh.geometry );
 
 	std::vector<int32_t> lodIndices;
 	lodIndices.resize( m_meshes.size() );
@@ -1527,6 +1525,15 @@ void TriGeometryRes::PrepareRayCaster()
 	m_bvh.geometry.CreateInstance();
 	m_bvh.geometry->SetLodIndices( lodIndices );
 	m_bvh.geometry->Initialize( GetFilePath().c_str(), GetExt() );
+}
+
+void TriGeometryRes::DestroyRayCaster()
+{
+	if( m_bvh.geometry )
+	{
+		m_bvh.geometry->CancelPendingLoad();
+		m_bvh.geometry.Unlock();
+	}
 }
 
 void TriGeometryRes::ResetRayCaster()
@@ -1548,8 +1555,12 @@ bool TriGeometryRes::IsRayCasterReady() const
 	return m_bvh.geometry && m_bvh.geometry->IsGood();
 }
 
-bool TriGeometryRes::HasRayCasterFailed() const
+bool TriGeometryRes::HasRayCasterPreparationFailed() const
 {
+	if( m_bvh.sessions > 0 && !m_bvh.geometry )	// ReleaseResources destroyed our bvh :(
+	{
+		return true;
+	}
 	return m_bvh.geometry && m_bvh.geometry->IsPrepared() && !m_bvh.geometry->IsGood();
 }
 

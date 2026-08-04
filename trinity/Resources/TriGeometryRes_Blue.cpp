@@ -126,8 +126,8 @@ const Be::ClassInfo* TriGeometryRes::ExposeToBlue()
 			IsRayCasterReady,
 			"Call this after PrepareRayCaster to see if the asset has been loaded and is ready yet for raycasting." )
 		MAP_METHOD_AND_WRAP(
-			"HasRayCasterFailed",
-			HasRayCasterFailed,
+			"HasRayCasterPreperationFailed",
+			HasRayCasterPreparationFailed,
 			"Call this after PrepareRayCaster to see if the loading asset has failed." )		
 
 		MAP_METHOD_AND_WRAP(

@@ -309,7 +309,8 @@ public:
 	void PrepareRayCaster();
 	void ResetRayCaster();
 	bool IsRayCasterReady() const;
-	bool HasRayCasterFailed() const;
+	bool HasRayCasterPreparationFailed() const;
+	void DestroyRayCaster();
 
 	//bool GetIntersectionPoints(
 	//	const Vector3* pos,

@@ -2086,7 +2086,7 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 	{
 		const auto& occluder = m_damageFilterOccluders[i];
 
-		if( occluder.geometry->HasRayCasterFailed() )
+		if( occluder.geometry->HasRayCasterPreparationFailed() )
 		{
 			m_damageFilterOccluders[i].geometry->ResetRayCaster();
 			std::swap( m_damageFilterOccluders[i], m_damageFilterOccluders.back() );
