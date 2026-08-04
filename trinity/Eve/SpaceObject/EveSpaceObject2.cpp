@@ -229,6 +229,8 @@ EveSpaceObject2::EveSpaceObject2( IRoot* lockobj ) :
 
 EveSpaceObject2::~EveSpaceObject2()
 {
+	ReleaseDamageFilterSessions();
+
 	if( m_geometryResFromMesh )
 	{
 		m_geometryResFromMesh->RemoveNotifyTarget( this );
@@ -1917,6 +1919,7 @@ void EveSpaceObject2::GetParentData( ParentData* pd ) const
 void EveSpaceObject2::InvalidateMergedLocators()
 {
 	m_mergedLocatorSetsDirty = true;
+	ReleaseDamageFilterSessions();
 }
 
 void EveSpaceObject2::EnsureChildLocatorMerged() const
@@ -1990,12 +1993,27 @@ void EveSpaceObject2::RebuildMergedLocatorSets() const
 	m_damageLocatorFilterDirty = true;
 }
 
+void EveSpaceObject2::ReleaseDamageFilterSessions()
+{
+	if( m_activeDamageFilterSession )
+	{
+		for( auto& occluder : m_damageFilterOccluders )
+		{
+			occluder.geometry->ResetRayCaster();
+		}
+
+		m_damageFilterOccluders.clear();
+		m_activeDamageFilterSession = false;
+	}
+}
+
 void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
 	if( !m_damageLocatorFilterDirty || !m_damageLocatorAutoFilterEnabled )
 	{
+		ReleaseDamageFilterSessions();
 		return;
 	}
 
@@ -2004,6 +2022,7 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 	if( damageLocators == nullptr || damageLocators->size() == 0 )
 	{
 		m_damageLocatorEnabled.clear();
+		ReleaseDamageFilterSessions();
 		return;
 	}
 
@@ -2063,12 +2082,24 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 		m_activeDamageFilterSession = true;
 	}
 
-	for( const auto& occluder : m_damageFilterOccluders )
+	for( size_t i = 0; i < m_damageFilterOccluders.size(); )
 	{
+		const auto& occluder = m_damageFilterOccluders[i];
+
+		if( occluder.geometry->HasRayCasterFailed() )
+		{
+			m_damageFilterOccluders[i].geometry->ResetRayCaster();
+			std::swap( m_damageFilterOccluders[i], m_damageFilterOccluders.back() );
+			m_damageFilterOccluders.pop_back();
+			continue;
+		}
+
 		if( !occluder.geometry->IsRayCasterReady() )
 		{
 			return;
 		}
+
+		i++;
 	}
 
 	int32_t i = 0;
@@ -2098,13 +2129,7 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 		m_damageLocatorEnabled[i++] = !occluded;
 	}
 
-	for( auto& occluder : m_damageFilterOccluders )
-	{
-		occluder.geometry->ResetRayCaster();
-	}
-
-	m_damageFilterOccluders.clear();
-	m_activeDamageFilterSession = false;
+	ReleaseDamageFilterSessions();
 	m_damageLocatorFilterDirty = false;
 }
 

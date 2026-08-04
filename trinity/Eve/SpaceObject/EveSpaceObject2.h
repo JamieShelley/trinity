@@ -778,6 +778,8 @@ private:
 	static PyObject* PyTransformLocators( PyObject * self, PyObject * args );
 #endif
 
+	void ReleaseDamageFilterSessions();
+
 	bool m_dynamicBoundingSphereEnabled;
 
 	PTr2ExternalParameterVector m_externalParameters;

@@ -1548,6 +1548,11 @@ bool TriGeometryRes::IsRayCasterReady() const
 	return m_bvh.geometry && m_bvh.geometry->IsGood();
 }
 
+bool TriGeometryRes::HasRayCasterFailed() const
+{
+	return m_bvh.geometry && m_bvh.geometry->IsPrepared() && !m_bvh.geometry->IsGood();
+}
+
 // TODO: intern, add granny fallback
 bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, int* boneIndexNear, unsigned int areaIx, float& rayLength )
 {
