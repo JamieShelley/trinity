@@ -116,11 +116,19 @@ const Be::ClassInfo* TriGeometryRes::ExposeToBlue()
 		MAP_METHOD_AND_WRAP(
 			"PrepareRayCaster",
 			PrepareRayCaster,
-			"Call this before attempting to call any GetIntersection function! It will map buffers." )
+			"Call this to load the asset asynchronously, and then poll IsRayCasterReady and HasRayCasterFailed, before attempting to call GetIntersection. Must be matched with exactly one call to ResetRayCaster!" )
 		MAP_METHOD_AND_WRAP(
 			"ResetRayCaster",
 			ResetRayCaster,
-			"Call this after being done with GetIntersection! It will unmap buffers." )
+			"Call this after being done with GetIntersection! It will unload the asset. Must be matched with exactly one call to PrepareRayCaster!" )
+		MAP_METHOD_AND_WRAP(
+			"IsRayCasterReady",
+			IsRayCasterReady,
+			"Call this after PrepareRayCaster to see if the asset has been loaded and is ready yet for raycasting." )
+		MAP_METHOD_AND_WRAP(
+			"HasRayCasterFailed",
+			HasRayCasterFailed,
+			"Call this after PrepareRayCaster to see if the loading asset has failed." )		
 
 		MAP_METHOD_AND_WRAP(
 			"GetIntersectionPointNormalBone",
