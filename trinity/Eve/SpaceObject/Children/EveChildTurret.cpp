@@ -902,14 +902,6 @@ float EveChildTurret::PlayAnimation( const std::string& animName, const std::str
 	return animLength;
 }
 
-void EveChildTurret::StopAnimation( float delay )
-{
-	if( m_animationUpdater )
-	{
-		m_animationUpdater->StopAnimations( delay );
-	}
-}
-
 std::string EveChildTurret::GetFireAnimationName() const
 {
 	// if m_currentCyclingFiresPos is 0, it's just "Fire"

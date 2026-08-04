@@ -108,7 +108,6 @@ protected:
 
 	// animation
 	float PlayAnimation( const std::string& animName, const std::string& animNameIdle, float delay = 0.f );
-	void StopAnimation( float delay = 0.f );
 	std::string GetFireAnimationName() const;
 
 	EveTurretFiringFX* GetFiringEffect();

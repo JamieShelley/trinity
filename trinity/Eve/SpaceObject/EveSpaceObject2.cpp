@@ -307,11 +307,6 @@ void EveSpaceObject2::OnListModified( long event, ssize_t key, ssize_t key2, IRo
 		switch( event & BELIST_EVENTMASK )
 		{
 		case BELIST_INSERTED:
-			// children inserted at runtime never go through the loader's initialize pass
-			if( IInitializePtr init = BlueCastPtr( value ) )
-			{
-				init->Initialize();
-			}
 			if( IEveSpaceObjectChildPtr child = BlueCastPtr( value ) )
 			{
 				for( auto it = begin( m_controllerVariables ); it != end( m_controllerVariables ); ++it )
