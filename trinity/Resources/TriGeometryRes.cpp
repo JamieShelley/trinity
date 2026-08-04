@@ -1553,26 +1553,18 @@ bool TriGeometryRes::HasRayCasterFailed() const
 	return m_bvh.geometry && m_bvh.geometry->IsPrepared() && !m_bvh.geometry->IsGood();
 }
 
-// TODO: intern, add granny fallback
 bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, int* boneIndexNear, unsigned int areaIx, float& rayLength )
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
-	if( !m_useCMF ) // TODO: intern, handle granny/cmf properly
+	if( !m_useCMF || !m_bvh.geometry || !m_bvh.geometry->IsGood() )
 	{
-		return false;
+		return GetIntersectionPointsLegacy( &pos, &dir, hitpointNear, hitpointNearNormal, boneIndexNear, areaIx, rayLength );
 	}
 
 	if( boneIndexNear )
 	{
 		*boneIndexNear = -1;
-	}
-
-	CCP_ASSERT( m_bvh.geometry && m_bvh.geometry->IsGood() );
-	if( !m_bvh.geometry || !m_bvh.geometry->IsGood() )
-	{
-		// TODO: intern, as fallback, maybe call PrepareRayCaster(); and then check again m_prepared?
-		return false;
 	}
 
 	uint32_t meshIndex;
@@ -1623,6 +1615,129 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 	}
 
 	return true;
+}
+
+// Careful: This function is slow and only works on main thread!
+bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3* pos, const Vector3* dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, int* boneIndexNear, unsigned int areaIx, float& rayLength )
+{
+	CCP_STATS_ZONE( __FUNCTION__ );
+
+	USE_MAIN_THREAD_RENDER_CONTEXT();
+	
+	if( boneIndexNear )
+	{
+		*boneIndexNear = -1;
+	}
+
+	int boneIndex = 0;
+	bool result = false;
+
+	for( size_t i = 0; i < m_meshes.size(); i++ )
+	{
+		if( m_meshes[i] == NULL )
+		{
+			continue;
+		}
+
+		//Get the first LOD.
+		auto& lod = m_meshes[i]->m_lods[0];
+
+		const uint8_t* pVertices;
+		const uint8_t* pIndices;
+
+		int vertSize = m_meshes[i]->m_bytesPerVertex;
+		if( FAILED( lod->m_vertexAllocation.MapForReading( pVertices, renderContext ) ) )
+		{
+			return false;
+		}
+		ON_BLOCK_EXIT( [&] { lod->m_vertexAllocation.UnmapForReading( renderContext ); } );
+		if( FAILED( lod->m_indexAllocation.MapForReading( pIndices, renderContext ) ) )
+		{
+			return false;
+		}
+		ON_BLOCK_EXIT( [&] { lod->m_indexAllocation.UnmapForReading( renderContext ); } );
+
+		const uint16_t* pShortIndices = (uint16_t*)pIndices;
+		const uint32_t* pLongIndices = (uint32_t*)pIndices;
+
+		Tr2VertexDefinition decl;
+		if( !Tr2EffectStateManager::GetVertexDeclarationElements( m_meshes[i]->m_vertexDeclarationHandle, decl ) )
+		{
+			return false;
+		}
+		const Tr2VertexDefinition::Item* const position = decl.Find( decl.POSITION );
+		if( !position )
+		{
+			return false;
+		}
+
+		const Tr2VertexDefinition::Item* const blendIndices = decl.Find( decl.BLENDINDICES );
+		int numPrim = lod->m_primitiveCount;
+		auto currentIndex = 0;
+		if( areaIx != -1 )
+		{
+			if( areaIx >= lod->m_areas.size() )
+			{
+				continue;
+			}
+			currentIndex = lod->m_areas[areaIx].m_firstIndex;
+			numPrim = lod->m_areas[areaIx].m_primitiveCount;
+		}
+
+		for( int j = 0; j < numPrim; j++ )
+		{
+			unsigned int index1 = 0;
+			unsigned int index2 = 0;
+			unsigned int index3 = 0;
+			Vector3 p1;
+			Vector3 p2;
+			Vector3 p3;
+			float pu, pv, dist;
+			if( lod->m_indexAllocation.GetStride() == 2 )
+			{
+				index1 = pShortIndices[currentIndex++];
+				index2 = pShortIndices[currentIndex++];
+				index3 = pShortIndices[currentIndex++];
+			}
+			else
+			{
+				index1 = pLongIndices[currentIndex++];
+				index2 = pLongIndices[currentIndex++];
+				index3 = pLongIndices[currentIndex++];
+			}
+
+			ConvertTriangleData( position->m_dataType, vertSize, pVertices + position->m_offset, index1, index2, index3, &p1, &p2, &p3 );
+
+			if( IntersectTri( &p1, &p2, &p3, pos, dir, &pu, &pv, &dist ) )
+			{
+				if( rayLength > dist )
+				{
+					if( hitpointNear )
+					{
+						float v1 = 1.0f - ( pu + pv );
+						*hitpointNear = p1 * v1 + p2 * pu + p3 * pv;
+					}
+					
+					if( hitpointNearNormal )
+					{
+						Vector3 avec = p2 - p1;
+						Vector3 bvec = p3 - p1;
+						*hitpointNearNormal = Normalize( Cross( avec, bvec ) );
+					}
+					
+					rayLength = dist;
+					if( boneIndexNear && blendIndices && GetBoneIndex( blendIndices->m_dataType, pVertices + index1 * vertSize + blendIndices->m_offset, boneIndex ) )
+					{
+						*boneIndexNear = boneIndex;
+					}
+
+					result = true;
+				}
+			}
+		}
+	}
+
+	return result;
 }
 
 unsigned int TriGeometryRes::GetSkeletonCount() const

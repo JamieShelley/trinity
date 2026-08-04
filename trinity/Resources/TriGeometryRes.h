@@ -297,6 +297,15 @@ public:
 		unsigned int areaIx, 
 		float& rayLength );
 
+	bool GetIntersectionPointsLegacy( 
+		const Vector3* pos, 
+		const Vector3* dir, 
+		Vector3* hitpointNear, 
+		Vector3* hitpointNearNormal, 
+		int* boneIndexNear, 
+		unsigned int areaIx,
+		float& rayLength );
+
 	void PrepareRayCaster();
 	void ResetRayCaster();
 	bool IsRayCasterReady() const;
