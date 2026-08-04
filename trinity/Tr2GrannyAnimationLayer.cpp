@@ -808,7 +808,6 @@ void Tr2GrannyAnimationLayer::FreeCompletedControls()
 				ClearMorphTracks( player.get() );
 			}
 		} );
-		m_sequencer->RemoveFinishedAnimations( GetLayerAnimationTime() );
 	}
 
 #if WITH_GRANNY
