@@ -1208,9 +1208,9 @@ void EveChildMesh::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 		}
 		if( renderer.HasOption( GetRawRoot(), "BVH" ) )
 		{
-			if( m_mesh->GetGeometryResource() )
+			if( m_mesh->GetGeometryResource() && m_mesh->GetGeometryResource()->m_bvh.geometry && m_mesh->GetGeometryResource()->m_bvh.geometry->IsGood() )
 			{
-				BVH::Visualize( m_mesh->GetGeometryResource()->m_bvh.content, this, m_worldTransform, renderer );
+				BVH::Visualize( m_mesh->GetGeometryResource()->m_bvh.geometry->GetBVH(), this, m_worldTransform, renderer );
 			}
 		}
 	}

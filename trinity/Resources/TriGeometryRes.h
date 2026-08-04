@@ -22,6 +22,27 @@ BLUE_DECLARE( TriGrannyRes );
 class Tr2RenderContext;
 
 
+BLUE_CLASS( Tr2RaycastGeometryRes ) :
+	public BlueAsyncRes
+{
+public:
+	EXPOSE_TO_BLUE();
+
+	void SetLodIndices( const std::vector<int32_t>& lodIndices );
+	BVH::BVHContent& GetBVH();
+	
+protected:
+	LoadingResult DoLoad() override;
+	bool DoPrepare() override;
+
+private:
+	std::vector<int32_t> m_lodIndices;
+	BVH::BVHContent m_bvh;
+};
+
+TYPEDEF_BLUECLASS_WR_SHUTDOWN( Tr2RaycastGeometryRes );
+
+
 enum class GrannyDeprecationLevel
 {
 	DO_NOTHING,
@@ -278,6 +299,7 @@ public:
 
 	void PrepareRayCaster();
 	void ResetRayCaster();
+	bool IsRayCasterReady() const;
 
 	//bool GetIntersectionPoints(
 	//	const Vector3* pos,
@@ -377,9 +399,9 @@ public:
 	// TODO: intern, don't make bvh public
 	struct
 	{
-		BVH::BVHContent content;
-		BVH::RayCaster rayCaster;
+		Tr2RaycastGeometryResPtr geometry = nullptr;
 		std::vector<BVH::IntersectedNode> mainThreadStack;
+		int32_t sessions = 0;
 	} m_bvh;
 
 private:

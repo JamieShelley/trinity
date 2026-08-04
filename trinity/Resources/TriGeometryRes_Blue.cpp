@@ -21,6 +21,19 @@ BLUE_REGISTER_RESOURCE_EXTENSION( L"gr2", CreateStaticGeometryResource );
 BLUE_REGISTER_RESOURCE_EXTENSION( L"cmf", CreateStaticGeometryResource );
 
 
+BLUE_DEFINE( Tr2RaycastGeometryRes );
+
+const Be::ClassInfo* Tr2RaycastGeometryRes::ExposeToBlue()
+{
+	EXPOSURE_BEGIN( Tr2RaycastGeometryRes, "Session-scoped CPU raycast data (BVH) for a geometry resource." )
+
+		MAP_INTERFACE( Tr2RaycastGeometryRes )
+		MAP_INTERFACE( IBlueResource )
+
+	EXPOSURE_CHAINTO( BlueAsyncRes )
+}
+
+
 const Be::ClassInfo* TriGeometryRes::ExposeToBlue()
 {
 	EXPOSURE_BEGIN( TriGeometryRes, "" )

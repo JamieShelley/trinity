@@ -11,70 +11,28 @@
 namespace BVH
 {
 
-struct RayCastIndexReader
-{
-	const uint8_t* data = nullptr;
-	bool stride16 = false;
-
-	uint32_t operator()( uint32_t i ) const
-	{
-		return stride16 ? ( (uint16_t*)data )[i] : ( (uint32_t*)data )[i];
-	}
-};
-
-struct RayCastPositionReader
-{
-	const uint8_t* data = nullptr;
-	uint32_t vertexSize = 0;
-	Tr2VertexDefinition::DataType dataType;
-
-	Vector3 operator()( uint32_t i ) const
-	{
-		Vector3 v;
-		ConvertDataToVector3( dataType, data + i * vertexSize, &v );
-		return v;
-	}
-};
-
-struct RayCastBoneReader
-{
-	const uint8_t* data = nullptr;
-	uint32_t vertexSize = 0;
-	Tr2VertexDefinition::DataType dataType;
-
-	int32_t operator()( uint32_t i ) const
-	{
-		int32_t boneIndex;
-		if( !GetBoneIndex( dataType, data + i * vertexSize, boneIndex ) )
-		{
-			boneIndex = -1;
-		}
-		return boneIndex;
-	}
-};
-
-struct RayCaster
-{
-	std::vector<RayCastIndexReader> m_indices;
-	std::vector<RayCastPositionReader> m_positions;
-	std::vector<RayCastBoneReader> m_bones;
-	std::vector<int32_t> m_lodIndices;
-	bool m_prepared = false;
-};
-
 const int32_t BVH_MAX_NODE_SIZE = 4; // TODO: intern, play around with this value and profile...
+
 struct BVHNode
 {
 	CcpMath::AxisAlignedBox aabb;
-	//CcpMath::Sphere sphere;
 	uint32_t firstChildIndex : 28;
 	uint32_t numObj : 3;
 	uint32_t leaf : 1;
 };
 
+// TODO: intern, consider struct of array for better cache usage, also future simd optimization?
+struct BVHLeafTriangle
+{
+	Vector3 vertex0;
+	Vector3 vertex1;
+	Vector3 vertex2;
+	uint32_t element;
+};
+
 struct BoundingVolumeHierarchy
 {
-	std::vector<uint32_t> primitives;
+	std::vector<BVHLeafTriangle> triangles;
 	std::vector<BVHNode> nodes;
 };
 
@@ -86,15 +44,19 @@ struct IntersectedNode
 
 struct BVHContent
 {
-	const cmf::Data* data;
+	Tr2CmfContents content;
+	std::vector<int32_t> lodIndices;
 	std::vector<BoundingVolumeHierarchy> bvhs;
 };
+
+cmf::ConstIndexBufferStream GetIndices( BVHContent& self, int meshIndex );
+cmf::ConstBufferElementStream<Vector3> GetPositions( BVHContent& self, int meshIndex );
+std::optional<cmf::ConstBufferElementStream<std::array<uint32_t, 4>>> GetBones( BVHContent& self, int meshIndex );
 
 BVHContent CreateBVHContent( Tr2CmfContents& content, const std::vector<int32_t>& lodIndex );
 
 bool Intersection(
 	const BVHContent& bvhContent,
-	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -107,7 +69,6 @@ bool Intersection(
 
 bool Intersection(
 	const BVHContent& bvhContent,
-	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -119,7 +80,6 @@ bool Intersection(
 
 bool Intersection(
 	const BVHContent& bvhContent,
-	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -131,7 +91,6 @@ bool Intersection(
 
 bool Intersection(
 	const BVHContent& bvhContent,
-	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,

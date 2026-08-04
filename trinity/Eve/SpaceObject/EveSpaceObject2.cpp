@@ -2009,59 +2009,66 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 
 	m_damageLocatorEnabled.resize( damageLocators->size(), true );
 	
-	struct Occluder
+	if( !m_activeDamageFilterSession )
 	{
-		TriGeometryRes* geometry;
-		Matrix toObject;
-		Matrix fromObject;
-	};
-	std::vector<Occluder> occluders;
+		if( m_mesh && m_mesh->GetGeometryResource() )
+		{
+			if( !m_mesh->GetGeometryResource()->IsPrepared() )
+			{
+				m_damageFilterOccluders.clear();
+				return;
+			}
 
-	if( m_mesh && m_mesh->GetGeometryResource() )
+			if( m_mesh->GetGeometryResource()->IsGood() )
+			{
+				DamageFilterOccluder occluder;
+				occluder.geometry = m_mesh->GetGeometryResource();
+				occluder.toObject = IdentityMatrix();
+				occluder.fromObject = IdentityMatrix();
+				m_damageFilterOccluders.push_back( occluder );
+			}
+		}
+
+		std::vector<EveChildGeometry> childGeometries;
+		for( auto& child : m_effectChildren )
+		{
+			child->CollectOwnedGeometry( IdentityMatrix(), childGeometries );
+		}
+
+		for( auto& childGeometry : childGeometries )
+		{
+			if( !childGeometry.geometry->IsPrepared() )
+			{
+				m_damageFilterOccluders.clear();
+				return;
+			}
+
+			if( !childGeometry.geometry->IsGood() )
+			{
+				continue;
+			}
+
+			DamageFilterOccluder occluder;
+			occluder.geometry = childGeometry.geometry;
+			occluder.toObject = childGeometry.childToObject;
+			occluder.fromObject = Inverse( childGeometry.childToObject );
+			m_damageFilterOccluders.push_back( occluder );
+		}
+
+		for( auto& occluder : m_damageFilterOccluders )
+		{
+			occluder.geometry->PrepareRayCaster();
+		}
+
+		m_activeDamageFilterSession = true;
+	}
+
+	for( const auto& occluder : m_damageFilterOccluders )
 	{
-		if( !m_mesh->GetGeometryResource()->IsPrepared() )
+		if( !occluder.geometry->IsRayCasterReady() )
 		{
 			return;
 		}
-
-		if( m_mesh->GetGeometryResource()->IsGood() )
-		{
-			Occluder occluder;
-			occluder.geometry = m_mesh->GetGeometryResource();
-			occluder.toObject = IdentityMatrix();
-			occluder.fromObject = IdentityMatrix();
-			occluders.push_back( occluder );
-		}
-	}
-
-	std::vector<EveChildGeometry> childGeometries;
-	for( auto& child : m_effectChildren )
-	{
-		child->CollectOwnedGeometry( IdentityMatrix(), childGeometries );
-	}
-
-	for( auto& childGeometry : childGeometries )
-	{
-		if( !childGeometry.geometry->IsPrepared() )
-		{
-			return;
-		}
-
-		if( !childGeometry.geometry->IsGood() )
-		{
-			continue;
-		}
-
-		Occluder occluder;
-		occluder.geometry = childGeometry.geometry;
-		occluder.toObject = childGeometry.childToObject;
-		occluder.fromObject = Inverse( childGeometry.childToObject );
-		occluders.push_back( occluder );
-	}
-
-	for( auto& occluder : occluders )
-	{
-		occluder.geometry->PrepareRayCaster();
 	}
 
 	int32_t i = 0;
@@ -2073,7 +2080,7 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 		
 		bool occluded = false;
 
-		for( auto& occluder : occluders )
+		for( auto& occluder : m_damageFilterOccluders )
 		{
 			// TODO: intern, careful, do we need to normalize the ray? If yes, can we to the transformation in the first place so that scale is not affected?
 			Vector3 rayOrigin = Transform( origin, occluder.fromObject ).GetXYZ();
@@ -2091,11 +2098,13 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 		m_damageLocatorEnabled[i++] = !occluded;
 	}
 
-	for( auto& occluder : occluders )
+	for( auto& occluder : m_damageFilterOccluders )
 	{
 		occluder.geometry->ResetRayCaster();
 	}
 
+	m_damageFilterOccluders.clear();
+	m_activeDamageFilterSession = false;
 	m_damageLocatorFilterDirty = false;
 }
 

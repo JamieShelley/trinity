@@ -177,6 +177,13 @@ struct LocatorSourceRange
 	uint32_t partTag;
 };
 
+struct DamageFilterOccluder
+{
+	TriGeometryResPtr geometry;
+	Matrix toObject;	// TODO: intern, remove?
+	Matrix fromObject;
+};
+
 // ---------------------------------------------------------------------------------------
 //  Description:
 //    Given a pointer to a mesh area vector, gathers render batches for each of the
@@ -793,6 +800,8 @@ private:
 	mutable bool m_mergedLocatorSetsDirty;
 	bool m_damageLocatorAutoFilterEnabled;
 	mutable bool m_damageLocatorFilterDirty;
+	std::vector<DamageFilterOccluder> m_damageFilterOccluders;
+	bool m_activeDamageFilterSession = false;
 };
 
 TYPEDEF_BLUECLASS( EveSpaceObject2 );
