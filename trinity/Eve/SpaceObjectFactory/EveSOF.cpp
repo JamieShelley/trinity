@@ -672,6 +672,7 @@ size_t EveSOF::FillMeshAreaVector( Tr2MeshAreaVector* meshAreaVector, TriBatchTy
 		newMeshArea->SetIndex( area->index + (unsigned int)meshIndexOffset );
 		newMeshArea->SetCount( area->count );
 		newMeshArea->SetCastsShadows( castsShadows );
+		newMeshArea->SetAlphaCutout( areaType == TRIBATCHTYPE_DECAL );
 
 		meshAreaVector->Append( newMeshArea );
 	}

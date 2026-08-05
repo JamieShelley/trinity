@@ -2014,6 +2014,7 @@ void EveChildMesh::CollectOwnedGeometry( const Matrix& parentTransform, std::vec
 	source.childToObject = localTransform * parentTransform;
 	source.geometry = m_mesh->GetGeometryResource();
 	source.owner = this;
+	source.mesh = m_mesh;
 	out.push_back( source );
 }
 

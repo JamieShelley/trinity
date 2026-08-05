@@ -182,6 +182,7 @@ struct DamageFilterOccluder
 	TriGeometryResPtr geometry;
 	Matrix toObject;	// TODO: intern, remove?
 	Matrix fromObject;
+	Tr2MeshBasePtr mesh;
 };
 
 // ---------------------------------------------------------------------------------------

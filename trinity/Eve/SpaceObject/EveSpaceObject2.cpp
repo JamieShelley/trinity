@@ -2012,6 +2012,7 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 				occluder.geometry = m_mesh->GetGeometryResource();
 				occluder.toObject = IdentityMatrix();
 				occluder.fromObject = IdentityMatrix();
+				occluder.mesh = m_mesh;
 				m_damageFilterOccluders.push_back( occluder );
 			}
 		}
@@ -2039,6 +2040,7 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 			occluder.geometry = childGeometry.geometry;
 			occluder.toObject = childGeometry.childToObject;
 			occluder.fromObject = Inverse( childGeometry.childToObject );
+			occluder.mesh = childGeometry.mesh;
 			m_damageFilterOccluders.push_back( occluder );
 		}
 
@@ -2078,27 +2080,40 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 		Vector3 origin = damageLocator->position + direction * 0.1f;
 		
 		bool occluded = false;
+		bool backfacing = false;
+
+		float frontFaceMinDistance = 0.0316f * m_boundingSphereRadius;
+		float rayLength = std::numeric_limits<float>::infinity();
 
 		for( auto& occluder : m_damageFilterOccluders )
 		{
-			// TODO: intern, careful, do we need to normalize the ray? If yes, can we to the transformation in the first place so that scale is not affected?
-			Vector3 rayOrigin = Transform( origin, occluder.fromObject ).GetXYZ();
-			Vector3 rayDirection = TransformNormal( direction, occluder.fromObject );
-			
-			float frontFaceMinDistance = 0.0316f * m_boundingSphereRadius;
-			float rayLength = std::numeric_limits<float>::infinity();
-			Vector3 normal;
-			if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, nullptr, &normal, false, nullptr, -1, rayLength ) )
+			auto areas = occluder.mesh->GetAreas( TRIBATCHTYPE_OPAQUE );
+			if( !areas->empty() )
 			{
-				if( Dot( normal, rayDirection ) > 0 || rayLength < frontFaceMinDistance )
+				Vector3 rayOrigin = Transform( origin, occluder.fromObject ).GetXYZ();
+				Vector3 rayDirection = TransformNormal( direction, occluder.fromObject );
+
+				Vector3 normal;
+				for( auto it = begin( *areas ); it != end( *areas ); ++it )
 				{
-					occluded = true;
-					break;
+					if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, nullptr, &normal, false, nullptr, ( *it )->GetIndex(), rayLength ) )
+					{
+						backfacing = !( *it )->IsAlphaCutout() && ( ( Dot( normal, rayDirection ) > 0 ) != ( *it )->IsReversed() );
+						if( rayLength < frontFaceMinDistance )
+						{
+							occluded = true;
+							break;
+						}
+					}
 				}
+			}
+			if( occluded )
+			{
+				break;
 			}
 		}
 
-		m_damageLocatorEnabled[i++] = !occluded;
+		m_damageLocatorEnabled[i++] = !occluded && !backfacing;
 	}
 
 	ReleaseDamageFilterSessions();
