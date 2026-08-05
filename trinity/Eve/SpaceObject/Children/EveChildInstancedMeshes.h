@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "IEveSpaceObjectChild.h"
+#include "EveSpaceObjectChild.h"
 #include "../../EveInstancedMeshManager.h"
 #include "ITr2Renderable.h"
 #include "Tr2PersistentPerObjectData.h"
@@ -13,7 +13,7 @@ BLUE_DECLARE( Tr2Effect );
 
 
 BLUE_CLASS( EveChildInstancedMeshes ) :
-	public IEveSpaceObjectChild,
+	public EveSpaceObjectChild,
 	public EveEntity,
 	public IBlueAsyncResNotifyTarget,
 	public IEveShadowCaster,
@@ -29,9 +29,7 @@ public:
 	~EveChildInstancedMeshes();
 
 	/////////////////////////////////////////////////////////////////////////////////////
-	// IEveSpaceObjectChild
-	const char* GetName() const override;
-	void SetName( const char* name ) override;
+	// EveSpaceObjectChild
 	void UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod ) override;
 	void GetRenderables( std::vector<ITr2Renderable*> & renderables ) override;
 	bool GetBoundingSphere( Vector4 & sphere, BoundingSphereQuery query = EVE_BOUNDS_NORMAL ) const override;
@@ -39,7 +37,6 @@ public:
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params ) override;
 	void GetLocalToWorldTransform( Matrix & transform ) const override;
 	void Setup( const Vector3* scale, const Quaternion* rotation, const Vector3* translation, Tr2Lod lowestLodVisible ) override;
-	void ChangeLOD( Tr2Lod lod ) override;
 	void SetShaderOption( const BlueSharedString& name, const BlueSharedString& value ) override;
 
 
@@ -180,7 +177,6 @@ private:
 	void ReleaseResources( TriStorage s ) override;
 	bool OnPrepareResources() override;
 
-	BlueSharedString m_name;
 	Matrix m_worldTransform = IdentityMatrix();
 	EveSpacePerObjectData m_perObjectData;
 	// m_perObjectData with the clip sphere neutralized, for meshes that opt out of the parent's overlays

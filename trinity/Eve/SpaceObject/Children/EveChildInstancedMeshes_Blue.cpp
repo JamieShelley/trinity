@@ -11,6 +11,7 @@ const Be::ClassInfo* EveChildInstancedMeshes::ExposeToBlue()
 {
 	EXPOSURE_BEGIN( EveChildInstancedMeshes, "" )
 		MAP_INTERFACE( EveChildInstancedMeshes )
+		MAP_INTERFACE( EveSpaceObjectChild )
 		MAP_INTERFACE( IEveSpaceObjectChild )
 		MAP_INTERFACE( EveEntity )
 		MAP_INTERFACE( IEveShadowCaster )
@@ -101,5 +102,8 @@ const Be::ClassInfo* EveChildInstancedMeshes::ExposeToBlue()
 			":param meshId: Index of the mesh to query\n"
 			":rtype: int" )
 
+		MAP_PROPERTY_READONLY( "partTag", GetPartTag, "Part tag for multi-part space objects" )
+		MAP_METHOD_AND_WRAP( "GetParent", GetParent, "Returns the parent space object child in the hierarchy" )
+		MAP_METHOD_AND_WRAP( "GetOwner", GetOwner, "Returns the owner space object" )
 	EXPOSURE_END()
 }
