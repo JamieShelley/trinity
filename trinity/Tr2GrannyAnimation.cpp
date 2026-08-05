@@ -2457,7 +2457,7 @@ std::pair<const Float4x3*, size_t> Tr2AnimationMeshBinding::GetBoneTransforms() 
 				{
 					GrannyColumnMatrixMultiply4x3Transpose(
 						(granny_real32*)( (granny_matrix_3x4*)m_boneTransforms.get() )[i],
-						(granny_real32*)m_meshSkeleton -> Bones[meshToBone[i]].InverseWorld4x4,
+						(granny_real32*)( m_meshSkeleton->Bones[meshToBone[i]].InverseWorld4x4 ),
 						(granny_real32*)GrannyGetWorldPose4x4( m_animation->m_worldPose, animBones[i] ) );
 				}
 			}
