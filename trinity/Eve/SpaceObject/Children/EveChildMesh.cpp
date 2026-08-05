@@ -71,6 +71,7 @@ EveChildMesh::EveChildMesh( IRoot* lockobj ) :
 
 EveChildMesh::~EveChildMesh()
 {
+	ReleaseBvhVisualization();
 	UnregisterAudioGeometry();
 }
 
@@ -272,6 +273,7 @@ void EveChildMesh::RegisterComponents()
 void EveChildMesh::UnRegisterComponents()
 {
 	UnregisterAudioGeometry();
+	ReleaseBvhVisualization();
 
 	auto registry = this->GetComponentRegistry();
 	if( registry )
@@ -1188,12 +1190,29 @@ void EveChildMesh::GetDebugOptions( Tr2DebugRendererOptions& options )
 	}
 }
 
+void EveChildMesh::ReleaseBvhVisualization()
+{
+	if( m_bvhVisualizationGeometry )
+	{
+		m_bvhVisualizationGeometry->ResetRayCaster();
+		m_bvhVisualizationGeometry.Unlock();
+	}
+}
+
 void EveChildMesh::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 {
+	bool bvhOptionEnabled = renderer.HasOption( GetRawRoot(), "BVH" );
+
+	if( !bvhOptionEnabled )
+	{
+		ReleaseBvhVisualization();
+	}
+
 	if( !m_display )
 	{
 		return;
 	}
+
 	if( m_mesh )
 	{
 		if( m_animationUpdater && m_animationUpdater->IsInitialized() )
@@ -1206,14 +1225,18 @@ void EveChildMesh::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 		{
 			m_mesh->RenderDebugInfo( m_worldTransform, renderer, nullptr );
 		}
-		if( renderer.HasOption( GetRawRoot(), "BVH" ) )
+
+		if( bvhOptionEnabled && !m_bvhVisualizationGeometry && m_mesh->GetGeometryResource() && m_mesh->GetGeometryResource()->IsGood() )
 		{
-			if( m_mesh->GetGeometryResource() && m_mesh->GetGeometryResource()->m_bvh.geometry && m_mesh->GetGeometryResource()->m_bvh.geometry->IsGood() )
-			{
-				BVH::Visualize( m_mesh->GetGeometryResource()->m_bvh.geometry->GetBVH(), this, m_worldTransform, renderer );
-			}
+			m_bvhVisualizationGeometry = m_mesh->GetGeometryResource();
+			m_bvhVisualizationGeometry->PrepareRayCaster();
+		}
+		if( m_bvhVisualizationGeometry && m_bvhVisualizationGeometry->IsRayCasterReady() )
+		{
+			BVH::Visualize( m_bvhVisualizationGeometry->m_bvh.geometry->GetBVH(), this, m_worldTransform, renderer );
 		}
 	}
+
 	if( m_animationUpdater && renderer.HasOption( GetRawRoot(), "Bones" ) )
 	{
 		m_animationUpdater->RenderBones( m_worldTransform, m_meshBinding.get() );

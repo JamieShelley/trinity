@@ -102,6 +102,19 @@ BlueAsyncRes::LoadingResult Tr2RaycastGeometryRes::DoLoad()
 		return LR_FAILED;
 	}
 
+	if( m_lodIndices.size() != cmfContent.GetData()->meshes.size() )
+	{
+		return LR_FAILED;
+	}
+
+	for( int32_t i = 0; i < cmfContent.GetData()->meshes.size(); i++ )
+	{
+		if( m_lodIndices[i] >= cmfContent.GetData()->meshes[i].lods.size() )
+		{
+			return LR_FAILED;
+		}
+	}
+
 	m_bvh = BVH::CreateBVHContent( cmfContent, m_lodIndices );
 
 	return LR_SUCCESS;

@@ -288,6 +288,9 @@ protected:
 		uint32_t m_allCount;
 	} m_morphAnimationOffsets;
 
+	void ReleaseBvhVisualization();
+	TriGeometryResPtr m_bvhVisualizationGeometry;
+
 	std::vector<EveLocatorSetsPtr> m_ownedLocatorSets;
 };
 

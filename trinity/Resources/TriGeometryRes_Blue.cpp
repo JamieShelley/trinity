@@ -116,7 +116,7 @@ const Be::ClassInfo* TriGeometryRes::ExposeToBlue()
 		MAP_METHOD_AND_WRAP(
 			"PrepareRayCaster",
 			PrepareRayCaster,
-			"Call this to load the asset asynchronously, and then poll IsRayCasterReady and HasRayCasterFailed, before attempting to call GetIntersection. Must be matched with exactly one call to ResetRayCaster!" )
+			"Call this to load the asset asynchronously, and then poll IsRayCasterReady and HasRayCasterPreparationFailed, before attempting to call GetIntersection. Must be matched with exactly one call to ResetRayCaster!" )
 		MAP_METHOD_AND_WRAP(
 			"ResetRayCaster",
 			ResetRayCaster,
@@ -126,7 +126,7 @@ const Be::ClassInfo* TriGeometryRes::ExposeToBlue()
 			IsRayCasterReady,
 			"Call this after PrepareRayCaster to see if the asset has been loaded and is ready yet for raycasting." )
 		MAP_METHOD_AND_WRAP(
-			"HasRayCasterPreperationFailed",
+			"HasRayCasterPreparationFailed",
 			HasRayCasterPreparationFailed,
 			"Call this after PrepareRayCaster to see if the loading asset has failed." )		
 
