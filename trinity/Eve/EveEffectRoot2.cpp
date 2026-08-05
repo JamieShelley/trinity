@@ -4,6 +4,7 @@
 #include "EveEffectRoot2.h"
 
 #include "Utilities/BoundingSphere.h"
+#include "Utilities/BoundingBox.h"
 #include "TriFrustum.h"
 #include "Lights/Tr2PointLight.h"
 #include "Tr2LightManager.h"
@@ -415,14 +416,36 @@ void EveEffectRoot2::GetModelCenterWorldPosition( Vector3& position ) const
 
 bool EveEffectRoot2::GetLocalBoundingBox( Vector3& min, Vector3& max )
 {
-	// If possible, return an AABB in local coordinates
-	return false;
+	if( m_boundingSphere.w <= 0.0f )
+	{
+		return false;
+	}
+
+	BoundingBoxInitialize( m_boundingSphere, min, max );
+	return true;
 }
 
 void EveEffectRoot2::GetLocalToWorldTransform( Matrix& transform ) const
 {
 	// Get the local to world transform
 	transform = m_lastUpdateMatrix;
+}
+
+bool EveEffectRoot2::GetWorldBoundingBox( Vector3& min, Vector3& max ) const
+{
+	if( m_boundingSphere.w <= 0.0f )
+	{
+		return false;
+	}
+
+	BoundingBoxInitialize( m_boundingSphere, min, max );
+	BoundingBoxTransform( min, max, m_lastUpdateMatrix );
+	return true;
+}
+
+bool EveEffectRoot2::IsBoundingBoxReady() const
+{
+	return m_boundingSphere.w > 0.0f;
 }
 
 void EveEffectRoot2::RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer )
