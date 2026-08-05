@@ -293,6 +293,7 @@ public:
 		const Vector3& dir, 
 		Vector3* hitpointNear, 
 		Vector3* hitpointNearNormal, 
+		bool normalizeNormal,
 		int* boneIndexNear, 
 		unsigned int areaIx, 
 		float& rayLength );
@@ -301,7 +302,8 @@ public:
 		const Vector3* pos, 
 		const Vector3* dir, 
 		Vector3* hitpointNear, 
-		Vector3* hitpointNearNormal, 
+		Vector3* hitpointNearNormal,
+		bool normalizeNormal,
 		int* boneIndexNear, 
 		unsigned int areaIx,
 		float& rayLength );

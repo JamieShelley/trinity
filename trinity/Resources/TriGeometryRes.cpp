@@ -1485,7 +1485,7 @@ void TriGeometryRes::ProcessMeshTriangles( int meshIx, PerTriangleCallback cb, v
 
 bool TriGeometryRes::GetIntersectionPointNormalBone( const Vector3* pos, const Vector3* dir, Vector3* hitpoint, Vector3* normal, int* boneIndex, unsigned int areaIx, float rayLength )
 {
-	return GetIntersectionPoints( *pos, *dir, hitpoint, normal, boneIndex, areaIx, rayLength );
+	return GetIntersectionPoints( *pos, *dir, hitpoint, normal, true, boneIndex, areaIx, rayLength );
 }
 
 std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>> TriGeometryRes::GetIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir )
@@ -1577,13 +1577,13 @@ bool TriGeometryRes::HasRayCasterPreparationFailed() const
 	return m_bvh.geometry && m_bvh.geometry->IsPrepared() && !m_bvh.geometry->IsGood();
 }
 
-bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, int* boneIndexNear, unsigned int areaIx, float& rayLength )
+bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, unsigned int areaIx, float& rayLength )
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
 	if( !m_useCMF || !m_bvh.geometry || !m_bvh.geometry->IsGood() )
 	{
-		return GetIntersectionPointsLegacy( &pos, &dir, hitpointNear, hitpointNearNormal, boneIndexNear, areaIx, rayLength );
+		return GetIntersectionPointsLegacy( &pos, &dir, hitpointNear, hitpointNearNormal, normalizeNormal, boneIndexNear, areaIx, rayLength );
 	}
 
 	if( boneIndexNear )
@@ -1631,7 +1631,12 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 		Vector3 avec = p2 - p1;
 		Vector3 bvec = p3 - p1;
 
-		*hitpointNearNormal = Normalize( Cross( avec, bvec ) );
+		*hitpointNearNormal = Cross( avec, bvec );
+
+		if( normalizeNormal )
+		{
+			*hitpointNearNormal = Normalize( *hitpointNearNormal );
+		}
 	}
 	if( boneIndexNear && bones.has_value() )
 	{
@@ -1642,7 +1647,7 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 }
 
 // Careful: This function is slow and only works on main thread!
-bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3* pos, const Vector3* dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, int* boneIndexNear, unsigned int areaIx, float& rayLength )
+bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3* pos, const Vector3* dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, unsigned int areaIx, float& rayLength )
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
@@ -1746,7 +1751,12 @@ bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3* pos, const Vect
 					{
 						Vector3 avec = p2 - p1;
 						Vector3 bvec = p3 - p1;
-						*hitpointNearNormal = Normalize( Cross( avec, bvec ) );
+						*hitpointNearNormal = Cross( avec, bvec );
+
+						if( normalizeNormal )
+						{
+							*hitpointNearNormal = Normalize( *hitpointNearNormal );
+						}
 					}
 					
 					rayLength = dist;

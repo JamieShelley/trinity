@@ -2085,12 +2085,16 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 			Vector3 rayOrigin = Transform( origin, occluder.fromObject ).GetXYZ();
 			Vector3 rayDirection = TransformNormal( direction, occluder.fromObject );
 			
-			float rayLength = 0.0316f * m_boundingSphereRadius;
-			// TODO: intern, shrink rayLength after hit... Also, we don't need to compute the distance anymore, unless scaling is an issue...
-			if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, nullptr, nullptr, nullptr, -1, rayLength ) )
+			float frontFaceMinDistance = 0.0316f * m_boundingSphereRadius;
+			float rayLength = std::numeric_limits<float>::infinity();
+			Vector3 normal;
+			if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, nullptr, &normal, false, nullptr, -1, rayLength ) )
 			{
-				occluded = true;
-				break;
+				if( Dot( normal, rayDirection ) > 0 || rayLength < frontFaceMinDistance )
+				{
+					occluded = true;
+					break;
+				}
 			}
 		}
 
