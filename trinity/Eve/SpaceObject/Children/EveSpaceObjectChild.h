@@ -26,6 +26,7 @@ struct EveChildGeometry
 	class TriGeometryRes* geometry = nullptr;
 	Matrix childToObject = IdentityMatrix();
 	const class EveChildMesh* owner = nullptr;
+	class Tr2MeshBase* mesh = nullptr;
 };
 
 /**

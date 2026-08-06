@@ -3,32 +3,13 @@
 
 namespace BVH
 {
-/*
-const int32_t BVH_MAX_NODE_SIZE = 4; // TODO: intern, play around with this value and profile...
-struct BVHNode
-{
-	CcpMath::AxisAlignedBox aabb;
-	//CcpMath::Sphere sphere;
-	uint32_t firstChildIndex : 28;
-	uint32_t numObj : 3;
-	uint32_t leaf : 1;
-};
-*/
+
 struct Primitive
 {
-	// TODO: intern, test if storing triangles is faster
 	uint32_t element;
-
 	CcpMath::AxisAlignedBox aabb;
-	//CcpMath::Sphere sphere;
 };
-/*
-struct BoundingVolumeHierarchy
-{
-	std::vector<uint32_t> primitives;
-	std::vector<BVHNode> nodes;
-};
-*/
+
 int FindLargestDimension( Vector3 dimensions )
 {
 	if( dimensions.x > dimensions.y )
@@ -55,26 +36,6 @@ int FindLargestDimension( Vector3 dimensions )
 	}
 }
 
-//int FindSplitIndex( const std::vector<Primitive>& primitives, int leftIndex, int rightIndex, int dimension, const CcpMath::AxisAlignedBox& aabb )
-//{
-//	float target = ( aabb.m_max[dimension] + aabb.m_min[dimension] );
-//
-//	// TODO: intern, compare with linear search. binary search requires sorted vector...
-//	auto iter = std::upper_bound( primitives.begin() + leftIndex, primitives.begin() + rightIndex, target,
-//		[dimension]( float target, const Primitive& p )
-//		{
-//			return target < ( p.aabb.m_max[dimension] + p.aabb.m_min[dimension] );
-//		}
-//	);
-//	int mid = (int)std::distance( primitives.begin(), iter );
-//	if( mid <= leftIndex || mid >= rightIndex )
-//	{
-//		return ( rightIndex + leftIndex ) >> 1;
-//	}
-//
-//	return mid;
-//}
-
 CcpMath::AxisAlignedBox CreateAABB( const std::vector<Primitive>& primitives, int from, int to )
 {
 	CcpMath::AxisAlignedBox aabb{};
@@ -96,15 +57,6 @@ void CreateBVHNodes(
 	if( rightIndex - leftIndex > BVH_MAX_NODE_SIZE )
 	{
 		int dimension = FindLargestDimension( node.aabb.m_max - node.aabb.m_min );
-
-		// TODO: intern, try if linear search and partition might work better than sort and binary search. problem: fallback still needs median...
-		//std::sort( primitives.begin() + leftIndex, primitives.begin() + rightIndex,
-		//	[dimension]( const Primitive& a, const Primitive& b )
-		//	{
-		//		return a.aabb.Center()[dimension] < b.aabb.Center()[dimension];
-		//	}
-		//);
-		//int split = FindSplitIndex( primitives, leftIndex, rightIndex, dimension, node.aabb );
 
 		// TODO: intern, experiment with splitting criteria
 		float target = ( node.aabb.m_max[dimension] + node.aabb.m_min[dimension] );
@@ -159,23 +111,28 @@ BoundingVolumeHierarchy CreateBVH(
 
 	std::vector<Primitive> primitives;
 	primitives.reserve( elementCount );
-	bvh.primitives.reserve( elementCount );
+	bvh.triangles.reserve( elementCount );
 	bvh.nodes.reserve( 2 * elementCount - 1 );
 
-	for( uint32_t i = firstElement; i < firstElement + elementCount; i++ )
-	{
-		Primitive primitive;
+	auto triangleVertices = [&indices, &positions]( int32_t i, Vector3 vertices[3] ) {
 		int index0 = indices( i * 3 );
 		int index1 = indices( i * 3 + 1 );
 		int index2 = indices( i * 3 + 2 );
 
-		Vector3 position0 = positions( index0 );
-		Vector3 position1 = positions( index1 );
-		Vector3 position2 = positions( index2 );
+		vertices[0] = positions( index0 );
+		vertices[1] = positions( index1 );
+		vertices[2] = positions( index2 );
+	};
 
-		primitive.aabb.IncludePoint( position0 );
-		primitive.aabb.IncludePoint( position1 );
-		primitive.aabb.IncludePoint( position2 );
+	for( uint32_t i = firstElement; i < firstElement + elementCount; i++ )
+	{
+		Primitive primitive;
+
+		Vector3 vertices[3];
+		triangleVertices( i, vertices );
+		primitive.aabb.IncludePoint( vertices[0] );
+		primitive.aabb.IncludePoint( vertices[1] );
+		primitive.aabb.IncludePoint( vertices[2] );
 
 		primitive.element = i;
 
@@ -188,9 +145,17 @@ BoundingVolumeHierarchy CreateBVH(
 	root.aabb = CreateAABB( primitives, 0, (int)primitives.size() );
 	bvh.nodes.push_back( root );
 	CreateBVHNodes( primitives, bvh.nodes, leftIndex, rightIndex, 0 );
+
 	for( int i = 0; i < primitives.size(); i++ )
 	{
-		bvh.primitives.push_back( primitives[i].element );
+		BVHLeafTriangle triangle;
+		Vector3 vertices[3];
+		triangleVertices( primitives[i].element, vertices );
+		triangle.vertex0 = vertices[0];
+		triangle.vertex1 = vertices[1];
+		triangle.vertex2 = vertices[2];
+		triangle.element = primitives[i].element;
+		bvh.triangles.push_back( triangle );
 	}
 
 	bvh.nodes.shrink_to_fit();
@@ -217,18 +182,9 @@ bool Intersects( const Vector3& origin, const XMVECTOR& invRayDir, const CcpMath
 
 	return maxT > 0.f && maxT >= minT;
 }
-/*
-struct IntersectedNode
-{
-	const BVHNode* node;
-	float distance;
-};
-*/
-template <typename GetIndex, typename GetPosition>
+
 bool Intersection(
 	const BoundingVolumeHierarchy& bvh,
-	const GetIndex& indices,
-	const GetPosition& positions,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -294,9 +250,9 @@ bool Intersection(
 			for( uint32_t i = currentNode->firstChildIndex; i < currentNode->firstChildIndex + currentNode->numObj; i++ )
 			{
 				float hitU, hitV;
-				Vector3 vertex0 = positions( indices( bvh.primitives[i] * 3 + 0 ) );
-				Vector3 vertex1 = positions( indices( bvh.primitives[i] * 3 + 1 ) );
-				Vector3 vertex2 = positions( indices( bvh.primitives[i] * 3 + 2 ) );
+				Vector3 vertex0 = bvh.triangles[i].vertex0;
+				Vector3 vertex1 = bvh.triangles[i].vertex1;
+				Vector3 vertex2 = bvh.triangles[i].vertex2;
 				if( IntersectTri( &vertex0, &vertex1, &vertex2, &ray.origin, &ray.direction, &hitU, &hitV, &hitDistance ) )
 				{
 					if( hitDistance < rayLength )
@@ -304,7 +260,7 @@ bool Intersection(
 						rayLength = hitDistance;
 						u = hitU;
 						v = hitV;
-						hitPrimitive = bvh.primitives[i];
+						hitPrimitive = bvh.triangles[i].element;
 						hit = true;
 					}
 				}
@@ -332,36 +288,76 @@ bool Intersection(
 	}
 	return hit;
 }
-/*
-struct BVHContent
+
+cmf::ConstIndexBufferStream GetIndices( BVHContent& self, int meshIndex )
 {
-	const cmf::Data* data;
-	std::vector<BoundingVolumeHierarchy> bvhs;
-};
-*/
+	const auto& mesh = self.content.GetData()->meshes[meshIndex];
+	int32_t lodIndex = self.lodIndices[meshIndex];
+	auto ib = mesh.lods[lodIndex].ib;
+	auto ibSectionData = self.content.GetSection( ib.index );
+	auto indices = cmf::ConstIndexBufferStream( ibSectionData, ib );
+	return indices;
+}
+
+cmf::ConstBufferElementStream<Vector3> GetPositions( BVHContent& self, int meshIndex )
+{
+	const auto& mesh = self.content.GetData()->meshes[meshIndex];
+	int32_t lodIndex = self.lodIndices[meshIndex];
+	auto positionElement = cmf::FindElement( mesh.decl, cmf::Usage::Position );
+	auto vb = mesh.lods[lodIndex].vb;
+	uint32_t numVerts = cmf::GetStreamElementCount( vb );
+	auto vertices = self.content.GetViewData( vb );
+	cmf::ConstBufferElementStream<Vector3> positions( *positionElement, vertices, numVerts, vb.stride );
+	return positions;
+}
+
+std::optional<cmf::ConstBufferElementStream<std::array<uint32_t, 4>>> GetBones( BVHContent& self, int meshIndex )
+{
+	const auto& mesh = self.content.GetData()->meshes[meshIndex];
+	int32_t lodIndex = self.lodIndices[meshIndex];
+	auto boneElement = cmf::FindElement( mesh.decl, cmf::Usage::BoneIndices );
+	auto vb = mesh.lods[lodIndex].vb;
+	uint32_t numVerts = cmf::GetStreamElementCount( vb );
+	auto vertices = self.content.GetViewData( vb );
+	std::optional<cmf::ConstBufferElementStream<std::array<uint32_t, 4>>> bones;
+	if( boneElement )
+	{
+		bones.emplace( *boneElement, vertices, numVerts, vb.stride );
+	}
+	return bones;
+}
+
+std::optional<cmf::ConstBufferElementStream<Vector4>> GetColors( BVHContent& self, int meshIndex )
+{
+	const auto& mesh = self.content.GetData()->meshes[meshIndex];
+	int32_t lodIndex = self.lodIndices[meshIndex];
+	auto colorElement = cmf::FindElement( mesh.decl, cmf::Usage::Color );
+	auto vb = mesh.lods[lodIndex].vb;
+	uint32_t numVerts = cmf::GetStreamElementCount( vb );
+	auto vertices = self.content.GetViewData( vb );
+	std::optional<cmf::ConstBufferElementStream<Vector4>> colors;
+	if( colorElement )
+	{
+		colors.emplace( *colorElement, vertices, numVerts, vb.stride );
+	}
+	return colors;
+}
+
 BVHContent CreateBVHContent( Tr2CmfContents& content, const std::vector<int32_t>& lodIndices )
 {
 	BVHContent bvhContent;
-	bvhContent.data = content.GetData();
-	for( int32_t i = 0; i < bvhContent.data->meshes.size(); i++ )
+	bvhContent.content = std::move( content );
+	bvhContent.lodIndices = lodIndices;
+	for( int32_t i = 0; i < bvhContent.content.GetData()->meshes.size(); i++ )
 	{
-		const auto& mesh = bvhContent.data->meshes[i];
-		int32_t lodIndex = lodIndices[i];
-
-		auto ib = mesh.lods[lodIndex].ib;
-		auto ibSectionData = content.GetSection( ib.index );
-		auto indices = cmf::ConstIndexBufferStream( ibSectionData, ib );
-
-		auto element = cmf::FindElement( mesh.decl, cmf::Usage::Position );
-		auto vb = mesh.lods[lodIndex].vb;
-		uint32_t numVerts = cmf::GetStreamElementCount( vb );
-		auto vertices = content.GetViewData( vb );
-		cmf::ConstBufferElementStream<Vector3> positions( *element, vertices, numVerts, vb.stride );
+		auto indices = GetIndices( bvhContent, i );
+		auto positions = GetPositions( bvhContent, i );
 
 		auto getIndex = [&indices]( int32_t i ) { return indices[i]; };
 		auto getPositions = [&positions]( int32_t i ) { return positions[i]; };
 
-		for( const auto& area : mesh.lods[lodIndex].areas )
+		const auto& mesh = bvhContent.content.GetData()->meshes[i];
+		for( const auto& area : mesh.lods[lodIndices[i]].areas )
 		{
 			bvhContent.bvhs.push_back( CreateBVH( getIndex, getPositions, area.firstElement, area.elementCount ) );
 		}
@@ -371,7 +367,6 @@ BVHContent CreateBVHContent( Tr2CmfContents& content, const std::vector<int32_t>
 
 bool Intersection(
 	const BVHContent& bvhContent,
-	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -385,15 +380,14 @@ bool Intersection(
 	size_t areasOffset = 0;
 	for( int32_t i = 0; i < meshIndex; i++ )
 	{
-		areasOffset += bvhContent.data->meshes[i].areas.size();
+		areasOffset += bvhContent.content.GetData()->meshes[i].areas.size();
 	}
 
-	return Intersection( bvhContent.bvhs[areasOffset + areaIndex], rayCaster.m_indices[meshIndex], rayCaster.m_positions[meshIndex], stack, ray, rayLength, primitive, u, v, distance );
+	return Intersection( bvhContent.bvhs[areasOffset + areaIndex], stack, ray, rayLength, primitive, u, v, distance );
 }
 
 bool Intersection(
 	const BVHContent& bvhContent,
-	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -406,15 +400,15 @@ bool Intersection(
 	size_t areasOffset = 0;
 	for( int32_t i = 0; i < meshIndex; i++ )
 	{
-		areasOffset += bvhContent.data->meshes[i].areas.size();
+		areasOffset += bvhContent.content.GetData()->meshes[i].areas.size();
 	}
 
 	bool hit = false;
-	for( size_t areaIndex = 0; areaIndex < bvhContent.data->meshes[meshIndex].areas.size(); areaIndex++ )
+	for( size_t areaIndex = 0; areaIndex < bvhContent.content.GetData()->meshes[meshIndex].areas.size(); areaIndex++ )
 	{
 		const auto& bvh = bvhContent.bvhs[areasOffset + areaIndex];
 		uint32_t hitPrimitive;
-		if( Intersection( bvh, rayCaster.m_indices[meshIndex], rayCaster.m_positions[meshIndex], stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+		if( Intersection( bvh, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
 		{
 			primitive = hitPrimitive;
 			distance = rayLength;
@@ -426,7 +420,6 @@ bool Intersection(
 
 bool Intersection(
 	const BVHContent& bvhContent,
-	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -438,18 +431,13 @@ bool Intersection(
 {
 	bool hit = false;
 	size_t areasOffset = 0;
-	for( size_t meshIndex = 0; meshIndex < bvhContent.data->meshes.size(); meshIndex++ )
+	for( size_t meshIndex = 0; meshIndex < bvhContent.content.GetData()->meshes.size(); meshIndex++ )
 	{
-		if( !rayCaster.m_indices[meshIndex].data || !rayCaster.m_positions[meshIndex].data )
-		{
-			continue;
-		}
-
-		for( size_t areaIndex = 0; areaIndex < bvhContent.data->meshes[meshIndex].areas.size(); areaIndex++ )
+		for( size_t areaIndex = 0; areaIndex < bvhContent.content.GetData()->meshes[meshIndex].areas.size(); areaIndex++ )
 		{
 			const auto& bvh = bvhContent.bvhs[areasOffset + areaIndex];
 			uint32_t hitPrimitive;
-			if( Intersection( bvh, rayCaster.m_indices[meshIndex], rayCaster.m_positions[meshIndex], stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+			if( Intersection( bvh, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
 			{
 				mesh = (uint32_t)meshIndex;
 				primitive = hitPrimitive;
@@ -457,14 +445,13 @@ bool Intersection(
 				hit = true;
 			}
 		}
-		areasOffset += bvhContent.data->meshes[meshIndex].areas.size();
+		areasOffset += bvhContent.content.GetData()->meshes[meshIndex].areas.size();
 	}
 	return hit;
 }
 
 bool Intersection(
 	const BVHContent& bvhContent,
-	const RayCaster& rayCaster,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -477,9 +464,9 @@ bool Intersection(
 {
 	bool hit = false;
 	size_t areasOffset = 0;
-	for( size_t i = 0; i < bvhContent.data->meshes.size(); i++ )
+	for( size_t i = 0; i < bvhContent.content.GetData()->meshes.size(); i++ )
 	{
-		if( !rayCaster.m_indices[i].data || !rayCaster.m_positions[i].data || areaIndex >= bvhContent.data->meshes[i].areas.size() )
+		if( areaIndex >= bvhContent.content.GetData()->meshes[i].areas.size() )
 		{
 			continue;
 		}
@@ -487,7 +474,7 @@ bool Intersection(
 		{
 			const auto& bvh = bvhContent.bvhs[areasOffset + areaIndex];
 			uint32_t hitPrimitive;
-			if( Intersection( bvh, rayCaster.m_indices[i], rayCaster.m_positions[i], stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+			if( Intersection( bvh, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
 			{
 				meshIndex = (uint32_t)i;
 				primitive = hitPrimitive;
@@ -495,7 +482,7 @@ bool Intersection(
 				hit = true;
 			}
 		}
-		areasOffset += bvhContent.data->meshes[i].areas.size();
+		areasOffset += bvhContent.content.GetData()->meshes[i].areas.size();
 	}
 	return hit;
 }

@@ -22,6 +22,27 @@ BLUE_DECLARE( TriGrannyRes );
 class Tr2RenderContext;
 
 
+BLUE_CLASS( Tr2RaycastGeometryRes ) :
+	public BlueAsyncRes
+{
+public:
+	EXPOSE_TO_BLUE();
+
+	void SetLodIndices( const std::vector<int32_t>& lodIndices );
+	BVH::BVHContent& GetBVH();
+	
+protected:
+	LoadingResult DoLoad() override;
+	bool DoPrepare() override;
+
+private:
+	std::vector<int32_t> m_lodIndices;
+	BVH::BVHContent m_bvh;
+};
+
+TYPEDEF_BLUECLASS_WR_SHUTDOWN( Tr2RaycastGeometryRes );
+
+
 enum class GrannyDeprecationLevel
 {
 	DO_NOTHING,
@@ -219,6 +240,12 @@ struct TriGeometryResSkeletonData
 	TrackableStdVector<TriGeometryResJointData> m_joints;
 };
 
+struct RayCastColorResult
+{
+	Color vertex1;
+	Color interpolated;
+};
+
 BLUE_CLASS( TriGeometryRes ) :
 	public BlueAsyncRes,
 	public ICacheable,
@@ -272,12 +299,28 @@ public:
 		const Vector3& dir, 
 		Vector3* hitpointNear, 
 		Vector3* hitpointNearNormal, 
+		bool normalizeNormal,
 		int* boneIndexNear, 
+		RayCastColorResult* colorNear,
 		unsigned int areaIx, 
+		float& rayLength );
+
+	bool GetIntersectionPointsLegacy( 
+		const Vector3* pos, 
+		const Vector3* dir, 
+		Vector3* hitpointNear, 
+		Vector3* hitpointNearNormal,
+		bool normalizeNormal,
+		int* boneIndexNear, 
+		RayCastColorResult* colorNear,
+		unsigned int areaIx,
 		float& rayLength );
 
 	void PrepareRayCaster();
 	void ResetRayCaster();
+	bool IsRayCasterReady() const;
+	bool HasRayCasterPreparationFailed() const;
+	void DestroyRayCaster();
 
 	//bool GetIntersectionPoints(
 	//	const Vector3* pos,
@@ -291,17 +334,21 @@ public:
 	//	unsigned int areaIx = -1,
 	//	float rayLength = INFINITY );
 
-	bool GetIntersectionPointNormalBone(
+	bool GetIntersectionPointNormalBoneColor(
 		const Vector3* pos,
 		const Vector3* dir,
 		Vector3* hitpoint,
 		Vector3* normal,
 		int* boneIndex,
+		RayCastColorResult* color,
 		unsigned int areaIx = -1,
 		float rayLength = std::numeric_limits<float>::infinity() );
 
 	std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>> GetIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir );
 	Be::Result<std::string> GetAreaIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir, int areaIx, std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>>& result );
+
+	std::pair<bool, std::pair<int, std::pair<Vector3, std::pair<Vector3, std::pair<Color, Color>>>>> GetIntersectionPointNormalBoneColorFromScript( const Vector3& pos, const Vector3& dir );
+	Be::Result<std::string> GetAreaIntersectionPointNormalBoneColorFromScript( const Vector3& pos, const Vector3& dir, int areaIx, std::pair<bool, std::pair<int, std::pair<Vector3, std::pair<Vector3, std::pair<Color, Color>>>>>& result );
 
 	bool GetBoundingBox( unsigned int meshIx, Vector3& min, Vector3& max ) const;
 	Be::Result<std::string> GetBoundingBoxFromScript( unsigned int meshIx, std::pair<Vector3, Vector3>& bounds ) const;
@@ -377,9 +424,9 @@ public:
 	// TODO: intern, don't make bvh public
 	struct
 	{
-		BVH::BVHContent content;
-		BVH::RayCaster rayCaster;
+		Tr2RaycastGeometryResPtr geometry = nullptr;
 		std::vector<BVH::IntersectedNode> mainThreadStack;
+		int32_t sessions = 0;
 	} m_bvh;
 
 private:

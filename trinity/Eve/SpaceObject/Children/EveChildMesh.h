@@ -315,6 +315,9 @@ protected:
 		uint32_t m_allCount;
 	} m_morphAnimationOffsets;
 
+	void ReleaseBvhVisualization();
+	TriGeometryResPtr m_bvhVisualizationGeometry;
+
 	std::vector<EveLocatorSetsPtr> m_ownedLocatorSets;
 
 	// armor/hull damage owned by this part, renders whether or not it is attached to a ship

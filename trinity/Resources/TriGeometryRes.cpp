@@ -75,6 +75,57 @@ static void CopyGrannyName( std::string& dest, const char* src )
 }
 
 
+void Tr2RaycastGeometryRes::SetLodIndices( const std::vector<int32_t>& lodIndices )
+{
+	m_lodIndices = lodIndices;
+}
+
+BVH::BVHContent& Tr2RaycastGeometryRes::GetBVH()
+{
+	return m_bvh;
+}
+
+BlueAsyncRes::LoadingResult Tr2RaycastGeometryRes::DoLoad()
+{
+	CCP_STATS_ZONE( __FUNCTION__ );
+
+	if( !m_dataStream )
+	{
+		return LR_FAILED;
+	}
+
+	CCP_ASSERT( m_path.size() >= 4 && m_path.compare( m_path.size() - 4, 4, L".cmf" ) == 0 );
+
+	auto cmfContent = Tr2CmfContents( *m_dataStream, CW2A( m_path.c_str() ) );
+	if( !cmfContent || !cmfContent.GetData() )
+	{
+		return LR_FAILED;
+	}
+
+	if( m_lodIndices.size() != cmfContent.GetData()->meshes.size() )
+	{
+		return LR_FAILED;
+	}
+
+	for( int32_t i = 0; i < cmfContent.GetData()->meshes.size(); i++ )
+	{
+		if( m_lodIndices[i] >= cmfContent.GetData()->meshes[i].lods.size() )
+		{
+			return LR_FAILED;
+		}
+	}
+
+	m_bvh = BVH::CreateBVHContent( cmfContent, m_lodIndices );
+
+	return LR_SUCCESS;
+}
+
+bool Tr2RaycastGeometryRes::DoPrepare()
+{
+	return true;
+}
+
+
 namespace
 {
 struct MorphToBaseData
@@ -155,7 +206,7 @@ TriGeometryRes::TriGeometryRes( IRoot* lockobj ) :
 
 TriGeometryRes::~TriGeometryRes()
 {
-	ResetRayCaster();
+	DestroyRayCaster();
 	ReleaseResources( TRISTORAGE_ALL );
 #if WITH_GRANNY
 	ClearGrannyData();
@@ -441,7 +492,7 @@ void TriGeometryRes::ReleaseResources( TriStorage s )
 	{
 		CancelPendingLoad();
 
-		ResetRayCaster();
+		DestroyRayCaster();
 
 		ReleaseResourcesHelper();
 
@@ -1432,9 +1483,9 @@ void TriGeometryRes::ProcessMeshTriangles( int meshIx, PerTriangleCallback cb, v
 	}
 }
 
-bool TriGeometryRes::GetIntersectionPointNormalBone( const Vector3* pos, const Vector3* dir, Vector3* hitpoint, Vector3* normal, int* boneIndex, unsigned int areaIx, float rayLength )
+bool TriGeometryRes::GetIntersectionPointNormalBoneColor( const Vector3* pos, const Vector3* dir, Vector3* hitpoint, Vector3* normal, int* boneIndex, RayCastColorResult* colors, unsigned int areaIx, float rayLength )
 {
-	return GetIntersectionPoints( *pos, *dir, hitpoint, normal, boneIndex, areaIx, rayLength );
+	return GetIntersectionPoints( *pos, *dir, hitpoint, normal, true, boneIndex, colors, areaIx, rayLength );
 }
 
 std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>> TriGeometryRes::GetIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir )
@@ -1442,7 +1493,7 @@ std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>> TriGeometryRes::Get
 	Vector3 hitpoint( 0.0f, 0.0f, 0.0f );
 	Vector3 normal( 0.0f, 0.0f, 0.0f );
 	int boneIndex;
-	bool result = GetIntersectionPointNormalBone( &pos, &dir, &hitpoint, &normal, &boneIndex );
+	bool result = GetIntersectionPointNormalBoneColor( &pos, &dir, &hitpoint, &normal, &boneIndex, nullptr );
 	return std::make_pair( result, std::make_pair( boneIndex, std::make_pair( hitpoint, normal ) ) );
 }
 
@@ -1463,203 +1514,114 @@ Be::Result<std::string> TriGeometryRes::GetAreaIntersectionPointNormalBoneFromSc
 	// this method got changed to accept signed integers and cast them to unsigned.
 	auto unsignedAreaIndex = static_cast<unsigned int>( areaIx );
 
-	bool success = GetIntersectionPointNormalBone( &pos, &dir, &hitpoint, &normal, &boneIndex, unsignedAreaIndex );
+	bool success = GetIntersectionPointNormalBoneColor( &pos, &dir, &hitpoint, &normal, &boneIndex, nullptr, unsignedAreaIndex );
 	result = std::make_pair( success, std::make_pair( boneIndex, std::make_pair( hitpoint, normal ) ) );
 	return Be::Result<std::string>();
 }
 
-void ResetRayCasterFromGPUBuffer( BVH::RayCaster& self, const TriGeometryRes& geometry )
+std::pair<bool, std::pair<int, std::pair<Vector3, std::pair<Vector3, std::pair<Color, Color>>>>> TriGeometryRes::GetIntersectionPointNormalBoneColorFromScript( const Vector3& pos, const Vector3& dir )
 {
-	CCP_STATS_ZONE( __FUNCTION__ );
-
-	USE_MAIN_THREAD_RENDER_CONTEXT();
-
-	if( self.m_prepared )
-	{
-		for( uint32_t i = 0; i < geometry.GetMeshCount(); i++ )
-		{
-			auto mesh = geometry.GetMeshData( i );
-			if( mesh == NULL )
-			{
-				continue;
-			}
-
-			auto& lod = mesh->m_lods[self.m_lodIndices[i]];
-			lod->m_vertexAllocation.UnmapForReading( renderContext );
-			lod->m_indexAllocation.UnmapForReading( renderContext );
-		}
-	}
-
-	self.m_indices.clear();
-	self.m_positions.clear();
-	self.m_bones.clear();
-	self.m_lodIndices.clear();
-	self.m_prepared = false;
+	Vector3 hitpoint( 0.0f, 0.0f, 0.0f );
+	Vector3 normal( 0.0f, 0.0f, 0.0f );
+	int boneIndex;
+	RayCastColorResult colors;
+	bool result = GetIntersectionPointNormalBoneColor( &pos, &dir, &hitpoint, &normal, &boneIndex, &colors );
+	return std::make_pair( result, std::make_pair( boneIndex, std::make_pair( hitpoint, std::make_pair( normal, std::make_pair( colors.vertex1, colors.interpolated ) ) ) ) );
 }
 
-bool PrepareRayCasterFromGPUBuffer( BVH::RayCaster& self, const TriGeometryRes& geometry, const std::vector<int32_t>& lodIndices )
+Be::Result<std::string> TriGeometryRes::GetAreaIntersectionPointNormalBoneColorFromScript( const Vector3& pos, const Vector3& dir, int areaIx, std::pair<bool, std::pair<int, std::pair<Vector3, std::pair<Vector3, std::pair<Color, Color>>>>>& result )
 {
-	CCP_STATS_ZONE( __FUNCTION__ );
+	Vector3 hitpoint( 0.0f, 0.0f, 0.0f );
+	Vector3 normal( 0.0f, 0.0f, 0.0f );
+	int boneIndex;
+	RayCastColorResult colors;
 
-	USE_MAIN_THREAD_RENDER_CONTEXT();
-
-	self.m_lodIndices = lodIndices;
-	self.m_prepared = true;
-
-	for( uint32_t i = 0; i < geometry.GetMeshCount(); i++ )
+	if( areaIx < -1 )
 	{
-		auto mesh = geometry.GetMeshData( i );
-		int lodIndex = lodIndices[i];
-
-		if( mesh == NULL )
-		{
-			self.m_positions.push_back( BVH::RayCastPositionReader{} );
-			self.m_bones.push_back( BVH::RayCastBoneReader{} );
-			self.m_indices.push_back( BVH::RayCastIndexReader{} );
-			continue;
-		}
-
-		Tr2VertexDefinition decl;
-		if( !Tr2EffectStateManager::GetVertexDeclarationElements( mesh->m_vertexDeclarationHandle, decl ) )
-		{
-			ResetRayCasterFromGPUBuffer( self, geometry );
-			return false;
-		}
-		const Tr2VertexDefinition::Item* const position = decl.Find( decl.POSITION );
-		if( !position )
-		{
-			ResetRayCasterFromGPUBuffer( self, geometry );
-			return false;
-		}
-		const Tr2VertexDefinition::Item* const bone = decl.Find( decl.BLENDINDICES );
-		
-		auto& lod = mesh->m_lods[lodIndex];
-
-		const uint8_t* pVertices;
-		if( FAILED( lod->m_vertexAllocation.MapForReading( pVertices, renderContext ) ) )
-		{
-			ResetRayCasterFromGPUBuffer( self, geometry );
-			return false;
-		}
-		self.m_positions.push_back( BVH::RayCastPositionReader{ pVertices + position->m_offset, mesh->m_bytesPerVertex, position->m_dataType } );
-		if( bone )
-		{
-			self.m_bones.push_back( BVH::RayCastBoneReader{ pVertices + bone->m_offset, mesh->m_bytesPerVertex, bone->m_dataType } );
-		}
-		else
-		{
-			self.m_bones.push_back( BVH::RayCastBoneReader{} );
-		}
-		
-		const uint8_t* pIndices;
-		if( FAILED( lod->m_indexAllocation.MapForReading( pIndices, renderContext ) ) )
-		{
-			ResetRayCasterFromGPUBuffer( self, geometry );
-			return false;
-		}
-		self.m_indices.push_back( BVH::RayCastIndexReader{ pIndices, lod->m_indexAllocation.GetStride() == 2 } );
-	}
-	
-	return true;
-}
-
-void ResetRayCasterFromCMF( BVH::RayCaster& self )
-{
-	self.m_indices.clear();
-	self.m_positions.clear();
-	self.m_bones.clear();
-	self.m_lodIndices.clear();
-	self.m_prepared = false;
-}
-
-bool PrepareRayCasterFromCMF( BVH::RayCaster& self, Tr2CmfContents& cmfContent, const std::vector<int32_t>& lodIndices )
-{
-	self.m_lodIndices = lodIndices;
-
-	auto cmfData = cmfContent.GetData();
-	if( cmfData == nullptr )
-	{
-		return false;
+		// -1 is a special case handled to maintain legacy behavior.
+		return Be::Result<std::string>( "Invalid area index" );
 	}
 
-	for( int32_t i = 0; i < cmfData->meshes.size(); i++ )
-	{
-		const auto& mesh = cmfData->meshes[i];
-		int32_t lodIndex = lodIndices[i];
+	// In Python 3, passing a signed value to an unsigned C exposed attribute is an error.
+	// In order to maintain backwards compatible behavior with Python 2
+	// this method got changed to accept signed integers and cast them to unsigned.
+	auto unsignedAreaIndex = static_cast<unsigned int>( areaIx );
 
-		auto ib = mesh.lods[lodIndex].ib;
-		auto indices = cmfContent.GetViewData( ib );
-		if( !indices )
-		{
-			ResetRayCasterFromCMF( self );
-			return false;
-		}
-		
-		auto vb = mesh.lods[lodIndex].vb;
-		auto vertices = cmfContent.GetViewData( vb );
-		if( !vertices )
-		{
-			ResetRayCasterFromCMF( self );
-			return false;
-		}
-
-		auto position = cmf::FindElement( mesh.decl, cmf::Usage::Position );
-		Tr2VertexDefinition::DataType positionDataType = ConvertCMFTypeToDataType( *position );
-		self.m_positions.push_back( BVH::RayCastPositionReader{ (uint8_t*)vertices + position->offset, vb.stride, positionDataType } );
-
-		auto bone = cmf::FindElement( mesh.decl, cmf::Usage::BoneIndices );
-		if( bone )
-		{
-			Tr2VertexDefinition::DataType boneDataType = ConvertCMFTypeToDataType( *bone );
-			self.m_bones.push_back( BVH::RayCastBoneReader{ (uint8_t*)vertices + bone->offset, vb.stride, boneDataType } );
-		}
-		else
-		{
-			self.m_bones.push_back( BVH::RayCastBoneReader{} );
-		}
-
-		self.m_indices.push_back( BVH::RayCastIndexReader{ (uint8_t*)indices, ib.stride == 2 } );
-	}
-
-	self.m_prepared = true;
-	return true;
+	bool success = GetIntersectionPointNormalBoneColor( &pos, &dir, &hitpoint, &normal, &boneIndex, &colors, unsignedAreaIndex );
+	result = std::make_pair( success, std::make_pair( boneIndex, std::make_pair( hitpoint, std::make_pair( normal, std::make_pair( colors.vertex1, colors.interpolated ) ) ) ) );
+	return Be::Result<std::string>();
 }
 
 void TriGeometryRes::PrepareRayCaster()
 {
-	if( m_bvh.rayCaster.m_prepared )
+	m_bvh.sessions++;
+
+	if( m_bvh.geometry )
 	{
 		return;
 	}
-	std::vector<int32_t> lodIndices( m_meshes.size(), 0 );
-	PrepareRayCasterFromGPUBuffer( m_bvh.rayCaster, *this, lodIndices );
+
+	std::vector<int32_t> lodIndices;
+	lodIndices.resize( m_meshes.size() );
+	for( size_t i = 0; i < m_meshes.size(); i++ )
+	{
+		lodIndices[i] = m_meshes[i] ? m_meshes[i]->m_lods[0]->m_originalLodIndex : 0;
+	}
+
+	m_bvh.geometry.CreateInstance();
+	m_bvh.geometry->SetLodIndices( lodIndices );
+	m_bvh.geometry->Initialize( GetFilePath().c_str(), GetExt() );
+}
+
+void TriGeometryRes::DestroyRayCaster()
+{
+	if( m_bvh.geometry )
+	{
+		m_bvh.geometry->CancelPendingLoad();
+		m_bvh.geometry.Unlock();
+	}
 }
 
 void TriGeometryRes::ResetRayCaster()
 {
-	ResetRayCasterFromGPUBuffer( m_bvh.rayCaster, *this );
+	m_bvh.sessions--;
+
+	CCP_ASSERT( m_bvh.sessions >= 0 );
+
+	if( m_bvh.sessions > 0 )
+	{
+		return;
+	}
+
+	m_bvh.geometry.Unlock();
 }
 
-// TODO: intern, add granny fallback
-bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, int* boneIndexNear, unsigned int areaIx, float& rayLength )
+bool TriGeometryRes::IsRayCasterReady() const
+{
+	return m_bvh.geometry && m_bvh.geometry->IsGood();
+}
+
+bool TriGeometryRes::HasRayCasterPreparationFailed() const
+{
+	if( m_bvh.sessions > 0 && !m_bvh.geometry )	// ReleaseResources destroyed our bvh :(
+	{
+		return true;
+	}
+	return m_bvh.geometry && m_bvh.geometry->IsPrepared() && !m_bvh.geometry->IsGood();
+}
+
+bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, RayCastColorResult* colorNear, unsigned int areaIx, float& rayLength )
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
-	if( !m_useCMF )	// TODO: intern, handle granny/cmf properly
+	if( !m_useCMF || !m_bvh.geometry || !m_bvh.geometry->IsGood() )
 	{
-		return false;
+		return GetIntersectionPointsLegacy( &pos, &dir, hitpointNear, hitpointNearNormal, normalizeNormal, boneIndexNear, colorNear, areaIx, rayLength );
 	}
 
 	if( boneIndexNear )
 	{
 		*boneIndexNear = -1;
-	}
-
-	CCP_ASSERT( m_bvh.rayCaster.m_prepared );
-	if( !m_bvh.rayCaster.m_prepared )
-	{
-		// TODO: intern, as fallback, maybe call PrepareRayCaster(); and then check again m_prepared?
-		return false;
 	}
 
 	uint32_t meshIndex;
@@ -1668,11 +1630,11 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 	bool hit = false;
 	if( areaIx != -1 )
 	{
-		hit = BVH::Intersection( m_bvh.content, m_bvh.rayCaster, m_bvh.mainThreadStack, CcpMath::Ray{ pos, dir }, rayLength, areaIx, meshIndex, primitive, u, v, rayLength );
+		hit = BVH::Intersection( m_bvh.geometry->GetBVH(), m_bvh.mainThreadStack, CcpMath::Ray{ pos, dir }, rayLength, areaIx, meshIndex, primitive, u, v, rayLength );
 	}
 	else
 	{
-		hit = BVH::Intersection( m_bvh.content, m_bvh.rayCaster, m_bvh.mainThreadStack, CcpMath::Ray{ pos, dir }, rayLength, meshIndex, primitive, u, v, rayLength );
+		hit = BVH::Intersection( m_bvh.geometry->GetBVH(), m_bvh.mainThreadStack, CcpMath::Ray{ pos, dir }, rayLength, meshIndex, primitive, u, v, rayLength );
 	}
 
 	if( !hit )
@@ -1684,26 +1646,194 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 	{
 		*hitpointNear = pos + dir * rayLength;
 	}
-	uint32_t index1 = m_bvh.rayCaster.m_indices[meshIndex]( primitive * 3 + 0 );
+
+	auto& bvh = m_bvh.geometry->GetBVH();
+	auto indices = BVH::GetIndices( bvh, meshIndex );
+	auto positions = BVH::GetPositions( bvh, meshIndex );
+	auto bones = BVH::GetBones( bvh, meshIndex );
+	auto colors = BVH::GetColors( bvh, meshIndex );
+
+	uint32_t index1 = indices[primitive * 3 + 0];
+	uint32_t index2 = indices[primitive * 3 + 1];
+	uint32_t index3 = indices[primitive * 3 + 2];
 	if( hitpointNearNormal )
 	{
-		uint32_t index2 = m_bvh.rayCaster.m_indices[meshIndex]( primitive * 3 + 1 );
-		uint32_t index3 = m_bvh.rayCaster.m_indices[meshIndex]( primitive * 3 + 2 );
-		Vector3 p1 = m_bvh.rayCaster.m_positions[meshIndex]( index1 );
-		Vector3 p2 = m_bvh.rayCaster.m_positions[meshIndex]( index2 );
-		Vector3 p3 = m_bvh.rayCaster.m_positions[meshIndex]( index3 );
+		Vector3 p1 = positions[index1];
+		Vector3 p2 = positions[index2];
+		Vector3 p3 = positions[index3];
 
 		Vector3 avec = p2 - p1;
 		Vector3 bvec = p3 - p1;
 
-		*hitpointNearNormal = Normalize( Cross( avec, bvec ) );
+		*hitpointNearNormal = Cross( avec, bvec );
+
+		if( normalizeNormal )
+		{
+			*hitpointNearNormal = Normalize( *hitpointNearNormal );
+		}
 	}
-	if( boneIndexNear && m_bvh.rayCaster.m_bones[meshIndex].data )
+	if( boneIndexNear && bones.has_value() )
 	{
-		*boneIndexNear = m_bvh.rayCaster.m_bones[meshIndex]( index1 );
+		*boneIndexNear = bones.value()[index1][0];
+	}
+	if( colorNear && colors.has_value() )
+	{
+		float v1 = 1.0f - ( u + v );
+		Color color1 = colors.value()[index1];
+		Color color2 = colors.value()[index2];
+		Color color3 = colors.value()[index3];
+		*colorNear = RayCastColorResult{ color1, color1 * v1 + color2 * u + color3 * v };
 	}
 
 	return true;
+}
+
+// Careful: This function is slow and only works on main thread!
+bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3* pos, const Vector3* dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, RayCastColorResult* colorNear, unsigned int areaIx, float& rayLength )
+{
+	CCP_STATS_ZONE( __FUNCTION__ );
+
+	USE_MAIN_THREAD_RENDER_CONTEXT();
+	
+	if( boneIndexNear )
+	{
+		*boneIndexNear = -1;
+	}
+
+	if( colorNear )
+	{
+		*colorNear = RayCastColorResult{};
+	}
+
+	bool result = false;
+
+	for( size_t i = 0; i < m_meshes.size(); i++ )
+	{
+		if( m_meshes[i] == NULL )
+		{
+			continue;
+		}
+
+		//Get the first LOD.
+		auto& lod = m_meshes[i]->m_lods[0];
+
+		const uint8_t* pVertices;
+		const uint8_t* pIndices;
+
+		int vertSize = m_meshes[i]->m_bytesPerVertex;
+		if( FAILED( lod->m_vertexAllocation.MapForReading( pVertices, renderContext ) ) )
+		{
+			return false;
+		}
+		ON_BLOCK_EXIT( [&] { lod->m_vertexAllocation.UnmapForReading( renderContext ); } );
+		if( FAILED( lod->m_indexAllocation.MapForReading( pIndices, renderContext ) ) )
+		{
+			return false;
+		}
+		ON_BLOCK_EXIT( [&] { lod->m_indexAllocation.UnmapForReading( renderContext ); } );
+
+		const uint16_t* pShortIndices = (uint16_t*)pIndices;
+		const uint32_t* pLongIndices = (uint32_t*)pIndices;
+
+		Tr2VertexDefinition decl;
+		if( !Tr2EffectStateManager::GetVertexDeclarationElements( m_meshes[i]->m_vertexDeclarationHandle, decl ) )
+		{
+			return false;
+		}
+		const Tr2VertexDefinition::Item* const position = decl.Find( decl.POSITION );
+		if( !position )
+		{
+			return false;
+		}
+
+		const Tr2VertexDefinition::Item* const blendIndices = decl.Find( decl.BLENDINDICES );
+		const Tr2VertexDefinition::Item* const colors = decl.Find( decl.COLOR );
+
+		int numPrim = lod->m_primitiveCount;
+		auto currentIndex = 0;
+		if( areaIx != -1 )
+		{
+			if( areaIx >= lod->m_areas.size() )
+			{
+				continue;
+			}
+			currentIndex = lod->m_areas[areaIx].m_firstIndex;
+			numPrim = lod->m_areas[areaIx].m_primitiveCount;
+		}
+
+		for( int j = 0; j < numPrim; j++ )
+		{
+			unsigned int index1 = 0;
+			unsigned int index2 = 0;
+			unsigned int index3 = 0;
+			Vector3 p1;
+			Vector3 p2;
+			Vector3 p3;
+			float pu, pv, dist;
+			if( lod->m_indexAllocation.GetStride() == 2 )
+			{
+				index1 = pShortIndices[currentIndex++];
+				index2 = pShortIndices[currentIndex++];
+				index3 = pShortIndices[currentIndex++];
+			}
+			else
+			{
+				index1 = pLongIndices[currentIndex++];
+				index2 = pLongIndices[currentIndex++];
+				index3 = pLongIndices[currentIndex++];
+			}
+
+			ConvertTriangleData( position->m_dataType, vertSize, pVertices + position->m_offset, index1, index2, index3, &p1, &p2, &p3 );
+
+			if( IntersectTri( &p1, &p2, &p3, pos, dir, &pu, &pv, &dist ) )
+			{
+				if( rayLength > dist )
+				{
+					float v1 = 1.0f - ( pu + pv );
+
+					if( hitpointNear )
+					{
+						*hitpointNear = p1 * v1 + p2 * pu + p3 * pv;
+					}
+					
+					if( hitpointNearNormal )
+					{
+						Vector3 avec = p2 - p1;
+						Vector3 bvec = p3 - p1;
+						*hitpointNearNormal = Cross( avec, bvec );
+
+						if( normalizeNormal )
+						{
+							*hitpointNearNormal = Normalize( *hitpointNearNormal );
+						}
+					}
+					
+					rayLength = dist;
+
+					int boneIndex = 0;
+					if( boneIndexNear && blendIndices && GetBoneIndex( blendIndices->m_dataType, pVertices + index1 * vertSize + blendIndices->m_offset, boneIndex ) )
+					{
+						*boneIndexNear = boneIndex;
+					}
+
+					Color color1 = {};
+					Color color2 = {};
+					Color color3 = {};
+					if( colorNear && colors && 
+						GetColor( colors->m_dataType, pVertices + index1 * vertSize + colors->m_offset, color1 ) && 
+						GetColor( colors->m_dataType, pVertices + index2 * vertSize + colors->m_offset, color2 ) && 
+						GetColor( colors->m_dataType, pVertices + index3 * vertSize + colors->m_offset, color3 ) )
+					{
+						( *colorNear ) = RayCastColorResult{ color1, color1 * v1 + color2 * pu + color3 * pv };
+					}
+
+					result = true;
+				}
+			}
+		}
+	}
+
+	return result;
 }
 
 unsigned int TriGeometryRes::GetSkeletonCount() const
@@ -2239,15 +2369,6 @@ bool TriGeometryRes::CreateMeshesFromCMFFile( Tr2CmfContents& cmfContents, Tr2Cp
 			}
 		}
 	}
-
-	// TODO: intern, introduce some flag to check whether the bvh should be build, or move bvh into cmf and load from file...
-	std::vector<int32_t> lodIndices;
-	lodIndices.resize( m_meshes.size() );
-	for( size_t i = 0; i < m_meshes.size(); i++ )
-	{
-		lodIndices[i] = m_meshes[i]->m_lods[0]->m_originalLodIndex;
-	}
-	m_bvh.content = BVH::CreateBVHContent( cmfContents, lodIndices );
 
 	CCP_STATS_ADD( geometryResBytes, m_memoryUse );
 
