@@ -350,11 +350,24 @@ bool GetBoneIndex( Tr2VertexDefinition::DataType elementType, const void* src, i
 {
 	if( elementType != Tr2VertexDefinition::UBYTE_4 )
 	{
-		CCP_LOGERR( "BELNDINDICES using unsupported format." );
+		CCP_LOGERR( "BLENDINDICES using unsupported format." );
 		return false;
 	}
 
 	const uint8_t* vdata = static_cast<const uint8_t*>( src );
 	dest = vdata[0];
+	return true;
+}
+
+bool GetColor( Tr2VertexDefinition::DataType elementType, const void* src, Color& dest )
+{
+	if( elementType != Tr2VertexDefinition::UBYTE_4_NORM )
+	{
+		CCP_LOGERR( "COLOR using unsupported format." );
+		return false;
+	}
+
+	const uint8_t* v = static_cast<const uint8_t*>( src );
+	dest = Color( v[0] / 255.0f, v[1] / 255.0f, v[2] / 255.0f, v[3] / 255.0f );
 	return true;
 }

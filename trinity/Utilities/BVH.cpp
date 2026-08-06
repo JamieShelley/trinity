@@ -327,6 +327,22 @@ std::optional<cmf::ConstBufferElementStream<std::array<uint32_t, 4>>> GetBones( 
 	return bones;
 }
 
+std::optional<cmf::ConstBufferElementStream<Vector4>> GetColors( BVHContent& self, int meshIndex )
+{
+	const auto& mesh = self.content.GetData()->meshes[meshIndex];
+	int32_t lodIndex = self.lodIndices[meshIndex];
+	auto colorElement = cmf::FindElement( mesh.decl, cmf::Usage::Color );
+	auto vb = mesh.lods[lodIndex].vb;
+	uint32_t numVerts = cmf::GetStreamElementCount( vb );
+	auto vertices = self.content.GetViewData( vb );
+	std::optional<cmf::ConstBufferElementStream<Vector4>> colors;
+	if( colorElement )
+	{
+		colors.emplace( *colorElement, vertices, numVerts, vb.stride );
+	}
+	return colors;
+}
+
 BVHContent CreateBVHContent( Tr2CmfContents& content, const std::vector<int32_t>& lodIndices )
 {
 	BVHContent bvhContent;

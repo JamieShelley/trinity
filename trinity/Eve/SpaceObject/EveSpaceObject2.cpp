@@ -2096,7 +2096,7 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 				Vector3 normal;
 				for( auto it = begin( *areas ); it != end( *areas ); ++it )
 				{
-					if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, nullptr, &normal, false, nullptr, ( *it )->GetIndex(), rayLength ) )
+					if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, nullptr, &normal, false, nullptr, nullptr, ( *it )->GetIndex(), rayLength ) )
 					{
 						backfacing = !( *it )->IsAlphaCutout() && ( ( Dot( normal, rayDirection ) > 0 ) != ( *it )->IsReversed() );
 						if( rayLength < frontFaceMinDistance )

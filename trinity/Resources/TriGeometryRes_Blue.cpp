@@ -133,14 +133,29 @@ const Be::ClassInfo* TriGeometryRes::ExposeToBlue()
 		MAP_METHOD_AND_WRAP(
 			"GetIntersectionPointNormalBone",
 			GetIntersectionPointNormalBoneFromScript,
-			"( pos, dir ) ->( near )\nGet the near intersection points and the normal between a ray and the geometry.\n"
+			"( pos, dir ) ->( near )\nGet the near intersection (position, normal, bone index) between a ray and the geometry.\n"
 			":param pos: ray origin\n"
 			":param direction: ray direction\n" )
 
 		MAP_METHOD_AND_WRAP(
 			"GetAreaIntersectionPointNormalBone",
 			GetAreaIntersectionPointNormalBoneFromScript,
-			"( pos, dir ) ->( near )\nGet the near intersection points and the normal between a ray and the geometry.\n"
+			"( pos, dir, areaIx ) ->( near )\nGet the near intersection (position, normal, bone index) between a ray and the geometry.\n"
+			":param pos: ray origin\n"
+			":param direction: ray direction\n"
+			":param areaIx: the mesh area index\n" )
+
+		MAP_METHOD_AND_WRAP(
+			"GetIntersectionPointNormalBoneColor",
+			GetIntersectionPointNormalBoneColorFromScript,
+			"( pos, dir ) ->( near )\nGet the near intersection (position, normal, bone index, color) between a ray and the geometry.\n"
+			":param pos: ray origin\n"
+			":param direction: ray direction\n" )
+
+		MAP_METHOD_AND_WRAP(
+			"GetAreaIntersectionPointNormalBoneColor",
+			GetAreaIntersectionPointNormalBoneColorFromScript,
+			"( pos, dir, areaIx ) ->( near )\nGet the near intersection (position, normal, bone index, color) between a ray and the geometry.\n"
 			":param pos: ray origin\n"
 			":param direction: ray direction\n"
 			":param areaIx: the mesh area index\n" )

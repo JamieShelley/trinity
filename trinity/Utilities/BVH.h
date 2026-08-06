@@ -52,6 +52,7 @@ struct BVHContent
 cmf::ConstIndexBufferStream GetIndices( BVHContent& self, int meshIndex );
 cmf::ConstBufferElementStream<Vector3> GetPositions( BVHContent& self, int meshIndex );
 std::optional<cmf::ConstBufferElementStream<std::array<uint32_t, 4>>> GetBones( BVHContent& self, int meshIndex );
+std::optional<cmf::ConstBufferElementStream<Vector4>> GetColors( BVHContent& self, int meshIndex );
 
 BVHContent CreateBVHContent( Tr2CmfContents& content, const std::vector<int32_t>& lodIndex );
 

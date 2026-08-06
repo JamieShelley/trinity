@@ -1483,9 +1483,9 @@ void TriGeometryRes::ProcessMeshTriangles( int meshIx, PerTriangleCallback cb, v
 	}
 }
 
-bool TriGeometryRes::GetIntersectionPointNormalBone( const Vector3* pos, const Vector3* dir, Vector3* hitpoint, Vector3* normal, int* boneIndex, unsigned int areaIx, float rayLength )
+bool TriGeometryRes::GetIntersectionPointNormalBoneColor( const Vector3* pos, const Vector3* dir, Vector3* hitpoint, Vector3* normal, int* boneIndex, RayCastColorResult* colors, unsigned int areaIx, float rayLength )
 {
-	return GetIntersectionPoints( *pos, *dir, hitpoint, normal, true, boneIndex, areaIx, rayLength );
+	return GetIntersectionPoints( *pos, *dir, hitpoint, normal, true, boneIndex, colors, areaIx, rayLength );
 }
 
 std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>> TriGeometryRes::GetIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir )
@@ -1493,7 +1493,7 @@ std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>> TriGeometryRes::Get
 	Vector3 hitpoint( 0.0f, 0.0f, 0.0f );
 	Vector3 normal( 0.0f, 0.0f, 0.0f );
 	int boneIndex;
-	bool result = GetIntersectionPointNormalBone( &pos, &dir, &hitpoint, &normal, &boneIndex );
+	bool result = GetIntersectionPointNormalBoneColor( &pos, &dir, &hitpoint, &normal, &boneIndex, nullptr );
 	return std::make_pair( result, std::make_pair( boneIndex, std::make_pair( hitpoint, normal ) ) );
 }
 
@@ -1514,8 +1514,41 @@ Be::Result<std::string> TriGeometryRes::GetAreaIntersectionPointNormalBoneFromSc
 	// this method got changed to accept signed integers and cast them to unsigned.
 	auto unsignedAreaIndex = static_cast<unsigned int>( areaIx );
 
-	bool success = GetIntersectionPointNormalBone( &pos, &dir, &hitpoint, &normal, &boneIndex, unsignedAreaIndex );
+	bool success = GetIntersectionPointNormalBoneColor( &pos, &dir, &hitpoint, &normal, &boneIndex, nullptr, unsignedAreaIndex );
 	result = std::make_pair( success, std::make_pair( boneIndex, std::make_pair( hitpoint, normal ) ) );
+	return Be::Result<std::string>();
+}
+
+std::pair<bool, std::pair<int, std::pair<Vector3, std::pair<Vector3, std::pair<Color, Color>>>>> TriGeometryRes::GetIntersectionPointNormalBoneColorFromScript( const Vector3& pos, const Vector3& dir )
+{
+	Vector3 hitpoint( 0.0f, 0.0f, 0.0f );
+	Vector3 normal( 0.0f, 0.0f, 0.0f );
+	int boneIndex;
+	RayCastColorResult colors;
+	bool result = GetIntersectionPointNormalBoneColor( &pos, &dir, &hitpoint, &normal, &boneIndex, &colors );
+	return std::make_pair( result, std::make_pair( boneIndex, std::make_pair( hitpoint, std::make_pair( normal, std::make_pair( colors.vertex1, colors.interpolated ) ) ) ) );
+}
+
+Be::Result<std::string> TriGeometryRes::GetAreaIntersectionPointNormalBoneColorFromScript( const Vector3& pos, const Vector3& dir, int areaIx, std::pair<bool, std::pair<int, std::pair<Vector3, std::pair<Vector3, std::pair<Color, Color>>>>>& result )
+{
+	Vector3 hitpoint( 0.0f, 0.0f, 0.0f );
+	Vector3 normal( 0.0f, 0.0f, 0.0f );
+	int boneIndex;
+	RayCastColorResult colors;
+
+	if( areaIx < -1 )
+	{
+		// -1 is a special case handled to maintain legacy behavior.
+		return Be::Result<std::string>( "Invalid area index" );
+	}
+
+	// In Python 3, passing a signed value to an unsigned C exposed attribute is an error.
+	// In order to maintain backwards compatible behavior with Python 2
+	// this method got changed to accept signed integers and cast them to unsigned.
+	auto unsignedAreaIndex = static_cast<unsigned int>( areaIx );
+
+	bool success = GetIntersectionPointNormalBoneColor( &pos, &dir, &hitpoint, &normal, &boneIndex, &colors, unsignedAreaIndex );
+	result = std::make_pair( success, std::make_pair( boneIndex, std::make_pair( hitpoint, std::make_pair( normal, std::make_pair( colors.vertex1, colors.interpolated ) ) ) ) );
 	return Be::Result<std::string>();
 }
 
@@ -1577,13 +1610,13 @@ bool TriGeometryRes::HasRayCasterPreparationFailed() const
 	return m_bvh.geometry && m_bvh.geometry->IsPrepared() && !m_bvh.geometry->IsGood();
 }
 
-bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, unsigned int areaIx, float& rayLength )
+bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, RayCastColorResult* colorNear, unsigned int areaIx, float& rayLength )
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
 	if( !m_useCMF || !m_bvh.geometry || !m_bvh.geometry->IsGood() )
 	{
-		return GetIntersectionPointsLegacy( &pos, &dir, hitpointNear, hitpointNearNormal, normalizeNormal, boneIndexNear, areaIx, rayLength );
+		return GetIntersectionPointsLegacy( &pos, &dir, hitpointNear, hitpointNearNormal, normalizeNormal, boneIndexNear, colorNear, areaIx, rayLength );
 	}
 
 	if( boneIndexNear )
@@ -1618,12 +1651,13 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 	auto indices = BVH::GetIndices( bvh, meshIndex );
 	auto positions = BVH::GetPositions( bvh, meshIndex );
 	auto bones = BVH::GetBones( bvh, meshIndex );
+	auto colors = BVH::GetColors( bvh, meshIndex );
 
 	uint32_t index1 = indices[primitive * 3 + 0];
+	uint32_t index2 = indices[primitive * 3 + 1];
+	uint32_t index3 = indices[primitive * 3 + 2];
 	if( hitpointNearNormal )
 	{
-		uint32_t index2 = indices[primitive * 3 + 1];
-		uint32_t index3 = indices[primitive * 3 + 2];
 		Vector3 p1 = positions[index1];
 		Vector3 p2 = positions[index2];
 		Vector3 p3 = positions[index3];
@@ -1642,12 +1676,20 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 	{
 		*boneIndexNear = bones.value()[index1][0];
 	}
+	if( colorNear && colors.has_value() )
+	{
+		float v1 = 1.0f - ( u + v );
+		Color color1 = colors.value()[index1];
+		Color color2 = colors.value()[index2];
+		Color color3 = colors.value()[index3];
+		*colorNear = RayCastColorResult{ color1, color1 * v1 + color2 * u + color3 * v };
+	}
 
 	return true;
 }
 
 // Careful: This function is slow and only works on main thread!
-bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3* pos, const Vector3* dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, unsigned int areaIx, float& rayLength )
+bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3* pos, const Vector3* dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, RayCastColorResult* colorNear, unsigned int areaIx, float& rayLength )
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
@@ -1658,7 +1700,11 @@ bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3* pos, const Vect
 		*boneIndexNear = -1;
 	}
 
-	int boneIndex = 0;
+	if( colorNear )
+	{
+		*colorNear = RayCastColorResult{};
+	}
+
 	bool result = false;
 
 	for( size_t i = 0; i < m_meshes.size(); i++ )
@@ -1701,6 +1747,8 @@ bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3* pos, const Vect
 		}
 
 		const Tr2VertexDefinition::Item* const blendIndices = decl.Find( decl.BLENDINDICES );
+		const Tr2VertexDefinition::Item* const colors = decl.Find( decl.COLOR );
+
 		int numPrim = lod->m_primitiveCount;
 		auto currentIndex = 0;
 		if( areaIx != -1 )
@@ -1741,9 +1789,10 @@ bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3* pos, const Vect
 			{
 				if( rayLength > dist )
 				{
+					float v1 = 1.0f - ( pu + pv );
+
 					if( hitpointNear )
 					{
-						float v1 = 1.0f - ( pu + pv );
 						*hitpointNear = p1 * v1 + p2 * pu + p3 * pv;
 					}
 					
@@ -1760,9 +1809,22 @@ bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3* pos, const Vect
 					}
 					
 					rayLength = dist;
+
+					int boneIndex = 0;
 					if( boneIndexNear && blendIndices && GetBoneIndex( blendIndices->m_dataType, pVertices + index1 * vertSize + blendIndices->m_offset, boneIndex ) )
 					{
 						*boneIndexNear = boneIndex;
+					}
+
+					Color color1 = {};
+					Color color2 = {};
+					Color color3 = {};
+					if( colorNear && colors && 
+						GetColor( colors->m_dataType, pVertices + index1 * vertSize + colors->m_offset, color1 ) && 
+						GetColor( colors->m_dataType, pVertices + index2 * vertSize + colors->m_offset, color2 ) && 
+						GetColor( colors->m_dataType, pVertices + index3 * vertSize + colors->m_offset, color3 ) )
+					{
+						( *colorNear ) = RayCastColorResult{ color1, color1 * v1 + color2 * pu + color3 * pv };
 					}
 
 					result = true;

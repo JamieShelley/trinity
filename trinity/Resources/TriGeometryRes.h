@@ -240,6 +240,12 @@ struct TriGeometryResSkeletonData
 	TrackableStdVector<TriGeometryResJointData> m_joints;
 };
 
+struct RayCastColorResult
+{
+	Color vertex1;
+	Color interpolated;
+};
+
 BLUE_CLASS( TriGeometryRes ) :
 	public BlueAsyncRes,
 	public ICacheable,
@@ -295,6 +301,7 @@ public:
 		Vector3* hitpointNearNormal, 
 		bool normalizeNormal,
 		int* boneIndexNear, 
+		RayCastColorResult* colorNear,
 		unsigned int areaIx, 
 		float& rayLength );
 
@@ -305,6 +312,7 @@ public:
 		Vector3* hitpointNearNormal,
 		bool normalizeNormal,
 		int* boneIndexNear, 
+		RayCastColorResult* colorNear,
 		unsigned int areaIx,
 		float& rayLength );
 
@@ -326,17 +334,21 @@ public:
 	//	unsigned int areaIx = -1,
 	//	float rayLength = INFINITY );
 
-	bool GetIntersectionPointNormalBone(
+	bool GetIntersectionPointNormalBoneColor(
 		const Vector3* pos,
 		const Vector3* dir,
 		Vector3* hitpoint,
 		Vector3* normal,
 		int* boneIndex,
+		RayCastColorResult* color,
 		unsigned int areaIx = -1,
 		float rayLength = std::numeric_limits<float>::infinity() );
 
 	std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>> GetIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir );
 	Be::Result<std::string> GetAreaIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir, int areaIx, std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>>& result );
+
+	std::pair<bool, std::pair<int, std::pair<Vector3, std::pair<Vector3, std::pair<Color, Color>>>>> GetIntersectionPointNormalBoneColorFromScript( const Vector3& pos, const Vector3& dir );
+	Be::Result<std::string> GetAreaIntersectionPointNormalBoneColorFromScript( const Vector3& pos, const Vector3& dir, int areaIx, std::pair<bool, std::pair<int, std::pair<Vector3, std::pair<Vector3, std::pair<Color, Color>>>>>& result );
 
 	bool GetBoundingBox( unsigned int meshIx, Vector3& min, Vector3& max ) const;
 	Be::Result<std::string> GetBoundingBoxFromScript( unsigned int meshIx, std::pair<Vector3, Vector3>& bounds ) const;
