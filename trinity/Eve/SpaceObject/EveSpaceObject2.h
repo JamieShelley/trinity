@@ -308,6 +308,7 @@ public:
 	void EnsureChildLocatorMerged() const;
 	void RebuildMergedLocatorSets() const;
 	void UpdateDamageLocatorAutoFilter();
+	EveDamageOverlayPtr EnsureChildDamageOverlay( class EveChildMesh* child, int32_t damageLocatorCount );
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// IEveShadowCaster

@@ -12,6 +12,7 @@
 #include "TriFrustumOrtho.h"
 #include "Utilities/BoundingBox.h"
 #include "Resources/TriGeometryRes.h"
+#include "Eve/SpaceObject/Utils/EveLocatorSets.h"
 #include <ITr2AudGeometry.h>
 #include "Tr2GpuStructuredBuffer.h"
 #include <ITr2AudGeometry.h>
@@ -703,8 +704,9 @@ void EveChildMesh::RebuildOverlayAreaBlocks()
 
 void EveChildMesh::GetBatchesFromOverlayVector( ITriRenderBatchAccumulator* batches, const Tr2PerObjectData* perObjectData, TriBatchType batchType )
 {
+	Tr2Effect* damageShader = m_damageOverlay ? m_damageOverlay->GetArmorDamageShader( batchType ) : nullptr;
 	const bool hasParentOverlays = m_parentOverlayEffects != nullptr && !m_parentOverlayEffects->empty();
-	if( !m_mesh || ( m_overlayEffects.empty() && !hasParentOverlays ) )
+	if( !m_mesh || ( !damageShader && m_overlayEffects.empty() && !hasParentOverlays ) )
 	{
 		return;
 	}
@@ -725,6 +727,11 @@ void EveChildMesh::GetBatchesFromOverlayVector( ITriRenderBatchAccumulator* batc
 	if( !lod || !lod->m_allocationsValid )
 	{
 		return;
+	}
+
+	if( damageShader )
+	{
+		EmitDamageOverlayBatches( batches, perObjectData, damageShader, m_overlayMeshAreaBlocks, *lod );
 	}
 
 	// own effects are emitted before the inherited ones so the parent's overlays (e.g. cloak)
@@ -1039,6 +1046,21 @@ void EveChildMesh::UpdateAsyncronous( const EveUpdateContext& updateContext, con
 
 	m_activationStrength = params.activationStrength;
 
+	if( m_damageOverlay )
+	{
+		float flicker = m_damageOverlay->GetActivationStrength( updateContext );
+		m_activationStrength *= flicker;
+		if( params.spaceObjectParent )
+		{
+			m_psData.shipData.y *= flicker;
+		}
+		else
+		{
+			m_psData.shipData.y = flicker;
+		}
+		m_psData.impactDataOffset = (float)m_damageOverlay->GetDataTextureOffset();
+	}
+
 	m_vsData.worldTransform = Transpose( m_worldTransform );
 	m_vsData.invWorldTransform = Inverse( m_vsData.worldTransform );
 	m_vsData.worldTransformLast = Transpose( lastWorldTransform );
@@ -1090,11 +1112,28 @@ void EveChildMesh::UpdateAsyncronous( const EveUpdateContext& updateContext, con
 		m_worldBoundingSphere = {};
 	}
 
+	if( m_damageOverlay )
+	{
+		EveDamageOverlay::OwnerInfo info;
+		info.boundingSphere = Vector4( m_worldBoundingSphere.center, m_worldBoundingSphere.radius );
+		info.estimatedPixelDiameter = max( m_currentScreenSize, 0.f );
+		info.isInFrustum = m_isVisible;
+		info.getDamageLocatorPositionOS = [this]( int index, Vector3& out ) {
+			return GetDamageLocatorPositionLocal( index, out );
+		};
+		m_damageOverlay->UpdateAsyncronous( updateContext, info, 0, false );
+	}
+
 	m_hasUpdated = true;
 }
 
 void EveChildMesh::UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )
 {
+	if( m_damageOverlay )
+	{
+		m_damageOverlay->UpdateSyncronous( updateContext );
+	}
+
 	if( !m_overlayEffects.empty() )
 	{
 		Be::Time time = updateContext.GetTime();
@@ -2030,4 +2069,41 @@ void EveChildMesh::InvalidateOwnerMergedLocators()
 	{
 		GetOwner()->InvalidateMergedLocators();
 	}
+}
+
+EveDamageOverlayPtr EveChildMesh::GetDamageOverlay() const
+{
+	return m_damageOverlay;
+}
+
+EveDamageOverlayPtr EveChildMesh::EnsureDamageOverlay()
+{
+	if( !m_damageOverlay )
+	{
+		m_damageOverlay.CreateInstance();
+	}
+	return m_damageOverlay;
+}
+
+bool EveChildMesh::GetDamageLocatorPositionLocal( int index, Vector3& out ) const
+{
+	if( index < 0 )
+	{
+		return false;
+	}
+
+	for( const auto& sets : m_ownedLocatorSets )
+	{
+		if( sets->HasName( "damage" ) )
+		{
+			const LocatorStructureList* locators = sets->GetLocators();
+			if( index < int( locators->size() ) )
+			{
+				out = ( *locators )[index].position;
+				return true;
+			}
+			return false;
+		}
+	}
+	return false;
 }

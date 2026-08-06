@@ -31,8 +31,10 @@
 #include "Shader/Utils/Tr2DataTextureManager.h"
 #include "Utilities/StringUtils.h"
 #include "Tr2ExternalParameter.h"
+#include "TriSequencer.h"
 #include "Controllers/ITr2Controller.h"
 #include "Eve/SpaceObject/Children/EveChildInheritProperties.h"
+#include "Eve/SpaceObject/Children/EveChildMesh.h"
 #include "Shader/Tr2Shader.h"
 
 #include "../../Tr2RingBuffer.h"
@@ -1261,24 +1263,7 @@ void EveSpaceObject2::GetBatchesFromOverlayVector( ITriRenderBatchAccumulator* b
 
 	if( impactOverlayEffect )
 	{
-		for( auto& areaBlock : m_overlayMeshAreaBlocks[EveMeshOverlayEffect::TYPE_ALL] )
-		{
-			if( auto primCount = GetPrimitiveCount( *lod, areaBlock.m_startIndex, areaBlock.m_count ) )
-			{
-				Tr2RenderBatch batch;
-				batch.SetMaterial( impactOverlayEffect );
-				batch.SetPriority( 0xFFFFFFFF );
-				batch.SetGeometry( lod->m_mesh->m_vertexDeclarationHandle, lod->m_vertexAllocation, lod->m_indexAllocation );
-				batch.SetPerObjectData( perObjectData );
-				batch.SetDrawIndexedInstanced(
-					primCount * 3,
-					1,
-					lod->m_indexAllocation.GetStartIndex() + lod->m_areas[areaBlock.m_startIndex].m_firstIndex,
-					lod->m_vertexAllocation.GetOffset() / lod->m_vertexAllocation.GetStride(),
-					0 );
-				batches->Commit( batch );
-			}
-		}
+		EmitDamageOverlayBatches( batches, perObjectData, impactOverlayEffect, m_overlayMeshAreaBlocks, *lod );
 	}
 
 	// second the effects
@@ -3408,10 +3393,49 @@ void EveSpaceObject2::SetImpactDamageState( float shield, float armor, float hul
 	if( m_impactOverlay )
 	{
 		m_impactOverlay->SetDamageState( shield, armor, hull, doCreateArmorImpacts );
+
+		EnsureChildLocatorMerged();
+		for( const auto& range : m_mergedDamageLocatorSources )
+		{
+			if( range.owner )
+			{
+				if( EveDamageOverlayPtr overlay = EnsureChildDamageOverlay( const_cast<EveChildMesh*>( range.owner ), range.count ) )
+				{
+					overlay->SetDamageState( shield, armor, hull, doCreateArmorImpacts );
+				}
+			}
+		}
 	}
 	SetControllerVariable( "ShieldDamage", shield );
 	SetControllerVariable( "ArmorDamage", armor );
 	SetControllerVariable( "HullDamage", hull );
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   A part with its own damage locators renders its own damage. Create its overlay
+//   on demand, wired from the ship's overlay.
+// --------------------------------------------------------------------------------
+EveDamageOverlayPtr EveSpaceObject2::EnsureChildDamageOverlay( EveChildMesh* child, int32_t damageLocatorCount )
+{
+	EveDamageOverlayPtr overlay = child->GetDamageOverlay();
+	if( !overlay )
+	{
+		overlay = child->EnsureDamageOverlay();
+		overlay->SetArmorDamageShaderEffect( m_impactOverlay->GetArmorDamageShaderEffect() );
+		// each part gets its own flicker curve instance, the async child updates must not share one
+		if( TriPerlinCurve* flickerCurve = m_impactOverlay->GetHullDamageFlickerCurve() )
+		{
+			TriPerlinCurvePtr flickerCopy;
+			BeClasses->CopyTo( flickerCurve->GetRootObject(), (IRoot**)&flickerCopy );
+			overlay->SetHullDamageFlickerCurve( flickerCopy );
+		}
+		overlay->SetSeed( m_impactOverlay->GetSeed() + child->GetPartTag() );
+	}
+	overlay->SetDamageLocatorCount( uint32_t( damageLocatorCount ) );
+	// ship and parts share one impact index namespace, so UpdateImpact can resolve any index
+	overlay->SetImpactIndexSource( m_impactOverlay->GetDamageOverlay() );
+	return overlay;
 }
 
 // --------------------------------------------------------------------------------
@@ -3423,6 +3447,21 @@ void EveSpaceObject2::SetImpactAnimation( const std::string& name, bool enable, 
 	if( m_impactOverlay )
 	{
 		m_impactOverlay->ToggleEffect( name, enable, duration );
+
+		if( name != "shieldboost" && name != "shieldhardening" )
+		{
+			EnsureChildLocatorMerged();
+			for( const auto& range : m_mergedDamageLocatorSources )
+			{
+				if( range.owner )
+				{
+					if( EveDamageOverlayPtr overlay = EnsureChildDamageOverlay( const_cast<EveChildMesh*>( range.owner ), range.count ) )
+					{
+						overlay->ToggleEffect( name.c_str(), enable, duration );
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -3436,6 +3475,18 @@ void EveSpaceObject2::ClearImpactDamage()
 	{
 		m_impactOverlay->Clear();
 	}
+
+	EnsureChildLocatorMerged();
+	for( const auto& range : m_mergedDamageLocatorSources )
+	{
+		if( range.owner )
+		{
+			if( EveDamageOverlayPtr overlay = range.owner->GetDamageOverlay() )
+			{
+				overlay->Clear();
+			}
+		}
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -3446,6 +3497,22 @@ int EveSpaceObject2::CreateImpact( int damageLocatorIndex, const Vector3& direct
 {
 	if( m_impactOverlay )
 	{
+		// armor impacts at a locator owned by a part go to that part's own overlay
+		ITriTargetable::ImpactConfiguration configuration = m_impactOverlay->GetImpactConfiguration();
+		if( configuration == ITriTargetable::IMPACT_ARMOR || configuration == ITriTargetable::IMPACT_HULL )
+		{
+			EnsureChildLocatorMerged();
+			for( const auto& range : m_mergedDamageLocatorSources )
+			{
+				if( range.owner && damageLocatorIndex >= range.start && damageLocatorIndex < range.start + range.count )
+				{
+					if( EveDamageOverlayPtr overlay = EnsureChildDamageOverlay( const_cast<EveChildMesh*>( range.owner ), range.count ) )
+					{
+						return overlay->CreateImpact( damageLocatorIndex - range.start, size, false );
+					}
+				}
+			}
+		}
 		return m_impactOverlay->CreateImpact( damageLocatorIndex, direction, lifeTime, size, 1.f, m_lodLevel, this );
 	}
 	return -1;
@@ -3481,7 +3548,26 @@ bool EveSpaceObject2::UpdateImpact( Vector3& out, const Vector3& direction, int 
 {
 	if( m_impactOverlay )
 	{
-		return m_impactOverlay->UpdateImpact( out, direction, impactIndex );
+		if( m_impactOverlay->UpdateImpact( out, direction, impactIndex ) )
+		{
+			return true;
+		}
+
+		// armor impacts routed to a part live in that part's own overlay
+		EnsureChildLocatorMerged();
+		for( const auto& range : m_mergedDamageLocatorSources )
+		{
+			if( range.owner )
+			{
+				if( EveDamageOverlayPtr overlay = range.owner->GetDamageOverlay() )
+				{
+					if( overlay->HasImpact( impactIndex ) )
+					{
+						return true;
+					}
+				}
+			}
+		}
 	}
 	return false;
 }
