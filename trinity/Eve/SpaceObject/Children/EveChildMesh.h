@@ -7,6 +7,7 @@
 #include "EveSpaceObjectChild.h"
 #include "EveChildTransform.h"
 #include "Eve/SpaceObject/EveSpaceObject2.h"
+#include "Eve/SpaceObject/Attachments/EveDamageOverlay.h"
 #include "Eve/SpaceObject/Attachments/EveSpaceObjectDecal.h"
 #include "Eve/SpaceObject/Attachments/IEveSpaceObjectDecalOwner.h"
 #include "Lights/Tr2Light.h"
@@ -201,6 +202,10 @@ public:
 	void SetOwnedLocatorSets( const std::vector<EveLocatorSetsPtr>& sets );
 	void InvalidateOwnerMergedLocators();
 
+	EveDamageOverlayPtr GetDamageOverlay() const;
+	EveDamageOverlayPtr EnsureDamageOverlay();
+	bool GetDamageLocatorPositionLocal( int index, Vector3& out ) const;
+
 protected:
 	virtual void ReleaseResources( TriStorage s );
 	virtual bool OnPrepareResources();
@@ -311,6 +316,9 @@ protected:
 	} m_morphAnimationOffsets;
 
 	std::vector<EveLocatorSetsPtr> m_ownedLocatorSets;
+
+	// armor/hull damage owned by this part, renders whether or not it is attached to a ship
+	EveDamageOverlayPtr m_damageOverlay;
 };
 
 TYPEDEF_BLUECLASS( EveChildMesh );
