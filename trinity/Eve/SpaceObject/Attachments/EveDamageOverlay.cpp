@@ -63,6 +63,27 @@ void EveDamageOverlay::SetSeed( unsigned int seed )
 void EveDamageOverlay::SetDamageLocatorCount( unsigned int count )
 {
 	m_damageLocatorCount = count;
+
+	m_enabledDamageLocators.resize( count );
+	for( uint32_t i = 0; i < count; i++ )
+	{
+		m_enabledDamageLocators[i] = i;
+	}
+}
+
+void EveDamageOverlay::SetEnabledDamageLocators( std::vector<bool>::iterator begin, std::vector<bool>::iterator end )
+{
+	m_enabledDamageLocators.clear();
+	m_enabledDamageLocators.reserve( m_damageLocatorCount );
+	size_t filterSize = std::distance( begin, end );
+	for( size_t i = 0; i < m_damageLocatorCount; i++ )
+	{
+		if( i < filterSize && !( *( begin + i ) ) )
+		{
+			continue;
+		}
+		m_enabledDamageLocators.push_back( uint32_t( i ) );
+	}
 }
 
 void EveDamageOverlay::SetDebugForceSpawnDebris( bool value )
@@ -456,17 +477,17 @@ void EveDamageOverlay::SetDamageState( float shield, float armor, float hull, bo
 	}
 
 	// do we forcefully have to create the armor impact holes?
-	if( doCreateArmorImpacts )
+	if( doCreateArmorImpacts && !m_enabledDamageLocators.empty() )
 	{
 		// create a random seed that is m_seed and also the armor impact size (so we get some variation into the damage)
 		auto generator = std::mt19937();
 		generator.seed( m_seed + (unsigned)m_armorImpactData.size() );
-		std::uniform_int_distribution<int> damageLocatorDistribution( 0, m_damageLocatorCount );
+		std::uniform_int_distribution<int> damageLocatorDistribution( 0, int( m_enabledDamageLocators.size() ) - 1 );
 		std::uniform_real_distribution<float> damageSizeDistribution( 0.2f, 0.8f );
 
 		for( size_t i = m_armorImpactData.size(); i < m_armorImpactGoalCount; ++i )
 		{
-			CreateImpact( damageLocatorDistribution( generator ), damageSizeDistribution( generator ), m_debugForceSpawnDebris );
+			CreateImpact( m_enabledDamageLocators[damageLocatorDistribution( generator )], damageSizeDistribution( generator ), m_debugForceSpawnDebris );
 		}
 	}
 

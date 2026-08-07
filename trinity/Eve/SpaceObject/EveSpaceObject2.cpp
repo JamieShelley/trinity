@@ -3392,6 +3392,7 @@ void EveSpaceObject2::SetImpactDamageState( float shield, float armor, float hul
 {
 	if( m_impactOverlay )
 	{
+		m_impactOverlay->GetDamageOverlay()->SetEnabledDamageLocators( m_damageLocatorEnabled.begin(), m_damageLocatorEnabled.end() );
 		m_impactOverlay->SetDamageState( shield, armor, hull, doCreateArmorImpacts );
 
 		EnsureChildLocatorMerged();
@@ -3399,7 +3400,7 @@ void EveSpaceObject2::SetImpactDamageState( float shield, float armor, float hul
 		{
 			if( range.owner )
 			{
-				if( EveDamageOverlayPtr overlay = EnsureChildDamageOverlay( const_cast<EveChildMesh*>( range.owner ), range.count ) )
+				if( EveDamageOverlayPtr overlay = EnsureChildDamageOverlay( range ) )
 				{
 					overlay->SetDamageState( shield, armor, hull, doCreateArmorImpacts );
 				}
@@ -3416,12 +3417,12 @@ void EveSpaceObject2::SetImpactDamageState( float shield, float armor, float hul
 //   A part with its own damage locators renders its own damage. Create its overlay
 //   on demand, wired from the ship's overlay.
 // --------------------------------------------------------------------------------
-EveDamageOverlayPtr EveSpaceObject2::EnsureChildDamageOverlay( EveChildMesh* child, int32_t damageLocatorCount )
+EveDamageOverlayPtr EveSpaceObject2::EnsureChildDamageOverlay( const LocatorSourceRange& range )
 {
-	EveDamageOverlayPtr overlay = child->GetDamageOverlay();
+	EveDamageOverlayPtr overlay = range.owner->GetDamageOverlay();
 	if( !overlay )
 	{
-		overlay = child->EnsureDamageOverlay();
+		overlay = const_cast<EveChildMesh*>( range.owner )->EnsureDamageOverlay();
 		overlay->SetArmorDamageShaderEffect( m_impactOverlay->GetArmorDamageShaderEffect() );
 		// each part gets its own flicker curve instance, the async child updates must not share one
 		if( TriPerlinCurve* flickerCurve = m_impactOverlay->GetHullDamageFlickerCurve() )
@@ -3430,9 +3431,12 @@ EveDamageOverlayPtr EveSpaceObject2::EnsureChildDamageOverlay( EveChildMesh* chi
 			BeClasses->CopyTo( flickerCurve->GetRootObject(), (IRoot**)&flickerCopy );
 			overlay->SetHullDamageFlickerCurve( flickerCopy );
 		}
-		overlay->SetSeed( m_impactOverlay->GetSeed() + child->GetPartTag() );
+		overlay->SetSeed( m_impactOverlay->GetSeed() + range.owner->GetPartTag() );
 	}
-	overlay->SetDamageLocatorCount( uint32_t( damageLocatorCount ) );
+	overlay->SetDamageLocatorCount( uint32_t( range.count ) );
+	int rangeStart = min( int32_t( m_damageLocatorEnabled.size() ), range.start );
+	int rangeEnd = min( int32_t( m_damageLocatorEnabled.size() ), range.start + range.count );
+	overlay->SetEnabledDamageLocators( m_damageLocatorEnabled.begin() + rangeStart, m_damageLocatorEnabled.begin() + rangeEnd );
 	// ship and parts share one impact index namespace, so UpdateImpact can resolve any index
 	overlay->SetImpactIndexSource( m_impactOverlay->GetDamageOverlay() );
 	return overlay;
@@ -3455,7 +3459,7 @@ void EveSpaceObject2::SetImpactAnimation( const std::string& name, bool enable, 
 			{
 				if( range.owner )
 				{
-					if( EveDamageOverlayPtr overlay = EnsureChildDamageOverlay( const_cast<EveChildMesh*>( range.owner ), range.count ) )
+					if( EveDamageOverlayPtr overlay = EnsureChildDamageOverlay( range ) )
 					{
 						overlay->ToggleEffect( name.c_str(), enable, duration );
 					}
@@ -3506,7 +3510,7 @@ int EveSpaceObject2::CreateImpact( int damageLocatorIndex, const Vector3& direct
 			{
 				if( range.owner && damageLocatorIndex >= range.start && damageLocatorIndex < range.start + range.count )
 				{
-					if( EveDamageOverlayPtr overlay = EnsureChildDamageOverlay( const_cast<EveChildMesh*>( range.owner ), range.count ) )
+					if( EveDamageOverlayPtr overlay = EnsureChildDamageOverlay( range ) )
 					{
 						return overlay->CreateImpact( damageLocatorIndex - range.start, size, false );
 					}

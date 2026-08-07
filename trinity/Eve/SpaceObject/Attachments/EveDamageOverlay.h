@@ -105,6 +105,7 @@ public:
 	// setters
 	void SetSeed( const unsigned int seed );
 	void SetDamageLocatorCount( unsigned int count );
+	void SetEnabledDamageLocators( std::vector<bool>::iterator begin, std::vector<bool>::iterator end );
 	void SetDebugForceSpawnDebris( bool value );
 	void SetHullDamageFactor( float factor );
 	void SetArmorDamageShaderEffect( Tr2Effect* shader );
@@ -148,6 +149,7 @@ private:
 	float m_armorImpactLifeTime;
 	unsigned int m_seed;
 	unsigned int m_damageLocatorCount;
+	std::vector<uint32_t> m_enabledDamageLocators;
 	Vector3 m_lastDamageState;
 
 	// priority

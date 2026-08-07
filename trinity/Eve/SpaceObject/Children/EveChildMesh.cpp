@@ -2097,12 +2097,25 @@ bool EveChildMesh::GetDamageLocatorPositionLocal( int index, Vector3& out ) cons
 		if( sets->HasName( "damage" ) )
 		{
 			const LocatorStructureList* locators = sets->GetLocators();
-			if( index < int( locators->size() ) )
+			if( index >= int( locators->size() ) )
 			{
-				out = ( *locators )[index].position;
-				return true;
+				return false;
 			}
-			return false;
+
+			const Locator& locator = ( *locators )[index];
+			out = locator.position;
+
+			// for reference, see EveSpaceObject2::GetLocatorInObjectSpace
+			if( locator.boneIndex > 0 && m_animationUpdater && m_animationUpdater->IsInitialized() && 
+				locator.boneIndex < m_animationUpdater->GetMeshBoneCount() )
+			{
+				const Float4x3* bones = m_animationUpdater->GetMeshBoneMatrixList();
+				Matrix transform = IdentityMatrix();
+				TriMatrixCopyFrom3x4( &transform, &bones[locator.boneIndex] );
+				out = XMVector3TransformCoord( locator.position, transform );
+			}
+
+			return true;
 		}
 	}
 	return false;
