@@ -44,6 +44,7 @@ public:
 	void Create( SpaceObjectType* object, EveSOF* sof );
 	~EveModularObjectModifier();
 
+	static constexpr EveSpaceObjectChild::PartTag INVALID_PART_TAG = 0xFFFFFFFF;
 
 	EveSpaceObjectChild::PartTag AddHull( const char* hullName, const char* factionName, const char* raceName, const Vector3& position, const Quaternion& rotation, const Vector3& scale );
 	EveSpaceObjectChild::PartTag AddChild( const char* resPath, const Vector3& position, const Quaternion& rotation, const Vector3& scale );
@@ -67,3 +68,6 @@ TYPEDEF_BLUECLASS( EveModularObjectModifier );
 
 std::pair<IEveSpaceObject2Ptr, EveModularObjectModifierPtr> CreateModularObject( EveSOF* sof, const char* factionName, const char* raceName );
 EveModularObjectModifierPtr ModifyModularObject( EveModularObjectModifier::SpaceObjectType* object, EveSOF* sof );
+
+// Wrapper function because blue doesn't support exporting const variables
+EveSpaceObjectChild::PartTag GetInvalidPartTag();

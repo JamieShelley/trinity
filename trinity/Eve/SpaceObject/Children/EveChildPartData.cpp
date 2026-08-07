@@ -46,7 +46,7 @@ void EveModularObjectModifier::Create( SpaceObjectType* object, EveSOF* sof )
 
 EveModularObjectModifier::~EveModularObjectModifier()
 {
-	if ( m_object )
+	if( m_object )
 	{
 		CcpMath::Sphere bounds;
 		for( auto& part : m_data->m_parts )
@@ -62,10 +62,9 @@ EveSpaceObjectChild::PartTag EveModularObjectModifier::AddHull( const char* hull
 	auto id = m_data->GetUnusedPartID();
 	auto size = m_object->GetEffectChildren().size();
 	auto dna = std::string( hullName ) + ":" + ( factionName[0] ? factionName : m_data->m_faction.c_str() ) + ":" + ( raceName[0] ? raceName : m_data->m_race.c_str() );
-	if ( !m_sof->BuildChild( m_object, dna.c_str(), id, TransformationMatrix( scale, rotation, position ) ) )
+	if( !m_sof->BuildChild( m_object, dna.c_str(), id, TransformationMatrix( scale, rotation, position ) ) )
 	{
-		// TODO: return error
-		return 0;
+		return INVALID_PART_TAG;
 	}
 
 	if( !m_instancedMeshes )
@@ -99,8 +98,7 @@ EveSpaceObjectChild::PartTag EveModularObjectModifier::AddChild( const char* res
 		m_data->m_parts.emplace_back( EveChildPartData::PartData{ id, position, rotation, scale } );
 		return id;
 	}
-	// TODO: return error
-	return 0;
+	return INVALID_PART_TAG;
 }
 
 BlueStdResult EveModularObjectModifier::Remove( EveSpaceObjectChild::PartTag partId )
@@ -124,7 +122,7 @@ BlueStdResult EveModularObjectModifier::Remove( EveSpaceObjectChild::PartTag par
 		++i;
 	}
 
-	for ( auto& set : m_object->GetLocatorSets() )
+	for( auto& set : m_object->GetLocatorSets() )
 	{
 		auto& locators = *set->GetLocators();
 		auto removed = std::remove_if( locators.begin(), locators.end(), [partId]( const auto& locator ) {
@@ -250,4 +248,8 @@ EveModularObjectModifierPtr ModifyModularObject( EveModularObjectModifier::Space
 	modifier.CreateInstance();
 	modifier->Create( object, sof );
 	return modifier;
+}
+EveSpaceObjectChild::PartTag GetInvalidPartTag()
+{
+	return EveModularObjectModifier::INVALID_PART_TAG;
 }
