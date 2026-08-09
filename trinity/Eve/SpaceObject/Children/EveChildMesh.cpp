@@ -1115,7 +1115,15 @@ void EveChildMesh::UpdateAsyncronous( const EveUpdateContext& updateContext, con
 	if( m_damageOverlay )
 	{
 		EveDamageOverlay::OwnerInfo info;
-		info.boundingSphere = Vector4( m_worldBoundingSphere.center, m_worldBoundingSphere.radius );
+		if( m_mesh )
+		{
+			CcpMath::AxisAlignedBox localBoundingBox = m_mesh->GetBounds();
+			if( localBoundingBox )
+			{
+				CcpMath::Sphere localBoundingSphere( localBoundingBox );
+				info.boundingSphere = Vector4( localBoundingSphere.center, localBoundingSphere.radius );
+			}
+		}		
 		info.estimatedPixelDiameter = max( m_currentScreenSize, 0.f );
 		info.isInFrustum = m_isVisible;
 		info.getDamageLocatorPositionOS = [this]( int index, Vector3& out ) {
