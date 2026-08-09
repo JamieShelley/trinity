@@ -204,7 +204,9 @@ EveSpaceObject2::EveSpaceObject2( IRoot* lockobj ) :
 	m_audioInstanceId( NextAudioInstanceId() ),
 	m_mergedLocatorSetsDirty( true ),
 	m_damageLocatorAutoFilterEnabled( false ),
-	m_damageLocatorFilterDirty( true )
+	m_damageLocatorFilterRequested( false ),
+	m_damageLocatorFilterDirty( true ),
+	m_activeDamageFilterSession( false )
 {
 	m_positionDelta.CreateInstance();
 
@@ -1039,7 +1041,7 @@ void EveSpaceObject2::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 					}
 				}
 
-				if( m_damageLocatorAutoFilterEnabled && isDamageLocatorSet && i < m_damageLocatorEnabled.size() && !m_damageLocatorEnabled[i] )
+				if( isDamageLocatorSet && i < m_damageLocatorEnabled.size() && !m_damageLocatorEnabled[i] )
 				{
 					locatorColor = Color( c.b, c.g, c.r, c.a );
 				}
@@ -1964,8 +1966,15 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
-	if( !m_damageLocatorFilterDirty || !m_damageLocatorAutoFilterEnabled )
+	if( !m_damageLocatorFilterDirty )
 	{
+		return;
+	}
+
+	if( !m_damageLocatorAutoFilterEnabled && !m_damageLocatorFilterRequested )
+	{
+		m_damageLocatorEnabled.clear();
+		m_damageLocatorFilterDirty = false;
 		ReleaseDamageFilterSessions();
 		return;
 	}
@@ -1975,12 +1984,15 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 	if( damageLocators == nullptr || damageLocators->size() == 0 )
 	{
 		m_damageLocatorEnabled.clear();
+		m_damageLocatorFilterDirty = false;
+		m_damageLocatorFilterRequested = false;
 		ReleaseDamageFilterSessions();
 		return;
 	}
 
 	m_damageLocatorEnabled.resize( damageLocators->size(), true );
 	
+	// try loading occluders, if geometry is available
 	if( !m_activeDamageFilterSession )
 	{
 		if( m_mesh && m_mesh->GetGeometryResource() )
@@ -2037,6 +2049,7 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 		m_activeDamageFilterSession = true;
 	}
 
+	// make sure occluders are ready
 	for( size_t i = 0; i < m_damageFilterOccluders.size(); )
 	{
 		const auto& occluder = m_damageFilterOccluders[i];
@@ -2057,6 +2070,7 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 		i++;
 	}
 
+	// filter by raycasting
 	int32_t i = 0;
 	for( auto damageLocator = damageLocators->begin(); damageLocator != damageLocators->end(); damageLocator++ )
 	{
@@ -2103,6 +2117,21 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 
 	ReleaseDamageFilterSessions();
 	m_damageLocatorFilterDirty = false;
+	m_damageLocatorFilterRequested = false;
+
+	// set impact state again
+	if( m_impactOverlay && m_impactOverlay->GetArmorImpactGoalCount() > 0 )
+	{
+		ClearImpactDamage();
+		Vector3 lastDamageState = m_impactOverlay->GetLastDamageState();
+		SetImpactDamageState( lastDamageState.x, lastDamageState.y, lastDamageState.z, true );
+	}
+}
+
+void EveSpaceObject2::RunDamageLocatorFilter()
+{
+	m_damageLocatorFilterRequested = true;
+	m_damageLocatorFilterDirty = true;
 }
 
 // --------------------------------------------------------------------------------
@@ -2495,7 +2524,7 @@ int EveSpaceObject2::GetClosestLocatorIndex( const Vector3* position, BlueShared
 
 	for( unsigned int i = 0; i < locators->size(); ++i )
 	{
-		if( isDamageLocatorSet && m_damageLocatorAutoFilterEnabled && i < m_damageLocatorEnabled.size() && !m_damageLocatorEnabled[i] )
+		if( isDamageLocatorSet && i < m_damageLocatorEnabled.size() && !m_damageLocatorEnabled[i] )
 		{
 			continue;
 		}
@@ -2538,7 +2567,7 @@ int EveSpaceObject2::GetCloseLocatorIndex( const Vector3& position, BlueSharedSt
 
 	for( unsigned int i = 0; i < locators->size(); ++i )
 	{
-		if( isDamageLocatorSet && m_damageLocatorAutoFilterEnabled && i < m_damageLocatorEnabled.size() && !m_damageLocatorEnabled[i] )
+		if( isDamageLocatorSet && i < m_damageLocatorEnabled.size() && !m_damageLocatorEnabled[i] )
 		{
 			continue;
 		}
@@ -2608,7 +2637,7 @@ int EveSpaceObject2::GetGoodLocatorIndex( const Vector3& position, BlueSharedStr
 
 	for( size_t i = 0; i < locators->size(); ++i )
 	{
-		if( isDamageLocatorSet && m_damageLocatorAutoFilterEnabled && i < m_damageLocatorEnabled.size() && !m_damageLocatorEnabled[i] )
+		if( isDamageLocatorSet && i < m_damageLocatorEnabled.size() && !m_damageLocatorEnabled[i] )
 		{
 			continue;
 		}
@@ -2633,7 +2662,7 @@ int EveSpaceObject2::GetGoodLocatorIndex( const Vector3& position, BlueSharedStr
 	int bestLocator = -1;
 	for( size_t i = 0; i < locators->size(); ++i )
 	{
-		if( isDamageLocatorSet && m_damageLocatorAutoFilterEnabled && i < m_damageLocatorEnabled.size() && !m_damageLocatorEnabled[i] )
+		if( isDamageLocatorSet && i < m_damageLocatorEnabled.size() && !m_damageLocatorEnabled[i] )
 		{
 			continue;
 		}

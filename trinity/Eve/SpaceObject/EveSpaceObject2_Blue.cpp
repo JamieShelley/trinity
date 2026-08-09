@@ -452,7 +452,7 @@ const Be::ClassInfo* EveSpaceObject2::ExposeToBlue()
 		MAP_ATTRIBUTE(
 			"damageLocatorAutoFilterEnabled",
 			m_damageLocatorAutoFilterEnabled,
-			"Damage locators will be filtered when they are occluded. Used by modular ships, which need this logic at runtime rather than build time.",
+			"For debug purposes: Filter occluded damage locators whenever there are changes to the modular ship parts.",
 			Be::READWRITE | Be::PERSIST )
 
 		MAP_METHOD_AND_WRAP( "GetDamageLocatorCount", GetDamageLocatorCount, "Get number of damage locators on this ship" )
@@ -476,6 +476,10 @@ const Be::ClassInfo* EveSpaceObject2::ExposeToBlue()
 			GetTransformedDamageLocator,
 			"Get the position of indexed damage locator, (0,0,0) is returned for indices out of range.\n"
 			":param idx: locator index" )
+		MAP_METHOD_AND_WRAP(
+			"RunDamageLocatorFilter",
+			RunDamageLocatorFilter,
+			"Filter occluded damage locators. Damage impact may get displayed at different locator after this call." )
 		MAP_METHOD_AND_WRAP(
 			"SetImpactDamageState",
 			SetImpactDamageState,

@@ -479,6 +479,7 @@ public:
 	const LocatorStructureList* GetLocatorsForSet( const BlueSharedString& setName ) const;
 	void MergeToLocatorSet( const EveLocatorSets& locatorSet );
 	void MergeToLocatorSetTracked( const EveLocatorSets& locatorSet );
+	void RunDamageLocatorFilter();
 
 	// clear stuff
 	void ClearLocatorSets();
@@ -807,9 +808,10 @@ private:
 	std::vector<bool> m_damageLocatorEnabled;
 	mutable bool m_mergedLocatorSetsDirty;
 	bool m_damageLocatorAutoFilterEnabled;
+	bool m_damageLocatorFilterRequested;
 	mutable bool m_damageLocatorFilterDirty;
 	std::vector<DamageFilterOccluder> m_damageFilterOccluders;
-	bool m_activeDamageFilterSession = false;
+	bool m_activeDamageFilterSession;
 };
 
 TYPEDEF_BLUECLASS( EveSpaceObject2 );
