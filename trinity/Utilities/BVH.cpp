@@ -199,6 +199,11 @@ bool Intersection(
 	}
 
 	XMVECTOR invRayDir = XMVectorReciprocal( ray.direction );
+	invRayDir = XMVectorClamp( 
+		invRayDir, 
+		XMVectorReplicate( -std::numeric_limits<float>::max() ), 
+		XMVectorReplicate( std::numeric_limits<float>::max() ) 
+	);
 
 	uint32_t hitPrimitive;
 	float hitDistance;
