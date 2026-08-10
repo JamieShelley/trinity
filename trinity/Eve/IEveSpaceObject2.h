@@ -17,6 +17,12 @@ class Tr2QuadRenderer;
 class Tr2LightManager;
 class Tr2ImpostorManager;
 
+enum class LocatorInvalidationReason
+{
+	StructureChanged,
+	PartMoved
+};
+
 BLUE_INTERFACE( IEveSpaceObject2 ) :
 	public IRoot
 {
@@ -89,7 +95,7 @@ BLUE_INTERFACE( IEveSpaceObject2 ) :
 	{
 	}
 
-	virtual void InvalidateMergedLocators()
+	virtual void InvalidateMergedLocators( LocatorInvalidationReason reason )
 	{
 	}
 };

@@ -1871,10 +1871,14 @@ void EveSpaceObject2::GetParentData( ParentData* pd ) const
 	pd->customData = m_psData.customData;
 }
 
-void EveSpaceObject2::InvalidateMergedLocators()
+void EveSpaceObject2::InvalidateMergedLocators( LocatorInvalidationReason reason )
 {
 	m_mergedLocatorSetsDirty = true;
 	ReleaseDamageFilterSessions();
+	if( reason == LocatorInvalidationReason::StructureChanged || m_damageLocatorAutoFilterEnabled )
+	{
+		m_damageLocatorFilterDirty = true;
+	}
 }
 
 void EveSpaceObject2::EnsureChildLocatorMerged() const
@@ -1940,7 +1944,6 @@ void EveSpaceObject2::EnsureChildLocatorMerged() const
 		}
 	}
 
-	m_damageLocatorFilterDirty = true;
 	m_mergedLocatorSetsDirty = false;
 }
 
@@ -2400,6 +2403,10 @@ bool EveSpaceObject2::OnModified( Be::Var* val )
 	{
 		SetMute( val );
 	}
+	else if( IsMatch( val, m_damageLocatorAutoFilterEnabled ) )
+	{
+		m_damageLocatorFilterDirty = true;
+	}
 	return true;
 }
 
@@ -2784,7 +2791,7 @@ void EveSpaceObject2::MergeToLocatorSet( const EveLocatorSets& locatorSet )
 {
 	const Locator* locators = (const Locator*)&( *locatorSet.GetLocators() )[0];
 
-	InvalidateMergedLocators();
+	InvalidateMergedLocators( LocatorInvalidationReason::StructureChanged );
 
 	for( auto it = m_locatorSets.cbegin(); it != m_locatorSets.cend(); ++it )
 	{
@@ -3278,7 +3285,7 @@ void EveSpaceObject2::AddLocatorSet( const char* name, const Locator* locators, 
 
 	// add it to the list WITHOUT checking if this name already exists
 	m_locatorSets.Append( newSet );
-	InvalidateMergedLocators();
+	InvalidateMergedLocators( LocatorInvalidationReason::StructureChanged );
 }
 
 
@@ -3286,7 +3293,7 @@ void EveSpaceObject2::ClearLocatorSets()
 {
 	m_locatorSets.Clear();
 	m_baseDamageLocatorSources.clear();
-	InvalidateMergedLocators();
+	InvalidateMergedLocators( LocatorInvalidationReason::StructureChanged );
 }
 
 // --------------------------------------------------------------------------------

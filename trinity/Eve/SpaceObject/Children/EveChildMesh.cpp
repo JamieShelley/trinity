@@ -209,7 +209,7 @@ bool EveChildMesh::OnModified( Be::Var* val )
 	{
 		if( IsMatch( val, m_scaling ) || IsMatch( val, m_rotation ) || IsMatch( val, m_translation ) || IsMatch( val, m_localTransform ) )
 		{
-			InvalidateOwnerMergedLocators();
+			InvalidateOwnerMergedLocators( LocatorInvalidationReason::PartMoved );
 		}
 	}
 	return true;
@@ -1891,9 +1891,9 @@ void EveChildMesh::SetOwner( IEveSpaceObject2* owner )
 {
 	if( GetOwner() != owner )
 	{
-		InvalidateOwnerMergedLocators();	// invalidate locators on old owner
+		InvalidateOwnerMergedLocators( LocatorInvalidationReason::StructureChanged ); // invalidate locators on old owner
 		EveSpaceObjectChild::SetOwner( owner );
-		InvalidateOwnerMergedLocators();	// invalidate locators on new owner
+		InvalidateOwnerMergedLocators( LocatorInvalidationReason::StructureChanged ); // invalidate locators on new owner
 	}
 }
 
@@ -2078,14 +2078,14 @@ void EveChildMesh::CollectOwnedGeometry( const Matrix& parentTransform, std::vec
 void EveChildMesh::SetOwnedLocatorSets( const std::vector<EveLocatorSetsPtr>& sets )
 {
 	m_ownedLocatorSets = sets;
-	InvalidateOwnerMergedLocators();
+	InvalidateOwnerMergedLocators( LocatorInvalidationReason::StructureChanged );
 }
 
-void EveChildMesh::InvalidateOwnerMergedLocators()
+void EveChildMesh::InvalidateOwnerMergedLocators( LocatorInvalidationReason reason )
 {
 	if( GetOwner() )
 	{
-		GetOwner()->InvalidateMergedLocators();
+		GetOwner()->InvalidateMergedLocators( reason );
 	}
 }
 

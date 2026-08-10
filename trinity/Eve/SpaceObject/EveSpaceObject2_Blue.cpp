@@ -453,7 +453,7 @@ const Be::ClassInfo* EveSpaceObject2::ExposeToBlue()
 			"damageLocatorAutoFilterEnabled",
 			m_damageLocatorAutoFilterEnabled,
 			"For debug purposes: Filter occluded damage locators whenever there are changes to the modular ship parts.",
-			Be::READWRITE | Be::PERSIST )
+			Be::READWRITE | Be::NOTIFY )
 
 		MAP_METHOD_AND_WRAP( "GetDamageLocatorCount", GetDamageLocatorCount, "Get number of damage locators on this ship" )
 		MAP_METHOD_AND_WRAP(

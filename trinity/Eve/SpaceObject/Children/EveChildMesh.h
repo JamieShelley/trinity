@@ -200,7 +200,7 @@ public:
 	void CollectOwnedLocatorSets( const Matrix& parentTransform, std::vector<EveChildLocatorSetsSource>& out ) const override;
 	void CollectOwnedGeometry( const Matrix& parentTransform, std::vector<EveChildGeometry>& out ) const override;
 	void SetOwnedLocatorSets( const std::vector<EveLocatorSetsPtr>& sets );
-	void InvalidateOwnerMergedLocators();
+	void InvalidateOwnerMergedLocators( LocatorInvalidationReason reason );
 
 	EveDamageOverlayPtr GetDamageOverlay() const;
 	EveDamageOverlayPtr EnsureDamageOverlay();

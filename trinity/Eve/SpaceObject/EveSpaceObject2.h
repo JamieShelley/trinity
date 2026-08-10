@@ -304,7 +304,7 @@ public:
 	virtual void SetProceduralContainerVariable( const char* name, float value ) override;
 	virtual bool IsPickable() const;
 	virtual void GetParentData( IEveSpaceObject2::ParentData * pd ) const;
-	void InvalidateMergedLocators() override;
+	void InvalidateMergedLocators( LocatorInvalidationReason reason ) override;
 
 	void EnsureChildLocatorMerged() const;
 	void UpdateDamageLocatorAutoFilter();
