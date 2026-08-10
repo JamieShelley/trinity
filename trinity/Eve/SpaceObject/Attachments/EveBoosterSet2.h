@@ -45,12 +45,12 @@ struct EveBoosterItem
 {
 	EveBoosterItem();
 
-	Matrix      transform;
-	Vector4     functionality;
-	uint32_t    atlasIndex0;
-	uint32_t    atlasIndex1;
-	int32_t     hasTrail;
-	float       lightScale;
+	Matrix transform;
+	Vector4 functionality;
+	uint32_t atlasIndex0;
+	uint32_t atlasIndex1;
+	int32_t hasTrail;
+	float lightScale;
 };
 
 BLUE_DECLARE_STRUCTURE_LIST( EveBoosterItem );
@@ -270,8 +270,8 @@ public:
 	struct BoosterLight
 	{
 		Vector3 position;
-		float   radius;
-		float   phase;
+		float radius;
+		float phase;
 	};
 
 	void Add( const Matrix* localMatrix, const Vector4* functionality, bool hasTrail, uint32_t atlasIndex0, uint32_t atlasIndex1, float lightScale = 1 );
@@ -287,7 +287,10 @@ public:
 	// HasPersistentBoosterItems()). Always true on any build where this is exposed to Blue.
 	// Deliberately exposes only this flag, not the per-booster data itself, which stays
 	// Be::PERSISTONLY (see the "boosters" MAP_ATTRIBUTE in EveBoosterSet2_Blue.cpp).
-	bool HasPersistentBoosterItems() const { return true; }
+	bool HasPersistentBoosterItems() const
+	{
+		return true;
+	}
 	// set internal visual data
 	void SetData(
 		float glowScale,
@@ -332,12 +335,12 @@ private:
 
 	// clear boosters/glows/trails/bounding info while preserving effects and visual
 	// settings; used internally by RebuildBoosters() before re-adding from fresh locators
-	void RebuildPreservingSettings();
+	void PrepareForRebuild();
 	// rebuild glows after all boosters have been re-added; used internally by RebuildBoosters()
 	void FinalizeRebuild();
 
 	// function to create the flares from boosterdata
-	void CreateFlares( const EveBoosterItem & item );
+	void CreateFlares( const EveBoosterItem& item );
 
 	// toggle display
 	bool m_display;

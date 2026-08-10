@@ -48,22 +48,21 @@ bool g_lightNoiseInitialized = false;
 
 namespace
 {
-	BlueStructureDefinition s_boosterItemStructureDef[] =
-	{
-		{ "functionality", Be::FLOAT32_4,        offsetof( EveBoosterItem, functionality ) },
-		{ "atlasIndex0",   Be::UINT32_1,         offsetof( EveBoosterItem, atlasIndex0 )   },
-		{ "atlasIndex1",   Be::UINT32_1,         offsetof( EveBoosterItem, atlasIndex1 )   },
-		{ "hasTrail",      Be::INT32_1,          offsetof( EveBoosterItem, hasTrail )      },
-		{ "lightScale",    Be::FLOAT32_1,        offsetof( EveBoosterItem, lightScale )    },
-		{ 0 }
-	};
+BlueStructureDefinition s_boosterItemStructureDef[] = {
+	{ "functionality", Be::FLOAT32_4, offsetof( EveBoosterItem, functionality ) },
+	{ "atlasIndex0", Be::UINT32_1, offsetof( EveBoosterItem, atlasIndex0 ) },
+	{ "atlasIndex1", Be::UINT32_1, offsetof( EveBoosterItem, atlasIndex1 ) },
+	{ "hasTrail", Be::INT32_1, offsetof( EveBoosterItem, hasTrail ) },
+	{ "lightScale", Be::FLOAT32_1, offsetof( EveBoosterItem, lightScale ) },
+	{ 0 }
+};
 
-	EveBoosterItem s_defaultBoosterItem;
+EveBoosterItem s_defaultBoosterItem;
 }
 
 
-EveBoosterItem::EveBoosterItem()
-	: transform( IdentityMatrix() ),
+EveBoosterItem::EveBoosterItem() :
+	transform( IdentityMatrix() ),
 	functionality( 0.f, 1.f, 1.f, 1.f ),
 	atlasIndex0( 0 ),
 	atlasIndex1( 0 ),
@@ -887,35 +886,25 @@ void EveBoosterSet2::Clear()
 
 // --------------------------------------------------------------------------------
 // Description:
-//   Rebuild boosters while preserving effects, glows, trails and visual settings.
-//   This is used when locators change but the booster configuration should remain.
+//   Drop all per-booster state ahead of a rebuild. Boosters, glows and trails are
+//   all cleared here and re-created by the Add() calls that follow; what survives is
+//   the set-level configuration (effects, glow/halo/light settings), since those live
+//   outside the per-booster arrays. The per-booster metadata that RebuildBoosters()
+//   restores is snapshotted by that caller before this runs, not preserved here.
 // --------------------------------------------------------------------------------
-void EveBoosterSet2::RebuildPreservingSettings()
+void EveBoosterSet2::PrepareForRebuild()
 {
-	// Clear only the booster items, not the effects/glows/trails
-	m_boosters.Clear();
-	m_boosterLights.clear();
-	if( m_glows )
-	{
-		m_glows->Clear();
-	}
-	if( m_trails )
-	{
-		m_trails->Clear();
-	}
+	Clear();
 
-	// Reset bounding info
-	BoundingSphereInitialize( m_boosterBoundingSphere );
+	// Clear() leaves m_maxSize alone; a rebuild re-derives it from the boosters it
+	// re-adds, so reset it here to avoid carrying over a stale maximum.
 	m_maxSize = 0.f;
-
-	// Release only the instance buffer resources
-	ReleaseResources( TRISTORAGE_ALL );
 }
 
 // --------------------------------------------------------------------------------
 // Description:
 //   Finalize the rebuild by rebuilding glows after all boosters have been added.
-//   Call this after RebuildPreservingSettings() and all Add() calls.
+//   Call this after PrepareForRebuild() and all Add() calls.
 // --------------------------------------------------------------------------------
 void EveBoosterSet2::FinalizeRebuild()
 {
@@ -930,12 +919,12 @@ void EveBoosterSet2::Add( const Matrix* localMatrix, const Vector4* functionalit
 {
 	// keep source data for persistence
 	EveBoosterItem item;
-	item.transform     = *localMatrix;
+	item.transform = *localMatrix;
 	item.functionality = *functionality;
-	item.atlasIndex0   = atlasIndex0;
-	item.atlasIndex1   = atlasIndex1;
-	item.hasTrail      = hasTrail ? 1 : 0;
-	item.lightScale    = lightScale;
+	item.atlasIndex0 = atlasIndex0;
+	item.atlasIndex1 = atlasIndex1;
+	item.hasTrail = hasTrail ? 1 : 0;
+	item.lightScale = lightScale;
 
 	BoosterLight light;
 	ComputeBoosterLight( item, light );
@@ -980,8 +969,8 @@ void EveBoosterSet2::ComputeBoosterLight( const EveBoosterItem& item, BoosterLig
 {
 	Vector3 lightOffset( 0.f, 0.f, -m_lightOffset );
 	out.position = TransformCoord( lightOffset, item.transform );
-	out.radius   = std::max( Length( item.transform.GetX() ), Length( item.transform.GetY() ) ) * item.lightScale;
-	out.phase    = float( g_lightNoiseSize ) * float( rand() ) / float( RAND_MAX );
+	out.radius = std::max( Length( item.transform.GetX() ), Length( item.transform.GetY() ) ) * item.lightScale;
+	out.phase = float( g_lightNoiseSize ) * float( rand() ) / float( RAND_MAX );
 }
 
 // --------------------------------------------------------------------------------
@@ -1002,7 +991,7 @@ void EveBoosterSet2::RebuildBoosters( const std::vector<Matrix>& locatorTransfor
 		previous.push_back( m_boosters[i] );
 	}
 
-	RebuildPreservingSettings();
+	PrepareForRebuild();
 
 	for( size_t i = 0; i < locatorTransforms.size(); ++i )
 	{
@@ -1016,10 +1005,10 @@ void EveBoosterSet2::RebuildBoosters( const std::vector<Matrix>& locatorTransfor
 		{
 			const EveBoosterItem& saved = previous[i];
 			functionality = saved.functionality;
-			hasTrail      = saved.hasTrail != 0;
-			atlasIndex0   = saved.atlasIndex0;
-			atlasIndex1   = saved.atlasIndex1;
-			lightScale    = saved.lightScale;
+			hasTrail = saved.hasTrail != 0;
+			atlasIndex0 = saved.atlasIndex0;
+			atlasIndex1 = saved.atlasIndex1;
+			lightScale = saved.lightScale;
 		}
 
 		Add( &locatorTransforms[i], &functionality, hasTrail, atlasIndex0, atlasIndex1, lightScale );
