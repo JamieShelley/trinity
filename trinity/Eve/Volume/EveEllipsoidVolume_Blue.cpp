@@ -13,6 +13,7 @@ const Be::ClassInfo* EveEllipsoidVolume::ExposeToBlue()
 
 
 		MAP_ATTRIBUTE( "name", m_name, "", Be::READWRITE | Be::PERSIST )
+		MAP_ATTRIBUTE( "enabled", m_enabled, "Disabled volumes are ignored by their owner, e.g. to switch shapes via external parameters", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "position", m_position, "The position of the volume", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 		MAP_ATTRIBUTE( "shape", m_shape, "The shape of the outer ellipsoid", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 		MAP_ATTRIBUTE( "innerShape", m_innerShape, "The shape of the inner ellipsoid", Be::READWRITE | Be::PERSIST | Be::NOTIFY )

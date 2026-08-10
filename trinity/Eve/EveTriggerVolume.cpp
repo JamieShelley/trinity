@@ -66,6 +66,11 @@ void EveTriggerVolume::RebuildBoundingSphere()
 
 	for( auto volume = m_volumes.begin(); volume != m_volumes.end(); ++volume )
 	{
+		if( !( *volume )->IsEnabled() )
+		{
+			continue;
+		}
+
 		auto volumeSphere = ( *volume )->GetBoundingSphere();
 
 		if( !volumeSphere.IsInitialized() )
@@ -96,10 +101,14 @@ void EveTriggerVolume::RebuildBoundingSphere()
 
 const char* EveTriggerVolume::GetEffectiveName() const
 {
-	// Prefer volume names: per-placement names from dungeon asset manipulations are bound to
-	// the first volume, while the client overwrites the root name with the destiny ball ID.
+	// Prefer enabled volume names: per-placement names from dungeon asset manipulations are
+	// bound to the volumes, while the client overwrites the root name with the destiny ball ID.
 	for( auto volume = m_volumes.begin(); volume != m_volumes.end(); ++volume )
 	{
+		if( !( *volume )->IsEnabled() )
+		{
+			continue;
+		}
 		const char* volumeName = ( *volume )->GetName();
 		if( volumeName && volumeName[0] != '\0' )
 		{
@@ -236,6 +245,10 @@ void EveTriggerVolume::UpdateTriggerState( const EveUpdateContext& updateContext
 			// Now find the intensity within the volumes
 			for( const auto& volume : m_volumes )
 			{
+				if( !volume->IsEnabled() )
+				{
+					continue;
+				}
 				m_currentIntensity = std::max( m_currentIntensity, volume->GetIntensity( positionInObjectSpace ) );
 				if( m_currentIntensity == 1.0f )
 				{
@@ -250,6 +263,10 @@ void EveTriggerVolume::UpdateTriggerState( const EveUpdateContext& updateContext
 				float negativeIntensity = 0.0f;
 				for( const auto& volume : m_exclusionVolumes )
 				{
+					if( !volume->IsEnabled() )
+					{
+						continue;
+					}
 					negativeIntensity = std::max( negativeIntensity, volume->GetIntensity( positionInObjectSpace ) );
 					if( negativeIntensity == 1.0f )
 					{
@@ -353,7 +370,10 @@ void EveTriggerVolume::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 		Color color = m_isInside ? 0xFF33FF33 : 0xFFFFFFFF;
 		for( auto volume = m_volumes.begin(); volume != m_volumes.end(); ++volume )
 		{
-			( *volume )->RenderDebugInfo( renderer, m_worldTransform, color );
+			if( ( *volume )->IsEnabled() )
+			{
+				( *volume )->RenderDebugInfo( renderer, m_worldTransform, color );
+			}
 		}
 	}
 
@@ -361,7 +381,10 @@ void EveTriggerVolume::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 	{
 		for( auto volume = m_exclusionVolumes.begin(); volume != m_exclusionVolumes.end(); ++volume )
 		{
-			( *volume )->RenderDebugInfo( renderer, m_worldTransform, 0xFFFF3333 );
+			if( ( *volume )->IsEnabled() )
+			{
+				( *volume )->RenderDebugInfo( renderer, m_worldTransform, 0xFFFF3333 );
+			}
 		}
 	}
 

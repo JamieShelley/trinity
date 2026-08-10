@@ -11,6 +11,7 @@ BLUE_INTERFACE( IEveVolume ) :
 	public IRoot
 {
 	virtual const char* GetName() const = 0;
+	virtual bool IsEnabled() const = 0;
 	virtual float GetIntensity( Vector3 position ) = 0;
 	virtual uint32_t RegisterForChanges( const std::function<void()>& callBack ) = 0; // returns the callbackID
 	virtual void UnregisterForChanges( uint32_t callbackID ) = 0;

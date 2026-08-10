@@ -12,6 +12,7 @@ Vector3 const EveBoxVolume::MAX_AABB = Vector3( 0.5, 0.5, 0.5 );
 Vector3 const EveBoxVolume::MIN_AABB = Vector3( -0.5, -0.5, -0.5 );
 
 EveBoxVolume::EveBoxVolume( IRoot* lockobj ) :
+	m_enabled( true ),
 	m_position( 0, 0, 0 ),
 	m_scaling( 0, 0, 0 ),
 	m_innerScaling( 0, 0, 0 ),
@@ -41,6 +42,11 @@ bool EveBoxVolume::Initialize()
 const char* EveBoxVolume::GetName() const
 {
 	return m_name.c_str();
+}
+
+bool EveBoxVolume::IsEnabled() const
+{
+	return m_enabled;
 }
 
 void EveBoxVolume::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Matrix& parentTransform, const Color& baseColor )

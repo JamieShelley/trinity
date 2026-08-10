@@ -8,6 +8,7 @@
 #include "include/TriMath.h"
 
 EveEllipsoidVolume::EveEllipsoidVolume( IRoot* lockobj ) :
+	m_enabled( true ),
 	m_position( 0, 0, 0 ),
 	m_shape( 0, 0, 0 ),
 	m_innerShape( 0, 0, 0 ),
@@ -72,6 +73,11 @@ void EveEllipsoidVolume::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Ma
 const char* EveEllipsoidVolume::GetName() const
 {
 	return m_name.c_str();
+}
+
+bool EveEllipsoidVolume::IsEnabled() const
+{
+	return m_enabled;
 }
 
 const CcpMath::Sphere EveEllipsoidVolume::GetBoundingSphere() const

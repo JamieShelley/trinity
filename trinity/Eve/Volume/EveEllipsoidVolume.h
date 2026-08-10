@@ -20,6 +20,7 @@ public:
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IEveVolume
 	const char* GetName() const override;
+	bool IsEnabled() const override;
 	void RenderDebugInfo( ITr2DebugRenderer2 & renderer, const Matrix& parentTransform, const Color& baseColor ) override;
 	float GetIntensity( Vector3 position ) override;
 	uint32_t RegisterForChanges( const std::function<void()>& callBack ) override;
@@ -39,6 +40,7 @@ private:
 	void Setup();
 
 	BlueSharedString m_name;
+	bool m_enabled; ///< Disabled volumes are ignored by their owner, e.g. to switch shapes via external parameters.
 
 	Vector3 m_position;
 	Vector3 m_shape;

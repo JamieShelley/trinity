@@ -7,6 +7,7 @@
 #include "include/TriMath.h"
 
 EveSphereVolume::EveSphereVolume( IRoot* lockobj ) :
+	m_enabled( true ),
 	m_innerSphere( Vector3( 0.0f, 0.0f, 0.0f ), 1.0f ),
 	m_outerSphere( Vector3( 0.0f, 0.0f, 0.0f ), 1.0f ),
 	m_nextCallbackID( 1 )
@@ -20,6 +21,11 @@ EveSphereVolume::~EveSphereVolume()
 const char* EveSphereVolume::GetName() const
 {
 	return m_name.c_str();
+}
+
+bool EveSphereVolume::IsEnabled() const
+{
+	return m_enabled;
 }
 
 void EveSphereVolume::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Matrix& parentTransform, const Color& baseColor )
