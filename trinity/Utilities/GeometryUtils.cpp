@@ -295,7 +295,6 @@ void ConvertDataToVector3( Tr2VertexDefinition::DataType elementType, const void
 	}
 }
 
-// TODO: intern, optimize this one as well. we can do this intersection test without matrix inversion
 bool IntersectTri(
 	const Vector3* p0,
 	const Vector3* p1,
@@ -306,44 +305,88 @@ bool IntersectTri(
 	float* v,
 	float* dist )
 {
-	Matrix m;
-	Vector4 vec;
+#if 1
+	// Möller–Trumbore intersection algorithm
+	Vector3 e1 = *p1 - *p0;
+	Vector3 e2 = *p2 - *p0;
+	Vector3 a = Cross( *rayDir, e2 );
 
-	m.m[0][0] = p1->x - p0->x;
-	m.m[1][0] = p2->x - p0->x;
-	m.m[2][0] = -rayDir->x;
-	m.m[3][0] = 0.0f;
-	m.m[0][1] = p1->y - p0->y;
-	m.m[1][1] = p2->y - p0->y;
-	m.m[2][1] = -rayDir->y;
-	m.m[3][1] = 0.0f;
-	m.m[0][2] = p1->z - p0->z;
-	m.m[1][2] = p2->z - p0->z;
-	m.m[2][2] = -rayDir->z;
-	m.m[3][2] = 0.0f;
-	m.m[0][3] = 0.0f;
-	m.m[1][3] = 0.0f;
-	m.m[2][3] = 0.0f;
-	m.m[3][3] = 1.0f;
-
-	vec.x = rayPos->x - p0->x;
-	vec.y = rayPos->y - p0->y;
-	vec.z = rayPos->z - p0->z;
-	vec.w = 0.0f;
-
-	if( Inverse( m, m ) )
+	float det = Dot( e1, a );
+	if( std::abs( det ) < std::numeric_limits<float>::min() )
 	{
-		vec = Transform( vec, m );
-		if( ( vec.x >= 0.0f ) && ( vec.y >= 0.0f ) && ( vec.x + vec.y <= 1.0f ) && ( vec.z >= 0.0f ) )
-		{
-			*u = vec.x;
-			*v = vec.y;
-			*dist = fabs( vec.z );
-			return true;
-		}
+		return false;
+	}
+	float invDet = 1.f / det;
+
+	Vector3 t0 = *rayPos - *p0;
+	float uu = Dot( t0, a ) * invDet;
+	if( uu < 0.f || uu > 1.f )
+	{
+		return false;
 	}
 
-	return false;
+	Vector3 b = Cross( t0, e1 );
+	float vv = Dot( *rayDir, b ) * invDet;
+	if( vv < 0.f || uu + vv > 1.f )
+	{
+		return false;
+	}
+
+	float t = Dot( e2, b ) * invDet;
+	if( t < 0.f )
+	{
+		return false;
+	}
+
+	*u = uu;
+	*v = vv;
+	*dist = t;
+	return true;
+
+#else
+	XMVECTOR pos = XMVectorSet( rayPos->x, rayPos->y, rayPos->z, 0.f );
+	XMVECTOR dir = XMVectorSet( rayDir->x, rayDir->y, rayDir->z, 0.f );
+	XMVECTOR v0 = XMVectorSet( p0->x, p0->y, p0->z, 1.f );
+	XMVECTOR v1 = XMVectorSet( p1->x, p1->y, p1->z, 1.f );
+	XMVECTOR v2 = XMVectorSet( p2->x, p2->y, p2->z, 1.f );
+
+	XMVECTOR e1 = XMVectorSubtract( v1, v0 );
+	XMVECTOR e2 = XMVectorSubtract( v2, v0 );
+	XMVECTOR a = XMVector3Cross( dir, e2 );
+
+	float det = XMVectorGetX( XMVector3Dot( e1, a ) );
+	if( std::abs( det ) < std::numeric_limits<float>::min() )
+	{
+		return false;
+	}
+	float invDet = 1.f / det;
+	
+	XMVECTOR t0 = XMVectorSubtract( pos, v0 );
+	float uu = XMVectorGetX( XMVector3Dot( t0, a ) ) * invDet;
+	if( uu < 0.f || uu > 1.f )
+	{
+		return false;
+	}
+
+	XMVECTOR b = XMVector3Cross( t0, e1 );
+	float vv = XMVectorGetX( XMVector3Dot( dir, b ) ) * invDet;
+	if( vv < 0.f || uu + vv > 1.f )
+	{
+		return false;
+	}
+
+	float t = XMVectorGetX( XMVector3Dot( e2, b ) ) * invDet;
+	if( t < 0.f )
+	{
+		return false;
+	}
+
+	*u = uu;
+	*v = vv;
+	*dist = t;
+	return true;
+
+#endif
 }
 
 bool GetBoneIndex( Tr2VertexDefinition::DataType elementType, const void* src, int& dest )
