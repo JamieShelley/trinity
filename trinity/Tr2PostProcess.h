@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef Tr2PostProcess_H
 #define Tr2PostProcess_H
@@ -8,8 +10,7 @@ BLUE_DECLARE( Tr2Effect );
 BLUE_DECLARE_VECTOR( Tr2Effect );
 class TriVariable;
 
-class Tr2PostProcess :
-	public IInitialize
+class Tr2PostProcess : public IInitialize
 {
 public:
 	EXPOSE_TO_BLUE();

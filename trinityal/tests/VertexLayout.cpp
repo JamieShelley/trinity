@@ -1,8 +1,12 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "WithValidRenderContextFixture.h"
 #include "WithRenderContextFixture.h"
 
-struct VertexLayout : public WithValidRenderContext {};
+struct VertexLayout : public WithValidRenderContext
+{
+};
 
 void InitializeSampleVertexDefinition( Tr2VertexDefinition& def )
 {

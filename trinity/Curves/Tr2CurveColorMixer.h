@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   December 2021
-//    Copyright: CCP 2021
-//
+// Copyright © 2021 CCP ehf.
 
 #pragma once
 
@@ -25,13 +21,14 @@ public:
 
 	// ITriColorFunction
 	void UpdateValue( double time ) override;
-	Color* Update( Color* in, Be::Time time ) override;
-	Color* Update( Color* in, double time ) override;
-	Color* GetValueAt( Color* in, Be::Time time ) override;
-	Color* GetValueAt( Color* in, double time ) override;
+	Color* Update( Color * in, Be::Time time ) override;
+	Color* Update( Color * in, double time ) override;
+	Color* GetValueAt( Color * in, Be::Time time ) override;
+	Color* GetValueAt( Color * in, double time ) override;
 
 	// ITriCurveLength
 	float Length() override;
+
 private:
 	// this function was added as an option to convert Linear color to SRGB Color
 	void InvertLinearColor( Color * in, Color * out );

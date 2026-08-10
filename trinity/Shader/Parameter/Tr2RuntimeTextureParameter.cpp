@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   September 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2RuntimeTextureParameter.h"
@@ -12,8 +8,8 @@
 #include "Tr2Renderer.h"
 
 // --------------------------------------------------------------------------------------
-Tr2RuntimeTextureParameter::Tr2RuntimeTextureParameter( IRoot* lockobj )
-	:m_resourceType( Tr2EffectResource::TEXTURE_TYPELESS ),
+Tr2RuntimeTextureParameter::Tr2RuntimeTextureParameter( IRoot* lockobj ) :
+	m_resourceType( Tr2EffectResource::TEXTURE_TYPELESS ),
 	m_uavMipLevel( 0 )
 {
 }

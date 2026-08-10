@@ -1,15 +1,10 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   Februaru 2016
-//    Copyright: CCP 2016
-//
+// Copyright © 2016 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveLocatorSets.h"
 
 // locator item definition
-static BlueStructureDefinition LocatorStructureDef[] =
-{
+static BlueStructureDefinition LocatorStructureDef[] = {
 	{ "position", Be::FLOAT32_3, 0 },
 	{ "direction", Be::FLOAT32_4, 12 },
 	{ "scale", Be::FLOAT32_3, 28 },
@@ -38,7 +33,7 @@ EveLocatorSets::~EveLocatorSets()
 // --------------------------------------------------------------------------------
 void EveLocatorSets::Translate( const Vector3& offset )
 {
-	if( LengthSq(offset) == 0.0f )
+	if( LengthSq( offset ) == 0.0f )
 	{
 		return;
 	}
@@ -56,7 +51,7 @@ void EveLocatorSets::Append( const Locator* locators, size_t count )
 {
 	size_t originalSize = m_locators.size();
 	m_locators.Resize( originalSize + count );
-	memcpy( &m_locators[ originalSize ], locators, count * sizeof( Locator ) );
+	memcpy( &m_locators[originalSize], locators, count * sizeof( Locator ) );
 }
 
 // --------------------------------------------------------------------------------

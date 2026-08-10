@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2023
-//    Copyright: CCP 2023
-//
+// Copyright © 2023 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2TextureAnimation.h"
@@ -17,11 +13,11 @@ const Be::ClassInfo* Tr2TextureAnimation::ExposeToBlue()
 		MAP_INTERFACE( IInitialize )
 		MAP_INTERFACE( INotify )
 
-		MAP_ATTRIBUTE( 
-			"resPath", 
-			m_filename, 
+		MAP_ATTRIBUTE(
+			"resPath",
+			m_filename,
 			"Path to the animation file\n"
-			":jessica-file-filter: Texture animations (*.vta)|*.vta", 
+			":jessica-file-filter: Texture animations (*.vta)|*.vta",
 			Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 		MAP_ATTRIBUTE( "fps", m_fps, "Animation speed: frames per second", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "time", m_time, "Current animation time", Be::READ )

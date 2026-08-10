@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   December 2011
-//    Copyright: CCP 2011
-//
+// Copyright © 2011 CCP ehf.
 
 #pragma once
 #ifndef ITr2GenericEmitter_H
@@ -13,19 +9,19 @@ BLUE_DECLARE( Tr2GpuParticleSystem );
 
 // --------------------------------------------------------------------------------------
 // Description:
-//   ITr2GenericEmitter is an interface for particle emitters used with 
+//   ITr2GenericEmitter is an interface for particle emitters used with
 //   Tr2ParticleSystem.
 // See Also:
 //   Tr2DynamicEmitter, Tr2ParticleSystem
 // --------------------------------------------------------------------------------------
-BLUE_INTERFACE( ITr2GenericEmitter ): 
+BLUE_INTERFACE( ITr2GenericEmitter ) :
 	public IRoot
 {
 	// Arguments passed to Update method
 	struct UpdateArguments
 	{
-		UpdateArguments()
-			:time( 0 ),
+		UpdateArguments() :
+			time( 0 ),
 			system( nullptr ),
 			parentTransform( XMMatrixIdentity() ),
 			originShift( 0.f, 0.f, 0.f ),
@@ -33,8 +29,8 @@ BLUE_INTERFACE( ITr2GenericEmitter ):
 		{
 		}
 
-		UpdateArguments( Be::Time t, Tr2GpuParticleSystem* gpuSystem, const Matrix& transform, const Vector3& shift, float emitFactor = 1.f )
-			:time( t ),
+		UpdateArguments( Be::Time t, Tr2GpuParticleSystem* gpuSystem, const Matrix& transform, const Vector3& shift, float emitFactor = 1.f ) :
+			time( t ),
 			system( gpuSystem ),
 			parentTransform( transform ),
 			originShift( shift ),
@@ -64,7 +60,7 @@ BLUE_INTERFACE( ITr2GenericEmitter ):
 
 	// --------------------------------------------------------------------------------------
 	// Description:
-	//   Spawns new particles. Can be called from Tr2ParticleSystem for "emit during 
+	//   Spawns new particles. Can be called from Tr2ParticleSystem for "emit during
 	//   lifetime" or "emit on death" emitters.
 	// Arguments:
 	//   position - Position of the "parent" particle (if the emitter owning this generator
@@ -77,14 +73,14 @@ BLUE_INTERFACE( ITr2GenericEmitter ):
 	//		defined value.
 	// --------------------------------------------------------------------------------------
 	virtual void SpawnParticles( const UpdateArguments& arguments,
-								 const Vector3* position = nullptr, 
-								 const Vector3* velocity = nullptr, 
+								 const Vector3* position = nullptr,
+								 const Vector3* velocity = nullptr,
 								 float rateModifier = 1.0f ) = 0;
 
-	
+
 	// --------------------------------------------------------------------------------------
 	// Description:
-	//   Spawns new particles. Can be called from Tr2ParticleSystem for "emit during 
+	//   Spawns new particles. Can be called from Tr2ParticleSystem for "emit during
 	//   lifetime" or "emit on death" emitters. Particle position and velocity values
 	//   are provided for both beginning and end of frame, for better distribution.
 	// Arguments:
@@ -95,8 +91,10 @@ BLUE_INTERFACE( ITr2GenericEmitter ):
 	//   deltaTime - particle simulation delta-time
 	// --------------------------------------------------------------------------------------
 	virtual void SpawnParticles( const UpdateArguments& arguments,
-								 const Vector3 *positionStart, const Vector3 *positionEnd,
-								 const Vector3 *velocityStart, const Vector3 *velocityEnd,
+								 const Vector3* positionStart,
+								 const Vector3* positionEnd,
+								 const Vector3* velocityStart,
+								 const Vector3* velocityEnd,
 								 float deltaTime ) = 0;
 
 	// --------------------------------------------------------------------------------------

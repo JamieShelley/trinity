@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   January 2016
-//    Copyright: CCP 2016
-//
+// Copyright © 2016 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveSpriteLineSetItem.h"
 
@@ -10,8 +7,8 @@ BLUE_DEFINE( EveSpriteLineSetItem );
 
 const Be::ClassInfo* EveSpriteLineSetItem::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( EveSpriteLineSetItem, "" )
-        MAP_INTERFACE( EveSpriteLineSetItem )
+	EXPOSURE_BEGIN( EveSpriteLineSetItem, "" )
+		MAP_INTERFACE( EveSpriteLineSetItem )
 
 		MAP_ATTRIBUTE( "name", m_name, "", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "isCircle", m_isCircle, "", Be::READWRITE | Be::PERSIST )
@@ -27,5 +24,5 @@ const Be::ClassInfo* EveSpriteLineSetItem::ExposeToBlue()
 		MAP_ATTRIBUTE( "falloff", m_falloff, "", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "color", m_color, "", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "boneIndex", m_boneIndex, ":jessica-widget: boneindex", Be::READWRITE | Be::PERSIST )
-    EXPOSURE_END()
+	EXPOSURE_END()
 }

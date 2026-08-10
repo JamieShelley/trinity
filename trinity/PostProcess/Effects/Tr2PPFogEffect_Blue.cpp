@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		February 2019
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2PPFogEffect.h"
@@ -41,7 +37,6 @@ const Be::ClassInfo* Tr2PPFogEffect::ExposeToBlue()
 		MAP_ATTRIBUTE( "areaSize", m_areaSize, "", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "areaScale", m_areaScale, "", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "areaCenter", m_areaCenter, "", Be::READWRITE | Be::PERSIST )
-		
-		EXPOSURE_CHAINTO( Tr2PPEffect )
-}
 
+	EXPOSURE_CHAINTO( Tr2PPEffect )
+}

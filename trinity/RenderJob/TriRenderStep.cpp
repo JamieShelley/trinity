@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriRenderStep.h"
 #include "ITriRenderStep.h"
@@ -20,8 +22,8 @@ CcpStaticStatisticsEntry* GetOrCreateStatisticsEntry( const std::string& name )
 }
 }
 
-TriRenderStep::TriRenderStep( IRoot* lockobj )
-:	m_enabled( true )
+TriRenderStep::TriRenderStep( IRoot* lockobj ) :
+	m_enabled( true )
 {
 }
 

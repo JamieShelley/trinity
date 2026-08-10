@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2011
-//    Copyright: CCP 2011
-//
+// Copyright © 2011 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ParticleTurbulenceForce.h"
@@ -11,7 +7,7 @@ BLUE_DEFINE( Tr2ParticleTurbulenceForce );
 
 const Be::ClassInfo* Tr2ParticleTurbulenceForce::ExposeToBlue()
 {
-	EXPOSURE_BEGIN(Tr2ParticleTurbulenceForce, "" )
+	EXPOSURE_BEGIN( Tr2ParticleTurbulenceForce, "" )
 		MAP_INTERFACE( ITr2ParticleForce )
 		MAP_INTERFACE( Tr2ParticleTurbulenceForce )
 

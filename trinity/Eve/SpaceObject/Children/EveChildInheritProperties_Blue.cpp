@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   September 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildInheritProperties.h"
 #include "Eve/SpaceObjectFactory/EveSOFData.h"
@@ -16,8 +13,8 @@ const Be::ClassInfo* EveChildInheritProperties::ExposeToBlue()
 	EXPOSURE_BEGIN( EveChildInheritProperties, "" )
 		MAP_INTERFACE( EveChildInheritProperties )
 
-#define COLOR_DEFINE( _Color, _COLOR )\
-		MAP_ATTRIBUTE( #_Color, m_colorSet[TYPE_ ## _COLOR], ":jessica-group:SOF Faction Glow Colors", Be::READ )
+#define COLOR_DEFINE( _Color, _COLOR ) \
+	MAP_ATTRIBUTE( #_Color, m_colorSet[TYPE_##_COLOR], ":jessica-group:SOF Faction Glow Colors", Be::READ )
 
 		COLOR_DEFINE( Primary, PRIMARY )
 		COLOR_DEFINE( Secondary, SECONDARY )

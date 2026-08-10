@@ -1,19 +1,4 @@
-/* 
-	*************************************************************************************
-
-	TriVariableParameter.h
-
-	Created:	2007-10-04
-	Project:	Trinity
-
-	Note: This is a platform independent file and cannot expose any special code that is
-	not shared between D3D9 and D3D10.  If any Python methods are to be exposed for
-	this class this is the place to do it.
-
-	(c) CCP 2007
-
-	*************************************************************************************
-*/
+// Copyright © 2007 CCP ehf.
 
 #pragma once
 #ifndef TriVariableParameter_H
@@ -27,16 +12,15 @@ BLUE_CLASS_ALLOW_DELAYED_DELETE( TriVariableParameter );
 
 BLUE_DECLARE( Tr2Shader );
 
-class TriVariableParameter:
-	public ITriEffectParameter,
-	public INotify,
-	public IInitialize
+class TriVariableParameter : public ITriEffectParameter,
+							 public INotify,
+							 public IInitialize
 {
 
 public:
 	EXPOSE_TO_BLUE();
 
-	TriVariableParameter(IRoot* lockobj = NULL);
+	TriVariableParameter( IRoot* lockobj = NULL );
 	~TriVariableParameter();
 
 	using ITriEffectParameter::Lock;
@@ -61,10 +45,10 @@ public:
 		Tr2ResourceSetDescriptionAL& resourceDesc,
 		Tr2RenderContextEnum::ShaderType stage,
 		uint32_t registerIndex ) const;
-	virtual void CopyValueToEffect(	Tr2RenderContextEnum::ShaderType inputType,
-							unsigned char* destHandle, 
-							size_t size,
-							Tr2RenderContext &renderContext ) const; 
+	virtual void CopyValueToEffect( Tr2RenderContextEnum::ShaderType inputType,
+									unsigned char* destHandle,
+									size_t size,
+									Tr2RenderContext& renderContext ) const;
 	const char* GetParameterName() const;
 	void RebuildEffectHandles( Tr2Shader* effectRes );
 	unsigned GetHashValue( unsigned startingHash ) const;
@@ -80,10 +64,10 @@ public:
 	bool Initialize();
 
 private:
-	int GetVariableType() const; 
+	int GetVariableType() const;
 	Tr2ShaderPtr m_cachedEffect;
 };
 
-TYPEDEF_BLUECLASS(TriVariableParameter);
+TYPEDEF_BLUECLASS( TriVariableParameter );
 
-#endif 
+#endif

@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "WithValidRenderContextFixture.h"
 #include "WithRenderContextFixture.h"
@@ -92,7 +94,7 @@ TEST_F( ConstantBuffer, CanLockConstantBuffer )
 	ASSERT_HRESULT_SUCCEEDED( vb.Unlock( *renderContext ) );
 }
 
-#if( TRINITYPLATFORM == TRINITY_STUB )
+#if ( TRINITYPLATFORM == TRINITY_STUB )
 TEST_F( ConstantBuffer, UnlockingConstantBufferThatHasNotBeenLockedFails )
 {
 	Tr2ConstantBufferAL vb;

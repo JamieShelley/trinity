@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   April 2025
-//    Copyright: CCP 2025
-//
+// Copyright © 2025 CCP ehf.
+
 #pragma once
 
 #include "../IEveSpaceObject2.h"
@@ -21,8 +18,8 @@ public:
 
 	EveTacticalTrails( IRoot* lockobj = nullptr );
 
-	void RegisterObject( ITriVectorFunction* object );
-	void UnregisterObject( ITriVectorFunction* object );
+	void RegisterObject( ITriVectorFunction * object );
+	void UnregisterObject( ITriVectorFunction * object );
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IEveSpaceObject2

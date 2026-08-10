@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriStepGenerateMipMaps.h"
 
@@ -6,7 +8,7 @@ TriStepGenerateMipMaps::TriStepGenerateMipMaps( IRoot* lockobj )
 {
 }
 
-TriStepGenerateMipMaps::~TriStepGenerateMipMaps(void)
+TriStepGenerateMipMaps::~TriStepGenerateMipMaps( void )
 {
 }
 

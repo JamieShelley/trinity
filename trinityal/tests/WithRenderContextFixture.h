@@ -1,10 +1,12 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef WithRenderContextFixture_H
 #define WithRenderContextFixture_H
 
 #include "WithWindowFixture.h"
 
-struct WithRenderContext: public WithWindow
+struct WithRenderContext : public WithWindow
 {
 public:
 	void SetUp()
@@ -22,7 +24,7 @@ public:
 	static bool MachineHasGfxAdapter()
 	{
 		unsigned count = 0;
-		Tr2VideoAdapterInfo::GetAdapterCount(count);
+		Tr2VideoAdapterInfo::GetAdapterCount( count );
 		return count > 0;
 	}
 

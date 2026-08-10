@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "ProcessLifetime.h"
 #include "include/TriMath.h"
@@ -347,7 +349,7 @@ bool ProcessLifetime::FindInitialSpawnPoint( DroneAgent& drone, ProcessLifetimeD
 	size_t randomNr = rand() % ( sizeIndex );
 
 	// pick a random splineTunnel
-	auto splineTunnel = (*tunnels)[randomNr];
+	auto splineTunnel = ( *tunnels )[randomNr];
 
 	// return early if there are no curves or the curves aren't loaded
 	if( splineTunnel->GetCurveSets()->empty() )
@@ -407,7 +409,7 @@ void ProcessLifetime::FindASpawnPoint( DroneAgent& agent, ProcessLifetimeData* d
 				tunnelIndex.push_back( ( *tunnel )->tunnelID );
 			}
 		}
-	}	
+	}
 
 	if( potentialPoints.empty() )
 	{

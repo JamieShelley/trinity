@@ -1,13 +1,10 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2020
-//    Copyright: CCP 2020
-//
+// Copyright © 2020 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildModifierStretch.h"
 #include "Include/TriMath.h"
 
-EveChildModifierStretch::EveChildModifierStretch( IRoot* lockobj ):
+EveChildModifierStretch::EveChildModifierStretch( IRoot* lockobj ) :
 	m_destPosition( 0, 0, 0 )
 {
 }
@@ -15,8 +12,8 @@ EveChildModifierStretch::EveChildModifierStretch( IRoot* lockobj ):
 EveChildModifierStretch::~EveChildModifierStretch()
 {
 }
- 
-void EveChildModifierStretch::SetDest( ITriVectorFunction* dest ) 
+
+void EveChildModifierStretch::SetDest( ITriVectorFunction* dest )
 {
 	m_dest = dest;
 }
@@ -37,7 +34,7 @@ Matrix EveChildModifierStretch::ApplyTransform( const Matrix& transform, size_t,
 	Decompose( sourceScale, sourceRotation, sourceTranslation, transform );
 	start = transform.GetTranslation();
 
-	Be::Time now = BeOS->GetCurrentFrameTime();  
+	Be::Time now = BeOS->GetCurrentFrameTime();
 	if( m_dest )
 	{
 		m_dest->GetValueAt( &end, now );
@@ -49,7 +46,7 @@ Matrix EveChildModifierStretch::ApplyTransform( const Matrix& transform, size_t,
 	TriQuaternionArcFromForward( &rotation, &dir );
 
 	float length = Length( diff );
-	Vector3 scale = Vector3( sourceScale.x, sourceScale.y, length );	
+	Vector3 scale = Vector3( sourceScale.x, sourceScale.y, length );
 
-	return RotationMatrix(sourceRotation) * TransformationMatrix( scale, rotation, start + diff / 2.0f );
+	return RotationMatrix( sourceRotation ) * TransformationMatrix( scale, rotation, start + diff / 2.0f );
 }

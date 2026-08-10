@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #pragma once
 #include "Eve/SpaceObject/Children/IEveSpaceObjectChild.h"
 
@@ -24,13 +26,14 @@ struct PlacementDataWithIdentifier
 		lifeTime( 0.0 ),
 		uniqueID( 0 ),
 		initialPlacementID( -1 )
-	{}
-	
+	{
+	}
+
 	Vector3 initialTranslation;
 	Quaternion initialRotation;
 	Vector3 initialScale;
 	Vector3 additionalTranslation;
-	Vector3 translationFrameDelta;   // for motion vectors
+	Vector3 translationFrameDelta; // for motion vectors
 	Quaternion additionalRotation;
 	Vector3 additionalScale;
 	int32_t boneIndex;
@@ -52,6 +55,9 @@ BLUE_INTERFACE( IEveDistributionModifier ) :
 	public IRoot
 {
 public:
-	virtual bool AffectsTransform() { return false; }
+	virtual bool AffectsTransform()
+	{
+		return false;
+	}
 	virtual DistributionEntityLifeTimeEvent ProcessDistributionModifier( PlacementDataWithIdentifier & placement, float deltaTime, const EveChildUpdateParams& params ) = 0;
 };

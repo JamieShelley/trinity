@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:   October 2024
-// Copyright: CCP 2024
-//
+// Copyright © 2024 CCP ehf.
 
 #pragma once
 
@@ -37,7 +33,6 @@ public:
 	void UpdateSubSurfaceFrontScatterData( Tr2RenderContext & renderContext );
 
 private:
-
 	bool m_enabled;
 	bool m_hasSSSSSInScene;
 

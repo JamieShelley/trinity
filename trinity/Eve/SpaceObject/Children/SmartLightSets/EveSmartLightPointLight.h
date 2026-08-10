@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #pragma once
 #include "Tr2LightManager.h"
 #include "Tr2DebugRenderer.h"
@@ -20,13 +22,13 @@ public:
 	EXPOSE_TO_BLUE();
 
 	EveSmartLightPointLight( IRoot* lockobj = nullptr );
-	void UpdateSyncronous( const EveUpdateContext & updateContext, const EveChildUpdateParams& params, IEveDistributionMethod* distribution ) override;
+	void UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params, IEveDistributionMethod* distribution ) override;
 	void RenderDebugInfo( ITr2DebugRenderer2 & renderer, const PlacementDataWithIdentifierStructureList& placements, size_t size ) override;
 
 	void RegisterComponents() override;
 
 	// ITr2LightOwner
-	void GetLights( Tr2LightManager& lightManager ) const override;
+	void GetLights( Tr2LightManager & lightManager ) const override;
 
 	// INotify
 	bool OnModified( Be::Var * value );

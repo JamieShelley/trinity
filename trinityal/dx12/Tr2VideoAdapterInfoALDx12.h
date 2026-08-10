@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   February 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #pragma once
 
@@ -36,8 +32,8 @@ public:
 
 namespace TrinityALImpl
 {
-	ALResult GetVideoAdapter( unsigned adapterIndex, IDXGIAdapter1** adapter, IDXGIOutput** output );
-	ALResult Destroy();
+ALResult GetVideoAdapter( unsigned adapterIndex, IDXGIAdapter1** adapter, IDXGIOutput** output );
+ALResult Destroy();
 }
 
 #endif

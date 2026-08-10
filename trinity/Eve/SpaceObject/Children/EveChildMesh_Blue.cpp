@@ -1,14 +1,18 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildMesh.h"
 
+BLUE_DEFINE_INTERFACE( IMultiPartObjectElement );
 BLUE_DEFINE( EveChildMesh );
 
 const Be::ClassInfo* EveChildMesh::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( EveChildMesh, "" )
-        MAP_INTERFACE( EveChildMesh )
-        MAP_INTERFACE( EveEntity )
+	EXPOSURE_BEGIN( EveChildMesh, "" )
+		MAP_INTERFACE( EveChildMesh )
+		MAP_INTERFACE( EveEntity )
 		MAP_INTERFACE( IEveSpaceObjectDecalOwner )
+		MAP_INTERFACE( EveSpaceObjectChild )
 		MAP_INTERFACE( IEveSpaceObjectChild )
 		MAP_INTERFACE( ITr2Renderable )
 		MAP_INTERFACE( IInitialize )
@@ -19,8 +23,10 @@ const Be::ClassInfo* EveChildMesh::ExposeToBlue()
 		MAP_INTERFACE( ITr2Pickable )
 		MAP_INTERFACE( IEveShadowCaster )
 
-		MAP_ATTRIBUTE( "name", m_name, "", Be::READWRITE | Be::PERSIST	)
+		MAP_ATTRIBUTE( "name", m_name, "", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "display", m_display, "", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
+		MAP_ATTRIBUTE( "inheritOverlayEffects", m_inheritOverlayEffects, "If true, the parent space object's overlay effects (e.g. cloak) also render over this child mesh.", Be::READWRITE | Be::PERSIST )
+		MAP_ATTRIBUTE( "overlayEffects", m_overlayEffects, "Overlay effects owned by this child mesh. Rendered over the child's mesh areas, underneath any inherited parent overlay effects.", Be::READ | Be::PERSIST )
 		MAP_ATTRIBUTE( "castShadow", m_castShadow, "", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 		MAP_ATTRIBUTE( "updateAnimation", m_updateAnimation, "Should the object update its animation updater every frame", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "mesh", m_mesh, "", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
@@ -31,16 +37,16 @@ const Be::ClassInfo* EveChildMesh::ExposeToBlue()
 			"Granny animation exposure",
 			Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 		MAP_ATTRIBUTE( "lowestLodVisible", m_lowestLodVisible, "Lowest LOD this guy is visible\n:jessica-group: LOD", Be::READWRITE | Be::PERSIST )
-		MAP_ATTRIBUTE( 
-			"minScreenSize", 
-			m_minScreenSize, 
-			"Minimal size of object on screen, objects smaller than this size are not rendered.\n:jessica-group: LOD", 
+		MAP_ATTRIBUTE(
+			"minScreenSize",
+			m_minScreenSize,
+			"Minimal size of object on screen, objects smaller than this size are not rendered.\n:jessica-group: LOD",
 			Be::READWRITE | Be::PERSIST )
-		MAP_ATTRIBUTE( "currentScreenSize", m_currentScreenSize, "Screen size for last frame\n:jessica-group: LOD", Be::READ)
+		MAP_ATTRIBUTE( "currentScreenSize", m_currentScreenSize, "Screen size for last frame\n:jessica-group: LOD", Be::READ )
 		MAP_ATTRIBUTE( "currentInstanceScreenSize", m_currentInstanceScreenSize, "Screen size of instances for last frame\n:jessica-group: LOD", Be::READ )
 		MAP_ATTRIBUTE( "rotation", m_rotation, "", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "translation", m_translation, "", Be::READWRITE | Be::PERSIST )
-		MAP_ATTRIBUTE( "scaling", m_scaling,"", Be::READWRITE | Be::PERSIST )
+		MAP_ATTRIBUTE( "scaling", m_scaling, "", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "localTransform", m_localTransform, "", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "worldTransform", m_worldTransform, "", Be::READ )
 		MAP_ATTRIBUTE( "useSRT", m_useSRT, "Should local transform be built from scaling, rotation and translation attributes.", Be::READWRITE | Be::PERSIST )
@@ -56,19 +62,18 @@ const Be::ClassInfo* EveChildMesh::ExposeToBlue()
 		MAP_ATTRIBUTE( "lights", m_lights, "Lights attached to the object", Be::READ | Be::PERSIST )
 
 		MAP_METHOD_AND_WRAP( "RebuildLocalTransform", RebuildLocalTransform, "Rebuilds local transform if useSRT is set." )
-		
+
 		MAP_ATTRIBUTE_WITH_CHOOSER( "reflectionMode", m_reflectionMode, "When is this object rendered into the cubemap", Be::READWRITE | Be::PERSIST | Be::NOTIFY | Be::ENUM, EntityComponents::ReflectionModeChooser );
 
-		MAP_METHOD_AND_WRAP( 
-			"GetSofSourceLocator", 
-			GetSofSourceLocator, 
+		MAP_METHOD_AND_WRAP(
+			"GetSofSourceLocator",
+			GetSofSourceLocator,
 			"Returns SOF locator source information for the mesh given the picked areaID.\n"
 			"Returns a tuple (SOF hull name, locator set name, locator index) or None if no SOF source is found.\n"
 			"For the method to work the space object should have been built using SOF in the editor mode.\n\n"
 			":param areaId: The areaID returned from mouse picking method\n"
-			":rtype: None | (str, str, int)"
-		)
-		
+			":rtype: None | (str, str, int)" )
+
 		MAP_METHOD_AND_WRAP(
 			"GetMorphTargetNames",
 			GetMorphTargetNames,
@@ -87,5 +92,8 @@ const Be::ClassInfo* EveChildMesh::ExposeToBlue()
 			"GetMorphTargetWeight( name )\n\n"
 			"Returns the weight of the morph target. Returns 0 if no morph target with that name was found.\n"
 			":param name: morph target name\n" )
-    EXPOSURE_END()
+		MAP_PROPERTY_READONLY( "partTag", GetPartTag, "Part tag for multi-part space objects" )
+		MAP_METHOD_AND_WRAP( "GetParent", GetParent, "Returns the parent space object child in the hierarchy" )
+		MAP_METHOD_AND_WRAP( "GetOwner", GetOwner, "Returns the owner space object" )
+	EXPOSURE_END()
 }

@@ -1,30 +1,26 @@
-//////////////////////////////////////////////////////////////////////////
-//
-// Created: April 2025
-// Copyright CCP 2025
-//
+// Copyright © 2025 CCP ehf.
+
 #include "Tr2VectorFunctionModifier.h"
 #include "Tr2Renderer.h"
 #include "Utilities/Vector3d.h"
 
 namespace
 {
-	float CheckedDoubleToFloat( double value )
-	{
-		const double maxFloat = static_cast<double>( std::numeric_limits<float>::max() );
-		CCP_ASSERT_M( std::isfinite( value ) && value < maxFloat && value > -maxFloat, "System coordinate overflow converting double to float" );
+float CheckedDoubleToFloat( double value )
+{
+	const double maxFloat = static_cast<double>( std::numeric_limits<float>::max() );
+	CCP_ASSERT_M( std::isfinite( value ) && value < maxFloat && value > -maxFloat, "System coordinate overflow converting double to float" );
 
-		return static_cast<float>( value );
-	}
+	return static_cast<float>( value );
+}
 
-	Vector3 ToVector3( Vector3d in )
-	{
-		return Vector3(
-			CheckedDoubleToFloat( in.x ),
-			CheckedDoubleToFloat( in.y ),
-			CheckedDoubleToFloat( in.z )
-		);
-	}
+Vector3 ToVector3( Vector3d in )
+{
+	return Vector3(
+		CheckedDoubleToFloat( in.x ),
+		CheckedDoubleToFloat( in.y ),
+		CheckedDoubleToFloat( in.z ) );
+}
 }
 
 

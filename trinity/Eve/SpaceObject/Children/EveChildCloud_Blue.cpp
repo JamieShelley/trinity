@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   February 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveChildCloud.h"
@@ -12,11 +8,12 @@ BLUE_DEFINE( EveChildCloud );
 
 const Be::ClassInfo* EveChildCloud::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( EveChildCloud, "Cloud space object child" )
-        MAP_INTERFACE( EveChildCloud )
+	EXPOSURE_BEGIN( EveChildCloud, "Cloud space object child" )
+		MAP_INTERFACE( EveChildCloud )
 		MAP_INTERFACE( ITr2Renderable )
 		MAP_INTERFACE( IInitialize )
 		MAP_INTERFACE( INotify )
+		MAP_INTERFACE( EveSpaceObjectChild )
 		MAP_INTERFACE( IEveSpaceObjectChild )
 
 		MAP_ATTRIBUTE( "name", m_name, "The name of the cloud", Be::READWRITE | Be::PERSIST )
@@ -32,13 +29,16 @@ const Be::ClassInfo* EveChildCloud::ExposeToBlue()
 		MAP_ATTRIBUTE( "boundingSphere", m_boundingSphere, "Used for culling", Be::READ )
 		MAP_ATTRIBUTE( "preTesselationLevel", m_preTesselationLevel, "Number of triangles per width/heigth", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 		MAP_ATTRIBUTE( "volume", m_volume, "Shape volume texture editor", Be::READWRITE | Be::PERSIST )
-		MAP_ATTRIBUTE( 
-			"minScreenSize", 
-			m_minScreenSize, 
-			"Minimal size of object on screen, objects smaller than this size are not rendered.\n:jessica-group: LOD", 
+		MAP_ATTRIBUTE(
+			"minScreenSize",
+			m_minScreenSize,
+			"Minimal size of object on screen, objects smaller than this size are not rendered.\n:jessica-group: LOD",
 			Be::READWRITE | Be::PERSIST )
 
 		MAP_ATTRIBUTE( "cellScreenSize", m_cellScreenSize, "Target size of a single cell in a grid on the screen (in pixels)", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "currentLod", m_currentIB, "Current cloud LOD", Be::READ )
+		MAP_PROPERTY_READONLY( "partTag", GetPartTag, "Part tag for multi-part space objects" )
+		MAP_METHOD_AND_WRAP( "GetParent", GetParent, "Returns the parent space object child in the hierarchy" )
+		MAP_METHOD_AND_WRAP( "GetOwner", GetOwner, "Returns the owner space object" )
 	EXPOSURE_END()
 }

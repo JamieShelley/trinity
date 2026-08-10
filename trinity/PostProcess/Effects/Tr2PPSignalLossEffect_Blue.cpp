@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		1/15/2019 
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2PPSignalLossEffect.h"
@@ -15,8 +11,6 @@ const Be::ClassInfo* Tr2PPSignalLossEffect::ExposeToBlue()
 		MAP_INTERFACE( Tr2PPEffect )
 
 		MAP_ATTRIBUTE( "strength", m_strength, "The strength of the signal loss", Be::READWRITE | Be::PERSIST )
-		
+
 	EXPOSURE_CHAINTO( Tr2PPEffect )
-
 }
-

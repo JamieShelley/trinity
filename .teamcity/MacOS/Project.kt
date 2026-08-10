@@ -1,3 +1,5 @@
+// Copyright © 2026 CCP ehf.
+
 package MacOS
 
 import jetbrains.buildServer.configs.kotlin.DslContext
@@ -51,7 +53,7 @@ class CarbonBuildMacOS(buildName: String, configType: String, preset: String, ag
     id(buildName.toId())
     name = buildName
     maxRunningBuilds = 4
-    artifactRules = "%env.CMAKE_INSTALL_PREFIX%"
+    artifactRules = "%env.CMAKE_INSTALL_PREFIX% => artifact.zip"
 
     params {
         param("env.SENTRY_CLI_DEBUG_SYMBOL_TYPE", "dsym")

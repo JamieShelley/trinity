@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriStepPythonCB.h"
 
@@ -12,7 +14,7 @@ TriStepPythonCB::~TriStepPythonCB()
 {
 }
 
-void TriStepPythonCB::SetCallback( const BlueScriptCallback& callback )    
+void TriStepPythonCB::SetCallback( const BlueScriptCallback& callback )
 {
 	m_callback = callback;
 }
@@ -24,16 +26,15 @@ TriStepResult TriStepPythonCB::Execute( Be::Time realTime, Be::Time simTime, Tr2
 
 	if( m_callback )
 	{
-		D3DPERF_EVENT(L"TriStepPythonCB callback");
-		
+		D3DPERF_EVENT( L"TriStepPythonCB callback" );
+
 		if( !m_callback.CallVoid() )
 		{
 #if BLUE_WITH_PYTHON
-			PyOS->PyFlushError("TriStepPythonCB: Callback failed!");
+			PyOS->PyFlushError( "TriStepPythonCB: Callback failed!" );
 #endif
 		}
 	}
 
 	return RS_OK;
 }
-

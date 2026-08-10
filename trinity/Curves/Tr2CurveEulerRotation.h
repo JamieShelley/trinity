@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #pragma once
 
@@ -23,14 +19,14 @@ public:
 
 	virtual void UpdateValue( double time );
 
-	virtual Quaternion* Update( Quaternion* in, Be::Time time );
-	virtual Quaternion* Update( Quaternion* in, double time );
-	virtual Quaternion* GetValueAt( Quaternion* in, Be::Time time );
-	virtual Quaternion* GetValueAt( Quaternion* in, double time );
-	virtual Quaternion* GetValueDotAt( Quaternion* in, Be::Time time );
-	virtual Quaternion* GetValueDotAt( Quaternion* in, double time );
-	virtual Quaternion* GetValueDoubleDotAt( Quaternion* in, Be::Time time );
-	virtual Quaternion* GetValueDoubleDotAt( Quaternion* in, double time );
+	virtual Quaternion* Update( Quaternion * in, Be::Time time );
+	virtual Quaternion* Update( Quaternion * in, double time );
+	virtual Quaternion* GetValueAt( Quaternion * in, Be::Time time );
+	virtual Quaternion* GetValueAt( Quaternion * in, double time );
+	virtual Quaternion* GetValueDotAt( Quaternion * in, Be::Time time );
+	virtual Quaternion* GetValueDotAt( Quaternion * in, double time );
+	virtual Quaternion* GetValueDoubleDotAt( Quaternion * in, Be::Time time );
+	virtual Quaternion* GetValueDoubleDotAt( Quaternion * in, double time );
 
 	virtual float Length();
 
@@ -45,6 +41,7 @@ public:
 		Be::OptionalWithDefaultValue<Tr2CurveTangentType::Type, Tr2CurveTangentType::AUTO_CLAMP> tangentType );
 
 	void SetExtrapolation( Tr2CurveExtrapolation::Type extrapolation );
+
 private:
 	std::string m_name;
 

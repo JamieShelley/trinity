@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 #include "Tr2HalHelperStructures.h"
@@ -22,9 +24,10 @@ public:
 
 	void Set( MemoryType memoryType, size_t size );
 	void Set( MemoryType memoryType, const Tr2BitmapDimensions& bitmap, const Tr2MsaaDesc& msaa = Tr2MsaaDesc() );
-    void Grow( size_t size );
-    void Shrink( size_t size );
+	void Grow( size_t size );
+	void Shrink( size_t size );
 	void Reset();
+
 private:
 	Tr2MemoryCounterAL( const Tr2MemoryCounterAL& ) /* = delete */;
 	Tr2MemoryCounterAL& operator=( const Tr2MemoryCounterAL& ) /* = delete */;

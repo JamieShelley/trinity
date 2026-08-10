@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   November 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "include/Tr2RtPipelineStateAL.h"
@@ -15,16 +11,16 @@
 
 namespace
 {
-	std::shared_ptr<TrinityALImpl::Tr2RtPipelineStateAL> NullRtPipeline()
-	{
-		static std::shared_ptr<TrinityALImpl::Tr2RtPipelineStateAL> nullPipeline = std::make_shared<TrinityALImpl::Tr2RtPipelineStateAL>();
-		return nullPipeline;
-	}
+std::shared_ptr<TrinityALImpl::Tr2RtPipelineStateAL> NullRtPipeline()
+{
+	static std::shared_ptr<TrinityALImpl::Tr2RtPipelineStateAL> nullPipeline = std::make_shared<TrinityALImpl::Tr2RtPipelineStateAL>();
+	return nullPipeline;
+}
 }
 
 
-Tr2RtPipelineStateAL::Tr2RtPipelineStateAL()
-	:m_pipeline( NullRtPipeline() )
+Tr2RtPipelineStateAL::Tr2RtPipelineStateAL() :
+	m_pipeline( NullRtPipeline() )
 {
 }
 

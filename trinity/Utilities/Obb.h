@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef OBB_H
 #define OBB_H
@@ -22,7 +24,7 @@ struct Obb
 	Vector3 x;
 	Vector3 y;
 	Vector3 z;
-	
+
 	//   center       - the center, in world coordinates, of the OBB
 	Vector3 center;
 

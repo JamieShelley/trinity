@@ -1,3 +1,5 @@
+# Copyright © 2023 CCP ehf.
+
 cmake_minimum_required(VERSION 3.16)
 
 if(WITH_GRANNY)
@@ -15,8 +17,6 @@ if(BUILD_FOR_PYTHON_2)
     add_library(AMD::FidelityFX::CACAO ALIAS AMD::CACAO)
     find_package(IntelTBB REQUIRED)
     add_library(TBB::tbb ALIAS Intel::TBB)
-    add_library(TBB::tbbmalloc INTERFACE IMPORTED)
-    add_library(TBB::tbbmalloc_proxy INTERFACE IMPORTED)
     find_package(VMA REQUIRED)
     add_library(GPUOpen::VulkanMemoryAllocator ALIAS GPUOpen::VMA)
     find_package(CarbonTrinityAudioAPI REQUIRED)
@@ -572,6 +572,9 @@ set(_SOURCES
     Eve/SpaceObject/Children/EveCloudEditableVolume.cpp
     Eve/SpaceObject/Children/EveCloudEditableVolume.h
     Eve/SpaceObject/Children/EveCloudEditableVolume_Blue.cpp
+    Eve/SpaceObject/Children/EveSpaceObjectChild.cpp
+    Eve/SpaceObject/Children/EveSpaceObjectChild.h
+    Eve/SpaceObject/Children/EveSpaceObjectChild_Blue.cpp
     Eve/SpaceObject/Children/IEveEffectChildrenOwner.h
     Eve/SpaceObject/Children/IEveSpaceObjectChild.h
     Eve/SpaceObject/Utils/EveDistributionMethods/DistributionAttributeModifiers/EveDistributionModifierProcessLifetime.cpp
@@ -1846,7 +1849,7 @@ else()
 endif()
 
 # utility function that sets properties shared between all trinity targets
-function(set_shared_trinity_properties target package_name)
+function(set_shared_trinity_properties target)
 
     target_link_libraries(${target}
         PUBLIC
@@ -1859,8 +1862,6 @@ function(set_shared_trinity_properties target package_name)
             AMD::FidelityFX::CACAO
             AMD::FidelityFX::CAS
             TBB::tbb
-            TBB::tbbmalloc
-            TBB::tbbmalloc_proxy
             CcpMath
             platform_pdm_proto_wrapper
             CcpParser
@@ -1900,6 +1901,7 @@ function(set_shared_trinity_properties target package_name)
         target_compile_definitions(${target}
         PRIVATE
             BLUE_USE_LOCAL_ITr2DebugRenderer2=1
+            PYTHON2_SUPPORT=1
     )
     endif()
 
@@ -1936,11 +1938,11 @@ function(set_shared_trinity_properties target package_name)
 
         configure_ccp_vendor_config_file(
             TARGET ${target}
-            DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/${package_name}Config.cmake"
+            DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/${target}Config.cmake"
             DEPENDENCIES ""
         )
 
-        install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${package_name}Config.cmake DESTINATION .)
+        install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${target}Config.cmake DESTINATION .)
     else () # VCPKG install mode
 
         # Install rule to ensure that our runtime and linker files are in the vcpkg structure
@@ -1982,7 +1984,7 @@ if(WIN32)
     )
 
     target_link_libraries(${TRINITY_STUB_TARGET_NAME} PRIVATE TrinityAL_stub)
-    set_shared_trinity_properties(${TRINITY_STUB_TARGET_NAME} carbon-trinity-stub)
+    set_shared_trinity_properties(${TRINITY_STUB_TARGET_NAME})
 endif()
 
 if(WIN32)
@@ -1998,7 +2000,7 @@ if(WIN32)
         )
         #find_package(nvidia-aftermath CONFIG REQUIRED)#Required for dx11
         target_link_libraries(${TRINITY_DX11_TARGET_NAME} PRIVATE TrinityAL_dx11)
-        set_shared_trinity_properties(${TRINITY_DX11_TARGET_NAME} carbon-trinity-dx11)
+        set_shared_trinity_properties(${TRINITY_DX11_TARGET_NAME})
     endif()
 
     if (BUILD_DX12)
@@ -2012,7 +2014,7 @@ if(WIN32)
                 TRINITYNAME=_trinity_dx12
         )
         target_link_libraries(${TRINITY_DX12_TARGET_NAME} PRIVATE TrinityAL_dx12 )
-        set_shared_trinity_properties(${TRINITY_DX12_TARGET_NAME} carbon-trinity-dx12)
+        set_shared_trinity_properties(${TRINITY_DX12_TARGET_NAME})
     endif()
 
 elseif(APPLE)
@@ -2027,7 +2029,7 @@ elseif(APPLE)
                 TRINITY_PLATFORM=TRINITY_METAL
                 TRINITYNAME=_trinity_metal
         )
-        set_shared_trinity_properties(${TRINITY_METAL_TARGET_NAME} carbon-trinity-metal)
+        set_shared_trinity_properties(${TRINITY_METAL_TARGET_NAME})
         target_link_libraries(${TRINITY_METAL_TARGET_NAME}
             PRIVATE
                 TrinityAL_metal

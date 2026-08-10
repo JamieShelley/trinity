@@ -1,10 +1,14 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "WithValidRenderContextFixture.h"
 #include "WithRenderContextFixture.h"
 
 using namespace Tr2RenderContextEnum;
 
-struct Texture : public WithValidRenderContext {};
+struct Texture : public WithValidRenderContext
+{
+};
 
 TEST_F( Texture, TextureIsInvalidBeforeCreation )
 {
@@ -63,7 +67,7 @@ TEST_F( Texture, Texture2DIsValidAfterCreation )
 	EXPECT_EQ( TEX_TYPE_2D, tex.GetType() );
 }
 
-#if TRINITY_PLATFORM_SUPPORTS_TEXTURE_ARRAYS 
+#if TRINITY_PLATFORM_SUPPORTS_TEXTURE_ARRAYS
 TEST_F( Texture, Texture2DArrayIsValidAfterCreation )
 {
 	ENSURE_GPU_OR_SKIP

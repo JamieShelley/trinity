@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #pragma once
 
@@ -14,7 +10,8 @@
 BLUE_DECLARE_IVECTOR( ITriScalarFunction );
 BLUE_DECLARE( Tr2ExpressionTermInfo );
 
-BLUE_CLASS( Tr2CurveScalarExpression ) : public ITriScalarFunction, public IInitialize
+BLUE_CLASS( Tr2CurveScalarExpression ) :
+	public ITriScalarFunction, public IInitialize
 {
 public:
 	Tr2CurveScalarExpression( IRoot* lockobj = nullptr );
@@ -42,6 +39,7 @@ public:
 	void ResetRandomConstant();
 	std::vector<Tr2ExpressionTermInfoPtr> GetExpressionTermInfo() const;
 	BlueStdResult EvaluateExpression( const char* expression, float& value ) const;
+
 private:
 	std::string m_name;
 	std::string m_expression;
@@ -54,11 +52,11 @@ private:
 	float m_currentValue;
 	float m_timeScale;
 	float m_randomConstant;
-    
+
 	struct Arguments
 	{
 		mutable float m_time = 0;
-        
+
 		float m_input1 = 0;
 		float m_input2 = 0;
 		float m_input3 = 0;

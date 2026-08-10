@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   January 2016
-//    Copyright: CCP 2016
-//
+// Copyright © 2016 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveSpriteLineSet.h"
 
@@ -10,8 +7,8 @@ BLUE_DEFINE( EveSpriteLineSet );
 
 const Be::ClassInfo* EveSpriteLineSet::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( EveSpriteLineSet, "" )
-        MAP_INTERFACE( EveSpriteLineSet )
+	EXPOSURE_BEGIN( EveSpriteLineSet, "" )
+		MAP_INTERFACE( EveSpriteLineSet )
 		MAP_INTERFACE( IInitialize )
 		MAP_INTERFACE( IEveSpaceObjectAttachment )
 		MAP_INTERFACE( ITr2LightOwner )

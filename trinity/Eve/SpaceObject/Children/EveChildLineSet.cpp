@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   Jan 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveChildLineSet.h"
@@ -188,16 +184,6 @@ void EveChildLineSet::UpdateBoundingSphere( bool reCalculateChildren )
 	CalculateBoundingSphereForLineSetPaths( sphere, m_lines, reCalculateChildren, objectSizeBonus );
 
 	m_boundingSphere = sphere;
-}
-
-const char* EveChildLineSet::GetName() const
-{
-	return m_name.c_str();
-}
-
-void EveChildLineSet::SetName( const char* name )
-{
-	m_name = BlueSharedString( name );
 }
 
 void EveChildLineSet::UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod )

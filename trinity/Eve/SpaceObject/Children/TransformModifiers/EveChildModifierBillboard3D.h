@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
+
 #pragma once
 #ifndef EveChildModifierBillboard3D_H
 #define EveChildModifierBillboard3D_H
@@ -19,6 +16,7 @@ public:
 	~EveChildModifierBillboard3D();
 
 	Matrix ApplyTransform( const Matrix& transform, size_t boneCount, const Float4x3* bones ) const;
+
 private:
 	bool m_fixed;
 };

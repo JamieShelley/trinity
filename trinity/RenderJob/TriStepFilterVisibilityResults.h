@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   August 2010
-//    Copyright: CCP 2010
-//
+// Copyright © 2010 CCP ehf.
 
 #pragma once
 #ifndef TriStepFilterVisibilityResults_h
@@ -23,22 +19,23 @@ BLUE_DECLARE_IVECTOR( IRoot );
 // SeeAlso:
 //   TriRenderStep, Tr2VisibilityResults
 // -------------------------------------------------------------
-BLUE_CLASS( TriStepFilterVisibilityResults ) : public TriRenderStep
+BLUE_CLASS( TriStepFilterVisibilityResults ) :
+	public TriRenderStep
 {
 public:
 	EXPOSE_TO_BLUE();
 
 	TriStepFilterVisibilityResults( IRoot* lockobj = 0 );
-	~TriStepFilterVisibilityResults(void);
+	~TriStepFilterVisibilityResults( void );
 
-	void py__init__( 
-		Tr2VisibilityResults* input, 
-		Tr2VisibilityResults* output,
+	void py__init__(
+		Tr2VisibilityResults * input,
+		Tr2VisibilityResults * output,
 		Be::Optional<unsigned> eventFilter,
 		Be::Optional<unsigned> filter );
 
 	// RenderStep
-	TriStepResult Execute( Be::Time realTime, Be::Time simTime, Tr2RenderContext& renderContext );
+	TriStepResult Execute( Be::Time realTime, Be::Time simTime, Tr2RenderContext & renderContext );
 
 	// Type of per-object filter
 	enum FilterType
@@ -49,11 +46,11 @@ public:
 		EXCLUDE_OBJECTS_IN_LIST,
 	};
 
-	void SetInputResults( Tr2VisibilityResults* results )
+	void SetInputResults( Tr2VisibilityResults * results )
 	{
 		m_inputResults = results;
 	}
-	void SetOutputResults( Tr2VisibilityResults* results )
+	void SetOutputResults( Tr2VisibilityResults * results )
 	{
 		m_outputResults = results;
 	}

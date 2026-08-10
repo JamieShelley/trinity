@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef Tr2MeshArea_H
 #define Tr2MeshArea_H
@@ -10,7 +12,7 @@ BLUE_DECLARE( Tr2Material );
 BLUE_DECLARE( Tr2MeshBase );
 class Tr2RaytracingMeshArea;
 
-BLUE_CLASS ( Tr2MeshArea ) :
+BLUE_CLASS( Tr2MeshArea ) :
 	public IRoot
 {
 public:
@@ -25,11 +27,11 @@ public:
 	int GetIndex() const;
 	void SetIndex( int ix );
 
-    int GetCount() const;
-    void SetCount( int n );
+	int GetCount() const;
+	void SetCount( int n );
 
-    bool GetReversed() const;
-    void SetReversed( bool reversed );
+	bool GetReversed() const;
+	void SetReversed( bool reversed );
 
 	bool GetDisplay() const;
 	void SetDisplay( bool display );
@@ -55,7 +57,7 @@ public:
 	bool HasVertexBufferAccessInRtShadow();
 
 	unsigned int* GetJointMappingAnimRig() const;
-	
+
 	// the provided array is NOT owned by this instance, it is owned by the parent mesh!
 	// each mesharea gets a pointer on the same array
 	void SetJointMappingAnimRig( unsigned int* val );
@@ -67,6 +69,7 @@ public:
 
 	Tr2RaytracingMeshArea* GetOrCreateRtMeshArea();
 	Tr2RaytracingMeshArea* GetRtMeshArea() const;
+
 private:
 	Tr2EffectPtr m_material;
 	std::string m_name;
@@ -81,7 +84,7 @@ private:
 	std::unique_ptr<Tr2RaytracingMeshArea> m_rtMeshArea;
 
 	bool m_display;
-	// Request reversed order of rendering triangles and reversed cull order 
+	// Request reversed order of rendering triangles and reversed cull order
 	bool m_reversed;
 	// Does this are require SH lighting instead of "normal" direct lighting
 	bool m_useSHLighting;

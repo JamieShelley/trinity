@@ -1,7 +1,9 @@
+// Copyright © 2026 CCP ehf.
+
 #pragma once
 
 
-BLUE_CLASS( EveThrottleable ):
+BLUE_CLASS( EveThrottleable ) :
 	public IRoot
 {
 public:

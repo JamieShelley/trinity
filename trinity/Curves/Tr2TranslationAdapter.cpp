@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2TranslationAdapter.h"
@@ -11,15 +7,14 @@
 
 
 // --------------------------------------------------------------------------------
-Tr2TranslationAdapter::Tr2TranslationAdapter( IRoot* )
-	:m_start( 0 ),
+Tr2TranslationAdapter::Tr2TranslationAdapter( IRoot* ) :
+	m_start( 0 ),
 	m_offset( 0 ),
 	m_value( 0, 0, 0 ),
 	m_currentValue( 0, 0, 0 ),
 	m_rotationOffset( 0, 0, 0, 1 ),
 	m_timeScale( 1 )
 {
-
 }
 
 // --------------------------------------------------------------------------------
@@ -101,7 +96,6 @@ Vector3* Tr2TranslationAdapter::GetValueAt( Vector3* in, double time )
 		*in = m_value;
 	}
 	return in;
-
 }
 
 // --------------------------------------------------------------------------------

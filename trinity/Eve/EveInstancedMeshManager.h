@@ -1,3 +1,5 @@
+// Copyright © 2026 CCP ehf.
+
 #pragma once
 
 #include "SpaceObject/EveSpaceObject2.h"
@@ -168,7 +170,7 @@ private:
 		uint32_t sphereGroupIndex = 0;
 		uint32_t perObjectDataIndex = 0;
 		uint32_t ownerIndex = 0;
-		IRootPtr owner;  // Used for picking
+		IRootPtr owner; // Used for picking
 		uint32_t pickingObjectId = 0;
 	};
 

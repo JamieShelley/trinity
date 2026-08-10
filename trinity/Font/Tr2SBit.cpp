@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		May 2011
-// Copyright:	CCP 2011
-//
+// Copyright © 2011 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2SBit.h"
@@ -45,16 +41,16 @@ void Tr2SBitWrapper::ToBuffer( PyObject* dest, int width, int height, int pitch,
 {
 	void* data = nullptr;
 #if PY_MAJOR_VERSION == 2
-	if ( !GetBuf( &data, dest ) )
+	if( !GetBuf( &data, dest ) )
 	{
 		return;
 	}
 #else
-    Py_buffer buf;
-    if(PyObject_GetBuffer(dest, &buf, PyBUF_SIMPLE) == -1)
-    {
-        return;
-    }
+	Py_buffer buf;
+	if( PyObject_GetBuffer( dest, &buf, PyBUF_SIMPLE ) == -1 )
+	{
+		return;
+	}
 	ON_BLOCK_EXIT( [&] { PyBuffer_Release( &buf ); } );
 	data = buf.buf;
 #endif
@@ -71,10 +67,10 @@ void Tr2SBitWrapper::ToBufferWithUnderline( PyObject* dest, int width, int heigh
 	}
 #else
 	Py_buffer buf;
-    if(PyObject_GetBuffer(dest, &buf, PyBUF_SIMPLE) == -1)
-    {
-        return;
-    }
+	if( PyObject_GetBuffer( dest, &buf, PyBUF_SIMPLE ) == -1 )
+	{
+		return;
+	}
 	ON_BLOCK_EXIT( [&] { PyBuffer_Release( &buf ); } );
 	data = buf.buf;
 #endif
@@ -89,10 +85,8 @@ void Tr2SBitWrapper::ToBufferWithUnderline( PyObject* dest, int width, int heigh
 	}
 
 	SBit_To_RGBABuffer(
-		data, width, height, pitch,
-		sbit, x, y, color );
-	Underline_To_RGBABuffer( 
-		data, width, height, pitch,
-		x, y + underlinePosition, sbit->xadvance + extraSpace, underlineThickness, color );
+		data, width, height, pitch, sbit, x, y, color );
+	Underline_To_RGBABuffer(
+		data, width, height, pitch, x, y + underlinePosition, sbit->xadvance + extraSpace, underlineThickness, color );
 }
 #endif

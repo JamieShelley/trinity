@@ -1,15 +1,10 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveChildLineSet.h"
 #include "Behaviors/BehaviorGroup.h"
 
-Be::VarChooser LineSetTypeChooser[] =
-{
+Be::VarChooser LineSetTypeChooser[] = {
 	{ "ObjectRender", BeCast( EveChildLineSet::OBJECT_RENDER ), "sprites or other objects are rendered at each segment" },
 	{ "LineRender", BeCast( EveChildLineSet::LINE_RENDER ), "To render a 3dLine shader between the points" },
 	{ "Both", BeCast( EveChildLineSet::BOTH ), "Both of the above" },
@@ -23,6 +18,7 @@ const Be::ClassInfo* EveChildLineSet::ExposeToBlue()
 {
 	EXPOSURE_BEGIN( EveChildLineSet, "" )
 		MAP_INTERFACE( EveChildLineSet )
+		MAP_INTERFACE( EveSpaceObjectChild )
 		MAP_INTERFACE( IEveSpaceObjectChild )
 		MAP_INTERFACE( IInitialize )
 		MAP_INTERFACE( INotify )
@@ -45,13 +41,16 @@ const Be::ClassInfo* EveChildLineSet::ExposeToBlue()
 		MAP_ATTRIBUTE( "brightness", m_brightness, "a multiplier for the animColor render\n:jessica-group: LineRender", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 		MAP_ATTRIBUTE( "baseColor", m_baseColor, "color for lines\n:jessica-group: LineRender", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 		MAP_ATTRIBUTE( "animColor", m_animColor, "color for lines\n:jessica-group: LineRender", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
-		
+
 		MAP_METHOD_AND_WRAP( "GetVertexElementAddedThroughCode", GetVertexElementAddedThroughCode, "for validation and objects requiring vertex elements added to the shader through code\n:jessica-hidden: True" )
-		
+
 		// leafs
 		MAP_ATTRIBUTE( "lines", m_lines, "define any number of lines/paths to draw", Be::READ | Be::PERSIST )
 		MAP_ATTRIBUTE( "lineSet", m_lineSet, ":jessica-hidden: True", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "mesh", m_mesh, "the rendered mesh", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 
+		MAP_PROPERTY_READONLY( "partTag", GetPartTag, "Part tag for multi-part space objects" )
+		MAP_METHOD_AND_WRAP( "GetParent", GetParent, "Returns the parent space object child in the hierarchy" )
+		MAP_METHOD_AND_WRAP( "GetOwner", GetOwner, "Returns the owner space object" )
 	EXPOSURE_END()
 }

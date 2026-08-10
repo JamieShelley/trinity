@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:   March 2022
-// Copyright: CCP 2022
-//
+// Copyright © 2022 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2SSAO.h"
@@ -10,10 +6,10 @@
 BLUE_DEFINE( Tr2SSAO );
 
 const Be::VarChooser SSAOQualityChooser[] = {
-	{ "Lowest",  BeCast( SSAOQuality::LOWEST  ), "Lowest quality"             },
-	{ "Low",     BeCast( SSAOQuality::LOW     ), "Low quality"                },
-	{ "Medium",  BeCast( SSAOQuality::MEDIUM  ), "Medium quality"             },
-	{ "High",    BeCast( SSAOQuality::HIGH    ), "High quality"               },
+	{ "Lowest", BeCast( SSAOQuality::LOWEST ), "Lowest quality" },
+	{ "Low", BeCast( SSAOQuality::LOW ), "Low quality" },
+	{ "Medium", BeCast( SSAOQuality::MEDIUM ), "Medium quality" },
+	{ "High", BeCast( SSAOQuality::HIGH ), "High quality" },
 	{ "Highest", BeCast( SSAOQuality::HIGHEST ), "Highest (adaptive) quality" },
 	{}
 };

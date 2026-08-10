@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   October 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ActionPlaySound.h"
@@ -32,7 +28,7 @@ void Tr2ActionPlaySound::Start( ITr2ActionController& controller )
 			{
 				owner = BlueCastPtr( mep->GetParameterObject() );
 			}
-		} 
+		}
 		else if( IEveEffectChildrenOwnerPtr childEffectOwner = BlueCastPtr( controller.GetOwner() ) )
 		{
 			owner = BlueCastPtr( childEffectOwner->GetEffectChildByName( m_target.c_str() ) );

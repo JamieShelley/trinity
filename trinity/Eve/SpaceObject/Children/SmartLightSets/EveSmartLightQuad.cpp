@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveSmartLightQuad.h"
 #include "Tr2QuadRenderer.h"
@@ -5,7 +7,7 @@
 #include "TriMath.h"
 
 
-EveSmartLightQuad::EveSmartLightQuad( IRoot* lockobj ):
+EveSmartLightQuad::EveSmartLightQuad( IRoot* lockobj ) :
 	m_staticOffsetTranslation( 0.f, 0.f, 0.f ),
 	m_display( true ),
 	m_softQuad( false ),
@@ -124,13 +126,13 @@ void EveSmartLightQuad::AddQuadsToQuadRenderer( const PlacementDataWithIdentifie
 			float scaleZ = placements[index].initialScale.z * placements[index].additionalScale.z * m_staticQuadScale.z;
 
 			quadPosition = Vector3( 0.f, 0.f, 0.f );
-			Quaternion quadRotation = placements[index].initialRotation * placements[index].additionalRotation; 
+			Quaternion quadRotation = placements[index].initialRotation * placements[index].additionalRotation;
 
 			if( m_staticOffsetTranslation != quadPosition )
 			{
 				TriVectorRotateQuaternion( &quadPosition, &m_staticOffsetTranslation, &quadRotation );
 			}
-			
+
 			Vector3 quadDirection( 0.f, 1.f, 0.f );
 			TriVectorRotateQuaternion( &quadDirection, &quadDirection, &quadRotation );
 			TriVectorRotateMatrix( &quadDirection, &quadDirection, &m_worldTransform );
@@ -166,5 +168,3 @@ void EveSmartLightQuad::AddQuadsToQuadRenderer( const PlacementDataWithIdentifie
 		}
 	}
 }
-
-

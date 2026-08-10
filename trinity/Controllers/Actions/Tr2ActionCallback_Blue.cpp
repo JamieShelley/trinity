@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ActionCallback.h"
@@ -21,5 +17,5 @@ const Be::ClassInfo* Tr2ActionCallback::ExposeToBlue()
 			m_callbackName,
 			"The name of the callback that is registered on the controller",
 			Be::READWRITE | Be::PERSIST )
-		EXPOSURE_END()
+	EXPOSURE_END()
 }

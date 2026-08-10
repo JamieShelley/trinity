@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		May 2024
-// Copyright:	CCP 2024
-//
+// Copyright © 2024 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2PPTonemappingEffect.h"
@@ -33,5 +29,4 @@ Tr2PPTonemappingEffect::Tr2PPTonemappingEffect( IRoot* lockobj )
 
 Tr2PPTonemappingEffect::~Tr2PPTonemappingEffect()
 {
-
 }

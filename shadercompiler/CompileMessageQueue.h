@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   November 2011
-//    Copyright: CCP 2011
-//
+// Copyright © 2011 CCP ehf.
 
 #pragma once
 #ifndef CompileMessageQueue_H
@@ -24,7 +20,7 @@ public:
 	void AddMessages( IDxcBlobEncoding* buffer ); // windows only? or is it also for mac
 #endif
 	void AddMessage( const char* format, ... );
-	
+
 	void Flush();
 	void SetEntryFileName( const char* fileName );
 

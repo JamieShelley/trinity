@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		January 2019
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2PostProcess2.h"
@@ -10,11 +6,11 @@
 
 extern int g_dynamicExposureQualityRequirement;
 
-#define RETURN_IF_ACTIVE( effect, currentQuality, minQuality )     \
+#define RETURN_IF_ACTIVE( effect, currentQuality, minQuality )         \
 	if( effect && effect->IsActive() && currentQuality >= minQuality ) \
-	{                                  \
-		return effect;                 \
-	}								   \
+	{                                                                  \
+		return effect;                                                 \
+	}                                                                  \
 	return nullptr;
 
 Tr2PostProcess2::Tr2PostProcess2( IRoot* lockobj ) :

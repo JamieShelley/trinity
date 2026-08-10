@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 #include "Eve/SpaceObject/Children/EveChildLineSet.h"
@@ -16,9 +18,9 @@ public:
 	EXPOSE_TO_BLUE();
 	EveLineChildContainer( IRoot* lockobj = nullptr );
 	~EveLineChildContainer();
-	
+
 	bool Update( const EveUpdateContext& updateContext, const EveChildUpdateParams& params ) override;
-	void UpdateBuffer( Tr2RenderContext & renderContext, uint8_t * &data, const Matrix& systemLocation, const unsigned stride ) override;
+	void UpdateBuffer( Tr2RenderContext & renderContext, uint8_t*& data, const Matrix& systemLocation, const unsigned stride ) override;
 
 	void GeneratePoints( const Matrix& parentTransform = IdentityMatrix() ) override;
 	void GetPointCount( unsigned& count ) override;
@@ -33,7 +35,7 @@ public:
 
 	// IListNotify
 	void OnListModified( long event, ssize_t key, ssize_t key2, IRoot* value, const struct IList* theList ) override;
-	
+
 	// Debug renderable
 	void GetDebugOptions( Tr2DebugRendererOptions & options ) override;
 	void RenderDebugInfo( ITr2DebugRenderer2 & renderer, const Matrix& parentWorldLocation ) override;

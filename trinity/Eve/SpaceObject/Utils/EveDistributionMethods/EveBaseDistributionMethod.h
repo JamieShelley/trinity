@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #pragma once
 #include "IEveDistributionMethod.h"
 #include "DistributionAttributeModifiers/IEveDistributionModifier.h"
@@ -46,7 +48,7 @@ public:
 	void AddEntities( uint32_t howMany = 1 ) override;
 	int32_t TriggerEntityByID( uint32_t entityID ) override;
 	uint32_t GetFreePlacementCount() override;
-	int32_t GetClosestFreePlacement( Vector3& position ) override;
+	int32_t GetClosestFreePlacement( Vector3 & position ) override;
 	PlacementDataWithIdentifier* GetInitialPlacementData( uint32_t index ) override;
 
 	// IInitialize
@@ -58,7 +60,7 @@ public:
 protected:
 	int32_t GetInitialPlacementIndexByID( uint32_t entityID );
 	void SwapInitialPlacements( uint32_t indexA, uint32_t indexB );
-	void GetPlacement( PlacementDataWithIdentifier& placement, uint32_t entityID = 0 );
+	void GetPlacement( PlacementDataWithIdentifier & placement, uint32_t entityID = 0 );
 	void GetRandomPlacement( PlacementDataWithIdentifier & placement );
 	Matrix GetInitialPlacementMatrixForPlacement( PlacementDataWithIdentifier & placement );
 

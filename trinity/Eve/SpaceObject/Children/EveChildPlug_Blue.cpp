@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildPlug.h"
 
@@ -13,6 +10,7 @@ const Be::ClassInfo* EveChildPlug::ExposeToBlue()
 {
 	EXPOSURE_BEGIN( EveChildPlug, "\n:jessica-icon: plug\n:jessica-icon-color: (123, 28, 212)\n:jessica-help-url: https://wiki.ccpgames.com/pages/viewpage.action?spaceKey=TTL&title=Plugs+and+Sockets \n" )
 		MAP_INTERFACE( EveChildPlug )
+		MAP_INTERFACE( EveSpaceObjectChild )
 		MAP_INTERFACE( IEveSpaceObjectChild )
 		MAP_INTERFACE( ITr2CurveSetOwner )
 		MAP_INTERFACE( IInitialize )
@@ -34,21 +32,21 @@ const Be::ClassInfo* EveChildPlug::ExposeToBlue()
 			SetControllerVariable,
 			"Set variable for all applicable controllers\n"
 			":param name: variable name\n"
-			":param value: new variable value\n"
-		)
+			":param value: new variable value\n" )
 
 		MAP_METHOD_AND_WRAP(
 			"HandleControllerEvent",
 			HandleControllerEvent,
 			"Pass an event to controllers\n"
-			":param name: event name"
-		)
+			":param name: event name" )
 
 		MAP_METHOD_AND_WRAP(
 			"StartControllers",
 			StartControllers,
-			"Start all controllers"
-		)
+			"Start all controllers" )
 
+		MAP_PROPERTY_READONLY( "partTag", GetPartTag, "Part tag for multi-part space objects" )
+		MAP_METHOD_AND_WRAP( "GetParent", GetParent, "Returns the parent space object child in the hierarchy" )
+		MAP_METHOD_AND_WRAP( "GetOwner", GetOwner, "Returns the owner space object" )
 	EXPOSURE_END()
 }

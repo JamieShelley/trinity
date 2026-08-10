@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #pragma once
 
@@ -25,7 +21,7 @@ public:
 
 	void Link();
 	void Unlink();
-	void SetOwner( ITr2DynamicBindingOwner* owner );
+	void SetOwner( ITr2DynamicBindingOwner * owner );
 	void Update( Be::Time time );
 	virtual void OnSimClockRebase( Be::Time oldTime, Be::Time newTime );
 
@@ -34,13 +30,13 @@ public:
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// INotify
-	virtual bool OnModified( Be::Var* value );
+	virtual bool OnModified( Be::Var * value );
 
 private:
 	BlueSharedString m_name;
 
 	BlueSharedString m_destinationObjectPath;
-	BlueSharedString m_destinationObjectAttribute;	
+	BlueSharedString m_destinationObjectAttribute;
 	BlueWeakRef<IRoot> m_destination;
 
 	BlueSharedString m_sourceObjectPath;

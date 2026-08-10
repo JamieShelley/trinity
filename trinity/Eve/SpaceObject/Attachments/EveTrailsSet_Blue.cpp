@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveTrailsSet.h"
 
@@ -5,8 +7,8 @@ BLUE_DEFINE( EveTrailsSet );
 
 const Be::ClassInfo* EveTrailsSet::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( EveTrailsSet, "" )
-        MAP_INTERFACE( EveTrailsSet )
+	EXPOSURE_BEGIN( EveTrailsSet, "" )
+		MAP_INTERFACE( EveTrailsSet )
 		MAP_INTERFACE( IInitialize )
 		MAP_INTERFACE( INotify )
 
@@ -19,5 +21,5 @@ const Be::ClassInfo* EveTrailsSet::ExposeToBlue()
 		MAP_ATTRIBUTE( "effect", m_effect, "Shader used for rendering", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "geometryResource", m_geometryResource, "Base geometry used for rendering", Be::READ )
 
-    EXPOSURE_END()
+	EXPOSURE_END()
 }

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		February 2019
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #pragma once
 #ifndef Tr2PPVignetteEffect_H
@@ -34,7 +30,6 @@ public:
 	float m_sineFrequency;
 	float m_sineMinimum;
 	float m_sineMaximum;
-
 };
 
 TYPEDEF_BLUECLASS( Tr2PPVignetteEffect );

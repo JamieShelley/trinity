@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2PPColorCorrectionEffect.h"
 
@@ -18,4 +20,3 @@ const Be::ClassInfo* Tr2PPColorCorrectionEffect::ExposeToBlue()
 
 	EXPOSURE_CHAINTO( Tr2PPEffect )
 }
-

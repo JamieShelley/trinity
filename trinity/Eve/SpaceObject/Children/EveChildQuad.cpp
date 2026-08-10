@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   August 2016
-//    Copyright: CCP 2016
-//
+// Copyright © 2016 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildQuad.h"
 
@@ -14,7 +11,7 @@
 #include "TriFrustum.h"
 
 
-EveChildQuad::EveChildQuad( IRoot* lockobj ):
+EveChildQuad::EveChildQuad( IRoot* lockobj ) :
 	m_effectKey( 0 ),
 	m_position( 0.f, 0.f, 0.f ),
 	m_viewRotation( 0.f ),
@@ -67,16 +64,6 @@ bool EveChildQuad::Initialize()
 	return true;
 }
 
-const char* EveChildQuad::GetName() const
-{
-	return m_name.c_str();
-}
-
-void EveChildQuad::SetName( const char* name )
-{
-	m_name = BlueSharedString( name );
-}
-
 // --------------------------------------------------------------------------------
 // Description:
 //   Setup function to set data from outside, in this case just pass it to
@@ -99,12 +86,8 @@ void EveChildQuad::AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRen
 {
 	if( m_display && m_effect && m_isVisible )
 	{
-			quadRenderer.AddQuads( m_effectKey, &m_quad, 1 );
+		quadRenderer.AddQuads( m_effectKey, &m_quad, 1 );
 	}
-}
-
-void EveChildQuad::GetRenderables( std::vector<ITr2Renderable*>& renderables )
-{
 }
 
 bool EveChildQuad::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query ) const

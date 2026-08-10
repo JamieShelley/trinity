@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2CurveConstant.h"
@@ -10,8 +6,8 @@
 
 
 // --------------------------------------------------------------------------------
-Tr2CurveConstant::Tr2CurveConstant( IRoot* )
-	:m_value( 0, 0, 0, 0 )
+Tr2CurveConstant::Tr2CurveConstant( IRoot* ) :
+	m_value( 0, 0, 0, 0 )
 {
 }
 

@@ -1,9 +1,11 @@
+// Copyright © 2025 CCP ehf.
+
 #pragma once
 #include "Tr2LightManager.h"
 #include "IEveSmartLightGroupAttributeModifier.h"
 #include "Lights/Tr2PointLight.h"
 #include <Eve/EveUpdateContext.h>
-#include <Eve/SpaceObject/Children/IEveSpaceObjectChild.h>
+#include <Eve/SpaceObject/Children/EveSpaceObjectChild.h>
 #include "Curves/Tr2CurveScalar.h"
 
 BLUE_DECLARE( Tr2CurveScalar );
@@ -36,7 +38,7 @@ public:
 protected:
 	float GetActivationStrength( const PlacementDataWithIdentifier& placement );
 	void MapActivationValue();
-	virtual void ResetChildren( bool parentActive ){};
+	virtual void ResetChildren( bool parentActive ) {};
 
 	std::string m_name;
 	Tr2CurveScalarPtr m_activationOverLifetime;
@@ -50,7 +52,7 @@ protected:
 	float m_finalActivationStrength;
 	float m_activationStrength;
 	float m_crossFadeDuration;
-	float m_crossFadeIntensity; 
+	float m_crossFadeIntensity;
 	float m_activationValue;
 	float m_activationValuePreMapped;
 	float m_playTime;

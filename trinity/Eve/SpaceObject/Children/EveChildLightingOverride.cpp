@@ -1,3 +1,5 @@
+// Copyright © 2024 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildLightingOverride.h"
 #include "Tr2Renderer.h"
@@ -12,7 +14,7 @@ IEveLightingOverride::Overrides IEveLightingOverride::Overrides::operator*( floa
 	return result;
 }
 
-IEveLightingOverride::Overrides IEveLightingOverride::Overrides::operator + ( const Overrides& rhs ) const
+IEveLightingOverride::Overrides IEveLightingOverride::Overrides::operator+( const Overrides& rhs ) const
 {
 	Overrides result = *this;
 	result.sunColor += rhs.sunColor;
@@ -37,7 +39,7 @@ EveChildLightingOverride::EveChildLightingOverride( IRoot* lockobj ) :
 	m_overrides.intensity = 0.0f;
 }
 
-EveChildLightingOverride::OverrideInfo EveChildLightingOverride::GetOverrides() const 
+EveChildLightingOverride::OverrideInfo EveChildLightingOverride::GetOverrides() const
 {
 	return m_overrides;
 }
@@ -88,26 +90,12 @@ void EveChildLightingOverride::RebuildBoundingSphere()
 	}
 }
 
-const char* EveChildLightingOverride::GetName() const
-{
-	return m_name.c_str();
-}
-
-void EveChildLightingOverride::SetName( const char* name )
-{
-	m_name = BlueSharedString( name );
-}
-
 bool EveChildLightingOverride::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query ) const
 {
 	sphere.GetXYZ() = m_boundingSphere.center;
 	sphere.w = m_boundingSphere.radius;
 
 	return true;
-}
-
-void EveChildLightingOverride::UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )
-{
 }
 
 void EveChildLightingOverride::UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )

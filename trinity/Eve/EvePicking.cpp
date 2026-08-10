@@ -1,7 +1,8 @@
+// Copyright © 2026 CCP ehf.
+
 #include "EvePicking.h"
 
 #include "PixelFormat.h"
-
 
 
 
@@ -10,7 +11,7 @@ EvePendingPickingReadback::EvePendingPickingReadback( uint32_t pickedX, uint32_t
 	m_pickedX( pickedX ),
 	m_pickedY( pickedY ),
 	m_debugPickBuffer( NULL, ImageIO::PIXEL_FORMAT_R32G32B32A32_FLOAT ),
-	m_debugPickData(nullptr),
+	m_debugPickData( nullptr ),
 	m_mainPickBuffer( NULL, ImageIO::PIXEL_FORMAT_B8G8R8A8_UNORM ),
 	m_mainPickData( nullptr )
 {

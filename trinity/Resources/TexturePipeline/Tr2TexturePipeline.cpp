@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2TexturePipeline.h"
@@ -10,8 +6,8 @@
 #include "Tr2HostBitmap.h"
 
 
-Tr2TexturePipeline::Tr2TexturePipeline( IRoot* lockobj )
-	:PARENTLOCK( m_steps ),
+Tr2TexturePipeline::Tr2TexturePipeline( IRoot* lockobj ) :
+	PARENTLOCK( m_steps ),
 	m_inputs( "Tr2TexturePipeline::m_inputs" )
 {
 }

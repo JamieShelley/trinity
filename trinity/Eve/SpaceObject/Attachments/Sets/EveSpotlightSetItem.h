@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   July 2012
-//    Copyright: CCP 2012
-//
+// Copyright © 2012 CCP ehf.
 
 #pragma once
 #ifndef EveSpotlightSetItem_H
@@ -35,7 +31,7 @@ public:
 	Matrix m_transform;
 
 	// 1st value is the uniform glow scale the 2nd and 3rd are the flare scale in 2D
-	Vector3 m_spriteScale; 
+	Vector3 m_spriteScale;
 
 	Color m_coneColor;
 	Color m_spriteColor;

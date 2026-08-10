@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildRef.h"
 
@@ -13,6 +10,7 @@ const Be::ClassInfo* EveChildRef::ExposeToBlue()
 {
 	EXPOSURE_BEGIN( EveChildRef, "\n:jessica-icon: alicorn\n:jessica-icon-color: (123, 28, 212)\n:jessica-help-url: https://wiki.ccpgames.com/pages/viewpage.action?spaceKey=TTL&title=Plugs+and+Sockets \n" )
 		MAP_INTERFACE( EveChildRef )
+		MAP_INTERFACE( EveSpaceObjectChild )
 		MAP_INTERFACE( IEveSpaceObjectChild )
 		MAP_INTERFACE( ITr2CurveSetOwner )
 		MAP_INTERFACE( IInitialize )
@@ -24,7 +22,7 @@ const Be::ClassInfo* EveChildRef::ExposeToBlue()
 
 		MAP_ATTRIBUTE( "name", m_name, "", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "resPath", m_resPath, "Path to a red file.", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
-		MAP_ATTRIBUTE( "display", m_display, "", Be::READWRITE | Be::PERSIST | Be::NOTIFY)
+		MAP_ATTRIBUTE( "display", m_display, "", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 		MAP_ATTRIBUTE( "child", m_child, "Reference to the loaded child.\n:jessica-hidden: True\n", Be::READ )
 
 		MAP_ATTRIBUTE( "translation", m_translation, "", Be::READWRITE | Be::PERSIST )
@@ -46,28 +44,27 @@ const Be::ClassInfo* EveChildRef::ExposeToBlue()
 			"Set variable for all applicable controllers\n"
 			":jessica-hidden: True\n"
 			":param name: variable name\n"
-			":param value: new variable value\n"
-		)
+			":param value: new variable value\n" )
 
 		MAP_METHOD_AND_WRAP(
 			"HandleControllerEvent",
 			HandleControllerEvent,
 			"Pass an event to controllers\n:jessica-hidden: True\n"
-			":param name: event name"
-		)
+			":param name: event name" )
 
 		MAP_METHOD_AND_WRAP(
 			"StartControllers",
 			StartControllers,
 			"Start all controllers\n"
-			":jessica-hidden: True\n"
-		)
+			":jessica-hidden: True\n" )
 
-        MAP_METHOD_AND_WRAP_OPTIONAL_ARGS(
-            "Reload",
-            Reload,
-            1,
-            "Reload the effect child.\n"
-        )
-    EXPOSURE_END()
+		MAP_METHOD_AND_WRAP_OPTIONAL_ARGS(
+			"Reload",
+			Reload,
+			1,
+			"Reload the effect child.\n" )
+		MAP_PROPERTY_READONLY( "partTag", GetPartTag, "Part tag for multi-part space objects" )
+		MAP_METHOD_AND_WRAP( "GetParent", GetParent, "Returns the parent space object child in the hierarchy" )
+		MAP_METHOD_AND_WRAP( "GetOwner", GetOwner, "Returns the owner space object" )
+	EXPOSURE_END()
 }

@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   November 2014
-//    Copyright: CCP 2014
-//
+// Copyright © 2014 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveSceneStaticParticles.h"
 
@@ -10,8 +7,8 @@ BLUE_DEFINE( EveSceneStaticParticles );
 
 const Be::ClassInfo* EveSceneStaticParticles::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( EveSceneStaticParticles, "" )
-        MAP_INTERFACE( EveSceneStaticParticles )
+	EXPOSURE_BEGIN( EveSceneStaticParticles, "" )
+		MAP_INTERFACE( EveSceneStaticParticles )
 		MAP_INTERFACE( IInitialize )
 
 		MAP_ATTRIBUTE( "maxParticleCount", m_maxParticleCount, "The total particle count this module can handle", Be::READWRITE )
@@ -38,5 +35,5 @@ const Be::ClassInfo* EveSceneStaticParticles::ExposeToBlue()
 		MAP_METHOD_AND_WRAP( "ClearClusters", ClearClusters, "Remove all clusters" )
 		MAP_METHOD_AND_WRAP( "Rebuild", Rebuild, "Once finished adding clusters, we need to build internal buffers etc." )
 
-    EXPOSURE_END()
+	EXPOSURE_END()
 }

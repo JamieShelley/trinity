@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   October 2012
-//    Copyright: CCP 2012
-//
+// Copyright © 2012 CCP ehf.
 
 #pragma once
 #ifndef Tr2BindingVector3_H
@@ -13,10 +9,13 @@
 //   Tr2BindingVector3 is a simple blue-exposed class that contains a Vector3 value. Used
 //   for bindings.
 // --------------------------------------------------------------------------------------
-BLUE_CLASS( Tr2BindingVector3 ): public IRoot
+BLUE_CLASS( Tr2BindingVector3 ) :
+	public IRoot
 {
 public:
-	Tr2BindingVector3( IRoot* = nullptr ) {}
+	Tr2BindingVector3( IRoot* = nullptr )
+	{
+	}
 
 	EXPOSE_TO_BLUE();
 

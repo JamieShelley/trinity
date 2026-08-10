@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef SpawnDrones_H
 #define SpawnDrones_H
@@ -12,8 +14,7 @@ public:
 	SpawnDrones( IRoot* lockobj = nullptr );
 	~SpawnDrones();
 
-	virtual std::vector<Vector3> CalculateBehavior( std::vector<DroneAgent>& agents, void* scratchData, const float deltaTime,
-		BehaviorGroup& group, EveChildBehaviorSystem& system, const std::vector<std::vector<DroneAgent*>>& dronesInSearchRadius );
+	virtual std::vector<Vector3> CalculateBehavior( std::vector<DroneAgent> & agents, void* scratchData, const float deltaTime, BehaviorGroup& group, EveChildBehaviorSystem& system, const std::vector<std::vector<DroneAgent*>>& dronesInSearchRadius );
 
 	void GridToggleReset();
 	void UpdateGrid( BehaviorGroup & group );

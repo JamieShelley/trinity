@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		January 2019
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2PPVignetteEffect.h"
@@ -27,18 +23,5 @@ const Be::ClassInfo* Tr2PPVignetteEffect::ExposeToBlue()
 		MAP_ATTRIBUTE( "sineMinimum", m_sineMinimum, "sine wave minimum value", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "sineMaximum", m_sineMaximum, "sine wave maximum value", Be::READWRITE | Be::PERSIST )
 
-		EXPOSURE_CHAINTO( Tr2PPEffect )
+	EXPOSURE_CHAINTO( Tr2PPEffect )
 }
-
-
-
-
-
-
-
-
-
-
-
-
-

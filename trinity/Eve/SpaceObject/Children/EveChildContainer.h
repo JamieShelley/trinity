@@ -1,13 +1,10 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
+
 #pragma once
 #ifndef EveChildContainer_H
 #define EveChildContainer_H
 
-#include "IEveSpaceObjectChild.h"
+#include "EveSpaceObjectChild.h"
 #include "IEveEffectChildrenOwner.h"
 #include "EveChildTransform.h"
 #include "Tr2DebugRenderer.h"
@@ -34,7 +31,7 @@ BLUE_DECLARE_INTERFACE( IEveFxAttribute );
 BLUE_DECLARE_IVECTOR( IEveFxAttribute );
 
 BLUE_CLASS( EveChildContainer ) :
-	public IEveSpaceObjectChild,
+	public EveSpaceObjectChild,
 	public EveChildTransform,
 	public ITr2Renderable,
 	public ITr2CurveSetOwner,
@@ -69,17 +66,19 @@ public:
 	virtual bool OnModified( Be::Var * val );
 
 	//////////////////////////////////////////////////////////////////////////////////////
-	// IEveSpaceObjectChild
+	// EveSpaceObjectChild
 	void SetShaderOption( const BlueSharedString& name, const BlueSharedString& value ) override;
 	bool IsAlwaysOn() const override;
-	void AddTransformModifier( IEveChildTransformModifier* modifier ) override;
-    void SetProceduralContainerVariable( const char* name, float value ) override;
+	void AddTransformModifier( IEveChildTransformModifier * modifier ) override;
+	void SetProceduralContainerVariable( const char* name, float value ) override;
+	void SetOwner( IEveSpaceObject2 * owner ) override;
+	void SetPartTag( PartTag tag ) override;
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IEveEffectChildrenOwner
-	IEveSpaceObjectChildPtr GetEffectChildByName( const char* name ) const;
-	void AddToEffectChildrenList( IEveSpaceObjectChild* child );
-	void RemoveFromEffectChildrenList( IEveSpaceObjectChild* child );
+	EveSpaceObjectChildPtr GetEffectChildByName( const char* name ) const;
+	void AddToEffectChildrenList( EveSpaceObjectChild * child );
+	void RemoveFromEffectChildrenList( EveSpaceObjectChild * child );
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2ControllerOwner
@@ -114,24 +113,21 @@ public:
 	uint32_t GetPerObjectDataSize( Tr2RenderContextEnum::ShaderType shaderType ) const;
 	void UpdatePerObjectBuffer( Tr2RenderContextEnum::ShaderType shaderType, uint32_t size, void* );
 
-	const char* GetName() const;
-	void SetName( const char* name );
-
 	void UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod );
-	void GetRenderables( std::vector<ITr2Renderable*>& renderables );
-	bool GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query=EVE_BOUNDS_NORMAL ) const;
-	void RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer );
+	void GetRenderables( std::vector<ITr2Renderable*> & renderables );
+	bool GetBoundingSphere( Vector4 & sphere, BoundingSphereQuery query = EVE_BOUNDS_NORMAL ) const;
+	void RegisterWithQuadRenderer( Tr2QuadRenderer & quadRenderer );
 	void AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer ) const;
 
 	void UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, Matrix& parentTransform );
-	void GetLocalToWorldTransform( Matrix& transform ) const;
+	void GetLocalToWorldTransform( Matrix & transform ) const;
 	void ChangeLOD( Tr2Lod lod );
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// ITr2LightOwner
-	void GetLights( Tr2LightManager& lightManager ) const override;
+	void GetLights( Tr2LightManager & lightManager ) const override;
 
 	void SetOrigin( Origin origin );
 
@@ -149,15 +145,15 @@ public:
 	void PlayAllCurveSets() override;
 	void StopAllCurveSets() override;
 
-	void GetDebugOptions( Tr2DebugRendererOptions& options );
-	void RenderDebugInfo( ITr2DebugRenderer2& renderer );
+	void GetDebugOptions( Tr2DebugRendererOptions & options );
+	void RenderDebugInfo( ITr2DebugRenderer2 & renderer );
 
-	void GetWorldVelocity( Vector3& velocity ) const;
+	void GetWorldVelocity( Vector3 & velocity ) const;
 	void SetInheritProperties( const Color* colorSet ) override;
 
 	float GetOwnerMaxSpeed() const;
 
-	void SetAnimationOwner( ITr2GrannyAnimationOwner* animationOwner );
+	void SetAnimationOwner( ITr2GrannyAnimationOwner * animationOwner );
 
 	enum DisplayQualityModifier
 	{
@@ -174,10 +170,10 @@ public:
 
 	bool Empty() const;
 
-	PIEveSpaceObjectChildVector m_objects;
+	PEveSpaceObjectChildVector m_objects;
 
 protected:
-	void DoUpdateAsyncronous( const EveUpdateContext & updateContext, const EveChildUpdateParams& params );
+	void DoUpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
 
 	void MuteChildren();
 
@@ -186,7 +182,6 @@ protected:
 
 	bool HasRenderables() const;
 
-	BlueSharedString m_name;
 	PTriCurveSetVector m_curveSets;
 	PTriObserverLocalVector m_observers;
 	PTr2LightVector m_lights;

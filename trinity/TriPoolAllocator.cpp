@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriPoolAllocator.h"
 
@@ -7,7 +9,7 @@ TriPoolAllocator::TriPoolAllocator() :
 	m_pool( NULL ),
 	m_poolEnd( NULL ),
 	m_poolCurrent( NULL ),
-	m_chunkSize( 256*1024 )
+	m_chunkSize( 256 * 1024 )
 {
 }
 

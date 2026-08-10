@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		February 2019
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2PPTaaEffect.h"
@@ -35,7 +31,6 @@ const Be::ClassInfo* Tr2PPTaaEffect::ExposeToBlue()
 		MAP_ATTRIBUTE_WITH_CHOOSER( "debug", m_debugMode, "Taa Debug", Be::READWRITE | Be::ENUM, Tr2PPTaaEffectDebugChooser )
 
 		MAP_ATTRIBUTE( "earlyOutThreshold", m_earlyOutThreshold, "Controls the threshold used to skip calculations when a larger area is close to a flat color", Be::READWRITE )
-		
+
 	EXPOSURE_CHAINTO( Tr2PPEffect )
 }
-

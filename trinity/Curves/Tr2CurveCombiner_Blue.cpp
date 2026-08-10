@@ -1,5 +1,4 @@
-//    Created:   Feb 2022
-//    Copyright: CCP 2022
+// Copyright © 2022 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2CurveCombiner.h"
@@ -36,8 +35,7 @@ const Be::ClassInfo* Tr2CurveCombiner::ExposeToBlue()
 			"GetValueAt",
 			GetValue,
 			"Returns curve value at specified time\n"
-			":param time: input time"
-		)
+			":param time: input time" )
 
 	EXPOSURE_END()
 }

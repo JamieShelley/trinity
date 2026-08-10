@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   February 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveChildParticleSphere.h"
@@ -13,6 +9,7 @@ const Be::ClassInfo* EveChildParticleSphere::ExposeToBlue()
 {
 	EXPOSURE_BEGIN( EveChildParticleSphere, "" )
 		MAP_INTERFACE( EveChildParticleSphere )
+		MAP_INTERFACE( EveSpaceObjectChild )
 		MAP_INTERFACE( IEveSpaceObjectChild )
 		MAP_INTERFACE( ITr2Renderable )
 
@@ -39,5 +36,8 @@ const Be::ClassInfo* EveChildParticleSphere::ExposeToBlue()
 		MAP_ATTRIBUTE( "useSpaceObjectData", m_useSpaceObjectData, "", Be::READWRITE | Be::PERSIST )
 
 		MAP_METHOD_AND_WRAP( "Refresh", Refresh, "Re-binds particle system and re-adds particles" )
+		MAP_PROPERTY_READONLY( "partTag", GetPartTag, "Part tag for multi-part space objects" )
+		MAP_METHOD_AND_WRAP( "GetParent", GetParent, "Returns the parent space object child in the hierarchy" )
+		MAP_METHOD_AND_WRAP( "GetOwner", GetOwner, "Returns the owner space object" )
 	EXPOSURE_END()
 }

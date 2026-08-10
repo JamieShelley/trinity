@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2016
-//    Copyright: CCP 2016
-//
+// Copyright © 2016 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ExternalParameter.h"
@@ -31,8 +27,8 @@ const Be::VarEntry* FindEntry( const char* name, const Be::ClassInfo* type, ssiz
 
 }
 
-Tr2ExternalParameter::Tr2ExternalParameter( IRoot* lockobj )
-	:m_destination( nullptr ),
+Tr2ExternalParameter::Tr2ExternalParameter( IRoot* lockobj ) :
+	m_destination( nullptr ),
 	m_destinationEntry( nullptr ),
 	m_destItemOffset( 0 ),
 	m_valid( false ),

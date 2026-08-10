@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 
 #include "TriValueBinding.h"
@@ -196,7 +198,7 @@ bool EveShip2::DisplayBoosters() const
 
 float EveShip2::GetKillCounterValue() const
 {
-    return static_cast<float>( m_displayKillCounterValue );
+	return static_cast<float>( m_displayKillCounterValue );
 }
 
 void EveShip2::GetDebugOptions( Tr2DebugRendererOptions& options )
@@ -311,16 +313,16 @@ void EveShip2::SetAudioParameter( IRoot* aud )
 	m_audioParameterInfo.classInfo = m_audioSpeedParameter->ClassType();
 	m_audioParameterInfo.offset = 0;
 	m_audioParameterInfo.entry = TriValueBinding::FindEntry( "value", m_audioParameterInfo.classInfo, m_audioParameterInfo.offset );
-	
+
 	if( m_audioParameterInfo.entry )
 	{
 		if( m_audioParameterInfo.entry->mType == Be::FLOAT )
 		{
-			m_audioParameterInfo.destinationValue = BLUEMAPMEMBEROFFSET( 
-															aud, 
-															m_audioParameterInfo.entry, 
-															m_audioParameterInfo.classInfo, 
-															m_audioParameterInfo.offset );
+			m_audioParameterInfo.destinationValue = BLUEMAPMEMBEROFFSET(
+				aud,
+				m_audioParameterInfo.entry,
+				m_audioParameterInfo.classInfo,
+				m_audioParameterInfo.offset );
 		}
 		if( m_audioParameterInfo.entry->mEditFlags & Be::NOTIFY )
 		{
@@ -364,7 +366,7 @@ IRoot* EveShip2::GetAudioParameter() const
 // --------------------------------------------------------------------------------------
 void EveShip2::UpdateShipSpeedForAudio()
 {
-	if(( m_maxSpeed == 0.0f ) || ( m_boosters == NULL ))
+	if( ( m_maxSpeed == 0.0f ) || ( m_boosters == NULL ) )
 	{
 		return;
 	}
@@ -379,7 +381,6 @@ void EveShip2::UpdateShipSpeedForAudio()
 		{
 			m_audioSpeedNotify->OnModified( (Be::Var*)m_audioParameterInfo.destinationValue );
 		}
-
 	}
 }
 
@@ -390,7 +391,7 @@ float EveShip2::GetMaxSpeed() const
 
 float EveShip2::GetBoosterIntensity() const
 {
-	if ( m_boosters != nullptr )
+	if( m_boosters != nullptr )
 	{
 		return m_boosters->GetBoosterIntensity();
 	}

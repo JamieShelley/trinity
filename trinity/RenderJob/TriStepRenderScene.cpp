@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriStepRenderScene.h"
 
@@ -6,7 +8,7 @@ TriStepRenderScene::TriStepRenderScene( IRoot* lockobj )
 {
 }
 
-TriStepRenderScene::~TriStepRenderScene(void)
+TriStepRenderScene::~TriStepRenderScene( void )
 {
 }
 

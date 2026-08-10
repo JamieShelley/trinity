@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveDistributionPlacementGeneratorParentLocators.h"
 
@@ -72,7 +74,7 @@ void EveDistributionPlacementGeneratorParentLocators::UpdateSyncronous( const Ev
 	}
 }
 
-///////////////////////////////////////////////////////////////////////////////////// 
+/////////////////////////////////////////////////////////////////////////////////////
 // INotify
 bool EveDistributionPlacementGeneratorParentLocators::OnModified( Be::Var* value )
 {

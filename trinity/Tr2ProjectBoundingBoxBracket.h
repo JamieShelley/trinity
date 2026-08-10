@@ -1,8 +1,5 @@
-//////////////////////////////////////////////////////////////////////////
-//
-// Created: March 2011
-// Copyright CCP 2011
-//
+// Copyright © 2011 CCP ehf.
+
 #pragma once
 
 #ifndef Tr2ProjectBoundingBoxBracket_h
@@ -14,8 +11,7 @@ BLUE_DECLARE( Tr2ProjectBoundingBoxBracket );
 BLUE_DECLARE( Tr2Sprite2dContainer );
 BLUE_DECLARE_INTERFACE( ITr2BoundingBox );
 
-class Tr2ProjectBoundingBoxBracket :
-	public ITriFunction
+class Tr2ProjectBoundingBoxBracket : public ITriFunction
 {
 public:
 	EXPOSE_TO_BLUE();
@@ -27,8 +23,13 @@ public:
 	void UpdateValue( double time );
 
 	void SetEmptyProjection();
+	void UpdateBracket();
 
 protected:
+	void SetFullViewportProjection( const TriViewport& viewport );
+	void ConstrainProjection( const Vector3& center, const Matrix& viewProjection, const TriViewport& viewport );
+	void PublishProjection( const TriViewport& viewport );
+
 	std::wstring m_name;
 
 	//////////////////////////////////////////////////////////////////////////
@@ -58,6 +59,11 @@ protected:
 	float m_projectedHeight;
 	float m_cameraDistance;
 	float m_screenMargin;
+
+	bool m_isProjectionValid;
+	bool m_containsCamera;
+	bool m_extendsOffscreen;
+	bool m_coversViewport;
 };
 
 TYPEDEF_BLUECLASS( Tr2ProjectBoundingBoxBracket );

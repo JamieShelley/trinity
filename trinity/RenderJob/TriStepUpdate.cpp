@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriStepUpdate.h"
 
@@ -5,7 +7,7 @@ TriStepUpdate::TriStepUpdate( IRoot* lockobj )
 {
 }
 
-TriStepUpdate::~TriStepUpdate(void)
+TriStepUpdate::~TriStepUpdate( void )
 {
 }
 

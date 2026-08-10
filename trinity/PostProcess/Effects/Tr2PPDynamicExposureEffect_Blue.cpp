@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		2/5/2019 
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2PPDynamicExposureEffect.h"
@@ -27,6 +23,5 @@ const Be::ClassInfo* Tr2PPDynamicExposureEffect::ExposeToBlue()
 		MAP_ATTRIBUTE( "maxExposure", m_maxExposure, "Maximal exposure limit", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "debug", m_debug, "Enable debugging for the exposure", Be::READWRITE )
 
-		EXPOSURE_CHAINTO( Tr2PPEffect )
-
+	EXPOSURE_CHAINTO( Tr2PPEffect )
 }

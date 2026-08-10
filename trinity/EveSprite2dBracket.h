@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		January 2012
-// Copyright:	CCP 2012
-//
+// Copyright © 2012 CCP ehf.
 
 #pragma once
 #ifndef EveSprite2dBracket_h
@@ -23,7 +19,7 @@ public:
 
 	Tr2AtlasTexture* GetIcon() const;
 	const Color& GetColor() const;
-	
+
 	void SetDisplay( bool b );
 	bool IsDisplay() const;
 

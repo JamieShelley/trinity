@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   November 2011
-//    Copyright: CCP 2011
-//
+// Copyright © 2011 CCP ehf.
 
 #include "stdafx.h"
 #include "CachingIncludeHandler.h"
@@ -16,10 +12,10 @@
 // TODO MACOS: This function is just a stub. Make sure it covers all cases.
 namespace
 {
-    BOOL PathIsRelative( LPCSTR pszPath )
-    {
-        return pszPath[0] != '/';
-    }
+BOOL PathIsRelative( LPCSTR pszPath )
+{
+	return pszPath[0] != '/';
+}
 }
 #endif
 
@@ -205,7 +201,7 @@ std::optional<CachingIncludeHandler::IncludedFile> CachingIncludeHandler::AddPre
 		return std::nullopt;
 	}
 
-	auto &info = fileFromPath->second;
+	auto& info = fileFromPath->second;
 	auto length = strlen( prefix );
 	auto data = malloc( info.size + length + 2 );
 	if( data == NULL )

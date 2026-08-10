@@ -1,3 +1,5 @@
+// Copyright © 2026 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2PostProcessRenderer.h"
 
@@ -36,7 +38,7 @@ const Be::ClassInfo* Tr2PostProcessRenderer::ExposeToBlue()
 		MAP_ATTRIBUTE( "bloomDebugShader", m_bloomDebugShader, "The bloom high pass effect", Be::READWRITE )
 
 
-		MAP_ATTRIBUTE( "depthOfFieldCoCShader", m_depthOfFieldCoCShader, "The DoF Circle of Confusion shader", Be::READWRITE);
+		MAP_ATTRIBUTE( "depthOfFieldCoCShader", m_depthOfFieldCoCShader, "The DoF Circle of Confusion shader", Be::READWRITE );
 		MAP_ATTRIBUTE( "depthOfFieldBokehBlurShader", m_depthOfFieldBokehBlurShader, "The bokeh blur shader", Be::READWRITE );
 		MAP_ATTRIBUTE( "depthOfFieldBokehFillShader", m_depthOfFieldBokehFillShader, "The bokeh fill shader", Be::READWRITE );
 		MAP_ATTRIBUTE( "dynamicExposureToTextureShader", m_dynamicExposureToTextureShader, "exposure texture", Be::READWRITE );

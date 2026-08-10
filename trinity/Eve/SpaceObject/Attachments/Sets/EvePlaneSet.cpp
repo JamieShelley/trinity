@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2013
-//    Copyright: CCP 2013
-//
+// Copyright © 2013 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriRenderBatch.h"
 #include "TriFrustum.h"
@@ -191,7 +188,7 @@ void EvePlaneSet::AddToQuadRenderer( Tr2QuadRenderer& quadRenderer, const Matrix
 	Matrix boneTransform = IdentityMatrix();
 	size_t idx = 0;
 
-	if ( m_isSkinned )
+	if( m_isSkinned )
 	{
 		for( auto& vertex : m_items )
 		{
@@ -213,7 +210,6 @@ void EvePlaneSet::AddToQuadRenderer( Tr2QuadRenderer& quadRenderer, const Matrix
 			vertex.transform3 = Vector4( transform._13, transform._23, transform._33, transform._43 );
 			vertex.color = data.color * activation;
 		}
-
 	}
 	else
 	{
@@ -251,7 +247,7 @@ bool EvePlaneSet::UpdateVisibility( const EveUpdateContext& updateContext, const
 
 void EvePlaneSet::UpdateLights( const Matrix& parentTransform, const Float4x3* bones, size_t boneCount, float activationStrength, float boosterGain )
 {
-	for( auto& light : m_lights ) 
+	for( auto& light : m_lights )
 	{
 		if( light.lightData.boneIndex > 0 && light.lightData.boneIndex < boneCount )
 		{
@@ -468,7 +464,6 @@ void EvePlaneSet::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Matrix& p
 				10,
 				Tr2DebugRenderer::Solid,
 				Tr2DebugColor( c ) );
-
 		}
 	}
 }
@@ -510,10 +505,10 @@ Color EvePlaneSet::GetAverageColor() const
 	image = GetAverageColor( m_imageMapParameter );
 	mask = GetAverageColor( m_maskMapParameter );
 
-	return Color( layer1.r * layer2.r * image.r * mask.r, 
-					layer1.g * layer2.g * image.g * mask.g,
-					layer1.b * layer2.b * image.b * mask.b, 
-					layer1.a * layer2.a * image.a * mask.a );
+	return Color( layer1.r * layer2.r * image.r * mask.r,
+				  layer1.g * layer2.g * image.g * mask.g,
+				  layer1.b * layer2.b * image.b * mask.b,
+				  layer1.a * layer2.a * image.a * mask.a );
 }
 
 Color EvePlaneSet::GetAverageColor( const TriTextureParameterPtr& map ) const

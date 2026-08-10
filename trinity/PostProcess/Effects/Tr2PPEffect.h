@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		January 2019
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #pragma once
 #ifndef Tr2PPEffect_H
@@ -10,16 +6,16 @@
 
 namespace PostProcess
 {
-	enum Quality
-	{
-		LOW,
-		MEDIUM,
-		HIGH,
+enum Quality
+{
+	LOW,
+	MEDIUM,
+	HIGH,
 
-		COUNT
-	};
+	COUNT
+};
 
-	extern const Be::VarChooser PostProcessQualityChooser[];
+extern const Be::VarChooser PostProcessQualityChooser[];
 }
 
 
@@ -36,7 +32,6 @@ public:
 
 protected:
 	bool m_display;
-
 };
 
 TYPEDEF_BLUECLASS( Tr2PPEffect );

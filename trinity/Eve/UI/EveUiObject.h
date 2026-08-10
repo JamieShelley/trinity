@@ -1,13 +1,10 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   January 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
+
 #pragma once
 
 #include "Eve/SpaceObject/EveSpaceObject2.h"
 
-BLUE_CLASS( EveUiObject ):
+BLUE_CLASS( EveUiObject ) :
 	public EveSpaceObject2
 {
 public:
@@ -31,4 +28,3 @@ private:
 };
 
 TYPEDEF_BLUECLASS( EveUiObject );
-

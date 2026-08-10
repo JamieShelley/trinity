@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #pragma once
 
@@ -36,6 +32,7 @@ public:
 		Be::OptionalWithDefaultValue<Tr2CurveTangentType::Type, Tr2CurveTangentType::AUTO_CLAMP> tangentType );
 
 	void SetExtrapolation( Tr2CurveExtrapolation::Type extrapolation );
+
 private:
 	std::string m_name;
 

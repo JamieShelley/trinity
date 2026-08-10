@@ -1,4 +1,6 @@
-﻿#pragma once
+﻿// Copyright © 2026 CCP ehf.
+
+#pragma once
 
 #include "PostProcess/Effects/Tr2PPEffect.h"
 
@@ -9,7 +11,7 @@ BLUE_CLASS( Tr2PPGenericEffect ) :
 {
 public:
 	EXPOSE_TO_BLUE();
-	
+
 	Tr2PPGenericEffect( IRoot* lockobj = NULL );
 
 	Tr2EffectPtr GetEffect() const;

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   October 2014
-//    Copyright: CCP 2014
-//
+// Copyright © 2014 CCP ehf.
 
 #pragma once
 #ifndef Tr2LightManager_H
@@ -47,10 +43,10 @@ enum class ShadowQuality
 //	   lightManager.ResolveLightData();
 //     lightManager.UpdateLists();
 //     renderYourStuff();
-//  Light manager GPU buffers are accessed through variable store with names 
+//  Light manager GPU buffers are accessed through variable store with names
 //  "LightBuffer" and "LightIndexBuffer".
 // --------------------------------------------------------------------------------------
-class Tr2LightManager: public Tr2DeviceResource
+class Tr2LightManager : public Tr2DeviceResource
 {
 public:
 	Tr2LightManager( const char* effectPath );
@@ -86,12 +82,11 @@ public:
 				uint16_t padding;
 			} Raytracing;
 		};
-		
 	};
 
 	struct ShadowMapAtlasSettings
 	{
-		uint32_t actualTextureSize;	// only updated once per frame. might be larger than size, as multiple eve space scenes might request different shadow qualities
+		uint32_t actualTextureSize; // only updated once per frame. might be larger than size, as multiple eve space scenes might request different shadow qualities
 		uint32_t sizeLog2;
 		uint32_t size;
 		uint32_t entryMinSizeLog2;
@@ -117,7 +112,7 @@ public:
 	ALResult UpdateLists( const Tr2TextureAL& depthMap, Tr2RenderContext& renderContext );
 	void SetVariableStore();
 	void AdjustLightCutoff( float lodFactor );
-	
+
 	void SetShadowQuality( ShadowQuality shadowQuality, uint64_t frameCounter );
 
 	virtual void ReleaseResources( TriStorage s );
@@ -139,13 +134,13 @@ public:
 
 	ShadowQuality GetCurrentSpaceSceneShadowQuality();
 
-	Tr2GpuResourcePool::Texture RenderRaytracedShadows( 
-		Tr2RaytracingGeometry* geometry, 
-		const Tr2TextureAL& depth, 
-		const Tr2TextureAL& normal, 
-		const CcpMath::Sphere* planets, 
-		size_t planetCount, 
-		Tr2GpuResourcePool& gpuResourcePool, 
+	Tr2GpuResourcePool::Texture RenderRaytracedShadows(
+		Tr2RaytracingGeometry* geometry,
+		const Tr2TextureAL& depth,
+		const Tr2TextureAL& normal,
+		const CcpMath::Sphere* planets,
+		size_t planetCount,
+		Tr2GpuResourcePool& gpuResourcePool,
 		Tr2RenderContext& renderContext );
 	Tr2RaytracingPipelineStateManager* GetRaytracingPipelineManager();
 	Tr2RtShaderTableDescriptionAL* GetRaytracingShaderTableDesc();
@@ -198,7 +193,7 @@ private:
 
 	float m_adjustedCutoff;
 
-	uint32_t nextFrameShadowQuality;	// bitmask, collecting ShadowQualities during the current frame
+	uint32_t nextFrameShadowQuality; // bitmask, collecting ShadowQualities during the current frame
 	ShadowQuality m_currentSpaceSceneShadowQuality;
 	uint64_t m_currentFrameCounter;
 
@@ -209,7 +204,7 @@ private:
 		ShadowQuality m_qualityUsedByAtlas;
 	} m_ShadowMap;
 
-	struct 
+	struct
 	{
 		Tr2RaytracingPipelineStateManager m_pipelineManager;
 		Tr2RtShaderTableDescriptionAL m_shaderTableDesc;

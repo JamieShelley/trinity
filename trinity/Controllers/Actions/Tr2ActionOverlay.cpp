@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ActionOverlay.h"
@@ -147,7 +143,7 @@ void Tr2ActionOverlay::LoadOverlay( EveSpaceObject2* owner )
 			StringRemove( path, "_skinned" );
 		}
 
-		bool urgent = BeResMan->IsUrgentResourceLoads( );
+		bool urgent = BeResMan->IsUrgentResourceLoads();
 		BeResMan->SetUrgentResourceLoads( true );
 		m_overlay = BeResMan->LoadObject<EveMeshOverlayEffect>( path.c_str() );
 		BeResMan->SetUrgentResourceLoads( urgent );

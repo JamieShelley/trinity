@@ -1,10 +1,12 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildModifierAttachToBone.h"
 #include "Utilities/MatrixUtils.h"
 
 
-EveChildModifierAttachToBone::EveChildModifierAttachToBone( IRoot* )
-	:m_boneIndex( -1 )
+EveChildModifierAttachToBone::EveChildModifierAttachToBone( IRoot* ) :
+	m_boneIndex( -1 )
 {
 }
 

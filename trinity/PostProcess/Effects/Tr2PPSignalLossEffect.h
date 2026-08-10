@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		1/15/2019 
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #pragma once
 
@@ -20,7 +16,7 @@ public:
 
 	Tr2PPSignalLossEffect( IRoot* lockobj = NULL );
 	~Tr2PPSignalLossEffect();
-	
+
 	// Tr2PPEffect
 	bool IsActive() override;
 

@@ -1,14 +1,10 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   October 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2GpuUniqueEmitter.h"
 
-Tr2GpuUniqueEmitter::Tr2GpuUniqueEmitter( IRoot* lockObj )
-	:Tr2GpuSharedEmitter( lockObj ),
+Tr2GpuUniqueEmitter::Tr2GpuUniqueEmitter( IRoot* lockObj ) :
+	Tr2GpuSharedEmitter( lockObj ),
 	m_attractorPosition( 0.f, 0.f, 0.f ),
 	m_scaledByParent( false )
 {
@@ -57,9 +53,9 @@ void Tr2GpuUniqueEmitter::Update( const UpdateArguments& arguments )
 }
 
 void Tr2GpuUniqueEmitter::SpawnParticles( const UpdateArguments& arguments,
-								const Vector3* position, 
-								const Vector3* velocity, 
-								float rateModifier )
+										  const Vector3* position,
+										  const Vector3* velocity,
+										  float rateModifier )
 {
 	Tr2GpuParticleSystem::Emitter originalEmitter;
 	Tr2GpuParticleSystem::EmitterParams originalParams;
@@ -90,9 +86,11 @@ void Tr2GpuUniqueEmitter::SpawnParticles( const UpdateArguments& arguments,
 
 
 void Tr2GpuUniqueEmitter::SpawnParticles( const UpdateArguments& arguments,
-								const Vector3 *positionStart, const Vector3 *positionEnd,
-								const Vector3 *velocityStart, const Vector3 *velocityEnd,
-								float deltaTime )
+										  const Vector3* positionStart,
+										  const Vector3* positionEnd,
+										  const Vector3* velocityStart,
+										  const Vector3* velocityEnd,
+										  float deltaTime )
 {
 	Tr2GpuParticleSystem::Emitter originalEmitter;
 	Tr2GpuParticleSystem::EmitterParams originalParams;

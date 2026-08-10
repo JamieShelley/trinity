@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef Tr2PyValueBinding_h
 #define Tr2PyValueBinding_h
@@ -7,14 +9,13 @@
 
 BLUE_DECLARE( Tr2PyValueBinding );
 
-class Tr2PyValueBinding:
-	 public INotify,
-	 public ITr2ValueBinding
+class Tr2PyValueBinding : public INotify,
+						  public ITr2ValueBinding
 {
 public:
-    EXPOSE_TO_BLUE();
+	EXPOSE_TO_BLUE();
 
-    Tr2PyValueBinding( IRoot* lockobj = NULL );
+	Tr2PyValueBinding( IRoot* lockobj = NULL );
 	~Tr2PyValueBinding();
 
 	//////////////////////////////////////////////////////////////////////////

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2CurveColor.h"
@@ -11,8 +7,8 @@
 
 
 // --------------------------------------------------------------------------------
-Tr2CurveColor::Tr2CurveColor( IRoot* lockobj )
-	:PARENTLOCK( m_r ),
+Tr2CurveColor::Tr2CurveColor( IRoot* lockobj ) :
+	PARENTLOCK( m_r ),
 	PARENTLOCK( m_g ),
 	PARENTLOCK( m_b ),
 	PARENTLOCK( m_a ),

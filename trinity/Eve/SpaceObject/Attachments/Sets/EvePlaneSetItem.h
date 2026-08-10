@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2013
-//    Copyright: CCP 2013
-//
+// Copyright © 2013 CCP ehf.
+
 #pragma once
 #ifndef EvePlaneSetItem_H
 #define EvePlaneSetItem_H
@@ -20,7 +17,7 @@ BLUE_DECLARE_VECTOR( EvePlaneSetItem );
 // --------------------------------------------------------------------------------
 BLUE_CLASS( EvePlaneSetItem ) :
 	public IRoot
-	
+
 {
 public:
 	EXPOSE_TO_BLUE();
@@ -29,7 +26,7 @@ public:
 
 	CcpMath::AxisAlignedBox GetBounds() const;
 	int32_t GetBoneIndex() const;
-	
+
 	// name
 	BlueSharedString m_name;
 	// positional attributes

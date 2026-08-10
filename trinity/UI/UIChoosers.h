@@ -1,25 +1,4 @@
-/* 
-	*************************************************************************
-
-	UIChoosers.h
-
-	Created:   May 2001
-	OS:        Win32
-	Project:   TriUI
-
-	Description:   
-
-		UI stuff
-
-
-	Dependencies:
-
-		Blue, Trinity
-
-	(c) CCP 2000, 2001
-
-	*************************************************************************
-*/
+// Copyright © 2000 CCP ehf.
 
 #ifndef _UICHOOSERS_H_
 #define _UICHOOSERS_H_
@@ -41,9 +20,8 @@ extern const Be::VarChooser UICursorChooser[];
 
 
 #if BLUE_WITH_PYTHON
-void AddUIChoosersToDict(PyObject* dict);
+void AddUIChoosersToDict( PyObject* dict );
 #endif
 
 
 #endif
-

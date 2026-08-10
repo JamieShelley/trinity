@@ -1,9 +1,11 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriStepSetRenderState.h"
 
 
-TriStepSetRenderState::TriStepSetRenderState( IRoot* lockobj )
-	:m_state( static_cast<Tr2RenderContextEnum::RenderState>( 0 ) ),
+TriStepSetRenderState::TriStepSetRenderState( IRoot* lockobj ) :
+	m_state( static_cast<Tr2RenderContextEnum::RenderState>( 0 ) ),
 	m_value( 0 )
 {
 }

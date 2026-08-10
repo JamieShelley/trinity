@@ -1,7 +1,10 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveEffectRoot2.h"
 
 #include "Utilities/BoundingSphere.h"
+#include "Utilities/BoundingBox.h"
 #include "TriFrustum.h"
 #include "Lights/Tr2PointLight.h"
 #include "Tr2LightManager.h"
@@ -47,10 +50,18 @@ EveEffectRoot2::~EveEffectRoot2()
 	{
 		controller->Unlink( UnlinkReason::DELETING );
 	}
+	for( auto& child : m_effectChildren )
+	{
+		child->SetOwner( nullptr );
+	}
 }
 
 bool EveEffectRoot2::Initialize()
 {
+	for( auto& child : m_effectChildren )
+	{
+		child->SetOwner( this );
+	}
 	for( auto& controller : m_controllers )
 	{
 		if( !controller->IsLinked() )
@@ -111,8 +122,9 @@ void EveEffectRoot2::OnListModified( long event, ssize_t key, ssize_t key2, IRoo
 		switch( event & BELIST_EVENTMASK )
 		{
 		case BELIST_INSERTED:
-			if( IEveSpaceObjectChildPtr child = BlueCastPtr( value ) )
+			if( EveSpaceObjectChildPtr child = BlueCastPtr( value ) )
 			{
+				child->SetOwner( this );
 				for( auto it = begin( m_controllerVariables ); it != end( m_controllerVariables ); ++it )
 				{
 					child->SetControllerVariable( it->first.c_str(), it->second );
@@ -135,17 +147,25 @@ void EveEffectRoot2::OnListModified( long event, ssize_t key, ssize_t key2, IRoo
 					entity->UnRegister( GetComponentRegistry() );
 				}
 			}
+			if( EveSpaceObjectChildPtr child = BlueCastPtr( value ) )
+			{
+				child->SetOwner( nullptr );
+			}
 			break;
 		case BELIST_UNLOADSTART:
 			if( IsInRegistry() )
 			{
 				for( ssize_t i = 0; i < list->GetSize(); ++i )
 				{
-					if( EveEntityPtr entity = BlueCastPtr( list->GetAt(i) ) )
+					if( EveEntityPtr entity = BlueCastPtr( list->GetAt( i ) ) )
 					{
 						entity->UnRegister( GetComponentRegistry() );
 					}
-				}			
+				}
+			}
+			for( auto& child : m_effectChildren )
+			{
+				child->SetOwner( nullptr );
 			}
 		default:
 			break;
@@ -174,7 +194,7 @@ void EveEffectRoot2::OnListModified( long event, ssize_t key, ssize_t key2, IRoo
 }
 
 void EveEffectRoot2::UpdateSyncronous( const EveUpdateContext& updateContext )
-{	
+{
 	CCP_STATS_ZONE( __FUNCTION__ );
 
 	UpdateWorldTransform( updateContext.GetTime() );
@@ -185,7 +205,7 @@ void EveEffectRoot2::UpdateSyncronous( const EveUpdateContext& updateContext )
 
 	for( TriObserverLocalVector::iterator it = m_observers.begin(); it != m_observers.end(); ++it )
 	{
-		(*it)->Update( m_lastUpdateMatrix );
+		( *it )->Update( m_lastUpdateMatrix );
 	}
 
 	if( !m_effectChildren.empty() )
@@ -207,8 +227,8 @@ void EveEffectRoot2::UpdateSyncronous( const EveUpdateContext& updateContext )
 	}
 }
 
-void EveEffectRoot2::UpdateAsyncronous( const EveUpdateContext& updateContext ) 
-{	
+void EveEffectRoot2::UpdateAsyncronous( const EveUpdateContext& updateContext )
+{
 	float controllerUpdateFrequency = 0.f;
 
 	if( m_display )
@@ -232,7 +252,7 @@ void EveEffectRoot2::UpdateAsyncronous( const EveUpdateContext& updateContext )
 	Be::Time time = updateContext.GetTime();
 	for( auto it = m_curveSets.begin(); it != m_curveSets.end(); it++ )
 	{
-		(*it)->Update( time, time );
+		( *it )->Update( time, time );
 	}
 
 	if( !m_effectChildren.empty() )
@@ -267,7 +287,7 @@ void EveEffectRoot2::UpdateVisibility( const EveUpdateContext& updateContext, co
 		Vector4 boundingSphere;
 		GetBoundingSphere( boundingSphere );
 		BoundingSphereTransform( m_worldTransform, boundingSphere );
-		
+
 		if( updateContext.GetFrustum().IsSphereVisible( &boundingSphere ) )
 		{
 			m_estimatedSize = updateContext.GetFrustum().GetPixelSizeAccross( &boundingSphere );
@@ -287,14 +307,14 @@ void EveEffectRoot2::UpdateVisibility( const EveUpdateContext& updateContext, co
 
 		m_changeLOD |= oldLod != m_lodLevel;
 	}
-	
+
 	for( auto ecIt = m_effectChildren.begin(); ecIt != m_effectChildren.end(); ++ecIt )
 	{
-		(*ecIt)->UpdateVisibility( updateContext, parentTransform, m_lodLevel );
+		( *ecIt )->UpdateVisibility( updateContext, parentTransform, m_lodLevel );
 	}
 }
 
-void EveEffectRoot2::GetRenderables( std::vector<ITr2Renderable*>& renderables, Tr2ImpostorManager* impostors ) 
+void EveEffectRoot2::GetRenderables( std::vector<ITr2Renderable*>& renderables, Tr2ImpostorManager* impostors )
 {
 	if( !m_display )
 	{
@@ -305,36 +325,36 @@ void EveEffectRoot2::GetRenderables( std::vector<ITr2Renderable*>& renderables, 
 	{
 		m_changeLOD = false;
 
-		for( auto ecIt = m_effectChildren.begin(); ecIt != m_effectChildren.end(); ++ecIt ) 
+		for( auto ecIt = m_effectChildren.begin(); ecIt != m_effectChildren.end(); ++ecIt )
 		{
-			(*ecIt)->ChangeLOD( m_lodLevel );
+			( *ecIt )->ChangeLOD( m_lodLevel );
 		}
 	}
 
 	for( auto ecIt = m_effectChildren.begin(); ecIt != m_effectChildren.end(); ++ecIt )
 	{
-		(*ecIt)->GetRenderables( renderables );
+		( *ecIt )->GetRenderables( renderables );
 	}
 }
 
 
 void EveEffectRoot2::UpdateControllers( float updateFrequency )
 {
-	for ( auto it = begin( m_controllers ); it != end( m_controllers ); ++it )
+	for( auto it = begin( m_controllers ); it != end( m_controllers ); ++it )
 	{
 		( *it )->Update( updateFrequency );
 	}
 }
 
 bool EveEffectRoot2::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query ) const
-{ 
+{
 	sphere = m_boundingSphere;
 	return true;
 };
 
 
 void EveEffectRoot2::UpdateWorldTransform( Be::Time time )
-{	
+{
 	Quaternion rotation;
 	Vector3 translation;
 
@@ -356,7 +376,7 @@ void EveEffectRoot2::UpdateWorldTransform( Be::Time time )
 		rotation = Quaternion( 0.0f, 0.0f, 0.0f, 1.0f );
 	}
 
-	
+
 	if( m_modelRotation )
 	{
 		Quaternion modelRotation;
@@ -365,7 +385,7 @@ void EveEffectRoot2::UpdateWorldTransform( Be::Time time )
 	}
 
 	m_worldTransform = RotationMatrix( rotation ) * TranslationMatrix( translation );
-	
+
 	if( m_modelTranslation )
 	{
 		Vector3 modelTranslation;
@@ -376,7 +396,7 @@ void EveEffectRoot2::UpdateWorldTransform( Be::Time time )
 }
 
 
-void EveEffectRoot2::UpdateModelCenterWorldPosition( Vector3 &position, Be::Time t )
+void EveEffectRoot2::UpdateModelCenterWorldPosition( Vector3& position, Be::Time t )
 {
 	// This version of the function should perform an update on the model / ball position
 	Matrix currentTransform;
@@ -387,23 +407,45 @@ void EveEffectRoot2::UpdateModelCenterWorldPosition( Vector3 &position, Be::Time
 	position = TransformCoord( m_boundingSphere.GetXYZ(), currentTransform );
 }
 
-void EveEffectRoot2::GetModelCenterWorldPosition( Vector3 &position ) const
+void EveEffectRoot2::GetModelCenterWorldPosition( Vector3& position ) const
 {
 	// This version of the function does not perform an update on the object
 	position = TransformCoord( m_boundingSphere.GetXYZ(), m_lastUpdateMatrix );
 }
 
 
-bool EveEffectRoot2::GetLocalBoundingBox( Vector3 &min, Vector3 &max )
+bool EveEffectRoot2::GetLocalBoundingBox( Vector3& min, Vector3& max )
 {
-	// If possible, return an AABB in local coordinates
-	return false;
+	if( m_boundingSphere.w <= 0.0f )
+	{
+		return false;
+	}
+
+	BoundingBoxInitialize( m_boundingSphere, min, max );
+	return true;
 }
 
-void EveEffectRoot2::GetLocalToWorldTransform( Matrix &transform ) const
+void EveEffectRoot2::GetLocalToWorldTransform( Matrix& transform ) const
 {
 	// Get the local to world transform
 	transform = m_lastUpdateMatrix;
+}
+
+bool EveEffectRoot2::GetWorldBoundingBox( Vector3& min, Vector3& max ) const
+{
+	if( m_boundingSphere.w <= 0.0f )
+	{
+		return false;
+	}
+
+	BoundingBoxInitialize( m_boundingSphere, min, max );
+	BoundingBoxTransform( min, max, m_lastUpdateMatrix );
+	return true;
+}
+
+bool EveEffectRoot2::IsBoundingBoxReady() const
+{
+	return m_boundingSphere.w > 0.0f;
 }
 
 void EveEffectRoot2::RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer )
@@ -416,7 +458,7 @@ void EveEffectRoot2::RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer )
 
 void EveEffectRoot2::AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer )
 {
-	if (!m_display )
+	if( !m_display )
 	{
 		return;
 	}
@@ -434,8 +476,9 @@ void EveEffectRoot2::GetLights( Tr2LightManager& lightManager ) const
 	}
 
 	XMMATRIX worldTransform = m_lastUpdateMatrix;
-	float scaling = XMVectorGetX( XMVectorAdd( XMVector3LengthEst( m_lastUpdateMatrix.GetX() ), 
-		XMVectorAdd( XMVector3LengthEst( m_lastUpdateMatrix.GetY() ), XMVector3LengthEst( m_lastUpdateMatrix.GetZ() ) ) ) ) / 3.f;
+	float scaling = XMVectorGetX( XMVectorAdd( XMVector3LengthEst( m_lastUpdateMatrix.GetX() ),
+											   XMVectorAdd( XMVector3LengthEst( m_lastUpdateMatrix.GetY() ), XMVector3LengthEst( m_lastUpdateMatrix.GetZ() ) ) ) ) /
+		3.f;
 	for( auto it = std::begin( m_lights ); it != std::end( m_lights ); ++it )
 	{
 		( *it )->AddLight( lightManager, worldTransform, scaling );
@@ -477,10 +520,10 @@ void EveEffectRoot2::GetPerObjectStructs( EveSpaceObjectVSData& vsData, EveSpace
 void EveEffectRoot2::RegisterSecondaryLightSource( Tr2ShLightingManager& manager )
 {
 	static const Color s_noAlbedoColor( 0.f, 0.f, 0.f, 0.f );
-	manager.RegisterSecondaryLightSource( 
-		&m_worldTransform.GetTranslation(), 
-		&m_secondaryLightingSphereRadiusWorld, 
-		&s_noAlbedoColor, 
+	manager.RegisterSecondaryLightSource(
+		&m_worldTransform.GetTranslation(),
+		&m_secondaryLightingSphereRadiusWorld,
+		&s_noAlbedoColor,
 		&m_secondaryLightingEmissiveColor );
 }
 
@@ -490,12 +533,12 @@ void EveEffectRoot2::UnregisterSecondaryLightSource( Tr2ShLightingManager& manag
 }
 
 
-void EveEffectRoot2::RegisterComponents( )
+void EveEffectRoot2::RegisterComponents()
 {
 	auto registry = GetComponentRegistry();
 	if( registry && m_display )
 	{
-		if ( !m_lights.empty() )
+		if( !m_lights.empty() )
 		{
 			registry->RegisterComponent<ITr2LightOwner>( this );
 		}
@@ -506,10 +549,10 @@ void EveEffectRoot2::RegisterComponents( )
 				entity->Register( registry );
 			}
 		}
-	}	
+	}
 }
 
-void EveEffectRoot2::UnRegisterComponents(  )
+void EveEffectRoot2::UnRegisterComponents()
 {
 	auto registry = GetComponentRegistry();
 	if( registry )
@@ -606,7 +649,7 @@ int EveEffectRoot2::GetClosestDamageLocatorIndex( const Vector3* position )
 	return 0;
 }
 
-int EveEffectRoot2::GetGoodDamageLocatorIndex( const Vector3 &position )
+int EveEffectRoot2::GetGoodDamageLocatorIndex( const Vector3& position )
 {
 	return 0;
 }
@@ -649,13 +692,13 @@ Quaternion EveEffectRoot2::GetWorldRotation()
 
 void EveEffectRoot2::GetMissPosition( const Vector3* hit, const Vector3* source, Vector3* out )
 {
-	GetDamageLocatorPosition(out, -1, true );
-	
-	if( hit && source ) 
+	GetDamageLocatorPosition( out, -1, true );
+
+	if( hit && source )
 	{
 		Vector3 local( *hit - *out );
 		Vector3 dir = Normalize( *hit - *source );
-		
+
 		local -= dir * Dot( dir, local );
 
 		local = Normalize( local );
@@ -665,9 +708,9 @@ void EveEffectRoot2::GetMissPosition( const Vector3* hit, const Vector3* source,
 }
 
 // -----------------------------------------------------------------------------
-PIEveSpaceObjectChildVector& EveEffectRoot2::GetChildren()
-{ 
-	return m_effectChildren; 
+PEveSpaceObjectChildVector& EveEffectRoot2::GetChildren()
+{
+	return m_effectChildren;
 }
 
 // -----------------------------------------------------------------------------
@@ -789,7 +832,7 @@ void EveEffectRoot2::GetDebugOptions( Tr2DebugRendererOptions& options )
 	options.insert( "Bounding Sphere" );
 	options.insert( "Lights" );
 
-	for ( auto it = m_observers.begin(); it != m_observers.end(); ++it )
+	for( auto it = m_observers.begin(); it != m_observers.end(); ++it )
 	{
 		( *it )->GetDebugOptions( options );
 	}
@@ -806,7 +849,7 @@ void EveEffectRoot2::GetDebugOptions( Tr2DebugRendererOptions& options )
 // -----------------------------------------------------------------------------
 void EveEffectRoot2::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 {
-	if (renderer.HasOption( GetRawRoot(), "Bounding Sphere" ))
+	if( renderer.HasOption( GetRawRoot(), "Bounding Sphere" ) )
 	{
 		renderer.DrawSphere( this, m_boundingSphere.GetXYZ(), GetBoundingSphereRadius(), 8, Tr2DebugRenderer::Wireframe, 0xffff00ff );
 	}
@@ -827,7 +870,7 @@ void EveEffectRoot2::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 		}
 	}
 
-	for ( auto it = m_observers.begin(); it != m_observers.end(); ++it )
+	for( auto it = m_observers.begin(); it != m_observers.end(); ++it )
 	{
 		( *it )->RenderDebugInfo( renderer );
 	}
@@ -881,7 +924,7 @@ void EveEffectRoot2::StartControllers()
 }
 
 // --------------------------------------------------------------------------------
-IEveSpaceObjectChildPtr EveEffectRoot2::GetEffectChildByName( const char* name ) const
+EveSpaceObjectChildPtr EveEffectRoot2::GetEffectChildByName( const char* name ) const
 {
 	for( auto it = begin( m_effectChildren ); it != end( m_effectChildren ); ++it )
 	{
@@ -895,7 +938,7 @@ IEveSpaceObjectChildPtr EveEffectRoot2::GetEffectChildByName( const char* name )
 }
 
 // --------------------------------------------------------------------------------
-void EveEffectRoot2::AddToEffectChildrenList( IEveSpaceObjectChild* child )
+void EveEffectRoot2::AddToEffectChildrenList( EveSpaceObjectChild* child )
 {
 	if( IsInRegistry() && m_display )
 	{
@@ -908,7 +951,7 @@ void EveEffectRoot2::AddToEffectChildrenList( IEveSpaceObjectChild* child )
 }
 
 // --------------------------------------------------------------------------------
-void EveEffectRoot2::RemoveFromEffectChildrenList( IEveSpaceObjectChild* child )
+void EveEffectRoot2::RemoveFromEffectChildrenList( EveSpaceObjectChild* child )
 {
 	auto index = m_effectChildren.FindKey( child );
 	if( index >= 0 )
@@ -926,9 +969,9 @@ void EveEffectRoot2::RemoveFromEffectChildrenList( IEveSpaceObjectChild* child )
 
 void EveEffectRoot2::SetShaderOption( const BlueSharedString& name, const BlueSharedString& value )
 {
-	for ( auto it = m_effectChildren.begin(); it != m_effectChildren.end(); ++it )
+	for( auto it = m_effectChildren.begin(); it != m_effectChildren.end(); ++it )
 	{
-		IEveSpaceObjectChild *child = *it;
+		EveSpaceObjectChild* child = *it;
 		child->SetShaderOption( name, value );
 	}
 }
@@ -950,7 +993,7 @@ ITr2AudEmitterPtr EveEffectRoot2::FindSoundEmitter( const char* name )
 		if( auto owner = dynamic_cast<ITr2SoundEmitterOwner*>( *it ) )
 		{
 			auto emitter = owner->FindSoundEmitter( name );
-			if ( emitter != nullptr )
+			if( emitter != nullptr )
 			{
 				return emitter;
 			}
@@ -979,17 +1022,17 @@ void EveEffectRoot2::SetMute( bool isMute )
 void EveEffectRoot2::FreezeHighDetailMesh()
 {
 	m_lodLevel = TR2_LOD_HIGH;
-	for (auto ecIt = m_effectChildren.begin(); ecIt != m_effectChildren.end(); ++ecIt)
+	for( auto ecIt = m_effectChildren.begin(); ecIt != m_effectChildren.end(); ++ecIt )
 	{
-		(*ecIt)->ChangeLOD(m_lodLevel);
+		( *ecIt )->ChangeLOD( m_lodLevel );
 	}
 }
 
-void EveEffectRoot2::SetProceduralContainerVariable( const char *name, float value )
+void EveEffectRoot2::SetProceduralContainerVariable( const char* name, float value )
 {
-    for( auto it = m_effectChildren.begin(); it != m_effectChildren.end(); it++ )
-    {
-        auto child = *it;
-        child->SetProceduralContainerVariable( name, value );
-    }
+	for( auto it = m_effectChildren.begin(); it != m_effectChildren.end(); it++ )
+	{
+		auto child = *it;
+		child->SetProceduralContainerVariable( name, value );
+	}
 }

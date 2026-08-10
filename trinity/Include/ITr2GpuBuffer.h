@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   February 2013
-//    Copyright: CCP 2013
-//
+// Copyright © 2013 CCP ehf.
 
 #pragma once
 #ifndef ITr2GpuBuffer_H
@@ -14,7 +10,8 @@
 // See Also:
 //   Tr2GpuBuffer, TriGeometryRes, Tr2ParticleSystem
 // --------------------------------------------------------------------------------------
-BLUE_INTERFACE( ITr2GpuBuffer ): public IRoot
+BLUE_INTERFACE( ITr2GpuBuffer ) :
+	public IRoot
 {
 	// ----------------------------------------------------------------------------------
 	// Description:

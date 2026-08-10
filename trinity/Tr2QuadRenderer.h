@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef Tr2QuadRenderer_H
 #define Tr2QuadRenderer_H
@@ -17,23 +19,24 @@ BLUE_DECLARE( Tr2Material );
 // See Also:
 //   EveSpaceScene, EveSpriteSet
 // --------------------------------------------------------------------------------------
-BLUE_CLASS( Tr2QuadRenderer ): public IRoot, public Tr2DeviceResource
+BLUE_CLASS( Tr2QuadRenderer ) :
+	public IRoot, public Tr2DeviceResource
 {
 public:
 	Tr2QuadRenderer( IRoot* parent = nullptr );
 
 	EXPOSE_TO_BLUE();
 
-	typedef uint64_t EffectKey; 
+	typedef uint64_t EffectKey;
 
 	void RegisterEffect( EffectKey key, TriBatchType batchType, uint32_t instanceSize, uint32_t quadCount, const Tr2VertexDefinition& definition, Tr2Material* effect );
 	void UnregisterEffect( EffectKey key );
 
 	void AddQuads( EffectKey effectKey, const void* sprites, size_t count );
-	void BeginRendering( Tr2RenderContext& renderContext );
-	void DoneRendering( Tr2RenderContext& renderContext );
+	void BeginRendering( Tr2RenderContext & renderContext );
+	void DoneRendering( Tr2RenderContext & renderContext );
 
-	void GetBatches( TriBatchType batchType, ITriRenderBatchAccumulator* accumulator );
+	void GetBatches( TriBatchType batchType, ITriRenderBatchAccumulator * accumulator );
 
 	virtual void ReleaseResources( TriStorage s );
 
@@ -41,11 +44,12 @@ public:
 	uint32_t GetInstanceDataSize() const;
 
 	static Tr2QuadRenderer* Instance();
+
 private:
 	struct PerThreadData
 	{
-		PerThreadData()
-			:addedSize( 0 )
+		PerThreadData() :
+			addedSize( 0 )
 		{
 		}
 
@@ -80,7 +84,7 @@ private:
 	virtual bool OnPrepareResources();
 
 	uint32_t MergeBuffers();
-	void UpdateInstanceBuffer( Tr2RenderContext& renderContext );
+	void UpdateInstanceBuffer( Tr2RenderContext & renderContext );
 	void RecreateQuadBuffers( uint32_t quadCount );
 
 	// Map of registered effects

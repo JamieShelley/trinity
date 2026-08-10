@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2010
-//    Copyright: CCP 2010
-//
+// Copyright © 2010 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveOccluder.h"
 
@@ -111,7 +108,7 @@ void Tr2OcclusionBuffer::ResizeBuffer()
 		old = *buffer;
 	}
 	m_buffer->Create( m_size, Tr2RenderContextEnum::PIXEL_FORMAT_R32_UINT, Tr2GpuBuffer::GPU_WRITABLE );
-	
+
 	if( old.IsValid() )
 	{
 		USE_MAIN_THREAD_RENDER_CONTEXT();

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2020
-//    Copyright: CCP 2020
-//
+// Copyright © 2020 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveSphereVolume.h"
@@ -21,5 +17,5 @@ const Be::ClassInfo* EveSphereVolume::ExposeToBlue()
 		MAP_ATTRIBUTE( "radius", m_outerSphere.radius, "", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 		MAP_ATTRIBUTE( "innerRadius", m_innerSphere.radius, "", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 
-		EXPOSURE_END()
+	EXPOSURE_END()
 }

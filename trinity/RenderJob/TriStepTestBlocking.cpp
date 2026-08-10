@@ -1,13 +1,14 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "TriStepTestBlocking.h"
 
 TriStepTestBlocking::TriStepTestBlocking( IRoot* lockobj ) :
 	m_inProgress( true )
 {
-
 }
 
-TriStepTestBlocking::~TriStepTestBlocking(void)
+TriStepTestBlocking::~TriStepTestBlocking( void )
 {
 }
 

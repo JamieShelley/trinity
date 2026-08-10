@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #pragma once
 
@@ -25,8 +21,10 @@ public:
 	std::string m_path;
 	IRootPtr m_object;
 	std::string m_attribute;
+
 protected:
 	bool SetDestination( IRoot* object, const std::string& attribute );
+
 private:
 	BlueWeakRef<IRoot> m_resolvedObject;
 	BlueWeakRef<INotify> m_notifyPtr;

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   December 2011
-//    Copyright: CCP 2011
-//
+// Copyright © 2011 CCP ehf.
 
 #pragma once
 #ifndef Tr2StaticEmitter_H
@@ -21,9 +17,9 @@ BLUE_DECLARE( TriGrannyRes );
 // See Also:
 //   ITr2GenericEmitter, Tr2ParticleSystem
 // --------------------------------------------------------------------------------------
-BLUE_CLASS( Tr2StaticEmitter ): 
+BLUE_CLASS( Tr2StaticEmitter ) :
 	public ITr2GenericEmitter,
-	public INotify, 
+	public INotify,
 	public IInitialize
 {
 public:
@@ -41,20 +37,25 @@ public:
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// INotify
-	bool OnModified( Be::Var* val );
+	bool OnModified( Be::Var * val );
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2GenericEmitter
 	void Update( const ITr2GenericEmitter::UpdateArguments& arguments );
-	void SpawnParticles( const ITr2GenericEmitter::UpdateArguments& arguments, 
-						 const Vector3* position = nullptr, const Vector3* velocity = nullptr, float rateModifier = 1.0f );
-	void SpawnParticles( const ITr2GenericEmitter::UpdateArguments& arguments, 
-						 const Vector3 *positionStart, const Vector3 *positionEnd,
-						 const Vector3 *velocityStart, const Vector3 *velocityEnd,
+	void SpawnParticles( const ITr2GenericEmitter::UpdateArguments& arguments,
+						 const Vector3* position = nullptr,
+						 const Vector3* velocity = nullptr,
+						 float rateModifier = 1.0f );
+	void SpawnParticles( const ITr2GenericEmitter::UpdateArguments& arguments,
+						 const Vector3* positionStart,
+						 const Vector3* positionEnd,
+						 const Vector3* velocityStart,
+						 const Vector3* velocityEnd,
 						 float deltaTime );
 	void SetThreadSafeFlag();
 
 	void Spawn();
+
 private:
 	// --------------------------------------------------------------------------------------
 	// Description:

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2CurveConstant.h"
@@ -19,7 +15,7 @@ const Be::ClassInfo* Tr2CurveConstant::ExposeToBlue()
 		MAP_INTERFACE( ITriColorFunction )
 		{
 			Be::InterfaceEntry entry = { &GetITriFunctionIID(), BLUE_INTERFACEOFFSET( ITriScalarFunction ) };
-			s_interfaces.push_back( entry ); 
+			s_interfaces.push_back( entry );
 		}
 
 		MAP_ATTRIBUTE(

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   February 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
 
 #pragma once
 #ifndef EveChildCloud_H
@@ -10,7 +6,7 @@
 
 #include "ITr2Renderable.h"
 #include "Eve/IEveSpaceObject2.h"
-#include "Eve/SpaceObject/Children/IEveSpaceObjectChild.h"
+#include "Eve/SpaceObject/Children/EveSpaceObjectChild.h"
 #include "Tr2ShLightingManager.h"
 #include "Tr2DebugRenderer.h"
 
@@ -28,13 +24,13 @@ BLUE_CLASS( EveChildCloud ) :
 	public Tr2DeviceResource,
 	public IInitialize,
 	public INotify,
-	public IEveSpaceObjectChild,
+	public EveSpaceObjectChild,
 	public ITr2DebugRenderable
 {
 public:
 	EXPOSE_TO_BLUE();
 
-	EveChildCloud(IRoot* lockobj = NULL);
+	EveChildCloud( IRoot* lockobj = NULL );
 	~EveChildCloud();
 
 	//////////////////////////////////////////////////////////////////////////
@@ -43,27 +39,23 @@ public:
 
 	//////////////////////////////////////////////////////////////////////////
 	// INotify
-	virtual bool OnModified( Be::Var* value );
+	virtual bool OnModified( Be::Var * value );
 
 	//////////////////////////////////////////////////////////////////////////////////////
-	// IEveSpaceObjectChild
-	virtual const char* GetName() const;
-	virtual void SetName( const char* name );
+	// EveSpaceObjectChild
 	virtual void UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
 	virtual void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
-	virtual void GetLocalToWorldTransform( Matrix &transform ) const;
+	virtual void GetLocalToWorldTransform( Matrix & transform ) const;
 	virtual void UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod );
-	virtual void GetRenderables( std::vector<ITr2Renderable*>& renderables );
-	virtual bool GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query=EVE_BOUNDS_NORMAL ) const;
-	virtual void Setup( const Vector3* scale, const Quaternion* rotation, const Vector3* translation, Tr2Lod lowestLodVisible ) {}
-	virtual void ChangeLOD( Tr2Lod lod ) {};
+	virtual void GetRenderables( std::vector<ITr2Renderable*> & renderables );
+	virtual bool GetBoundingSphere( Vector4 & sphere, BoundingSphereQuery query = EVE_BOUNDS_NORMAL ) const;
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2Renderable
-	virtual void GetBatches( ITriRenderBatchAccumulator* batches, TriBatchType batchType, const Tr2PerObjectData* perObjectData, Tr2RenderReason reason = TR2RENDERREASON_NORMAL );
+	virtual void GetBatches( ITriRenderBatchAccumulator * batches, TriBatchType batchType, const Tr2PerObjectData* perObjectData, Tr2RenderReason reason = TR2RENDERREASON_NORMAL );
 	virtual bool HasTransparentBatches();
 	virtual float GetSortValue();
-	virtual Tr2PerObjectData* GetPerObjectData( ITriRenderBatchAccumulator* accumulator );
+	virtual Tr2PerObjectData* GetPerObjectData( ITriRenderBatchAccumulator * accumulator );
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// ITriDeviceResource
@@ -71,8 +63,8 @@ public:
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// ITr2DebugRenderable
-	void GetDebugOptions( Tr2DebugRendererOptions& options );
-	void RenderDebugInfo( ITr2DebugRenderer2& renderer );
+	void GetDebugOptions( Tr2DebugRendererOptions & options );
+	void RenderDebugInfo( ITr2DebugRenderer2 & renderer );
 
 private:
 	bool OnPrepareResources();
@@ -96,7 +88,6 @@ private:
 	Tr2BufferAL m_vertexBuffer;
 	TrackableStdVector<Tr2BufferAL> m_indexBuffers;
 
-	std::string m_name;
 	bool m_display;
 	bool m_isVisible;
 	// Has UpdateSyncronous/UpdateAsyncronous been called: until it has, the object cannot be rendered

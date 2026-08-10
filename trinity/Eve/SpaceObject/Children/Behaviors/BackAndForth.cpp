@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "BackAndForth.h"
 #include "include/TriMath.h"
@@ -187,7 +189,7 @@ std::vector<Vector3> BackAndForth::CalculateBehavior( std::vector<DroneAgent>& a
 		}
 		agent->acceleration += desiredVelocity - agent->velocity;
 	}
-	
+
 	return todo;
 }
 

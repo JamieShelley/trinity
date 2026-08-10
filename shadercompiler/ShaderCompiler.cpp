@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   November 2011
-//    Copyright: CCP 2011
-//
+// Copyright © 2011 CCP ehf.
 
 #include "stdafx.h"
 #include "CachingIncludeHandler.h"
@@ -249,8 +245,8 @@ bool DiscoverPermutations( Permutations& permutations, const char* shaderSource,
 
 struct ProgramArguments
 {
-	ProgramArguments()
-		:shaderPath( nullptr ),
+	ProgramArguments() :
+		shaderPath( nullptr ),
 		outputPath( nullptr ),
 		pdbPath( nullptr ),
 		coreCount( std::max( 1u, std::thread::hardware_concurrency() ) ),
@@ -260,7 +256,6 @@ struct ProgramArguments
 		ignorePermutations( false ),
 		telemetry( false )
 	{
-
 	}
 
 	char* shaderPath;
@@ -505,7 +500,8 @@ void AddPermutationsToWorkQueue( CompileQueue& queue, const Permutations& permut
 struct WithTelemetry
 {
 #if CCP_TELEMETRY_ENABLED
-	explicit WithTelemetry( bool enable ) : m_enabled(enable)
+	explicit WithTelemetry( bool enable ) :
+		m_enabled( enable )
 	{
 		if( !enable )
 		{
@@ -518,7 +514,7 @@ struct WithTelemetry
 
 	~WithTelemetry()
 	{
-		if ( m_enabled )
+		if( m_enabled )
 		{
 			FrameMark;
 #if TRACY_MANUAL_LIFETIME
@@ -527,8 +523,8 @@ struct WithTelemetry
 		}
 	}
 
-	private:
-		bool m_enabled{false};
+private:
+	bool m_enabled{ false };
 #else
 	explicit WithTelemetry( bool )
 	{
@@ -584,9 +580,9 @@ LONG WINAPI ReportException( _In_ EXCEPTION_POINTERS* )
 
 
 #if _WIN32
-int _tmain(int argc, _TCHAR* argv[])
+int _tmain( int argc, _TCHAR* argv[] )
 #else
-int main(int argc, char* argv[])
+int main( int argc, char* argv[] )
 #endif
 {
 
@@ -658,7 +654,8 @@ int main(int argc, char* argv[])
 		{
 			for( auto jt = it->options.begin(); jt != it->options.end(); ++jt )
 			{
-				os << "#line " << it->location.lineNumber << std::endl << "#define " << jt->name << ' ' << jt->value << std::endl;
+				os << "#line " << it->location.lineNumber << std::endl
+				   << "#define " << jt->name << ' ' << jt->value << std::endl;
 			}
 		}
 		os << "#line 1" << std::endl;
@@ -826,7 +823,7 @@ int main(int argc, char* argv[])
 		fwrite( &version, 1, sizeof( uint32_t ), file );
 
 		fwrite( &ShaderCompilerVersion, sizeof( ShaderCompilerVersion ), 1, file );
-		
+
 		auto hash = GetSourceHash( args.shaderPath, args.defines );
 		fwrite( hash.c_str(), 1, hash.length(), file );
 
@@ -854,7 +851,7 @@ int main(int argc, char* argv[])
 			{
 				if( it->second )
 				{
-					for ( const auto& pdb : it->second->data.pdbs )
+					for( const auto& pdb : it->second->data.pdbs )
 					{
 						// Open the output pdbFile
 						FILE* pdbFile = nullptr;

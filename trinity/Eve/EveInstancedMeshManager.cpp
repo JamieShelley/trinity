@@ -1,3 +1,5 @@
+// Copyright © 2026 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveInstancedMeshManager.h"
 #include "../Tr2GpuStructuredBuffer.h"
@@ -725,7 +727,7 @@ std::pair<IRootPtr, uint32_t> EveInstancedMeshManager::GetPickedObject( uint32_t
 			BinVisibleInstances( mesh, meshInfo, group );
 			auto& lod = meshInfo.lodIndices[objectId - group.pickingObjectId];
 			uint32_t instanceId = 0;
-			if ( areaId < lod.size() )
+			if( areaId < lod.size() )
 			{
 				instanceId = uint32_t( mesh.isDynamic ? static_cast<const DynamicPerInstanceData*>( lod[areaId].first ) - group.dynamicInstances : static_cast<const StaticPerInstanceData*>( lod[areaId].first ) - group.staticInstances );
 			}
@@ -838,7 +840,7 @@ void EveInstancedMeshManager::GetPickingBatches( EvePendingPickingReadback& read
 
 				accumulator->Commit( batch );
 
-				traceback.push_back( {group.owner, group.ownerIndex} );
+				traceback.push_back( { group.owner, group.ownerIndex } );
 			}
 			objectIdOffset += static_cast<uint32_t>( meshInfo.lodIndices.size() );
 		}
@@ -983,9 +985,12 @@ void EveInstancedMeshManager::ReportUsedScreenSizes() const
 {
 	for( auto& [mesh, meshInfo] : m_meshInstances )
 	{
-		if( auto meshData = mesh.geometry->GetMeshLod( mesh.meshIndex, 0 ) )
+		if( meshInfo.maxScreenSize > 0.0f )
 		{
-			meshInfo.material->UsedWithScreenSize( meshInfo.maxScreenSize, meshInfo.radius, meshData->m_uvDensities );
+			if( auto meshData = mesh.geometry->GetMeshLod( mesh.meshIndex, 0 ) )
+			{
+				meshInfo.material->UsedWithScreenSize( meshInfo.maxScreenSize, meshInfo.radius, meshData->m_uvDensities );
+			}
 		}
 	}
 }

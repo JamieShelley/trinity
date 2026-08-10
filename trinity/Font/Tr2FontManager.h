@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef Tr2FontManager_H
 #define Tr2FontManager_H
@@ -15,7 +17,7 @@ BLUE_DECLARE_IVECTOR( IResFile );
 BLUE_DECLARE( Tr2FontManager );
 BLUE_DECLARE( Tr2SBitWrapper );
 BLUE_DECLARE( Tr2AtlasTexture );
-			 
+
 typedef uintptr_t FaceID;
 
 extern const char* TR2_FONT_FALLBACK;
@@ -29,11 +31,10 @@ extern const char* TR2_FONT_FALLBACK;
 // Tr2FontManager is a singleton, accessed from C++ via g_fontManager.
 // It exposes some functions to Python as Trinity module functions.
 //////////////////////////////////////////////////////////////////////////
-class Tr2FontManager : 
-	public IRoot,
-	public IBlueEvents,
-	public IWeakRef,
-	public Tr2DeviceResource
+class Tr2FontManager : public IRoot,
+					   public IBlueEvents,
+					   public IWeakRef,
+					   public Tr2DeviceResource
 {
 public:
 	EXPOSE_TO_BLUE();
@@ -62,16 +63,28 @@ public:
 	std::pair<int, int> LookupFaceIDAndGlyphIndex( const std::string& faceName, int charCode );
 
 	// Returns kerning value for the glyph pair
-	FT_Pos LookupKerningXP(const FaceID& faceID, int leftIndex, int rightIndex );
+	FT_Pos LookupKerningXP( const FaceID& faceID, int leftIndex, int rightIndex );
 
 	// Returns an sbit (small bitmap) for the given glyph index
 	Be::Result<std::string> LookupSBit( const FaceID& faceID, int width, int height, int glyphIndex, Tr2SBitWrapper** result );
 
-	FTC_Manager GetManager() const { return m_manager; }
-	FTC_CMapCache GetCmCache() const { return m_cmCache; }
-	FTC_SBitCache GetSbitCache() const { return m_sbitCache; }
+	FTC_Manager GetManager() const
+	{
+		return m_manager;
+	}
+	FTC_CMapCache GetCmCache() const
+	{
+		return m_cmCache;
+	}
+	FTC_SBitCache GetSbitCache() const
+	{
+		return m_sbitCache;
+	}
 
-	unsigned int GetLoadFlag() const { return m_loadflag; }
+	unsigned int GetLoadFlag() const
+	{
+		return m_loadflag;
+	}
 
 	bool GetAtlasTextureForSbit( FTC_SBit sbit, Tr2AtlasTexture** at );
 
@@ -99,6 +112,7 @@ public:
 	//////////////////////////////////////////////////////////////////////////
 	// ITriDeviceResource
 	virtual void ReleaseResources( TriStorage s );
+
 private:
 	bool OnPrepareResources();
 
@@ -122,7 +136,7 @@ private:
 
 	FT_Library m_ftLib;
 	FTC_Face_Requester m_requesterCallback;
-	
+
 	// Cache Managers
 	FTC_Manager m_manager;
 	FTC_CMapCache m_cmCache;

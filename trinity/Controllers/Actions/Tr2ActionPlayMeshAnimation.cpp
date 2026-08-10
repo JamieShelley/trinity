@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2ActionPlayMeshAnimation.h"
@@ -10,8 +6,8 @@
 #include "Tr2GrannyAnimation.h"
 
 
-Tr2ActionPlayMeshAnimation::Tr2ActionPlayMeshAnimation( IRoot* lockobj )
-	:m_controller( nullptr ),
+Tr2ActionPlayMeshAnimation::Tr2ActionPlayMeshAnimation( IRoot* lockobj ) :
+	m_controller( nullptr ),
 	m_destinationType( DestinationType::OWNER ),
 	m_playAction( ENQUEUE_PLAY ),
 	m_stopAction( ENQUEUE_STOP ),

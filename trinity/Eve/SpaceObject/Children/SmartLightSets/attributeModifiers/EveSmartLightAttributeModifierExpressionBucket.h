@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #pragma once
 #include "Tr2LightManager.h"
 #include "Tr2DebugRenderer.h"
@@ -33,8 +35,8 @@ public:
 
 	std::vector<Tr2ExpressionTermInfoPtr> GetExpressionTermInfo() const;
 	BlueStdResult EvaluateExpression( const char* expression, float& value ) const;
-private:
 
+private:
 	std::string m_name;
 	std::string m_expression;
 

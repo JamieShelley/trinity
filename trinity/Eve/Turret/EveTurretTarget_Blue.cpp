@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   November 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveTurretTarget.h"
@@ -11,8 +7,8 @@ BLUE_DEFINE( EveTurretTarget );
 
 const Be::ClassInfo* EveTurretTarget::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( EveTurretTarget, "" )
-        MAP_INTERFACE( EveTurretTarget )
+	EXPOSURE_BEGIN( EveTurretTarget, "" )
+		MAP_INTERFACE( EveTurretTarget )
 
 		MAP_ATTRIBUTE( "locator", m_locator, "Target locator ID", Be::READ )
 		MAP_ATTRIBUTE( "position", m_trackingPosition, "Position the turret is tracking", Be::READ )

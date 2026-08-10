@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #pragma once
 #include "IEveDistributionPlacementGenerators.h"
 #include "Eve/Volume/IEveVolume.h"
@@ -19,7 +21,7 @@ public:
 	bool IsRequestingRegeneration() override;
 	void RequestRegeneration();
 
-	
+
 
 	// IInitializ
 	bool Initialize() override;

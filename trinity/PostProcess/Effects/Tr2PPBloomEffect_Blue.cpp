@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		January 2019
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2PPBloomEffect.h"
@@ -39,7 +35,4 @@ const Be::ClassInfo* Tr2PPBloomEffect::ExposeToBlue()
 		MAP_ATTRIBUTE( "step6Tint", m_stepTints[5], "step6Tint", Be::READWRITE | Be::PERSIST )
 
 	EXPOSURE_CHAINTO( Tr2PPEffect )
-
-
 }
-

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2TranslationAdapter.h"
@@ -43,7 +39,7 @@ const Be::ClassInfo* Tr2TranslationAdapter::ExposeToBlue()
 			"RandomizeStart",
 			RandomizeStart,
 			1,
-			"Shits curve starting time by a random number in a specified range (-rng, +rng)\n"
+			"Shifts curve starting time by a random number in a specified range (-rng, +rng)\n"
 			":param rng: radius of the random range in seconds (default is 60 sec)" )
 
 		MAP_METHOD_AND_WRAP(

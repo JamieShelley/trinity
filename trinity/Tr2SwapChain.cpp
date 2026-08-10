@@ -1,10 +1,12 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2SwapChain.h"
 #include "Tr2DepthStencil.h"
 #include "Tr2RenderTarget.h"
 
-Tr2SwapChain::Tr2SwapChain( IRoot* lockobj )
-	:m_windowHandle( 0 )
+Tr2SwapChain::Tr2SwapChain( IRoot* lockobj ) :
+	m_windowHandle( 0 )
 {
 }
 

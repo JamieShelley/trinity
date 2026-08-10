@@ -1,13 +1,14 @@
+// Copyright © 2026 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildAudio.h"
 
 
-EveChildAudio::EveChildAudio(	IRoot* lockobj	): 
-m_name( "EveChildAudio" ),
-m_mute( false ),
-m_worldTransform( IdentityMatrix() )
+EveChildAudio::EveChildAudio( IRoot* lockobj ) :
+	m_mute( false ),
+	m_worldTransform( IdentityMatrix() )
 {
-
+	m_name = BlueSharedString( "EveChildAudio" );
 }
 
 bool EveChildAudio::Initialize()
@@ -29,9 +30,9 @@ bool EveChildAudio::Initialize()
 		}
 		else
 		{
-			emitterName = m_name;
+			emitterName = m_name.c_str();
 		}
-		m_audioEmitter->Initialize( emitterName, L"", position);
+		m_audioEmitter->Initialize( emitterName, L"", position );
 
 		return true;
 	}
@@ -67,40 +68,15 @@ bool EveChildAudio::OnModified( Be::Var* val )
 		}
 		else
 		{
-			SetEmitterName( m_name );
+			SetEmitterName( m_name.c_str() );
 		}
 	}
 	return true;
 }
 
-const char* EveChildAudio::GetName() const
-{
-	return m_name.c_str();
-}
-
-void EveChildAudio::SetName( const char* name )
-{
-	m_name = name;
-}
-
 void EveChildAudio::GetLocalToWorldTransform( Matrix& transform ) const
 {
 	transform = m_worldTransform;
-}
-
-void EveChildAudio::Setup( const Vector3* scale, const Quaternion* rotation, const Vector3* translation, Tr2Lod lowestLodVisible )
-{
-
-}
-
-void EveChildAudio::GetRenderables( std::vector<ITr2Renderable*>& renderables )
-{
-
-}
-
-bool EveChildAudio::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query ) const
-{
-	return false;
 }
 
 void EveChildAudio::UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )
@@ -120,19 +96,15 @@ void EveChildAudio::UpdateSyncronous( const EveUpdateContext& updateContext, con
 	}
 	UpdateTransform( localToWorldTransform );
 
-	if( m_audioEmitter && !m_mute)
+	if( m_audioEmitter && !m_mute )
 	{
 		Vector3 position = m_worldTransform.GetTranslation();
 		Quaternion rotation = RotationQuaternion( m_worldTransform );
 		Matrix rotationMatrix = RotationMatrix( rotation );
-		Vector3 front = TransformNormal( Vector3( 0, 1, 0 ), rotationMatrix);
+		Vector3 front = TransformNormal( Vector3( 0, 1, 0 ), rotationMatrix );
 		Vector3 top = TransformNormal( Vector3( 0, 0, 1 ), rotationMatrix );
 		m_audioEmitter->SetPosition( front, top, position );
 	}
-}
-
-void EveChildAudio::UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )
-{
 }
 
 void EveChildAudio::SetEmitterName( const std::string& name )
@@ -141,15 +113,6 @@ void EveChildAudio::SetEmitterName( const std::string& name )
 	{
 		m_audioEmitter->SetName( name.c_str() );
 	}
-}
-
-void EveChildAudio::UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod )
-{
-
-}
-
-void EveChildAudio::ChangeLOD( Tr2Lod lod )
-{
 }
 
 void EveChildAudio::GetDebugOptions( Tr2DebugRendererOptions& options )

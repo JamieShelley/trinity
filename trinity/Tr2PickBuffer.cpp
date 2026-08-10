@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2PickBuffer.h"
 #include "Tr2Renderer.h"
@@ -35,7 +37,7 @@ void Tr2PickBuffer::ReleaseResources( TriStorage s )
 // ------------------------------------------------------------------------------------------------------
 bool Tr2PickBuffer::OnPrepareResources()
 {
-    int const size( std::max( m_size, 1 ) );
+	int const size( std::max( m_size, 1 ) );
 
 	// create the pixel buffer as a rendertarget
 	USE_MAIN_THREAD_RENDER_CONTEXT();

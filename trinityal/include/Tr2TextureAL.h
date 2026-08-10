@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 #include "../Tr2DeviceResourceAL.h"
@@ -6,9 +8,9 @@
 
 namespace TrinityALImpl
 {
-	class Tr2TextureAL;
-	class Tr2ResourceSetAL;
-	class Tr2SwapChainAL;
+class Tr2TextureAL;
+class Tr2ResourceSetAL;
+class Tr2SwapChainAL;
 }
 
 

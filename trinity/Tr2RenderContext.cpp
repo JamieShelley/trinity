@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   July 2013
-//    Copyright: CCP 2013
-//
+// Copyright © 2013 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2RenderContext.h"
@@ -155,7 +151,12 @@ Tr2RenderTargetPtr Tr2RenderContextBase::GetBackBuffer()
 Tr2RenderContext::Tr2RenderContext() :
 	Tr2RenderContextBase( *this ),
 	m_parallelContextMutex( "Tr2RenderContext", "m_parallelContextMutex" ),
+
+#ifdef PYTHON2_SUPPORT
 	m_parallelContextSemaphore( 0, 1024 )
+#else
+	m_parallelContextSemaphore( "Tr2RenderContext_m_parallelContextSemaphore", 0, 1024 )
+#endif
 {
 #if !TRINITY_PLATFORM_HAS_PRIMARY_CONTEXT
 	m_events = this;
@@ -203,7 +204,7 @@ uint32_t Tr2RenderContext::BeginParallelEncoding( uint32_t count )
 			context.CreateInstance();
 			m_parallelContexts.push_back( context );
 		}
-		
+
 		for( uint32_t i = 0; i < available; ++i )
 		{
 			PrepareParallelContext( i, *m_parallelContexts[i] );
@@ -651,23 +652,23 @@ void Tr2RenderContextBase::RenderGdprBatches( ITriRenderBatchAccumulator* batche
 		{
 			CCP_STATS_ZONE( "Prepare" );
 
-		uint32_t size = uint32_t( gdprBatches.size() );
-		uint32_t endIndex = 0;
-		for( uint32_t firstIndex = 0; firstIndex < size; firstIndex = endIndex )
-		{
-			auto& firstBatch = gdprBatches[firstIndex];
-			endIndex = firstIndex + firstBatch.m_groupCount;
+			uint32_t size = uint32_t( gdprBatches.size() );
+			uint32_t endIndex = 0;
+			for( uint32_t firstIndex = 0; firstIndex < size; firstIndex = endIndex )
+			{
+				auto& firstBatch = gdprBatches[firstIndex];
+				endIndex = firstIndex + firstBatch.m_groupCount;
 
-			uint32_t technique;
+				uint32_t technique;
 				if( !firstBatch.m_shader->GetTechniqueIndex( techniqueName, technique ) )
-			{
-				continue;
-			}
+				{
+					continue;
+				}
 				const uint32_t passCount = firstBatch.m_shader->GetPassCount( technique );
-			if( passCount == 0 )
-			{
-				continue;
-			}
+				if( passCount == 0 )
+				{
+					continue;
+				}
 
 				for( uint32_t passIx = 0; passIx < passCount; ++passIx )
 				{
@@ -739,7 +740,7 @@ void Tr2RenderContextBase::RenderGdprBatches( ITriRenderBatchAccumulator* batche
 					renderContext->SetAllState();
 					renderContext->FlushGraphicsBarriersDx12();
 #elif TRINITY_PLATFORM == TRINITY_METAL
-                    renderContext->CheckDrawResources();
+					renderContext->CheckDrawResources();
 #endif
 				}
 				s_buffer.Submit( bin.writer );

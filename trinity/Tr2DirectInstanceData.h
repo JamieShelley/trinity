@@ -1,3 +1,5 @@
+// Copyright © 2026 CCP ehf.
+
 #pragma once
 #ifndef Tr2DirectInstanceData_H
 #define Tr2DirectInstanceData_H
@@ -8,8 +10,8 @@
 
 // --------------------------------------------------------------------------------------
 // Description:
-//   Tr2DirectInstanceData is an instance data provider. Unlike Tr2RuntimeInstanceData, 
-//   it does not maintain a CPU copy and uses direct GPU buffer access for write-often 
+//   Tr2DirectInstanceData is an instance data provider. Unlike Tr2RuntimeInstanceData,
+//   it does not maintain a CPU copy and uses direct GPU buffer access for write-often
 //   scenarios.
 // See Also:
 //   Tr2RuntimeInstanceData
@@ -22,6 +24,7 @@ public:
 	EXPOSE_TO_BLUE();
 	Tr2DirectInstanceData( IRoot* lockobj = 0 );
 	void ReleaseResources( TriStorage s );
+
 private:
 	bool OnPrepareResources();
 

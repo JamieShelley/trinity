@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		June 2022
-// Copyright:	CCP 2022
-//
+// Copyright © 2022 CCP ehf.
 
 #pragma once
 
@@ -34,7 +30,7 @@ protected:
 
 private:
 	bool ParseIes();
-	static bool ParseIes( const std::string& contents, ImageIO::HostBitmap & bitmap );
+	static bool ParseIes( const std::string& contents, ImageIO::HostBitmap& bitmap );
 
 	ImageIO::HostBitmap m_bitmap;
 	Tr2TextureArrayElement m_element;

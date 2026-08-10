@@ -1,13 +1,10 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
+
 #pragma once
 #ifndef EveChildSocket_H
 #define EveChildSocket_H
 
-#include "IEveSpaceObjectChild.h"
+#include "EveSpaceObjectChild.h"
 #include "IEveEffectChildrenOwner.h"
 #include "EveChildTransform.h"
 #include "Tr2DebugRenderer.h"
@@ -22,7 +19,7 @@ BLUE_DECLARE_IVECTOR( IEveSocketParameter );
 
 
 BLUE_CLASS( EveChildSocket ) :
-	public IEveSpaceObjectChild,
+	public EveSpaceObjectChild,
 	public EveChildTransform,
 	public ITr2CurveSetOwner,
 	public IInitialize,
@@ -43,7 +40,7 @@ public:
 	void SetPlugResPath( const char* resPath );
 
 	void Reload();
-	bool AddParameterForExternal( Tr2ExternalParameter& externalParam );
+	bool AddParameterForExternal( Tr2ExternalParameter & externalParam );
 	void BindParameters();
 	void Propogate();
 
@@ -53,18 +50,13 @@ public:
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// INotify
-	virtual bool OnModified( Be::Var* value );
-
-	/////////////////////////////////////////////////////////////////////////////////////
-	// IEveSpaceObjectChild
-	const char* GetName() const;
-	void SetName( const char* name );
+	virtual bool OnModified( Be::Var * value );
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IEveEffectChildrenOwner
-	IEveSpaceObjectChildPtr GetEffectChildByName( const char* name ) const;
-	void AddToEffectChildrenList( IEveSpaceObjectChild* child );
-	void RemoveFromEffectChildrenList( IEveSpaceObjectChild* child );
+	EveSpaceObjectChildPtr GetEffectChildByName( const char* name ) const;
+	void AddToEffectChildrenList( EveSpaceObjectChild * child );
+	void RemoveFromEffectChildrenList( EveSpaceObjectChild * child );
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// EveEntity
@@ -72,18 +64,21 @@ public:
 	void UnRegisterComponents() override;
 
 	void UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod );
-	void GetRenderables( std::vector<ITr2Renderable*>& renderables );
-	bool GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query = EVE_BOUNDS_NORMAL ) const;
-	void RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer );
+	void GetRenderables( std::vector<ITr2Renderable*> & renderables );
+	bool GetBoundingSphere( Vector4 & sphere, BoundingSphereQuery query = EVE_BOUNDS_NORMAL ) const;
+	void RegisterWithQuadRenderer( Tr2QuadRenderer & quadRenderer );
 	void AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer ) const;
 
 	void UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
-	void GetLocalToWorldTransform( Matrix& transform ) const;
+	void GetLocalToWorldTransform( Matrix & transform ) const;
 
 	void SetShaderOption( const BlueSharedString& name, const BlueSharedString& value ) override;
 
 	void Setup( const Vector3* scale, const Quaternion* rotation, const Vector3* translation, Tr2Lod lowestLodVisible );
+
+	void SetOwner( IEveSpaceObject2 * owner ) override;
+	void SetPartTag( PartTag tag ) override;
 
 	void PlayAllCurveSets();
 	void StopAllCurveSets();
@@ -102,8 +97,8 @@ public:
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2DebugRenderable
-	void GetDebugOptions( Tr2DebugRendererOptions& options );
-	void RenderDebugInfo( ITr2DebugRenderer2& renderer );
+	void GetDebugOptions( Tr2DebugRendererOptions & options );
+	void RenderDebugInfo( ITr2DebugRenderer2 & renderer );
 
 	ITr2AudEmitterPtr FindSoundEmitter( const char* name ) override;
 
@@ -112,11 +107,10 @@ protected:
 
 	EveChildPlugPtr m_plug;
 
-	BlueSharedString m_name;
 	std::string m_plugResPath;
 
 	bool m_display;
-	
+
 	PIEveSocketParameterVector m_parameters;
 };
 

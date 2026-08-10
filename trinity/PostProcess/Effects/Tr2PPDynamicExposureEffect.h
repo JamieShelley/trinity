@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		2/5/2019 
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #pragma once
 
@@ -32,7 +28,6 @@ public:
 	float m_minExposure;
 	float m_maxExposure;
 	bool m_debug;
-
 };
 TYPEDEF_BLUECLASS( Tr2PPDynamicExposureEffect );
 

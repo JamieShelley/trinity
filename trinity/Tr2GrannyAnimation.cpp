@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2GrannyAnimation.h"
 #include "Resources/TriGrannyRes.h"
@@ -19,46 +21,46 @@ TRI_REGISTER_SETTING( "debugBoneLabelFont", g_debugBoneLabelFont );
 
 namespace Tr2GrannyAnimationUtils
 {
-	bool GetBoneList( Tr2GrannyAnimation* animationUpdater, const Float4x3*& bones, size_t& boneCount )
+bool GetBoneList( Tr2GrannyAnimation* animationUpdater, const Float4x3*& bones, size_t& boneCount )
+{
+	if( animationUpdater && animationUpdater->IsInitialized() )
 	{
-		if( animationUpdater && animationUpdater->IsInitialized() )
+		boneCount = size_t( animationUpdater->GetMeshBoneCount() );
+		if( boneCount )
 		{
-			boneCount = size_t( animationUpdater->GetMeshBoneCount() );
-			if( boneCount )
-			{
-				bones = animationUpdater->GetMeshBoneMatrixList();
-				return true;
-			}
-			else
-			{
-				bones = nullptr;
-			}
+			bones = animationUpdater->GetMeshBoneMatrixList();
+			return true;
 		}
 		else
 		{
-			boneCount = 0;
 			bones = nullptr;
 		}
-		return false;
 	}
-	
-	std::vector<int32_t> CreateMapping( const cmf::Skeleton& skeleton, cmf::Span<cmf::BoneBinding> boneBindings, uint32_t meshBoneCount )
+	else
 	{
-		std::vector<int32_t> mapping( meshBoneCount, -1 );
-		for( uint32_t meshBoneIndex = 0; meshBoneIndex < meshBoneCount; ++meshBoneIndex )
-		{
-			const auto boundBoneName = boneBindings[meshBoneIndex].name;
-
-			auto foundBone = std::find_if( skeleton.bones.begin(), skeleton.bones.end(), [boundBoneName]( cmf::String boneName ) {
-				return boundBoneName == boneName;
-			} );
-			if( foundBone != skeleton.bones.end() )
-			{
-				mapping[meshBoneIndex] = (int32_t)std::distance( skeleton.bones.begin(), foundBone );
-			}
-		}
-		return mapping;
+		boneCount = 0;
+		bones = nullptr;
 	}
+	return false;
+}
+
+std::vector<int32_t> CreateMapping( const cmf::Skeleton& skeleton, cmf::Span<cmf::BoneBinding> boneBindings, uint32_t meshBoneCount )
+{
+	std::vector<int32_t> mapping( meshBoneCount, -1 );
+	for( uint32_t meshBoneIndex = 0; meshBoneIndex < meshBoneCount; ++meshBoneIndex )
+	{
+		const auto boundBoneName = boneBindings[meshBoneIndex].name;
+
+		auto foundBone = std::find_if( skeleton.bones.begin(), skeleton.bones.end(), [boundBoneName]( cmf::String boneName ) {
+			return boundBoneName == boneName;
+		} );
+		if( foundBone != skeleton.bones.end() )
+		{
+			mapping[meshBoneIndex] = (int32_t)std::distance( skeleton.bones.begin(), foundBone );
+		}
+	}
+	return mapping;
+}
 };
 
 static const int MAX_JOINT_COUNT = 254;
@@ -80,7 +82,7 @@ Tr2GrannyAnimation::Tr2GrannyAnimation( IRoot* lockobj ) :
 	m_debugRenderSkeleton( false ),
 	m_debugRenderJointNames( false ),
 	m_baseLayer( 1.f ),
-	m_modelIndex( 0 ),
+	m_modelIndex( -1 ),
 	m_animationEnabled( true ),
 	m_boneBoundsInitialized( false ),
 	m_additiveMode( false ),
@@ -105,10 +107,10 @@ Tr2GrannyAnimation::~Tr2GrannyAnimation()
 	{
 		m_grannyRes->RemoveNotifyTarget( this );
 	}
-	
-	for ( auto it = m_secondaryGrannyRes.begin(); it != m_secondaryGrannyRes.end(); it++ )
+
+	for( auto it = m_secondaryGrannyRes.begin(); it != m_secondaryGrannyRes.end(); it++ )
 	{
-		if ( it->second )
+		if( it->second )
 		{
 			it->second->RemoveNotifyTarget( this );
 		}
@@ -116,18 +118,17 @@ Tr2GrannyAnimation::~Tr2GrannyAnimation()
 }
 
 #if WITH_GRANNY
-int AnimNameToIndex( const granny_file_info* fi, const char *name )
+int AnimNameToIndex( const granny_file_info* fi, const char* name )
 {
 	int index = fi->AnimationCount;
 
-	for( int i = 0; i < fi->AnimationCount ; ++i )
+	for( int i = 0; i < fi->AnimationCount; ++i )
 	{
 		if( strcmp( fi->Animations[i]->Name, name ) == 0 )
 		{
 			index = i;
 			break;
 		}
-
 	}
 
 	return index;
@@ -152,7 +153,7 @@ const cmf::Data* GetSecondaryCMFFileInfo( const std::string& cmfResPath, const T
 #if WITH_GRANNY
 granny_file_info* GetSecondaryFileInfo( const std::string& grannyResPath, const TriGrannyResPtr grannyPtr )
 {
-	if ( !grannyPtr || !grannyPtr->IsPrepared() )
+	if( !grannyPtr || !grannyPtr->IsPrepared() )
 	{
 		return nullptr;
 	}
@@ -222,18 +223,18 @@ granny_animation* Tr2GrannyAnimation::FindGrannyAnimationByName( const char* nam
 		return fi->Animations[animIx];
 	}
 
-	for ( auto it=m_secondaryGrannyRes.begin(); it != m_secondaryGrannyRes.end(); ++it )
+	for( auto it = m_secondaryGrannyRes.begin(); it != m_secondaryGrannyRes.end(); ++it )
 	{
-		if ( !it->second )
+		if( !it->second )
 		{
 			continue;
 		}
 		fi = GetSecondaryFileInfo( it->first, it->second );
-		if (!fi)
+		if( !fi )
 		{
 			continue;
 		}
-		
+
 		animIx = AnimNameToIndex( fi, name );
 
 		if( animIx != fi->AnimationCount )
@@ -324,7 +325,7 @@ bool Tr2GrannyAnimation::Initialize()
 		m_grannyRes->RemoveNotifyTarget( this );
 		m_grannyRes.Unlock();
 	}
-	
+
 	if( !m_geometryRes && !m_resPath.empty() )
 	{
 		BeResMan->GetResource( m_resPath.c_str(), "raw", BlueInterfaceIID<TriGrannyRes>(), (void**)&m_grannyRes );
@@ -336,21 +337,21 @@ bool Tr2GrannyAnimation::Initialize()
 	}
 
 	m_boneBounds.clear();
-	
+
 	return true;
 }
 
 void Tr2GrannyAnimation::LoadSecondaryResPath( const std::string& val )
 {
-	if ( m_secondaryGrannyRes[val] )
+	if( m_secondaryGrannyRes[val] )
 	{
 		m_secondaryGrannyRes[val]->RemoveNotifyTarget( this );
 		m_secondaryGrannyRes[val].Unlock();
 	}
 
-	BeResMan->GetResource( val.c_str(), "raw",  BlueInterfaceIID<TriGrannyRes>(), (void**)&m_secondaryGrannyRes[val]);
+	BeResMan->GetResource( val.c_str(), "raw", BlueInterfaceIID<TriGrannyRes>(), (void**)&m_secondaryGrannyRes[val] );
 
-	if ( m_secondaryGrannyRes[val] )
+	if( m_secondaryGrannyRes[val] )
 	{
 		m_secondaryGrannyRes[val]->AddNotifyTarget( this );
 	}
@@ -382,7 +383,7 @@ granny_file_info* Tr2GrannyAnimation::GetFileInfo() const
 	{
 		return m_geometryRes->GetGrannyInfo();
 	}
-	
+
 	return nullptr;
 }
 #endif
@@ -590,7 +591,7 @@ void Tr2GrannyAnimation::RebuildCachedData( BlueAsyncRes* p )
 
 				if( cmfData->meshes.size() > 0 )
 				{
-					m_modelIndex = cmfData->meshes[0].skeleton;
+					m_modelIndex = cmfData->meshes[0].skeleton == 0xff ? -1 : cmfData->meshes[0].skeleton;
 				}
 			}
 			else if( !m_model.empty() )
@@ -653,6 +654,7 @@ void Tr2GrannyAnimation::RebuildCachedData( BlueAsyncRes* p )
 		}
 		else
 		{
+			m_modelIndex = -1;
 			m_pose.boneTransforms.clear();
 			m_pose.skeleton = nullptr;
 			m_tmpPose.boneTransforms.clear();
@@ -703,9 +705,9 @@ void Tr2GrannyAnimation::RebuildCachedData( BlueAsyncRes* p )
 			if( m_useMeshBinding )
 			{
 				m_modelIndex = -1;
-				for( int i = 0; i < fi->ModelCount ; ++i )
+				for( int i = 0; i < fi->ModelCount; ++i )
 				{
-					for( int j = 0; j < fi->Models[i]->MeshBindingCount ; ++j )
+					for( int j = 0; j < fi->Models[i]->MeshBindingCount; ++j )
 					{
 						if( fi->Models[i]->MeshBindings[j].Mesh == fi->Meshes[0] )
 						{
@@ -725,7 +727,7 @@ void Tr2GrannyAnimation::RebuildCachedData( BlueAsyncRes* p )
 				// A named model is specified - look for its index
 				m_modelIndex = -1;
 
-				for( int i = 0; i < fi->ModelCount ; ++i )
+				for( int i = 0; i < fi->ModelCount; ++i )
 				{
 					if( m_model == fi->Models[i]->Name )
 					{
@@ -734,7 +736,7 @@ void Tr2GrannyAnimation::RebuildCachedData( BlueAsyncRes* p )
 					}
 				}
 			}
-		
+
 			if( m_modelIndex != -1 )
 			{
 				m_baseLayer.InitializeAnimationLayer( this );
@@ -753,7 +755,7 @@ void Tr2GrannyAnimation::RebuildCachedData( BlueAsyncRes* p )
 
 				if( m_meshBindingIndex != -1 )
 				{
-					m_meshBinding = GrannyNewMeshBinding ( fi->Models[ m_modelIndex ]->MeshBindings[ m_meshBindingIndex ].Mesh, m_skeleton, m_skeleton );
+					m_meshBinding = GrannyNewMeshBinding( fi->Models[m_modelIndex]->MeshBindings[m_meshBindingIndex].Mesh, m_skeleton, m_skeleton );
 				}
 				else
 				{
@@ -785,11 +787,12 @@ void Tr2GrannyAnimation::RebuildCachedData( BlueAsyncRes* p )
 			}
 		}
 		else
-		{		
-			m_skeleton		= nullptr;
-			m_worldPose		= nullptr;
-			m_localPose		= nullptr;
-			m_compositePose	= nullptr;
+		{
+			m_modelIndex = -1;
+			m_skeleton = nullptr;
+			m_worldPose = nullptr;
+			m_localPose = nullptr;
+			m_compositePose = nullptr;
 
 			m_baseLayer.Cleanup();
 			for( auto it = m_animationLayers.begin(); it != m_animationLayers.end(); it++ )
@@ -863,6 +866,11 @@ bool Tr2GrannyAnimation::InitializeBoundingInfo()
 			return false;
 		}
 
+		if( m_modelIndex == -1 )
+		{
+			return false;
+		}
+
 		auto& skeleton = cmfData->skeletons[m_modelIndex];
 
 		auto boneBindings = cmfData->meshes[0].boneBindings;
@@ -870,8 +878,7 @@ bool Tr2GrannyAnimation::InitializeBoundingInfo()
 		for( int boneIdx = 0; boneIdx < skeleton.bones.size(); boneIdx++ )
 		{
 			auto name = skeleton.bones[boneIdx];
-			auto boneBinding = std::find_if( boneBindings.begin(), boneBindings.end(), [name]( const cmf::BoneBinding& bb ) 
-			{
+			auto boneBinding = std::find_if( boneBindings.begin(), boneBindings.end(), [name]( const cmf::BoneBinding& bb ) {
 				return name == bb.name;
 			} );
 			if( boneBinding != boneBindings.end() )
@@ -891,7 +898,7 @@ bool Tr2GrannyAnimation::InitializeBoundingInfo()
 				m_boneBounds.push_back( bounds );
 			}
 		}
-	
+
 		return true;
 	}
 #if WITH_GRANNY
@@ -950,7 +957,7 @@ bool Tr2GrannyAnimation::InitializeBoundingInfo()
 #endif
 }
 
-bool Tr2GrannyAnimation::GetDynamicBounds( Vector4& boundingSphere, Vector3 &aabbMin, Vector3 &aabbMax )
+bool Tr2GrannyAnimation::GetDynamicBounds( Vector4& boundingSphere, Vector3& aabbMin, Vector3& aabbMax )
 {
 	if( IsUsingCMF() )
 	{
@@ -1002,7 +1009,7 @@ bool Tr2GrannyAnimation::GetDynamicBounds( Vector4& boundingSphere, Vector3 &aab
 		}
 
 		const granny_file_info* fi = GetFileInfo();
-		if( fi )
+		if( fi && m_modelIndex != -1 )
 		{
 			aabbMin += *reinterpret_cast<Vector3*>( fi->Models[m_modelIndex]->InitialPlacement.Position );
 			aabbMax += *reinterpret_cast<Vector3*>( fi->Models[m_modelIndex]->InitialPlacement.Position );
@@ -1042,7 +1049,12 @@ void Tr2GrannyAnimation::RenderBones( const Matrix& modelTransform, const Tr2Ani
 			return;
 		}
 
-		auto& skeleton = GetCMFData()->skeletons[m_modelIndex];
+		const cmf::Skeleton* skeletonPtr = GetSkeleton();
+		if( !skeletonPtr )
+		{
+			return;
+		}
+		const cmf::Skeleton& skeleton = *skeletonPtr;
 
 		for( int boneIdx = 0; boneIdx < boneCount; boneIdx++ )
 		{
@@ -1080,7 +1092,7 @@ void Tr2GrannyAnimation::RenderBones( const Matrix& modelTransform, const Tr2Ani
 		Vector3 initialPlacement( 0, 0, 0 );
 		const granny_file_info* fi = GetFileInfo();
 		Matrix initialTranslation;
-		if( fi )
+		if( fi && m_modelIndex != -1 )
 		{
 			initialPlacement = *reinterpret_cast<Vector3*>( fi->Models[m_modelIndex]->InitialPlacement.Position );
 		}
@@ -1188,7 +1200,7 @@ void Tr2GrannyAnimation::RenderDynamicBounds( const Matrix& modelTransform )
 		Vector3 initialPlacement( 0, 0, 0 );
 		const granny_file_info* fi = GetFileInfo();
 		Matrix initialTranslation;
-		if( fi )
+		if( fi && m_modelIndex != -1 )
 		{
 			initialPlacement = *reinterpret_cast<Vector3*>( fi->Models[m_modelIndex]->InitialPlacement.Position );
 		}
@@ -1254,8 +1266,8 @@ void Tr2GrannyAnimation::SetResPath( const std::string& val )
 
 void Tr2GrannyAnimation::AddSecondaryResPath( const std::string& val )
 {
-	auto fi=m_secondaryGrannyRes.find( val );
-	if ( fi == m_secondaryGrannyRes.end() )
+	auto fi = m_secondaryGrannyRes.find( val );
+	if( fi == m_secondaryGrannyRes.end() )
 	{
 		m_secondaryGrannyRes[val] = nullptr;
 		LoadSecondaryResPath( val );
@@ -1264,10 +1276,10 @@ void Tr2GrannyAnimation::AddSecondaryResPath( const std::string& val )
 
 const std::string Tr2GrannyAnimation::GetSecondaryAnimationName( const std::string& resPath, int index ) const
 {
-	auto fi=m_secondaryGrannyRes.find( resPath );
-	if ( fi != m_secondaryGrannyRes.end() )
+	auto fi = m_secondaryGrannyRes.find( resPath );
+	if( fi != m_secondaryGrannyRes.end() )
 	{
-		auto animName = fi->second->GetAnimationName(index);
+		auto animName = fi->second->GetAnimationName( index );
 		return animName;
 	}
 	return "";
@@ -1307,49 +1319,49 @@ bool Tr2GrannyAnimation::CalculateSkinnedBoundingBoxFromTransform( const Matrix&
 		return false;
 	}
 
-    // Known input and output vertex format
-    granny_mesh* mesh = fi->Models[ m_modelIndex ]->MeshBindings[ m_meshBindingIndex ].Mesh;
-    granny_int32x vertCount = GrannyGetMeshVertexCount( mesh );
+	// Known input and output vertex format
+	granny_mesh* mesh = fi->Models[m_modelIndex]->MeshBindings[m_meshBindingIndex].Mesh;
+	granny_int32x vertCount = GrannyGetMeshVertexCount( mesh );
 
-    std::vector<granny_pwn313_vertex> sourceVerts( vertCount );
-    std::vector<granny_pn33_vertex> deformedVerts( vertCount );
+	std::vector<granny_pwn313_vertex> sourceVerts( vertCount );
+	std::vector<granny_pn33_vertex> deformedVerts( vertCount );
 
-    GrannyCopyMeshVertices(mesh, GrannyPWN313VertexType, &sourceVerts[0]);
+	GrannyCopyMeshVertices( mesh, GrannyPWN313VertexType, &sourceVerts[0] );
 
-	granny_mesh_deformer* deformer = GrannyNewMeshDeformer(GrannyPWN313VertexType,
-                                                               GrannyPN33VertexType,
-                                                               GrannyDeformPositionNormal,
-                                                               GrannyDontAllowUncopiedTail);
+	granny_mesh_deformer* deformer = GrannyNewMeshDeformer( GrannyPWN313VertexType,
+															GrannyPN33VertexType,
+															GrannyDeformPositionNormal,
+															GrannyDontAllowUncopiedTail );
 	if( !deformer )
 	{
 		return false;
 	}
 
-	GrannyDeformVertices(deformer, GrannyGetMeshBindingFromBoneIndices( m_meshBinding ),
-                        (granny_real32*)GrannyGetWorldPoseComposite4x4Array( m_worldPose ), vertCount, &sourceVerts[0], &deformedVerts[0] );
+	GrannyDeformVertices( deformer, GrannyGetMeshBindingFromBoneIndices( m_meshBinding ), (granny_real32*)GrannyGetWorldPoseComposite4x4Array( m_worldPose ), vertCount, &sourceVerts[0], &deformedVerts[0] );
 
 	// Get the transformed bounding box
-	bbMin = Vector3(  FLT_MAX,  FLT_MAX,  FLT_MAX );
+	bbMin = Vector3( FLT_MAX, FLT_MAX, FLT_MAX );
 	bbMax = Vector3( -FLT_MAX, -FLT_MAX, -FLT_MAX );
-    for (int v = 0; v < vertCount; ++v)
-    {
-		Vector4 pos( 
-			deformedVerts[v].Position[0] + fi->Models[ m_modelIndex ]->InitialPlacement.Position[0], 
-			deformedVerts[v].Position[1] + fi->Models[ m_modelIndex ]->InitialPlacement.Position[1], 
-			deformedVerts[v].Position[2] + fi->Models[ m_modelIndex ]->InitialPlacement.Position[2], 1 );
+	for( int v = 0; v < vertCount; ++v )
+	{
+		Vector4 pos(
+			deformedVerts[v].Position[0] + fi->Models[m_modelIndex]->InitialPlacement.Position[0],
+			deformedVerts[v].Position[1] + fi->Models[m_modelIndex]->InitialPlacement.Position[1],
+			deformedVerts[v].Position[2] + fi->Models[m_modelIndex]->InitialPlacement.Position[2],
+			1 );
 
 		pos = Transform( pos, transform );
 		pos /= pos.w;
 
-        bbMin.x = min(bbMin.x, pos.x);
-        bbMax.x = max(bbMax.x, pos.x);
-		
-		bbMin.y = min(bbMin.y, pos.y);
-        bbMax.y = max(bbMax.y, pos.y);
-		
-		bbMin.z = min(bbMin.z, pos.z);
-        bbMax.z = max(bbMax.z, pos.z);
-    }
+		bbMin.x = min( bbMin.x, pos.x );
+		bbMax.x = max( bbMax.x, pos.x );
+
+		bbMin.y = min( bbMin.y, pos.y );
+		bbMax.y = max( bbMax.y, pos.y );
+
+		bbMin.z = min( bbMin.z, pos.z );
+		bbMax.z = max( bbMax.z, pos.z );
+	}
 
 	return true;
 }
@@ -1372,26 +1384,25 @@ Vector4 Tr2GrannyAnimation::CalculateSkinnedBoundingSphere( granny_file_info* fi
 		return Vector4( 0.f, 0.f, 0.f, -1.f );
 	}
 
-    // Known input and output vertex format
-    granny_mesh* mesh = fi->Models[ m_modelIndex ]->MeshBindings[ m_meshBindingIndex ].Mesh;
-    granny_int32x vertCount = GrannyGetMeshVertexCount( mesh );
+	// Known input and output vertex format
+	granny_mesh* mesh = fi->Models[m_modelIndex]->MeshBindings[m_meshBindingIndex].Mesh;
+	granny_int32x vertCount = GrannyGetMeshVertexCount( mesh );
 
-    std::vector<granny_pwn313_vertex> sourceVerts( vertCount );
-    std::vector<granny_pn33_vertex> deformedVerts( vertCount );
+	std::vector<granny_pwn313_vertex> sourceVerts( vertCount );
+	std::vector<granny_pn33_vertex> deformedVerts( vertCount );
 
-    GrannyCopyMeshVertices( mesh, GrannyPWN313VertexType, &sourceVerts[0] );
+	GrannyCopyMeshVertices( mesh, GrannyPWN313VertexType, &sourceVerts[0] );
 
-	granny_mesh_deformer* deformer = GrannyNewMeshDeformer(GrannyPWN313VertexType,
-                                                               GrannyPN33VertexType,
-                                                               GrannyDeformPositionNormal,
-                                                               GrannyDontAllowUncopiedTail);
+	granny_mesh_deformer* deformer = GrannyNewMeshDeformer( GrannyPWN313VertexType,
+															GrannyPN33VertexType,
+															GrannyDeformPositionNormal,
+															GrannyDontAllowUncopiedTail );
 	if( !deformer )
 	{
 		return Vector4( 0.f, 0.f, 0.f, -1.f );
 	}
 
-	GrannyDeformVertices(deformer, GrannyGetMeshBindingFromBoneIndices( m_meshBinding ),
-                        (granny_real32*)GrannyGetWorldPoseComposite4x4Array( m_worldPose ), vertCount, &sourceVerts[0], &deformedVerts[0] );
+	GrannyDeformVertices( deformer, GrannyGetMeshBindingFromBoneIndices( m_meshBinding ), (granny_real32*)GrannyGetWorldPoseComposite4x4Array( m_worldPose ), vertCount, &sourceVerts[0], &deformedVerts[0] );
 
 	// Gather a list of pointers to the positions
 	std::vector<const Vector3*> points( vertCount );
@@ -1403,7 +1414,7 @@ Vector4 Tr2GrannyAnimation::CalculateSkinnedBoundingSphere( granny_file_info* fi
 	// Calculate the bounding sphere
 	Vector4 boundingSphere;
 	BoundingSphereFromPoints( boundingSphere, &points[0], points.size() );
-	
+
 	return boundingSphere;
 }
 #endif
@@ -1420,7 +1431,7 @@ const cmf::Skeleton* Tr2GrannyAnimation::GetSkeleton() const
 	return nullptr;
 }
 
-const std::vector<Matrix>& Tr2GrannyAnimation::GetWorldTransforms() const 
+const std::vector<Matrix>& Tr2GrannyAnimation::GetWorldTransforms() const
 {
 	return this->m_worldTransforms;
 }
@@ -1429,7 +1440,7 @@ const std::vector<Matrix>& Tr2GrannyAnimation::GetWorldTransforms() const
 granny_model* Tr2GrannyAnimation::GetGrannyModel() const
 {
 	granny_file_info* fi = GetFileInfo();
-	if( !fi )
+	if( !fi || m_modelIndex == -1 )
 	{
 		return nullptr;
 	}
@@ -1458,29 +1469,29 @@ bool Tr2GrannyAnimation::PlayLayerAnimationByName( const char* layerName, const 
 	}
 
 	bool secondaryGrannyResPrepared = true;
-	for ( auto it = m_secondaryGrannyRes.begin(); it != m_secondaryGrannyRes.end(); it++ )
+	for( auto it = m_secondaryGrannyRes.begin(); it != m_secondaryGrannyRes.end(); it++ )
 	{
 		secondaryGrannyResPrepared = secondaryGrannyResPrepared && it->second->IsPrepared();
 	}
 
-	if( ( !m_grannyRes  && !m_geometryRes )  ||		
-		( m_grannyRes	&& !m_grannyRes->IsPrepared() ) ||
-		( m_geometryRes	&& !m_geometryRes->IsPrepared() ) ||
-		!secondaryGrannyResPrepared ) 
+	if( ( !m_grannyRes && !m_geometryRes ) ||
+		( m_grannyRes && !m_grannyRes->IsPrepared() ) ||
+		( m_geometryRes && !m_geometryRes->IsPrepared() ) ||
+		!secondaryGrannyResPrepared )
 	{
 		layer->QueueAnimation( animName, replace, loopCount, delay, speed, clearWhenDone );
 		return true;
 	}
 
 	bool secondaryGrannyResGood = true;
-	for ( auto it = m_secondaryGrannyRes.begin(); it != m_secondaryGrannyRes.end(); it++ )
+	for( auto it = m_secondaryGrannyRes.begin(); it != m_secondaryGrannyRes.end(); it++ )
 	{
 		secondaryGrannyResGood = secondaryGrannyResGood && it->second->IsGood();
 	}
 
 	if( ( ( m_grannyRes && !m_grannyRes->IsGood() ) ||
-		( m_geometryRes && !m_geometryRes->IsGood() ) ||
-		!secondaryGrannyResGood ) )
+		  ( m_geometryRes && !m_geometryRes->IsGood() ) ||
+		  !secondaryGrannyResGood ) )
 	{
 		CCP_LOGERR( "Animation resource failed to load!" );
 		return false;
@@ -1500,7 +1511,7 @@ void Tr2GrannyAnimation::ClearAnimations()
 	m_baseLayer.ClearAnimations();
 }
 
-void Tr2GrannyAnimation::ApplyBoneOffsets(unsigned i)
+void Tr2GrannyAnimation::ApplyBoneOffsets( unsigned i )
 {
 	if( IsUsingCMF() )
 	{
@@ -1802,7 +1813,7 @@ void Tr2GrannyAnimation::PostPhysicsAnimation( Be::Time time, const Matrix& mode
 	return;
 }
 
-const std::string * Tr2GrannyAnimation::GetAnimationBoneList( unsigned int& numBones ) const
+const std::string* Tr2GrannyAnimation::GetAnimationBoneList( unsigned int& numBones ) const
 {
 	numBones = (unsigned int)m_boneList.size();
 	if( numBones )
@@ -1855,26 +1866,28 @@ void Tr2GrannyAnimation::Cleanup()
 	m_pose.skeleton = nullptr;
 	m_skeletonBoneIndices.clear();
 	m_worldTransforms.clear();
+	m_boneBounds.clear();
 
 #if WITH_GRANNY
-	if ( m_localPose ) {
+	if( m_localPose )
+	{
 		GrannyFreeLocalPose( m_localPose );
 		m_localPose = nullptr;
 	}
-	
-	if ( m_compositePose )
+
+	if( m_compositePose )
 	{
 		GrannyFreeLocalPose( m_compositePose );
 		m_compositePose = nullptr;
 	}
 
-	if ( m_worldPose )
+	if( m_worldPose )
 	{
 		GrannyFreeWorldPose( m_worldPose );
 		m_worldPose = nullptr;
 	}
 
-	if ( m_meshBinding )
+	if( m_meshBinding )
 	{
 		GrannyFreeMeshBinding( m_meshBinding );
 		m_meshBinding = nullptr;
@@ -1883,9 +1896,10 @@ void Tr2GrannyAnimation::Cleanup()
 	m_skeleton = nullptr;
 #endif
 
+	m_modelIndex = -1;
 	m_boneList.clear();
 
-	if ( m_meshBoneMatrixList )
+	if( m_meshBoneMatrixList )
 	{
 		CCP_ALIGNED_FREE( m_meshBoneMatrixList );
 		m_meshBoneMatrixList = nullptr;
@@ -1969,7 +1983,7 @@ void Tr2GrannyAnimation::ChainAnimationEx( const char* animName, int loopCount, 
 
 float Tr2GrannyAnimation::GetAnimationTime()
 {
-	if ( m_paused )
+	if( m_paused )
 	{
 		return m_pauseTime;
 	}
@@ -1978,13 +1992,13 @@ float Tr2GrannyAnimation::GetAnimationTime()
 
 void Tr2GrannyAnimation::TogglePauseAnimations( bool pause )
 {
-	if ( m_paused && !pause )
+	if( m_paused && !pause )
 	{
 		m_paused = false;
 		m_totalPauseOffset = Tr2Renderer::GetAnimationTime() - m_pauseTime;
 		m_pauseTime = 0.0;
 	}
-	else if ( !m_paused && pause )
+	else if( !m_paused && pause )
 	{
 		m_paused = true;
 		m_pauseTime = Tr2Renderer::GetAnimationTime() - m_totalPauseOffset;
@@ -2052,9 +2066,9 @@ void Tr2GrannyAnimation::AddAnimationLayer( const char* layerName, float layerWe
 	GetAnimationLayer( layerName )->InitializeAnimationLayer( this );
 }
 
-float Tr2GrannyAnimation::GetLayerWeight(const char* layerName)
+float Tr2GrannyAnimation::GetLayerWeight( const char* layerName )
 {
-	if ( GetAnimationLayer( layerName ) )
+	if( GetAnimationLayer( layerName ) )
 	{
 		return GetAnimationLayer( layerName )->GetLayerWeight();
 	}
@@ -2063,7 +2077,7 @@ float Tr2GrannyAnimation::GetLayerWeight(const char* layerName)
 
 void Tr2GrannyAnimation::SetLayerWeight( const char* layerName, float layerWeight )
 {
-	if ( GetAnimationLayer( layerName ) )
+	if( GetAnimationLayer( layerName ) )
 	{
 		return GetAnimationLayer( layerName )->SetLayerWeight( layerWeight );
 	}
@@ -2073,17 +2087,17 @@ void Tr2GrannyAnimation::SetLayerControlParam( const char* layerName, float cont
 {
 	const char* base_name_string = "";
 
-	if ( !layerName || !strcmp(layerName, base_name_string) )
+	if( !layerName || !strcmp( layerName, base_name_string ) )
 	{
 		GetAnimationLayer( nullptr )->SetControlParam( controlParam );
 	}
 	else
 	{
 		auto animLayer = GetAnimationLayer( layerName );
-		if ( !animLayer )
+		if( !animLayer )
 		{
-				CCP_LOGERR( "SetLayerControlParam: Layer name '%s' not found.", layerName );
-				return;
+			CCP_LOGERR( "SetLayerControlParam: Layer name '%s' not found.", layerName );
+			return;
 		}
 		animLayer->SetControlParam( controlParam );
 	}
@@ -2092,12 +2106,12 @@ void Tr2GrannyAnimation::SetLayerControlParam( const char* layerName, float cont
 void Tr2GrannyAnimation::SetLayerControlParamSkewRate( const char* layerName, float skewRate )
 {
 	const char* base_name_string = "";
-	Tr2GrannyAnimationLayer *layer;
+	Tr2GrannyAnimationLayer* layer;
 
-	if ( !strcmp(layerName, base_name_string) )
+	if( !strcmp( layerName, base_name_string ) )
 	{
 		layer = GetAnimationLayer( nullptr );
-		if ( !layer )
+		if( !layer )
 		{
 			return;
 		}
@@ -2106,7 +2120,7 @@ void Tr2GrannyAnimation::SetLayerControlParamSkewRate( const char* layerName, fl
 	else
 	{
 		layer = GetAnimationLayer( layerName );
-		if ( !layer )
+		if( !layer )
 		{
 			return;
 		}
@@ -2122,7 +2136,7 @@ void Tr2GrannyAnimation::AimBone( const char* boneName, float target_x, float ta
 	m_aimBoneOrientation[0] = target_x;
 	m_aimBoneOrientation[1] = target_y;
 	m_aimBoneOrientation[2] = target_z;
-	
+
 	m_aimAxis[0] = axis_x;
 	m_aimAxis[1] = axis_y;
 	m_aimAxis[2] = axis_z;
@@ -2187,7 +2201,7 @@ void Tr2GrannyAnimation::AddAnimationLayerWithTrackMask( const char* layerName, 
 void Tr2GrannyAnimation::AddAnimationLayerBone( const char* layerName, const char* boneName )
 {
 	Tr2GrannyAnimationLayer* layer;
-	if ( !strcmp(layerName, "") )
+	if( !strcmp( layerName, "" ) )
 	{
 		layer = GetAnimationLayer( nullptr );
 	}
@@ -2208,7 +2222,7 @@ void Tr2GrannyAnimation::AddAnimationLayerBone( const char* layerName, const cha
 void Tr2GrannyAnimation::AddAnimationLayerAllBones( const char* layerName )
 {
 	Tr2GrannyAnimationLayer* layer;
-	if ( !strcmp(layerName, "") )
+	if( !strcmp( layerName, "" ) )
 	{
 		layer = GetAnimationLayer( nullptr );
 	}
@@ -2229,7 +2243,7 @@ void Tr2GrannyAnimation::AddAnimationLayerAllBones( const char* layerName )
 void Tr2GrannyAnimation::RemoveAnimationLayerBone( const char* layerName, const char* boneName )
 {
 	Tr2GrannyAnimationLayer* layer;
-	if ( !strcmp(layerName, "") )
+	if( !strcmp( layerName, "" ) )
 	{
 		layer = GetAnimationLayer( nullptr );
 	}
@@ -2372,13 +2386,13 @@ std::pair<const Float4x3*, size_t> Tr2AnimationMeshBinding::GetBoneTransforms() 
 {
 	if( m_animation->IsUsingCMF() )
 	{
-		if( !m_cmfSkeleton  || !m_boneTransforms )
+		if( !m_cmfSkeleton || !m_boneTransforms )
 		{
 			return std::make_pair( nullptr, 0 );
 		}
 
 		auto boneCount = m_geometryRes->GetCMFData()->meshes[m_meshIndex].boneBindings.size();
-		
+
 		if( m_boneTransforms && m_bindBoneIndices.size() && boneCount )
 		{
 			auto& worldTransforms = m_animation->GetWorldTransforms();

@@ -1,34 +1,31 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		June 2021
-// Copyright:	CCP 2021
-//
+// Copyright © 2021 CCP ehf.
+
 #pragma once
 #include "EveComponentRegistry.h"
 #include <optional>
 
 namespace EntityComponents
 {
-	enum ReflectionMode
-	{
-		REFLECT_HIGH,
-		REFLECT_MEDIUM_AND_HIGH,
-		REFLECT_LOW_MEDIUM_HIGH,
-		REFLECT_NEVER
-	};
+enum ReflectionMode
+{
+	REFLECT_HIGH,
+	REFLECT_MEDIUM_AND_HIGH,
+	REFLECT_LOW_MEDIUM_HIGH,
+	REFLECT_NEVER
+};
 
-	enum ReflectionSetting
-	{
-		REFLECTION_SETTING_OFF,
-		REFLECTION_SETTING_LOW,
-		REFLECTION_SETTING_MEDIUM,
-		REFLECTION_SETTING_HIGH,
-		REFLECTION_SETTING_ULTRA,
-	};
+enum ReflectionSetting
+{
+	REFLECTION_SETTING_OFF,
+	REFLECTION_SETTING_LOW,
+	REFLECTION_SETTING_MEDIUM,
+	REFLECTION_SETTING_HIGH,
+	REFLECTION_SETTING_ULTRA,
+};
 
-	bool ShouldReflect( ReflectionMode mode );
+bool ShouldReflect( ReflectionMode mode );
 
-	extern const Be::VarChooser ReflectionModeChooser[];
+extern const Be::VarChooser ReflectionModeChooser[];
 }
 
 BLUE_CLASS( EveEntity ) :
@@ -40,8 +37,8 @@ public:
 	EveEntity( IRoot* lockobj = NULL );
 	~EveEntity();
 
-	void Register( EveComponentRegistry* registry );
-	void UnRegister( EveComponentRegistry* registry );
+	void Register( EveComponentRegistry * registry );
+	void UnRegister( EveComponentRegistry * registry );
 
 	bool IsInRegistry() const;
 

@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef Tr2PushPopDS_H
 #define Tr2PushPopDS_H
@@ -41,4 +43,4 @@ private:
 	Tr2PushPopDS& operator=( Tr2PushPopDS& );
 };
 
-#endif 
+#endif

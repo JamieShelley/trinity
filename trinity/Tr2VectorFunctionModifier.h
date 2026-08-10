@@ -1,8 +1,5 @@
-//////////////////////////////////////////////////////////////////////////
-//
-// Created: April 2025
-// Copyright CCP 2025
-//
+// Copyright © 2025 CCP ehf.
+
 #pragma once
 
 #include <ITriFunction.h>
@@ -59,7 +56,7 @@ protected:
 
 	// if true, the m_offsetPosition is transformed to view space
 	bool m_useViewSpace;
-	
+
 	// if true, uses system coordinates instead of ship coordinates
 	bool m_useSystemCoordinates;
 };

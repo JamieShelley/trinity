@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef DroneAgent_h
 #define DroneAgent_h
@@ -5,7 +7,7 @@
 #include "include/TriMath.h"
 
 struct DroneAgent
-{	
+{
 	DroneAgent() :
 		rotation( 0, 0, 0, 1 ),
 		position( 0, 0, 0 ),
@@ -21,11 +23,12 @@ struct DroneAgent
 		fxStartTime( -1 ),
 		lastTransform( IdentityMatrix() ),
 		// LOD
-		xfade( 0.f ),				
-		screenSize( 0.f ),			
+		xfade( 0.f ),
+		screenSize( 0.f ),
 		isVisible( false ),
 		closestAgentInGroup( nullptr )
-	{}						
+	{
+	}
 	DroneAgent* closestAgentInGroup;
 	Quaternion rotation;
 	Vector3 position;

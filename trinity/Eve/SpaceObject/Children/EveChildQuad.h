@@ -1,13 +1,10 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   August 2016
-//    Copyright: CCP 2016
-//
+// Copyright © 2016 CCP ehf.
+
 #pragma once
 #ifndef EveChildQuad_H
 #define EveChildQuad_H
 
-#include "IEveSpaceObjectChild.h"
+#include "EveSpaceObjectChild.h"
 #include "EveChildTransform.h"
 #include "ITr2Renderable.h"
 
@@ -15,7 +12,7 @@
 BLUE_DECLARE( Tr2Effect );
 
 BLUE_CLASS( EveChildQuad ) :
-	public IEveSpaceObjectChild,
+	public EveSpaceObjectChild,
 	public EveChildTransform,
 	public ITr2Renderable,
 	public IInitialize
@@ -29,27 +26,23 @@ public:
 	static Tr2VertexDefinition& GetQuadDefinition();
 
 	/////////////////////////////////////////////////////////////////////////////////////
-	// IEveSpaceObjectChild
-	const char* GetName() const;
-	void SetName( const char* name );
+	// EveSpaceObjectChild
 	void UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod );
-	void GetRenderables( std::vector<ITr2Renderable*>& renderables );
-	bool GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query=EVE_BOUNDS_NORMAL ) const;
-	void RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer );
+	bool GetBoundingSphere( Vector4 & sphere, BoundingSphereQuery query = EVE_BOUNDS_NORMAL ) const;
+	void RegisterWithQuadRenderer( Tr2QuadRenderer & quadRenderer );
 	void AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer ) const;
 	void UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params );
-	void GetLocalToWorldTransform( Matrix& transform ) const;
-	void ChangeLOD( Tr2Lod lod ) {};
+	void GetLocalToWorldTransform( Matrix & transform ) const;
 	void Setup( const Vector3* scale, const Quaternion* rotation, const Vector3* translation, Tr2Lod lowestLodVisible );
-	
+
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2Renderable
 	virtual bool HasTransparentBatches();
-	virtual void GetBatches( ITriRenderBatchAccumulator* batches, TriBatchType batchType, const Tr2PerObjectData* perObjectData, Tr2RenderReason reason = TR2RENDERREASON_NORMAL );
+	virtual void GetBatches( ITriRenderBatchAccumulator * batches, TriBatchType batchType, const Tr2PerObjectData* perObjectData, Tr2RenderReason reason = TR2RENDERREASON_NORMAL );
 	virtual float GetSortValue();
-	virtual Tr2PerObjectData* GetPerObjectData( ITriRenderBatchAccumulator* accumulator );
-	
+	virtual Tr2PerObjectData* GetPerObjectData( ITriRenderBatchAccumulator * accumulator );
+
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IInitialize
 	virtual bool Initialize();
@@ -69,7 +62,6 @@ private:
 		Float_16 m_brightness[2];
 	};
 
-	BlueSharedString m_name;
 	Tr2EffectPtr m_effect;
 	unsigned m_effectKey;
 	Quad m_quad;

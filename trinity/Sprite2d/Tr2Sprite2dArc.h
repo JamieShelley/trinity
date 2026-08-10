@@ -1,8 +1,4 @@
-//////////////////////////////////////////////////////////////////////////
-//
-// Created: April 2012
-// Copyright CCP 2012
-//
+// Copyright © 2012 CCP ehf.
 
 #pragma once
 
@@ -14,8 +10,7 @@
 BLUE_DECLARE( Tr2Sprite2dArc );
 BLUE_DECLARE_INTERFACE( ITr2Sprite2dTexture );
 
-class Tr2Sprite2dArc :
-	public Tr2SpriteObject
+class Tr2Sprite2dArc : public Tr2SpriteObject
 {
 public:
 	EXPOSE_TO_BLUE();

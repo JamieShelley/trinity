@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   February 2023
-//    Copyright: CCP 2023
-//
+// Copyright © 2023 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveChildCloud2.h"
@@ -207,24 +203,6 @@ bool EveChildCloud2::OnModified( Be::Var* value )
 		}
 	}
 	return true;
-}
-
-const char* EveChildCloud2::GetName() const
-{
-	return m_name.c_str();
-}
-
-void EveChildCloud2::SetName( const char* name )
-{
-	m_name = name;
-}
-
-void EveChildCloud2::UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod )
-{
-}
-
-void EveChildCloud2::GetRenderables( std::vector<ITr2Renderable*>& )
-{
 }
 
 bool EveChildCloud2::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery ) const
@@ -899,11 +877,11 @@ void EveChildCloud2::SetupShadowFrustum( ShadowInfo& shadowInfo, Vector3 sunDir 
 	aabb.m_max.z += 2500000.f;
 
 	m_lightViewProj = lightView * OrthoOffCenterMatrix( aabb.m_max.x, aabb.m_min.x, aabb.m_max.y, aabb.m_min.y, -aabb.m_max.z, -aabb.m_min.z );
-	
+
 	// create shadow frustum out from lightView, aabb.min, aabb.max
 	TriFrustumOrtho shadowFrustum;
 	shadowFrustum.DeriveFrustum( lightView, aabb.m_min, aabb.m_max );
-	
+
 	shadowInfo.aabbMax = aabb.m_max;
 	shadowInfo.lightViewProj = m_lightViewProj;
 	shadowInfo.shadowFrustum = shadowFrustum;

@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include <ITr2AudEmitter.h>
 #include "TriObserverLocal.h"
@@ -66,7 +68,7 @@ bool TriObserverLocal::GetMute()
 
 void TriObserverLocal::SetMute( bool isMute )
 {
-	if ( m_mute == isMute )
+	if( m_mute == isMute )
 	{
 		return;
 	}

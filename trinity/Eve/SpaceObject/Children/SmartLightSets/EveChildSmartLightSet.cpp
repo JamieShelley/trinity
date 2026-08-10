@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildSmartLightSet.h"
 #include "Tr2DebugRenderer.h"
@@ -9,16 +11,6 @@ EveChildSmartLightSet::EveChildSmartLightSet( IRoot* lockobj ) :
 	m_display( true )
 {
 	m_lightGroups.SetNotify( this );
-}
-
-const char* EveChildSmartLightSet::GetName() const
-{
-	return m_name.c_str();
-}
-
-void EveChildSmartLightSet::SetName( const char* name )
-{
-	m_name = name;
 }
 
 void EveChildSmartLightSet::OnListModified( long event, ssize_t key, ssize_t key2, IRoot* value, const IList* list )
@@ -76,7 +68,7 @@ void EveChildSmartLightSet::UpdateSyncronous( const EveUpdateContext& updateCont
 	{
 		m_distribution->UpdateSyncronous( updateContext, params );
 	}
-	
+
 	for( auto it : m_lightGroups )
 	{
 		it->UpdateSyncronous( updateContext, params, m_distribution );

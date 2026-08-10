@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 
 #include "Utilities/BoundingBox.h"
@@ -237,6 +239,11 @@ EveSpaceObject2::~EveSpaceObject2()
 	}
 
 	UnregisterAudioGeometry();
+
+	for( auto& child : m_effectChildren )
+	{
+		child->SetOwner( nullptr );
+	}
 }
 
 bool EveSpaceObject2::Initialize()
@@ -245,6 +252,11 @@ bool EveSpaceObject2::Initialize()
 	if( m_mesh )
 	{
 		PrepareForAnimation();
+	}
+
+	for( auto& child : m_effectChildren )
+	{
+		child->SetOwner( this );
 	}
 
 	for( auto& controller : m_controllers )
@@ -305,8 +317,9 @@ void EveSpaceObject2::OnListModified( long event, ssize_t key, ssize_t key2, IRo
 		switch( event & BELIST_EVENTMASK )
 		{
 		case BELIST_INSERTED:
-			if( IEveSpaceObjectChildPtr child = BlueCastPtr( value ) )
+			if( EveSpaceObjectChildPtr child = BlueCastPtr( value ) )
 			{
+				child->SetOwner( this );
 				for( auto it = begin( m_controllerVariables ); it != end( m_controllerVariables ); ++it )
 				{
 					child->SetControllerVariable( it->first.c_str(), it->second );
@@ -325,6 +338,10 @@ void EveSpaceObject2::OnListModified( long event, ssize_t key, ssize_t key2, IRo
 			{
 				entity->UnRegister( this->GetComponentRegistry() );
 			}
+			if( EveSpaceObjectChildPtr child = BlueCastPtr( value ) )
+			{
+				child->SetOwner( nullptr );
+			}
 			break;
 		case BELIST_UNLOADSTART:
 			if( IsInRegistry() )
@@ -336,6 +353,10 @@ void EveSpaceObject2::OnListModified( long event, ssize_t key, ssize_t key2, IRo
 						entity->UnRegister( GetComponentRegistry() );
 					}
 				}
+			}
+			for( auto& child : m_effectChildren )
+			{
+				child->SetOwner( nullptr );
 			}
 			break;
 		default:
@@ -592,7 +613,6 @@ void EveSpaceObject2::UpdateSyncronous( const EveUpdateContext& updateContext )
 	}
 
 	RegisterAudioGeometry();
-
 }
 
 void EveSpaceObject2::UpdateAsyncronous( const EveUpdateContext& updateContext )
@@ -945,7 +965,7 @@ void EveSpaceObject2::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 		for( auto it = m_locators.begin(); it != m_locators.end(); ++it )
 		{
 			Matrix transform = ( *it )->GetTransform();
-			
+
 			if( m_animationUpdater )
 			{
 				m_animationUpdater->GetBoneWorldTransform( ( *it )->GetName(), transform );
@@ -1066,7 +1086,7 @@ Matrix EveSpaceObject2::GetEveLocatorTransform( const char* name ) const
 			return result;
 		}
 	}
-	
+
 	return locator->GetTransform();
 }
 
@@ -1145,7 +1165,7 @@ void EveSpaceObject2::GetShadowBatches( ITriRenderBatchAccumulator* batches, con
 	{
 		return;
 	}
-	
+
 	TriGeometryRes* geomRes = m_mesh->GetGeometryResource();
 	if( !geomRes || !geomRes->IsGood() )
 	{
@@ -1213,7 +1233,7 @@ void EveSpaceObject2::GetBatchesFromOverlayVector( ITriRenderBatchAccumulator* b
 	}
 
 	TriGeometryRes* geomRes = mesh->GetGeometryResource();
-	if( !geomRes->IsGood() )
+	if( !geomRes || !geomRes->IsGood() )
 	{
 		return;
 	}
@@ -1248,54 +1268,20 @@ void EveSpaceObject2::GetBatchesFromOverlayVector( ITriRenderBatchAccumulator* b
 	}
 
 	// second the effects
-	for( auto it = m_overlayEffects.begin(); it != m_overlayEffects.end(); ++it )
-	{
-		EveMeshOverlayEffectPtr overlay = *it;
-		bool success = false;
-		const PTr2EffectVector& effects = overlay->GetEffects( batchType, success );
-		if( success )
-		{
-			EveMeshOverlayEffect::OverlayType overlayType = overlay->GetType( batchType );
-			for( auto eff = effects.begin(); eff != effects.end(); ++eff )
-			{
-				Tr2EffectPtr effect = *eff;
-
-				// add all mesh area blocks
-				for( auto& areaBlock : m_overlayMeshAreaBlocks[overlayType] )
-				{
-					if( auto primCount = GetPrimitiveCount( *lod, areaBlock.m_startIndex, areaBlock.m_count ) )
-					{
-						Tr2RenderBatch batch;
-						batch.SetMaterial( effect );
-						batch.SetGeometry( lod->m_mesh->m_vertexDeclarationHandle, lod->m_vertexAllocation, lod->m_indexAllocation );
-						batch.SetPerObjectData( perObjectData );
-						batch.SetDrawIndexedInstanced(
-							primCount * 3,
-							1,
-							lod->m_indexAllocation.GetStartIndex() + lod->m_areas[areaBlock.m_startIndex].m_firstIndex,
-							lod->m_vertexAllocation.GetOffset() / lod->m_vertexAllocation.GetStride(),
-							0 );
-						batches->Commit( batch );
-					}
-				}
-			}
-		}
-	}
+	EmitOverlayBatches( batches, perObjectData, batchType, m_overlayEffects, m_overlayMeshAreaBlocks, *lod );
 }
 
 const Matrix* EveSpaceObject2::GetLocatorTransform( LocatorType lt, unsigned int lix )
 {
 	switch( lt )
 	{
-	case ELT_TRANSFORM:
-	{
+	case ELT_TRANSFORM: {
 		EveLocator2* t = m_locators[lix];
 		return &t->GetTransform();
 	}
 	break;
 
-	case ELT_JOINT:
-	{
+	case ELT_JOINT: {
 		if( !m_animationUpdater )
 		{
 			return nullptr;
@@ -1519,8 +1505,7 @@ std::pair<Vector3, Vector3> EveSpaceObject2::CalculateSkinnedBoundingBoxFromTran
 			Vector3 localMin, localMax;
 			GetLocalBoundingBox( localMin, localMax );
 			AxisAlignedBoundingBox box( localMin, localMax );
-			box.EnumerateVertices( [&transform, &bbMin, &bbMax]( const Vector3& vertex )
-			{
+			box.EnumerateVertices( [&transform, &bbMin, &bbMax]( const Vector3& vertex ) {
 				Vector4 pos = Transform( Vector4( vertex, 1.f ), transform );
 				pos /= pos.w;
 
@@ -1735,7 +1720,7 @@ void EveSpaceObject2::UpdateVisibility( const EveUpdateContext& updateContext, c
 
 		if( updateContext.m_raytracingEnabled )
 		{
-			UpdateRtMesh(updateContext);
+			UpdateRtMesh( updateContext );
 			UpdateRtSkeleton();
 		}
 	}
@@ -1767,28 +1752,28 @@ void EveSpaceObject2::UpdateRtSkeleton()
 	{
 		return;
 	}
-    
+
 	auto rtMesh = m_mesh->GetRtMesh();
 	if( !rtMesh )
 	{
 		return;
 	}
-    
+
 	auto geo = m_mesh->GetGeometryResource();
 	if( !geo || !geo->IsGood() )
 	{
 		return;
 	}
-	
+
 	auto meshIndex = m_mesh->GetMeshIndex();
 	auto lod = geo->GetMeshLod( meshIndex, m_meshScreenSize );
 	if( !lod )
 	{
 		return;
 	}
-    
+
 	bool hasSkinned = false;
-    
+
 	auto areas = m_mesh->GetAreas( TRIBATCHTYPE_OPAQUE );
 	for( auto& area : *areas )
 	{
@@ -1804,7 +1789,7 @@ void EveSpaceObject2::UpdateRtSkeleton()
 	{
 		return; //no skinned areas
 	}
-	
+
 	auto boneCount = uint32_t( m_animationUpdater->GetMeshBoneCount() );
 	m_boneOffsets.UploadTransforms( Tr2RingBuffer::GetInstance<Float4x3>(), reinterpret_cast<const Float4x3*>( m_animationUpdater->GetMeshBoneMatrixList() ), boneCount );
 	auto offset = m_boneOffsets.GetCurrentFrameOffset();
@@ -2030,7 +2015,7 @@ int EveSpaceObject2::GetBoneCount() const
 		}
 		return GrannyGetMeshBindingBoneCount( m_animationUpdater->m_meshBinding );
 	}
-#else 
+#else
 	else
 	{
 		return 0;
@@ -2081,15 +2066,7 @@ void EveSpaceObject2::RebuildCachedData( BlueAsyncRes* p )
 	// build list of block areas we need to render for overlay effects
 	if( m_mesh )
 	{
-		m_mesh->CollectAreaBlocks( m_overlayMeshAreaBlocks[EveMeshOverlayEffect::TYPE_ALL], TRIBATCHTYPE_OPAQUE );
-		m_mesh->CollectAreaBlocks( m_overlayMeshAreaBlocks[EveMeshOverlayEffect::TYPE_ALL], TRIBATCHTYPE_TRANSPARENT );
-		m_mesh->CollectAreaBlocks( m_overlayMeshAreaBlocks[EveMeshOverlayEffect::TYPE_ALL], TRIBATCHTYPE_DECAL );
-		m_mesh->CollectAreaBlocks( m_overlayMeshAreaBlocks[EveMeshOverlayEffect::TYPE_OPAQUEONLY], TRIBATCHTYPE_OPAQUE );
-		// this list is too long will hold one element for each mesharea at least... Optimize!
-		for( int i = 0; i < EveMeshOverlayEffect::TYPE_COUNT; ++i )
-		{
-			TriRenderBatchAreaBlock::Optimize( m_overlayMeshAreaBlocks[i] );
-		}
+		CollectOverlayAreaBlocks( m_mesh, m_overlayMeshAreaBlocks );
 
 		m_mesh->CollectAreaBlocksWithSharedMaterials( m_shadowMeshOpaqueAreas, TRIBATCHTYPE_OPAQUE );
 		for( auto& collector : m_shadowMeshOpaqueAreas )
@@ -3007,7 +2984,7 @@ void EveSpaceObject2::AddObserver( TriObserverLocalPtr observer )
 }
 
 // --------------------------------------------------------------------------------
-IEveSpaceObjectChildPtr EveSpaceObject2::GetEffectChildByName( const char* name ) const
+EveSpaceObjectChildPtr EveSpaceObject2::GetEffectChildByName( const char* name ) const
 {
 	for( auto it = begin( m_effectChildren ); it != end( m_effectChildren ); ++it )
 	{
@@ -3024,7 +3001,7 @@ IEveSpaceObjectChildPtr EveSpaceObject2::GetEffectChildByName( const char* name 
 // Description:
 //   Add a child to the effectChildren list
 // --------------------------------------------------------------------------------
-void EveSpaceObject2::AddToEffectChildrenList( IEveSpaceObjectChild* child )
+void EveSpaceObject2::AddToEffectChildrenList( EveSpaceObjectChild* child )
 {
 	if( m_inheritProperties )
 	{
@@ -3038,7 +3015,7 @@ void EveSpaceObject2::AddToEffectChildrenList( IEveSpaceObjectChild* child )
 }
 
 // --------------------------------------------------------------------------------
-void EveSpaceObject2::RemoveFromEffectChildrenList( IEveSpaceObjectChild* child )
+void EveSpaceObject2::RemoveFromEffectChildrenList( EveSpaceObjectChild* child )
 {
 	auto index = m_effectChildren.FindKey( child );
 	if( index >= 0 )
@@ -3577,7 +3554,7 @@ void EveSpaceObject2::RegisterComponents()
 
 	if( registry && m_display )
 	{
-		if ( !m_lights.empty() )
+		if( !m_lights.empty() )
 		{
 			registry->RegisterComponent<ITr2LightOwner>( this );
 		}
@@ -3860,7 +3837,7 @@ void EveSpaceObject2::SetShaderOption( const BlueSharedString& name, const BlueS
 
 	for( auto it = m_effectChildren.begin(); it != m_effectChildren.end(); ++it )
 	{
-		IEveSpaceObjectChild* child = *it;
+		EveSpaceObjectChild* child = *it;
 		child->SetShaderOption( name, value );
 	}
 }
@@ -4010,12 +3987,12 @@ void EveSpaceObject2::PushRtGeometry( Tr2RaytracingManager& rtManager ) const
 	}
 
 	USE_MAIN_THREAD_RENDER_CONTEXT();
-	
+
 	const Tr2MeshAreaVector* opaqueAreas = m_mesh->GetAreas( TRIBATCHTYPE_OPAQUE );
 
 	UpdateRtPerObjectData( m_psData, nullptr, renderContext, m_rtPerObjectData );
-	
-	#pragma region geometry
+
+#pragma region geometry
 	uint32_t vertexBufferDataIndex = 0;
 	for( Tr2MeshAreaVector::const_iterator it = opaqueAreas->begin(); it != opaqueAreas->end(); ++it, ++vertexBufferDataIndex )
 	{

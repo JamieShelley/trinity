@@ -1,16 +1,12 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   May 2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2CurveVector3.h"
 #include "Tr2CurveScalar.h"
 
 
-Tr2CurveVector3::Tr2CurveVector3( IRoot* lockobj )
-	:PARENTLOCK( m_x ),
+Tr2CurveVector3::Tr2CurveVector3( IRoot* lockobj ) :
+	PARENTLOCK( m_x ),
 	PARENTLOCK( m_y ),
 	PARENTLOCK( m_z ),
 	m_currentValue( 0, 0, 0 )

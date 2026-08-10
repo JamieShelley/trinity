@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveLODHelper.h"
 
@@ -31,6 +33,3 @@ Tr2Lod EveLODHelper::MergeLOD( Tr2Lod lod0, const Vector4& sphere, const EveUpda
 	}
 	return TR2_LOD_UNSPECIFIED;
 }
-
-
-

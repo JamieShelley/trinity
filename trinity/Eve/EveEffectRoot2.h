@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 
 #ifndef EveEffectRoot2_h
@@ -7,7 +9,7 @@
 #include "EveTransform.h"
 #include "EveLODHelper.h"
 #include "IEveSpaceObject2.h"
-#include "Eve/SpaceObject/Children/IEveSpaceObjectChild.h"
+#include "Eve/SpaceObject/Children/EveSpaceObjectChild.h"
 #include "Eve/SpaceObject/Children/IEveEffectChildrenOwner.h"
 #include "Tr2ShLightingManager.h"
 #include "Include/ITriTargetable.h"
@@ -17,6 +19,7 @@
 #include "ITr2SoundEmitterOwner.h"
 #include "Controllers/ITr2ControllerOwner.h"
 #include "Lights/ITr2LightOwner.h"
+#include "ITr2BoundingBox.h"
 #include "EveEntity.h"
 
 #include <ITriFunction.h>
@@ -32,7 +35,7 @@ BLUE_DECLARE_VECTOR( Tr2ExternalParameter );
 
 BLUE_DECLARE( EveEffectRoot2 );
 
-BLUE_CLASS( EveEffectRoot2 ):
+BLUE_CLASS( EveEffectRoot2 ) :
 	public IWorldPosition,
 	public IEveSpaceObject2,
 	public IInitialize,
@@ -47,17 +50,18 @@ BLUE_CLASS( EveEffectRoot2 ):
 	public ITr2SoundEmitterOwner,
 	public ITr2ControllerOwner,
 	public ITr2LightOwner,
+	public ITr2BoundingBox,
 	public EveEntity
 
 {
 public:
-    EXPOSE_TO_BLUE();
+	EXPOSE_TO_BLUE();
 	using IEveSpaceObject2::Lock;
 	using IEveSpaceObject2::Unlock;
 
 	EveEffectRoot2( IRoot* lockobj = NULL );
-	~EveEffectRoot2( );
-	
+	~EveEffectRoot2();
+
 	//////////////////////////////////////////////////////////////////////////////////////
 	// IInitialize
 	bool Initialize();
@@ -65,31 +69,36 @@ public:
 	//////////////////////////////////////////////////////////////////////////////////////
 	// IListNotify
 	virtual void OnListModified( long event, ssize_t key, ssize_t key2, IRoot* value, const IList* list );
-	
+
 	//////////////////////////////////////////////////////////////////////////////////////
 	// INotify
-	virtual bool OnModified( Be::Var* val );
+	virtual bool OnModified( Be::Var * val );
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IEveSpaceObject2
 	void UpdateSyncronous( const EveUpdateContext& updateContext );
 	void UpdateAsyncronous( const EveUpdateContext& updateContext );
 	void UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform );
-	void GetRenderables( std::vector<ITr2Renderable*>& renderables, Tr2ImpostorManager* impostors );
-	bool GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query=EVE_BOUNDS_NORMAL ) const;
-	void GetPerObjectStructs( EveSpaceObjectVSData& vsData, EveSpaceObjectPSData& psData ) const;
-	void UpdateModelCenterWorldPosition( Vector3 &position, Be::Time t );
-	void GetModelCenterWorldPosition( Vector3 &position ) const;
-	bool GetLocalBoundingBox( Vector3 &min, Vector3 &max );
-	void GetLocalToWorldTransform( Matrix &transform ) const;
-	void RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer );
+	void GetRenderables( std::vector<ITr2Renderable*> & renderables, Tr2ImpostorManager * impostors );
+	bool GetBoundingSphere( Vector4 & sphere, BoundingSphereQuery query = EVE_BOUNDS_NORMAL ) const;
+	void GetPerObjectStructs( EveSpaceObjectVSData & vsData, EveSpaceObjectPSData & psData ) const;
+	void UpdateModelCenterWorldPosition( Vector3 & position, Be::Time t );
+	void GetModelCenterWorldPosition( Vector3 & position ) const;
+	bool GetLocalBoundingBox( Vector3 & min, Vector3 & max );
+	void GetLocalToWorldTransform( Matrix & transform ) const;
+	void RegisterWithQuadRenderer( Tr2QuadRenderer & quadRenderer );
 	void AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer );
-    void SetProceduralContainerVariable( const char *name, float value ) override;
+	void SetProceduralContainerVariable( const char* name, float value ) override;
+
+	/////////////////////////////////////////////////////////////////////////////////////
+	// ITr2BoundingBox
+	bool GetWorldBoundingBox( Vector3 & min, Vector3 & max ) const override;
+	bool IsBoundingBoxReady() const override;
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2LightOwner
-	void GetLights( Tr2LightManager& lightManager ) const override;
-	void AddLight( Tr2Light* light ) override;
+	void GetLights( Tr2LightManager & lightManager ) const override;
+	void AddLight( Tr2Light * light ) override;
 	void ClearLights() override;
 
 	//////////////////////////////////////////////////////////////////////////////////////
@@ -99,21 +108,21 @@ public:
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// EveEntity
-	void RegisterComponents( );
-	void UnRegisterComponents( );
-	
+	void RegisterComponents();
+	void UnRegisterComponents();
+
 	//////////////////////////////////////////////////////////////////////////////////////
 	// ITriTargetable
 	unsigned int GetDamageLocatorCount() const;
 	int GetClosestDamageLocatorIndex( const Vector3* position );
-	bool GetDamageLocatorPosition( Vector3* out, int index, bool inWorldSpace );
-	bool GetDamageLocatorDirection( Vector3* out, int index, bool inWorldSpace );
+	bool GetDamageLocatorPosition( Vector3 * out, int index, bool inWorldSpace );
+	bool GetDamageLocatorDirection( Vector3 * out, int index, bool inWorldSpace );
 	void GetMissPosition( const Vector3* hit, const Vector3* source, Vector3* out );
 	int GetGoodDamageLocatorIndex( const Vector3& position );
 	float GetRadius() const;
 	int CreateImpact( int damageLocatorIndex, const Vector3& direction, float lifeTime, float size );
-	bool UpdateImpact( Vector3& out, const Vector3& direction, int impactIndex );
-	bool GetImpactPosition( Vector3& out, int locator, const Vector3& posPrev, const Vector3& posNow, float epsilon );
+	bool UpdateImpact( Vector3 & out, const Vector3& direction, int impactIndex );
+	bool GetImpactPosition( Vector3 & out, int locator, const Vector3& posPrev, const Vector3& posNow, float epsilon );
 	bool HasImpactConfigurationShield() const;
 
 
@@ -132,15 +141,15 @@ public:
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IEveEffectChildrenOwner
-	IEveSpaceObjectChildPtr GetEffectChildByName( const char* name ) const;
-	void AddToEffectChildrenList( IEveSpaceObjectChild* child );
-	void RemoveFromEffectChildrenList( IEveSpaceObjectChild* child );
+	EveSpaceObjectChildPtr GetEffectChildByName( const char* name ) const;
+	void AddToEffectChildrenList( EveSpaceObjectChild * child );
+	void RemoveFromEffectChildrenList( EveSpaceObjectChild * child );
 	void SetShaderOption( const BlueSharedString& name, const BlueSharedString& value ) override;
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2DebugRenderable
-	virtual void GetDebugOptions( Tr2DebugRendererOptions& options );
-	virtual void RenderDebugInfo( ITr2DebugRenderer2& renderer );
+	virtual void GetDebugOptions( Tr2DebugRendererOptions & options );
+	virtual void RenderDebugInfo( ITr2DebugRenderer2 & renderer );
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2ControllerOwner
@@ -158,7 +167,7 @@ public:
 	void Start();
 	void Stop();
 
-	PIEveSpaceObjectChildVector& GetChildren();
+	PEveSpaceObjectChildVector& GetChildren();
 
 	void SetTransform( const Matrix& transform );
 
@@ -183,15 +192,18 @@ private:
 	// Lods
 	bool m_dynamicLODSelection;
 	bool m_changeLOD;
-	
+
 	PTr2LightVector m_lights;
 	PITr2ControllerVector m_controllers;
 	std::vector<std::pair<std::string, float>> m_controllerVariables;
-	float GetBoundingSphereRadius() { return m_boundingSphere.w; }
+	float GetBoundingSphereRadius()
+	{
+		return m_boundingSphere.w;
+	}
 
 	float m_estimatedSize;
 	float m_effectDuration;
-	
+
 	IBlueEventListenerPtr m_loadedEventListener;
 
 protected:
@@ -199,15 +211,15 @@ protected:
 	std::string m_name;
 	bool m_display;
 	bool m_mute;
-	PIEveSpaceObjectChildVector m_effectChildren;
+	PEveSpaceObjectChildVector m_effectChildren;
 
 	Vector3 m_scaling;
 	Quaternion m_rotation;
 	Vector3 m_translation;
-	
+
 	ITriVectorFunctionPtr m_ballPosition;
 	ITriQuaternionFunctionPtr m_ballRotation;
-	
+
 	PTriCurveSetVector m_curveSets;
 
 	// last known results from updating m_ballPosition and m_ballRotation
@@ -220,7 +232,6 @@ protected:
 
 	// Current LOD level
 	Tr2Lod m_lodLevel;
-
 };
 
 TYPEDEF_BLUECLASS( EveEffectRoot2 );

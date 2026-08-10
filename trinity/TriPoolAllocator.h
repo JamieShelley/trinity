@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef TRIPOOLALLOCATOR_H
 #define TRIPOOLALLOCATOR_H
@@ -14,7 +16,7 @@ public:
 	void* Allocate( size_t size );
 
 	// Allocates an object of type T, aligned to 16 bytes
-	template < class T >
+	template <class T>
 	T* Allocate()
 	{
 		void* p = Allocate( sizeof( T ) );
@@ -45,7 +47,6 @@ private:
 
 	typedef std::list<uint8_t*> ChunkList_t;
 	ChunkList_t m_previousPools;
-
 };
 
 

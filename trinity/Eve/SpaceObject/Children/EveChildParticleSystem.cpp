@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   June 2015
-//    Copyright: CCP 2015
-//
+// Copyright © 2015 CCP ehf.
+
 #include "StdAfx.h"
 #include "EveChildParticleSystem.h"
 #include "Eve/SpaceObject/EveSpaceObject2.h"
@@ -19,7 +16,7 @@
 #include "Utilities/BoundingSphere.h"
 
 
-EveChildParticleSystem::EveChildParticleSystem( IRoot* lockobj ):
+EveChildParticleSystem::EveChildParticleSystem( IRoot* lockobj ) :
 	EveChildTransform(),
 	PARENTLOCK( m_particleEmitters ),
 	PARENTLOCK( m_particleSystems ),
@@ -71,23 +68,13 @@ void EveChildParticleSystem::RegisterComponents()
 }
 
 
-bool EveChildParticleSystem::OnModified( Be::Var* value)
+bool EveChildParticleSystem::OnModified( Be::Var* value )
 {
-	if( IsMatch(value, m_reflectionMode) || IsMatch(value, m_display))
+	if( IsMatch( value, m_reflectionMode ) || IsMatch( value, m_display ) )
 	{
 		ReRegister();
 	}
 	return true;
-}
-
-const char* EveChildParticleSystem::GetName() const
-{
-	return m_name.c_str();
-}
-
-void EveChildParticleSystem::SetName( const char* name )
-{
-	m_name = BlueSharedString( name );
 }
 
 // --------------------------------------------------------------------------------
@@ -118,7 +105,7 @@ void EveChildParticleSystem::UpdateVisibility( const EveUpdateContext& updateCon
 	{
 		for( auto it = m_particleSystems.begin(); it != m_particleSystems.end(); ++it )
 		{
-			(*it)->UpdateViewDependentData( &frustum, m_worldTransform );
+			( *it )->UpdateViewDependentData( &frustum, m_worldTransform );
 		}
 	}
 }
@@ -139,7 +126,7 @@ void EveChildParticleSystem::GetRenderables( std::vector<ITr2Renderable*>& rende
 
 	for( auto it = m_particleSystems.begin(); it != m_particleSystems.end(); ++it )
 	{
-		(*it)->SortParticles();
+		( *it )->SortParticles();
 	}
 
 	renderables.push_back( this );
@@ -147,7 +134,7 @@ void EveChildParticleSystem::GetRenderables( std::vector<ITr2Renderable*>& rende
 
 bool EveChildParticleSystem::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query ) const
 {
-	if( m_boundingSphere.w == -1 ) 
+	if( m_boundingSphere.w == -1 )
 	{
 		return false;
 	}
@@ -159,7 +146,7 @@ bool EveChildParticleSystem::HasTransparentBatches()
 {
 	if( m_display && m_mesh )
 	{
-		return !(m_mesh->GetAreas( TRIBATCHTYPE_TRANSPARENT )->empty());
+		return !( m_mesh->GetAreas( TRIBATCHTYPE_TRANSPARENT )->empty() );
 	}
 
 	return false;
@@ -167,7 +154,7 @@ bool EveChildParticleSystem::HasTransparentBatches()
 
 void EveChildParticleSystem::GetBatches( ITriRenderBatchAccumulator* batches, TriBatchType batchType, const Tr2PerObjectData* perObjectData, Tr2RenderReason reason )
 {
-	if( m_display && m_mesh && m_mesh->GetAreas(batchType)->size() != 0 )
+	if( m_display && m_mesh && m_mesh->GetAreas( batchType )->size() != 0 )
 	{
 		m_mesh->GetBatches( batches, m_mesh->GetAreas( batchType ), perObjectData, std::numeric_limits<float>::max(), reason == Tr2RenderReason::TR2RENDERREASON_REFLECTION );
 	}
@@ -199,13 +186,6 @@ Tr2PerObjectData* EveChildParticleSystem::GetPerObjectData( ITriRenderBatchAccum
 
 void EveChildParticleSystem::UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& )
 {
-	if( m_mesh )
-	{
-		if( EntityComponents::ShouldReflect( m_reflectionMode ) )
-		{
-			m_mesh->ReverseIndexBuffers();
-		}
-	}
 }
 
 void EveChildParticleSystem::UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )
@@ -217,9 +197,9 @@ void EveChildParticleSystem::UpdateAsyncronous( const EveUpdateContext& updateCo
 	UpdateTransform( localToWorldTransform );
 	for( auto it = m_transformModifiers.begin(); it != m_transformModifiers.end(); ++it )
 	{
-		m_worldTransform = (*it)->ApplyTransform( m_worldTransform, params.boneCount, params.bones );
+		m_worldTransform = ( *it )->ApplyTransform( m_worldTransform, params.boneCount, params.bones );
 	}
-	
+
 	Vector3 minBounds, maxBounds;
 	if( m_mesh && m_mesh->GetBoundingBox( minBounds, maxBounds ) )
 	{
@@ -230,7 +210,7 @@ void EveChildParticleSystem::UpdateAsyncronous( const EveUpdateContext& updateCo
 	{
 		m_lodSphere.x = 0.0f;
 		m_lodSphere.y = 0.0f;
-		m_lodSphere.z = 0.0f;		
+		m_lodSphere.z = 0.0f;
 
 		m_lodSphere.w = m_lodSphereRadius;
 		BoundingSphereTransform( m_worldTransform, m_lodSphere );
@@ -242,7 +222,7 @@ void EveChildParticleSystem::UpdateAsyncronous( const EveUpdateContext& updateCo
 
 	for( auto it = m_particleSystems.begin(); it != m_particleSystems.end(); ++it )
 	{
-		(*it)->UpdateTransform( m_worldTransform );
+		( *it )->UpdateTransform( m_worldTransform );
 	}
 	if( !m_particleEmitters.empty() )
 	{
@@ -263,15 +243,15 @@ void EveChildParticleSystem::UpdateAsyncronous( const EveUpdateContext& updateCo
 				}
 			}
 		}
-		ITr2GenericEmitter::UpdateArguments args( 
-			updateContext.GetTime(), 
-			updateContext.GetGpuParticleSystem(), 
-			m_worldTransform, 
+		ITr2GenericEmitter::UpdateArguments args(
+			updateContext.GetTime(),
+			updateContext.GetGpuParticleSystem(),
+			m_worldTransform,
 			updateContext.GetOriginShift(),
 			emitCountFactor );
 		for( auto it = m_particleEmitters.begin(); it != m_particleEmitters.end(); ++it )
 		{
-			(*it)->Update( args );
+			( *it )->Update( args );
 		}
 	}
 	if( !m_particleSystems.empty() )
@@ -304,26 +284,26 @@ void EveChildParticleSystem::GetLocalToWorldTransform( Matrix& transform ) const
 // --------------------------------------------------------------------------------
 void EveChildParticleSystem::ChangeLOD( Tr2Lod lod )
 {
-	if ( !m_useDynamicLod )
+	if( !m_useDynamicLod )
 	{
 		return;
 	}
 
-	for ( auto it = m_particleSystems.begin(); it != m_particleSystems.end(); ++it )
+	for( auto it = m_particleSystems.begin(); it != m_particleSystems.end(); ++it )
 	{
-		unsigned original = (*it)->GetOriginalMaxParticles();
+		unsigned original = ( *it )->GetOriginalMaxParticles();
 		unsigned particleCount = original;
 
-		if ( lod == TR2_LOD_LOW )
+		if( lod == TR2_LOD_LOW )
 		{
-			particleCount = min( m_lodClampLow, (unsigned)( original * m_lodFactorLow ));
+			particleCount = min( m_lodClampLow, (unsigned)( original * m_lodFactorLow ) );
 		}
-		else if ( lod == TR2_LOD_MEDIUM )
+		else if( lod == TR2_LOD_MEDIUM )
 		{
 			particleCount = (int)( original * m_lodFactorMedium );
 		}
-		
-		(*it)->SetMaxParticleCount( particleCount );
+
+		( *it )->SetMaxParticleCount( particleCount );
 	}
 }
 

@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   2017
-//    Copyright: CCP 2017
-//
+// Copyright © 2017 CCP ehf.
+
 #pragma once
 #ifndef EveChildModifierSRT_H
 #define EveChildModifierSRT_H
@@ -17,7 +14,7 @@ public:
 
 	EveChildModifierSRT( IRoot* lockobj = NULL );
 	~EveChildModifierSRT();
-	
+
 	Matrix ApplyTransform( const Matrix& transform, size_t boneCount, const Float4x3* bones ) const;
 
 private:

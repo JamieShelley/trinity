@@ -1,3 +1,5 @@
+// Copyright © 2025 CCP ehf.
+
 #include "EveDistributionSpawnerInterval.h"
 
 BLUE_DEFINE( EveDistributionSpawnerInterval );
@@ -16,4 +18,3 @@ const Be::ClassInfo* EveDistributionSpawnerInterval::ExposeToBlue()
 
 	EXPOSURE_END()
 }
- 

@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   January 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #pragma once
 #ifndef EveChildSpherePin_H
@@ -41,12 +37,11 @@ public:
 	~EveChildSpherePin();
 
 	/////////////////////////////////////////////////////////////////////////////////////
-	// IEveSpaceObjectChild
+	// EveSpaceObjectChild
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params ) override;
-	Tr2PerObjectData* GetPerObjectData( ITriRenderBatchAccumulator* accumulator );
+	Tr2PerObjectData* GetPerObjectData( ITriRenderBatchAccumulator * accumulator );
 
 private:
-
 	Vector3 m_centerNormal;
 	float m_pinMaxRadius;
 	float m_pinRadius;

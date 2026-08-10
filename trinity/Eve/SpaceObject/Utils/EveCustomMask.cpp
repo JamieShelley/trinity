@@ -1,8 +1,5 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   April 2014
-//    Copyright: CCP 2014
-//
+// Copyright © 2014 CCP ehf.
+
 #include "StdAfx.h"
 
 #include "EveCustomMask.h"
@@ -94,5 +91,3 @@ void EveCustomMask::ZeroPerObjectData( size_t n, EveSpaceObjectVSData* vsData, E
 	vsData->customMaskMatrix[n] = IdentityMatrix();
 	psData->customMaskTargets[n] = psData->customMaskMaterialIDs[n] = vsData->customMaskData[n] = Vector4( 0.f, 0.f, 0.f, 0.f );
 }
-
-

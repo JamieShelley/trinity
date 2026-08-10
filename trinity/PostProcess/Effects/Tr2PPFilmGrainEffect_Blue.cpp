@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		February 2019
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2PPFilmGrainEffect.h"
@@ -23,5 +19,5 @@ const Be::ClassInfo* Tr2PPFilmGrainEffect::ExposeToBlue()
 		MAP_ATTRIBUTE( "grainContrast", m_grainContrast, "Contrast of grains, a higher value produces sharper grain edges. \n:jessica-group: New technique settings", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "brightnessModifier", m_brightnessModifier, "How the brightness of the pixel affects the film grain. Negative values reduce the noise intensity for bright pixels, while positive values increase the noise for bright pixels. \n:jessica-group: New technique settings", Be::READWRITE | Be::PERSIST )
 
-		EXPOSURE_CHAINTO( Tr2PPEffect )
+	EXPOSURE_CHAINTO( Tr2PPEffect )
 }

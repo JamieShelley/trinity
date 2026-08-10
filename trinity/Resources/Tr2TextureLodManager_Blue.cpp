@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		February 2022
-// Copyright:	CCP 2022
-//
+// Copyright © 2022 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2TextureLodManager.h"
@@ -36,5 +32,4 @@ Tr2TextureLodManagerPtr GetTextureLodManager()
 MAP_FUNCTION_AND_WRAP(
 	"GetTextureLodManager",
 	GetTextureLodManager,
-	"Returns a global instance of the texture LOD manager" 
-);
+	"Returns a global instance of the texture LOD manager" );

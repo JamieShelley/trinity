@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef WodBakingScene_H
 #define WodBakingScene_H
@@ -8,8 +10,7 @@
 BLUE_DECLARE( WodBakingScene );
 BLUE_DECLARE( Tr2SkinnedObject );
 
-class WodBakingScene:
-	public ITr2Scene
+class WodBakingScene : public ITr2Scene
 {
 public:
 	WodBakingScene( IRoot* lockobj = NULL );
@@ -17,7 +18,7 @@ public:
 
 	EXPOSE_TO_BLUE();
 
-	virtual void Render( Tr2RenderContext& renderContext );	
+	virtual void Render( Tr2RenderContext& renderContext );
 	virtual void RenderDebugInfo( Tr2RenderContext& renderContext );
 	virtual void Update( Be::Time realTime, Be::Time simTime );
 
@@ -29,7 +30,7 @@ private:
 	// Visualization
 	VisualizeMethod m_visualizeMethod;
 
-	Tr2ConstantBufferAL	m_VSBuffer, m_PSBuffer;
+	Tr2ConstantBufferAL m_VSBuffer, m_PSBuffer;
 };
 
 TYPEDEF_BLUECLASS( WodBakingScene );

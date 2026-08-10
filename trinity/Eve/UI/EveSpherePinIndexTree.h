@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef EveSpherePinIndexTree_H
 #define EveSpherePinIndexTree_H
@@ -12,12 +14,16 @@ public:
 	struct TreeNode;
 
 	explicit EveSpherePinIndexTree( TriGrannyRes* granny );
-	~EveSpherePinIndexTree(void);
+	~EveSpherePinIndexTree( void );
 
 	int Initialize();
 	int GetIndices( Vector3& point, float radius, int& primitives, std::vector<unsigned short>& indices );
 
-	int IsInitialized() { return m_initialized; }
+	int IsInitialized()
+	{
+		return m_initialized;
+	}
+
 private:
 	TriGrannyResPtr m_granny;
 
@@ -28,7 +34,7 @@ private:
 	Face* m_faces;
 
 	int m_initialized;
-	
+
 	std::vector<Face*> m_markedFaces;
 
 	int MarkFaces( TreeNode* node, float minTheta, float maxTheta, float minPhi, float maxPhi );

@@ -1,15 +1,12 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   November 2019
-//    Copyright: CCP 2019
-//
+// Copyright © 2019 CCP ehf.
+
 #pragma once
 
 #include "Tr2RtBottomLevelAccelerationStructureAL.h"
 
 namespace TrinityALImpl
 {
-	class Tr2RtTopLevelAccelerationStructureAL;
+class Tr2RtTopLevelAccelerationStructureAL;
 }
 
 // The TLAS references the bottom level structures, with each reference containing local-to-world transformation matrix
@@ -40,6 +37,7 @@ public:
 	const Tr2BufferAL& GetBuffer() const;
 	size_t GetCapacity() const;
 	TrinityALImpl::Tr2RtTopLevelAccelerationStructureAL* TrinityALImpl_GetObject() const;
+
 private:
 	std::shared_ptr<TrinityALImpl::Tr2RtTopLevelAccelerationStructureAL> m_tlas;
 };

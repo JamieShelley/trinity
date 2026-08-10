@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   March 2018
-//    Copyright: CCP 2018
-//
+// Copyright © 2018 CCP ehf.
 
 #pragma once
 
@@ -36,10 +32,10 @@ public:
 
 	EXPOSE_TO_BLUE();
 
-	void Link( ITr2ActionController& controller ) override;
+	void Link( ITr2ActionController & controller ) override;
 	void Unlink() override;
-	void Start( ITr2ActionController& controller ) override;
-	void Stop( ITr2ActionController& controller ) override;
+	void Start( ITr2ActionController & controller ) override;
+	void Stop( ITr2ActionController & controller ) override;
 
 	bool OnModified( Be::Var * value ) override;
 

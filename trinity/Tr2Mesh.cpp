@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2Mesh.h"
 #include "Resources/TriGeometryRes.h"
@@ -47,7 +49,7 @@ bool Tr2Mesh::OnModified( Be::Var* value )
 			Initialize();
 		}
 	}
-	else if ( IsMatch(value, m_meshIndex) )
+	else if( IsMatch( value, m_meshIndex ) )
 	{
 		InitializeMorphTargets();
 	}
@@ -68,10 +70,6 @@ void Tr2Mesh::SetGeometryRes( TriGeometryRes* res )
 	if( m_geometryResource )
 	{
 		m_geometryResource->AddNotifyTarget( this );
-		if( HasReversedAreas() )
-		{
-			m_geometryResource->RequestReversedIndexBuffers();
-		}
 	}
 }
 
@@ -88,10 +86,6 @@ void Tr2Mesh::SetLowResGeometryRes( TriGeometryRes* res )
 	if( m_lowResGeometryResource )
 	{
 		m_lowResGeometryResource->AddNotifyTarget( this );
-		if( HasReversedAreas() )
-		{
-			m_lowResGeometryResource->RequestReversedIndexBuffers();
-		}
 	}
 }
 
@@ -153,7 +147,7 @@ void Tr2Mesh::InitializeMorphTargets()
 		std::vector<std::string>& morphTargetNames = *names;
 
 		bool clearSerializedData = false;
-		if ( morphTargetNames.size() == m_serializedMorphAnimations.size() )
+		if( morphTargetNames.size() == m_serializedMorphAnimations.size() )
 		{
 			for( int32_t i = 0; i < morphTargetNames.size(); i++ )
 			{
@@ -168,7 +162,7 @@ void Tr2Mesh::InitializeMorphTargets()
 		{
 			clearSerializedData = true;
 		}
-		if ( clearSerializedData )
+		if( clearSerializedData )
 		{
 			m_serializedMorphAnimations.Clear();
 			for( int32_t i = 0; i < morphTargetNames.size(); i++ )
@@ -180,7 +174,7 @@ void Tr2Mesh::InitializeMorphTargets()
 				m_serializedMorphAnimations.Append( serializedWeight );
 			}
 		}
-		
+
 		for( int32_t i = 0; i < morphTargetNames.size(); i++ )
 		{
 			m_morphAnimations[morphTargetNames[i]] = Tr2MorphTargetAnimationData( i, m_serializedMorphAnimations[i]->m_weight );
@@ -228,18 +222,6 @@ TriGeometryRes* Tr2Mesh::GetGeometryResource() const
 bool Tr2Mesh::IsLoading() const
 {
 	return !m_loadFence.IsReached();
-}
-
-void Tr2Mesh::ReverseIndexBuffers()
-{
-	if( m_geometryResource )
-	{
-		m_geometryResource->RequestReversedIndexBuffers();
-	}
-	if( m_lowResGeometryResource )
-	{
-		m_lowResGeometryResource->RequestReversedIndexBuffers();
-	}
 }
 
 std::vector<std::string>* Tr2Mesh::GetMorphTargetNames() const
@@ -321,7 +303,7 @@ void Tr2Mesh::SetBakedMorphTarget( const char* name, bool isBaked )
 
 	for( int i = 0; i < mesh->m_morphTargetNames.size(); i++ )
 	{
-		if(mesh->m_morphTargetNames[i] == name)
+		if( mesh->m_morphTargetNames[i] == name )
 		{
 			mesh->m_isBakedMorphTarget[i] = isBaked;
 			return;

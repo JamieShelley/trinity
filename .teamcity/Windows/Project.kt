@@ -1,3 +1,5 @@
+// Copyright © 2026 CCP ehf.
+
 package Windows
 
 import jetbrains.buildServer.configs.kotlin.DslContext
@@ -40,7 +42,7 @@ class CarbonBuildWindows(buildName: String, configType: String, preset: String) 
     id(buildName.toId())
     this.name = buildName
 
-    artifactRules = "%env.CMAKE_INSTALL_PREFIX%"
+    artifactRules = "%env.CMAKE_INSTALL_PREFIX% => artifact.zip"
 
     params {
         param("env.GIT_TAG_HASH_OVERRIDE", "")
@@ -48,6 +50,8 @@ class CarbonBuildWindows(buildName: String, configType: String, preset: String) 
         param("env.CTEST_JUNIT_OUTPUT_FILE", "ctest_results.xml")
         select("env.VISUAL_STUDIO_PLATFORM_TOOLSET", "v141", label = "Visual Studio Platform Toolset", description = "Specify the toolset for the build. e.g. v141 or v143.",
                 options = listOf("v141 (2017)" to "v141", "v143 (2022)" to "v143"))
+        param("VS_DEV_BAT_SWITCHES", "-arch=x64")
+        param("env.VSDEV_BAT_PATH", "%%ProgramFiles(x86)%%/Microsoft Visual Studio/2017/BuildTools/Common7/Tools/vsdevcmd.bat")
         param("env.CMAKE_BUILD_TARGETS", "all")
         param("env.CMAKE_INSTALL_PREFIX", ".build-artifact")
         param("env.CMAKE_CONFIG_TYPE", configType)
@@ -89,7 +93,7 @@ class CarbonBuildWindows(buildName: String, configType: String, preset: String) 
             scriptContent = """
                 REM unfortunately ninja does not find the VS environment otherwise
                 REM NB: the exported PATH also contains the location where we installed sentry-cli, e.g. teamcity.agent.work.dir
-                call "%%ProgramFiles(x86)%%\Microsoft Visual Studio\2017\BuildTools\Common7\Tools\vsdevcmd.bat" -arch=x64
+                call "%env.VSDEV_BAT_PATH%" %VS_DEV_BAT_SWITCHES%
                 echo ##teamcity[setParameter name='env.INCLUDE' value='%%INCLUDE%%']
                 echo ##teamcity[setParameter name='env.LIB' value='%%LIB%%']
                 echo ##teamcity[setParameter name='env.LIBPATH' value='%%LIBPATH%%']

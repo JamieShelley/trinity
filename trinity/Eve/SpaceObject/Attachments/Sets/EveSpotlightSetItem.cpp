@@ -1,9 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   July 2012
-//    Copyright: CCP 2012
-//
-
+// Copyright © 2012 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveSpotlightSetItem.h"
@@ -14,9 +9,9 @@
 // --------------------------------------------------------------------------------
 EveSpotlightSetItem::EveSpotlightSetItem( IRoot* lockobj ) :
 	m_spriteScale( 1.0f, 1.0f, 1.0f ),
-	m_coneColor  ( 1.0f, 1.0f, 1.0f, 1.0f ),
+	m_coneColor( 1.0f, 1.0f, 1.0f, 1.0f ),
 	m_spriteColor( 1.0f, 1.0f, 1.0f, 1.0f ),
-	m_flareColor ( 1.0f, 1.0f, 1.0f, 1.0f ),
+	m_flareColor( 1.0f, 1.0f, 1.0f, 1.0f ),
 	m_boneIndex( 0 ),
 	m_boosterGainInfluence( false ),
 	m_transform( IdentityMatrix() )

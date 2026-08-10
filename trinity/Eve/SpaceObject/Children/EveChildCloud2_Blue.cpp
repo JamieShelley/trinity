@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////
-//
-//    Created:   February 2023
-//    Copyright: CCP 2023
-//
+// Copyright © 2023 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveChildCloud2.h"
@@ -13,12 +9,13 @@ BLUE_DEFINE( EveChildCloud2 );
 
 const Be::ClassInfo* EveChildCloud2::ExposeToBlue()
 {
-    EXPOSURE_BEGIN( EveChildCloud2, "Cloud space object child" )
-        MAP_INTERFACE( EveChildCloud2 )
+	EXPOSURE_BEGIN( EveChildCloud2, "Cloud space object child" )
+		MAP_INTERFACE( EveChildCloud2 )
 		MAP_INTERFACE( ITr2VolumetricRenderable )
 		MAP_INTERFACE( IInitialize )
 		MAP_INTERFACE( INotify )
 		MAP_INTERFACE( IListNotify )
+		MAP_INTERFACE( EveSpaceObjectChild )
 		MAP_INTERFACE( IEveSpaceObjectChild )
 		MAP_INTERFACE( ITr2Renderable )
 		MAP_INTERFACE( ITr2LightOwner )
@@ -55,10 +52,10 @@ const Be::ClassInfo* EveChildCloud2::ExposeToBlue()
 			m_shadowMapDS,
 			"Depth stencil used for shadows.",
 			Be::READWRITE | Be::NOTIFY )
-		MAP_ATTRIBUTE( 
-			"minScreenSize", 
-			m_minScreenSize, 
-			"Minimal size of object on screen, objects smaller than this size are not rendered.\n:jessica-group: LOD", 
+		MAP_ATTRIBUTE(
+			"minScreenSize",
+			m_minScreenSize,
+			"Minimal size of object on screen, objects smaller than this size are not rendered.\n:jessica-group: LOD",
 			Be::READWRITE | Be::PERSIST )
 
 		MAP_ATTRIBUTE( "textureTiling", m_mapTiling[0], "Tiling for the main density/temerature texture. Used for camera-attached clouds.\n:jessica-group: Tiling", Be::READWRITE | Be::PERSIST )
@@ -69,5 +66,8 @@ const Be::ClassInfo* EveChildCloud2::ExposeToBlue()
 		MAP_ATTRIBUTE( "mapOffset1", m_mapOffsets[1], "Texture offset 1. Used for debugging camera-attached clouds.\n:jessica-group: Tiling", Be::READ )
 		MAP_ATTRIBUTE( "mapOffset2", m_mapOffsets[2], "Texture offset 2. Used for debugging camera-attached clouds.\n:jessica-group: Tiling", Be::READ )
 
+		MAP_PROPERTY_READONLY( "partTag", GetPartTag, "Part tag for multi-part space objects" )
+		MAP_METHOD_AND_WRAP( "GetParent", GetParent, "Returns the parent space object child in the hierarchy" )
+		MAP_METHOD_AND_WRAP( "GetOwner", GetOwner, "Returns the owner space object" )
 	EXPOSURE_END()
 }

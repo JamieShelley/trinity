@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #pragma once
 #ifndef EveTrailsSet_H
 #define EveTrailsSet_H
@@ -19,7 +21,7 @@ BLUE_DECLARE( TriGeometryRes );
 // SeeAlso:
 //   EveBoosterSet2
 // --------------------------------------------------------------------------------
-BLUE_CLASS( EveTrailsSet ):
+BLUE_CLASS( EveTrailsSet ) :
 	public IInitialize,
 	public INotify,
 	public IBlueAsyncResNotifyTarget,
@@ -40,16 +42,17 @@ public:
 
 	//////////////////////////////////////////////////////////////////////////
 	// INotify
-	bool OnModified( Be::Var* val );
+	bool OnModified( Be::Var * val );
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IBlueAsyncResNotifyTarget
-	void ReleaseCachedData( BlueAsyncRes* p );
-	void RebuildCachedData( BlueAsyncRes* p );
+	void ReleaseCachedData( BlueAsyncRes * p );
+	void RebuildCachedData( BlueAsyncRes * p );
 
 	//////////////////////////////////////////////////////////////////////////////////////////
 	// ITriDeviceResource
 	void ReleaseResources( TriStorage s );
+
 private:
 	bool OnPrepareResources();
 
@@ -68,10 +71,13 @@ public:
 	void Clear();
 	void Add( const Matrix* localMatrix, float size );
 	// rendering
-	void GetBatches( ITriRenderBatchAccumulator* accumulator, const Tr2PerObjectData* perObjectData );
+	void GetBatches( ITriRenderBatchAccumulator * accumulator, const Tr2PerObjectData* perObjectData );
 
 	// query fade speed
-	float GetFadeSpeed()			const	{	return m_fadeSpeed;		}
+	float GetFadeSpeed() const
+	{
+		return m_fadeSpeed;
+	}
 	// set internal visual data
 	void SetEffect( Tr2EffectPtr effect );
 	void SetMeshResPath( const char* path );

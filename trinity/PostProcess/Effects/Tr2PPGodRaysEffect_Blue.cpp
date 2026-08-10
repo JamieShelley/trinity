@@ -1,8 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-// Created:		1/15/2019 
-// Copyright:	CCP 2019
-//
+// Copyright © 2019 CCP ehf.
 
 #include "StdAfx.h"
 #include "Tr2PPGodRaysEffect.h"
@@ -19,6 +15,4 @@ const Be::ClassInfo* Tr2PPGodRaysEffect::ExposeToBlue()
 		MAP_ATTRIBUTE( "noiseTexturePath", m_noiseTexturePath, "The noise texture to use", Be::READWRITE | Be::PERSIST )
 
 	EXPOSURE_CHAINTO( Tr2PPEffect )
-
 }
-

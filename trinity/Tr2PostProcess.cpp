@@ -1,3 +1,5 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2PostProcess.h"
 #include "Tr2VariableStore.h"
@@ -15,5 +17,5 @@ Tr2PostProcess::~Tr2PostProcess()
 
 bool Tr2PostProcess::Initialize()
 {
-    return true;
+	return true;
 }

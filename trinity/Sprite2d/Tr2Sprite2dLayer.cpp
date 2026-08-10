@@ -1,10 +1,12 @@
+// Copyright © 2023 CCP ehf.
+
 #include "StdAfx.h"
 #include "Tr2Sprite2dLayer.h"
 #include "Tr2Sprite2dScene.h"
 
 using namespace Tr2RenderContextEnum;
 
-CCP_STATS_DECLARE( spriteSceneLayerMemoryUse,	"Trinity/SpriteScene/LayerMemoryUse",	false, CST_MEMORY, "Memory used for layer render targets" );
+CCP_STATS_DECLARE( spriteSceneLayerMemoryUse, "Trinity/SpriteScene/LayerMemoryUse", false, CST_MEMORY, "Memory used for layer render targets" );
 
 Tr2Sprite2dLayer::Tr2Sprite2dLayer( IRoot* lockobj ) :
 	Tr2Sprite2dContainer( lockobj ),
@@ -64,11 +66,11 @@ void Tr2Sprite2dLayer::GatherSprites( Tr2Sprite2dScene* renderer )
 
 		for( ITr2SpriteObjectVector::reverse_iterator it = m_background.rbegin(); it != m_background.rend(); ++it )
 		{
-			(*it)->GatherSprites( renderer );
+			( *it )->GatherSprites( renderer );
 		}
 		for( ITr2SpriteObjectVector::reverse_iterator it = m_children.rbegin(); it != m_children.rend(); ++it )
 		{
-			(*it)->GatherSprites( renderer );
+			( *it )->GatherSprites( renderer );
 		}
 
 		m_isDirty = false;
@@ -90,12 +92,12 @@ bool Tr2Sprite2dLayer::OnPrepareResources()
 	}
 
 	USE_MAIN_THREAD_RENDER_CONTEXT();
-	HRESULT hr = m_renderTarget.Create(	
-		Tr2BitmapDimensions( (uint32_t)m_displayWidth, (uint32_t)m_displayHeight, 1, Tr2RenderContextEnum::PIXEL_FORMAT_B8G8R8A8_UNORM ), 
+	HRESULT hr = m_renderTarget.Create(
+		Tr2BitmapDimensions( (uint32_t)m_displayWidth, (uint32_t)m_displayHeight, 1, Tr2RenderContextEnum::PIXEL_FORMAT_B8G8R8A8_UNORM ),
 		Tr2GpuUsage::SHADER_RESOURCE | Tr2GpuUsage::RENDER_TARGET,
 		Tr2CpuUsage::READ,
 		renderContext );
-	
+
 	if( FAILED( hr ) )
 	{
 		CCP_LOGERR( "Tr2Sprite2dLayer::AllocateRenderTarget failed to create a render target" );
@@ -114,13 +116,13 @@ void Tr2Sprite2dLayer::ReleaseResources( TriStorage s )
 
 void Tr2Sprite2dLayer::AllocateRenderTarget()
 {
-	if( m_renderTarget.IsValid() && ((uint32_t)m_displayWidth == m_renderTarget.GetWidth() ) && ((uint32_t)m_displayHeight == m_renderTarget.GetHeight() ) )
+	if( m_renderTarget.IsValid() && ( (uint32_t)m_displayWidth == m_renderTarget.GetWidth() ) && ( (uint32_t)m_displayHeight == m_renderTarget.GetHeight() ) )
 	{
 		return;
 	}
 
 	m_isDirty = true;
-	
+
 	FreeRenderTarget();
 
 	PrepareResources();
@@ -137,7 +139,6 @@ unsigned int Tr2Sprite2dLayer::GetVertexCount()
 {
 	CCP_ASSERT_M( false, "Tr2Sprite2dLayer::GetVertexCount not implemented" );
 	return 0;
-
 }
 
 void Tr2Sprite2dLayer::SetTextureSecondary( ITr2Sprite2dTexture* t )
@@ -166,4 +167,3 @@ void Tr2Sprite2dLayer::Sprite2dTextureChanged( ITr2Sprite2dTexture* p )
 {
 	SetDirty();
 }
-
