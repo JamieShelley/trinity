@@ -867,7 +867,7 @@ void EveBoosterSet2::Clear()
 {
 	// clear everything
 	m_boosters.Clear();
-	m_runtimeLights.clear();
+	m_boosterLights.clear();
 	if( m_glows )
 	{
 		m_glows->Clear();
@@ -894,7 +894,7 @@ void EveBoosterSet2::RebuildPreservingSettings()
 {
 	// Clear only the booster items, not the effects/glows/trails
 	m_boosters.Clear();
-	m_runtimeLights.clear();
+	m_boosterLights.clear();
 	if( m_glows )
 	{
 		m_glows->Clear();
@@ -937,11 +937,11 @@ void EveBoosterSet2::Add( const Matrix* localMatrix, const Vector4* functionalit
 	item.hasTrail      = hasTrail ? 1 : 0;
 	item.lightScale    = lightScale;
 
-	RuntimeLightData rt;
-	ComputeRuntimeLightData( item, rt );
+	BoosterLight light;
+	ComputeBoosterLight( item, light );
 
 	m_boosters.Append( &item );
-	m_runtimeLights.push_back( rt );
+	m_boosterLights.push_back( light );
 
 	Vector3 pos( localMatrix->_41, localMatrix->_42, localMatrix->_43 );
 	float scale = std::max( Length( localMatrix->GetX() ), Length( localMatrix->GetY() ) );
@@ -976,7 +976,7 @@ void EveBoosterSet2::Add( const Matrix* localMatrix, const Vector4* functionalit
 	}
 }
 
-void EveBoosterSet2::ComputeRuntimeLightData( const EveBoosterItem& item, RuntimeLightData& out ) const
+void EveBoosterSet2::ComputeBoosterLight( const EveBoosterItem& item, BoosterLight& out ) const
 {
 	Vector3 lightOffset( 0.f, 0.f, -m_lightOffset );
 	out.position = TransformCoord( lightOffset, item.transform );
@@ -1437,7 +1437,7 @@ void EveBoosterSet2::GetLights( Tr2LightManager& lightManager ) const
 		radiusFactor *= ( *dit )->m_overallIntensity;
 		Color color = m_lightColor * ( 1.f - warpIntensity ) + m_lightWarpColor * warpIntensity;
 		XMMATRIX transform = ( *dit )->m_parentTransform;
-		for( const RuntimeLightData& light : m_runtimeLights )
+		for( const BoosterLight& light : m_boosterLights )
 		{
 			float phase = ( light.phase + Tr2Renderer::GetAnimationTime() ) * m_lightFlickerFrequency;
 			float p0 = g_lightNoise[int( phase ) % g_lightNoiseSize];

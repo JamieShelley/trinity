@@ -37,9 +37,9 @@ BLUE_DECLARE( Tr2DebugRenderer );
 //   are persisted to Blue via a BLUE_DECLARE_STRUCTURE_LIST (see s_boosterItemStructureDef
 //   in EveBoosterSet2.cpp) so boosters survive save/load cycles. transform is NOT
 //   persisted: the ship owns locator authority and supplies a fresh transform on every
-//   rebuild via EveBoosterSet2::RebuildBoosters(). Runtime-derived fields (light position,
+//   rebuild via EveBoosterSet2::RebuildBoosters(). The derived point-light fields (position,
 //   radius, phase) are NOT stored here either — they live in EveBoosterSet2's
-//   m_runtimeLights vector, parallel to the persisted m_boosters list.
+//   m_boosterLights vector, parallel to the persisted m_boosters list.
 // --------------------------------------------------------------------------------
 struct EveBoosterItem
 {
@@ -265,9 +265,9 @@ public:
 	// manage individual exhaust points
 	void Clear();
 
-	// Per-booster runtime light data, computed from EveBoosterItem entries by Add().
+	// The point light contributed by one booster, computed from its EveBoosterItem by Add().
 	// Parallel to m_boosters: same index, same count. Never persisted.
-	struct RuntimeLightData
+	struct BoosterLight
 	{
 		Vector3 position;
 		float   radius;
@@ -323,12 +323,12 @@ public:
 
 private:
 	PEveBoosterItemStructureList m_boosters;
-	std::vector<RuntimeLightData> m_runtimeLights;
+	std::vector<BoosterLight> m_boosterLights;
 	// re-alloc and init the instance vertex buffers
 	void RebuildInstanceData( Tr2RenderContext & renderContext );
 
-	// derive runtime light data for one booster from its persisted entry
-	void ComputeRuntimeLightData( const EveBoosterItem& item, RuntimeLightData& out ) const;
+	// derive the point light for one booster from its persisted entry
+	void ComputeBoosterLight( const EveBoosterItem& item, BoosterLight& out ) const;
 
 	// clear boosters/glows/trails/bounding info while preserving effects and visual
 	// settings; used internally by RebuildBoosters() before re-adding from fresh locators
