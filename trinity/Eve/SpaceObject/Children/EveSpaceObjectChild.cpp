@@ -143,7 +143,14 @@ void EveSpaceObjectChild::UnregisterChild( EveSpaceObjectChild* child )
 {
 	if( child )
 	{
-		CCP_ASSERT( child->GetParent() == this );
+		// A child loaded from a shared resource can be registered by several parents
+		// (each RegisterChild overwrites the parent pointer), so only clear the links
+		// when this parent still owns them - the last registered parent keeps them.
+		if( child->GetParent() != this )
+		{
+			CCP_LOGWARN( "EveSpaceObjectChild::UnregisterChild: child is registered to a different parent - skipping" );
+			return;
+		}
 		child->SetParent( nullptr );
 		child->SetOwner( nullptr );
 		// No reason to reset the part tag as it is meaningless outside the hierarchy of the parent object
