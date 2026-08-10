@@ -94,7 +94,7 @@ public:
 	void AddTransformModifier( IEveChildTransformModifier * modifier ) override;
 	void RegisterWithQuadRenderer( Tr2QuadRenderer & quadRenderer ) override;
 	void AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer ) const override;
-
+	void SetOwner( IEveSpaceObject2* owner ) override;
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// EveEntity

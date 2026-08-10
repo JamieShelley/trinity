@@ -1887,6 +1887,16 @@ void EveChildMesh::AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRen
 	}
 }
 
+void EveChildMesh::SetOwner( IEveSpaceObject2* owner )
+{
+	if( GetOwner() != owner )
+	{
+		InvalidateOwnerMergedLocators();	// invalidate locators on old owner
+		EveSpaceObjectChild::SetOwner( owner );
+		InvalidateOwnerMergedLocators();	// invalidate locators on new owner
+	}
+}
+
 void EveChildMesh::GetLights( Tr2LightManager& lightManager ) const
 {
 	if( m_lights.empty() || !m_display )
@@ -2102,7 +2112,7 @@ bool EveChildMesh::GetDamageLocatorPositionLocal( int index, Vector3& out ) cons
 
 	for( const auto& sets : m_ownedLocatorSets )
 	{
-		if( sets->HasName( "damage" ) )
+		if( sets->HasName( DAMAGE_LOCATOR_SET_NAME ) )
 		{
 			const LocatorStructureList* locators = sets->GetLocators();
 			if( index >= int( locators->size() ) )

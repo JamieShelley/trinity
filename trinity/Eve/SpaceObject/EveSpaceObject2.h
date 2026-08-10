@@ -48,6 +48,8 @@
 #define EVE_SPACEOBJECT_DIRT_LEVEL_DEFAULT ( 0.f )
 #define EVE_SPACEOBJECT_CUSTOWMASK_MAX ( 2 )
 
+extern const BlueSharedString DAMAGE_LOCATOR_SET_NAME;
+
 // forwards
 BLUE_DECLARE_INTERFACE( IEveSpaceObject2 );
 BLUE_DECLARE( EveSpaceObject2 );
@@ -180,7 +182,6 @@ struct LocatorSourceRange
 struct DamageFilterOccluder
 {
 	TriGeometryResPtr geometry;
-	Matrix toObject;	// TODO: intern, remove?
 	Matrix fromObject;
 	Tr2MeshBasePtr mesh;
 };
@@ -306,7 +307,6 @@ public:
 	void InvalidateMergedLocators() override;
 
 	void EnsureChildLocatorMerged() const;
-	void RebuildMergedLocatorSets() const;
 	void UpdateDamageLocatorAutoFilter();
 	EveDamageOverlayPtr EnsureChildDamageOverlay( const LocatorSourceRange& range );
 

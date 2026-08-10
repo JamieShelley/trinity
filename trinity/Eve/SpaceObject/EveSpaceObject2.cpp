@@ -1883,12 +1883,7 @@ void EveSpaceObject2::EnsureChildLocatorMerged() const
 	{
 		return;
 	}
-	RebuildMergedLocatorSets();
-	m_mergedLocatorSetsDirty = false;
-}
 
-void EveSpaceObject2::RebuildMergedLocatorSets() const
-{
 	m_mergedLocatorSets.clear();
 	m_mergedDamageLocatorSources = m_baseDamageLocatorSources;
 
@@ -1929,11 +1924,11 @@ void EveSpaceObject2::RebuildMergedLocatorSets() const
 		{
 			auto transform = TransformationMatrix( locator->scale, locator->direction, locator->position ) * childLocatorSet.childToObject;
 			Locator transformedLocator;
-			transformedLocator.boneIndex = locator->boneIndex;
+			transformedLocator.boneIndex = -1; // locator->boneIndex; // TODO: intern, is caching locators a problem?
 			Decompose( transformedLocator.scale, transformedLocator.direction, transformedLocator.position, transform );
 			( *mergedLocatorSet )->Append( &transformedLocator, 1 );
 		}
-		
+
 		if( childLocatorSet.sets->HasName( DAMAGE_LOCATOR_SET_NAME ) )
 		{
 			LocatorSourceRange range;
@@ -1946,6 +1941,7 @@ void EveSpaceObject2::RebuildMergedLocatorSets() const
 	}
 
 	m_damageLocatorFilterDirty = true;
+	m_mergedLocatorSetsDirty = false;
 }
 
 void EveSpaceObject2::ReleaseDamageFilterSessions()
@@ -2007,7 +2003,6 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 			{
 				DamageFilterOccluder occluder;
 				occluder.geometry = m_mesh->GetGeometryResource();
-				occluder.toObject = IdentityMatrix();
 				occluder.fromObject = IdentityMatrix();
 				occluder.mesh = m_mesh;
 				m_damageFilterOccluders.push_back( occluder );
@@ -2035,7 +2030,6 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 
 			DamageFilterOccluder occluder;
 			occluder.geometry = childGeometry.geometry;
-			occluder.toObject = childGeometry.childToObject;
 			occluder.fromObject = Inverse( childGeometry.childToObject );
 			occluder.mesh = childGeometry.mesh;
 			m_damageFilterOccluders.push_back( occluder );

@@ -355,13 +355,19 @@ BVHContent CreateBVHContent( Tr2CmfContents& content, const std::vector<int32_t>
 	bvhContent.lodIndices = lodIndices;
 	for( int32_t i = 0; i < bvhContent.content.GetData()->meshes.size(); i++ )
 	{
+		const auto& mesh = bvhContent.content.GetData()->meshes[i];
+
+		if( mesh.topology != cmf::MeshTopology::TriangleList )
+		{
+			continue;
+		}
+
 		auto indices = GetIndices( bvhContent, i );
 		auto positions = GetPositions( bvhContent, i );
 
 		auto getIndex = [&indices]( int32_t i ) { return indices[i]; };
 		auto getPositions = [&positions]( int32_t i ) { return positions[i]; };
 
-		const auto& mesh = bvhContent.content.GetData()->meshes[i];
 		for( const auto& area : mesh.lods[lodIndices[i]].areas )
 		{
 			bvhContent.bvhs.push_back( CreateBVH( getIndex, getPositions, area.firstElement, area.elementCount ) );
@@ -382,10 +388,20 @@ bool Intersection(
 	float& v,
 	float& distance )
 {
+	if( bvhContent.content.GetData()->meshes[meshIndex].topology != cmf::MeshTopology::TriangleList )
+	{
+		return false;
+	}
+
 	size_t areasOffset = 0;
 	for( int32_t i = 0; i < meshIndex; i++ )
 	{
-		areasOffset += bvhContent.content.GetData()->meshes[i].areas.size();
+		const auto& mesh = bvhContent.content.GetData()->meshes[i];
+		if( mesh.topology != cmf::MeshTopology::TriangleList )
+		{
+			continue;
+		}
+		areasOffset += mesh.areas.size();
 	}
 
 	return Intersection( bvhContent.bvhs[areasOffset + areaIndex], stack, ray, rayLength, primitive, u, v, distance );
@@ -402,10 +418,20 @@ bool Intersection(
 	float& v,
 	float& distance )
 {
+	if( bvhContent.content.GetData()->meshes[meshIndex].topology != cmf::MeshTopology::TriangleList )
+	{
+		return false;
+	}
+
 	size_t areasOffset = 0;
 	for( int32_t i = 0; i < meshIndex; i++ )
 	{
-		areasOffset += bvhContent.content.GetData()->meshes[i].areas.size();
+		const auto& mesh = bvhContent.content.GetData()->meshes[i];
+		if( mesh.topology != cmf::MeshTopology::TriangleList )
+		{
+			continue;
+		}
+		areasOffset += mesh.areas.size();
 	}
 
 	bool hit = false;
@@ -428,7 +454,7 @@ bool Intersection(
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
-	uint32_t& mesh,
+	uint32_t& meshIndex,
 	uint32_t& primitive,
 	float& u,
 	float& v,
@@ -436,21 +462,27 @@ bool Intersection(
 {
 	bool hit = false;
 	size_t areasOffset = 0;
-	for( size_t meshIndex = 0; meshIndex < bvhContent.content.GetData()->meshes.size(); meshIndex++ )
+	for( size_t i = 0; i < bvhContent.content.GetData()->meshes.size(); i++ )
 	{
-		for( size_t areaIndex = 0; areaIndex < bvhContent.content.GetData()->meshes[meshIndex].areas.size(); areaIndex++ )
+		const auto& mesh = bvhContent.content.GetData()->meshes[i];
+		if( mesh.topology != cmf::MeshTopology::TriangleList )
+		{
+			continue;
+		}
+
+		for( size_t areaIndex = 0; areaIndex < mesh.areas.size(); areaIndex++ )
 		{
 			const auto& bvh = bvhContent.bvhs[areasOffset + areaIndex];
 			uint32_t hitPrimitive;
 			if( Intersection( bvh, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
 			{
-				mesh = (uint32_t)meshIndex;
+				meshIndex = (uint32_t)i;
 				primitive = hitPrimitive;
 				distance = rayLength;
 				hit = true;
 			}
 		}
-		areasOffset += bvhContent.content.GetData()->meshes[meshIndex].areas.size();
+		areasOffset += mesh.areas.size();
 	}
 	return hit;
 }
@@ -471,11 +503,13 @@ bool Intersection(
 	size_t areasOffset = 0;
 	for( size_t i = 0; i < bvhContent.content.GetData()->meshes.size(); i++ )
 	{
-		if( areaIndex >= bvhContent.content.GetData()->meshes[i].areas.size() )
+		const auto& mesh = bvhContent.content.GetData()->meshes[i];
+		if( mesh.topology != cmf::MeshTopology::TriangleList )
 		{
 			continue;
 		}
 
+		if( areaIndex < mesh.areas.size() )
 		{
 			const auto& bvh = bvhContent.bvhs[areasOffset + areaIndex];
 			uint32_t hitPrimitive;
@@ -487,7 +521,7 @@ bool Intersection(
 				hit = true;
 			}
 		}
-		areasOffset += bvhContent.content.GetData()->meshes[i].areas.size();
+		areasOffset += mesh.areas.size();
 	}
 	return hit;
 }

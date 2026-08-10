@@ -322,18 +322,6 @@ public:
 	bool HasRayCasterPreparationFailed() const;
 	void DestroyRayCaster();
 
-	//bool GetIntersectionPoints(
-	//	const Vector3* pos,
-	//	const Vector3* dir,
-	//	Vector3* hitpointNear,
-	//	Vector3* hitpointNearNormal,
-	//	Vector3* hitpointFar,
-	//	Vector3* hitpointFarNormal,
-	//	int* boneIndexNear,
-	//	int* boneIndexFar,
-	//	unsigned int areaIx = -1,
-	//	float rayLength = INFINITY );
-
 	bool GetIntersectionPointNormalBoneColor(
 		const Vector3* pos,
 		const Vector3* dir,
@@ -425,7 +413,7 @@ public:
 	struct
 	{
 		Tr2RaycastGeometryResPtr geometry = nullptr;
-		std::vector<BVH::IntersectedNode> mainThreadStack;
+		std::vector<BVH::IntersectedNode> mainThreadStack;	// TODO: intern, this does not have to exist per TriGeometryRes!
 		int32_t sessions = 0;
 	} m_bvh;
 

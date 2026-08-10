@@ -607,8 +607,7 @@ bool TriGeometryRes::DoPrepare()
 				} );
 				if( !hasMeshBindings )
 				{
-					// we don't reset the entire variable, because we want to be able to access the GetData for cpu side raycasting
-					m_cmfContents.UnloadGpuBuffers();
+					m_cmfContents = {};
 				}
 			}
 		}
@@ -1556,7 +1555,7 @@ void TriGeometryRes::PrepareRayCaster()
 {
 	m_bvh.sessions++;
 
-	if( m_bvh.geometry )
+	if( m_bvh.geometry || !m_useCMF )
 	{
 		return;
 	}
@@ -1622,6 +1621,11 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 	if( boneIndexNear )
 	{
 		*boneIndexNear = -1;
+	}
+
+	if( colorNear )
+	{
+		*colorNear = RayCastColorResult{};
 	}
 
 	uint32_t meshIndex;
