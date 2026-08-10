@@ -96,10 +96,8 @@ void EveTriggerVolume::RebuildBoundingSphere()
 
 const char* EveTriggerVolume::GetEffectiveName() const
 {
-	if( !m_name.empty() )
-	{
-		return m_name.c_str();
-	}
+	// Prefer volume names: per-placement names from dungeon asset manipulations are bound to
+	// the first volume, while the client overwrites the root name with the destiny ball ID.
 	for( auto volume = m_volumes.begin(); volume != m_volumes.end(); ++volume )
 	{
 		const char* volumeName = ( *volume )->GetName();
@@ -108,7 +106,7 @@ const char* EveTriggerVolume::GetEffectiveName() const
 			return volumeName;
 		}
 	}
-	return "";
+	return m_name.c_str();
 }
 
 #if BLUE_WITH_PYTHON
@@ -173,9 +171,30 @@ void EveTriggerVolume::QueueCallback( bool entered )
 #endif
 }
 
-void EveTriggerVolume::UpdateWorldTransform()
+void EveTriggerVolume::UpdateWorldTransform( Be::Time time )
 {
-	m_worldTransform = RotationMatrix( m_rotation ) * TranslationMatrix( m_translation );
+	Quaternion rotation;
+	Vector3 translation;
+
+	if( m_ballPosition )
+	{
+		m_ballPosition->Update( &translation, time );
+	}
+	else
+	{
+		translation = m_translation;
+	}
+
+	if( m_ballRotation )
+	{
+		m_ballRotation->Update( &rotation, time );
+	}
+	else
+	{
+		rotation = m_rotation;
+	}
+
+	m_worldTransform = RotationMatrix( rotation ) * TranslationMatrix( translation );
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -184,7 +203,7 @@ void EveTriggerVolume::UpdateSyncronous( const EveUpdateContext& updateContext )
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
-	UpdateWorldTransform();
+	UpdateWorldTransform( updateContext.GetTime() );
 
 	RebuildBoundingSphere();
 
@@ -273,7 +292,7 @@ bool EveTriggerVolume::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery q
 
 void EveTriggerVolume::UpdateModelCenterWorldPosition( Vector3& position, Be::Time t )
 {
-	UpdateWorldTransform();
+	UpdateWorldTransform( t );
 	GetModelCenterWorldPosition( position );
 }
 
@@ -305,14 +324,14 @@ Vector3 EveTriggerVolume::GetWorldPosition()
 
 Quaternion EveTriggerVolume::GetWorldRotation()
 {
-	return Normalize( m_rotation );
+	return Normalize( RotationQuaternion( m_worldTransform ) );
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
 // IInitialize
 bool EveTriggerVolume::Initialize()
 {
-	UpdateWorldTransform();
+	UpdateWorldTransform( Be::Time( 0.0 ) );
 	RebuildBoundingSphere();
 	return true;
 }
