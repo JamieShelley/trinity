@@ -33,6 +33,7 @@ void TriggerExitCallback( void* context )
 EveTriggerVolume::EveTriggerVolume( IRoot* lockobj ) :
 	PARENTLOCK( m_volumes ),
 	PARENTLOCK( m_exclusionVolumes ),
+	PARENTLOCK( m_externalParameters ),
 	m_rotation( 0.0f, 0.0f, 0.0f, 1.0f ),
 	m_translation( 0.0f, 0.0f, 0.0f ),
 	m_boundingSphere( Vector3( 0.0, 0.0, 0.0 ), 0.0 ),
@@ -93,6 +94,23 @@ void EveTriggerVolume::RebuildBoundingSphere()
 	}
 }
 
+const char* EveTriggerVolume::GetEffectiveName() const
+{
+	if( !m_name.empty() )
+	{
+		return m_name.c_str();
+	}
+	for( auto volume = m_volumes.begin(); volume != m_volumes.end(); ++volume )
+	{
+		const char* volumeName = ( *volume )->GetName();
+		if( volumeName && volumeName[0] != '\0' )
+		{
+			return volumeName;
+		}
+	}
+	return "";
+}
+
 #if BLUE_WITH_PYTHON
 void EveTriggerVolume::SetCallback( PyObject* callable )
 {
@@ -116,7 +134,7 @@ void EveTriggerVolume::InvokeCallback( bool entered )
 		return;
 	}
 
-	PyObject* args = Py_BuildValue( "(sO)", m_name.c_str(), entered ? Py_True : Py_False );
+	PyObject* args = Py_BuildValue( "(sO)", GetEffectiveName(), entered ? Py_True : Py_False );
 	if( !args )
 	{
 		return;

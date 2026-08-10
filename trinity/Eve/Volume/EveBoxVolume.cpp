@@ -38,6 +38,11 @@ bool EveBoxVolume::Initialize()
 	return true;
 }
 
+const char* EveBoxVolume::GetName() const
+{
+	return m_name.c_str();
+}
+
 void EveBoxVolume::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Matrix& parentTransform, const Color& baseColor )
 {
 	renderer.DrawBox( this, m_boxTransform * parentTransform, MIN_AABB, MAX_AABB, Tr2DebugRenderer::Wireframe, baseColor * 0.5f );

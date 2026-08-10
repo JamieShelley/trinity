@@ -69,6 +69,11 @@ void EveEllipsoidVolume::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Ma
 	}
 }
 
+const char* EveEllipsoidVolume::GetName() const
+{
+	return m_name.c_str();
+}
+
 const CcpMath::Sphere EveEllipsoidVolume::GetBoundingSphere() const
 {
 	return m_boundingSphere;

@@ -17,6 +17,11 @@ EveSphereVolume::~EveSphereVolume()
 {
 }
 
+const char* EveSphereVolume::GetName() const
+{
+	return m_name.c_str();
+}
+
 void EveSphereVolume::RenderDebugInfo( ITr2DebugRenderer2& renderer, const Matrix& parentTransform, const Color& baseColor )
 {
 	renderer.DrawSphere( this, TranslationMatrix( m_outerSphere.center ) * parentTransform, m_outerSphere.radius, 20, Tr2DebugRenderer::Wireframe, baseColor * 0.5f );
