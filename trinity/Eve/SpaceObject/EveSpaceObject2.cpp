@@ -2068,48 +2068,61 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 	}
 
 	// filter by raycasting
-	int32_t i = 0;
-	for( auto damageLocator = damageLocators->begin(); damageLocator != damageLocators->end(); damageLocator++ )
 	{
-		Vector3 direction = Vector3( 0.f, 1.f, 0.f );
-		TriVectorRotateQuaternion( &direction, &direction, &damageLocator->direction );
-		Vector3 origin = damageLocator->position + direction * 0.1f;
-		
-		bool occluded = false;
-		bool backfacing = false;
+		CCP_STATS_ZONE( "Damage Locator Filter Raycasts" );
 
-		float frontFaceMinDistance = 0.0316f * m_boundingSphereRadius;
-		float rayLength = std::numeric_limits<float>::infinity();
+		std::vector<uint8_t> enabled;
+		enabled.resize( m_damageLocatorEnabled.size() );
 
-		for( auto& occluder : m_damageFilterOccluders )
-		{
-			auto areas = occluder.mesh->GetAreas( TRIBATCHTYPE_OPAQUE );
-			if( !areas->empty() )
+		Tr2ParallelFor( size_t( 0 ), damageLocators->size(), [&]( size_t i ) {
+			auto damageLocator = damageLocators->begin() + i;
+
+			Vector3 direction = Vector3( 0.f, 1.f, 0.f );
+			TriVectorRotateQuaternion( &direction, &direction, &damageLocator->direction );
+			Vector3 origin = damageLocator->position + direction * 0.1f;
+
+			bool occluded = false;
+			bool backfacing = false;
+
+			float frontFaceMinDistance = 0.0316f * m_boundingSphereRadius;
+			float rayLength = std::numeric_limits<float>::infinity();
+
+			for( auto& occluder : m_damageFilterOccluders )
 			{
-				Vector3 rayOrigin = Transform( origin, occluder.fromObject ).GetXYZ();
-				Vector3 rayDirection = TransformNormal( direction, occluder.fromObject );
-
-				Vector3 normal;
-				for( auto it = begin( *areas ); it != end( *areas ); ++it )
+				auto areas = occluder.mesh->GetAreas( TRIBATCHTYPE_OPAQUE );
+				if( !areas->empty() )
 				{
-					if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, nullptr, &normal, false, nullptr, nullptr, ( *it )->GetIndex(), rayLength ) )
+					Vector3 rayOrigin = Transform( origin, occluder.fromObject ).GetXYZ();
+					Vector3 rayDirection = TransformNormal( direction, occluder.fromObject );
+
+					Vector3 normal;
+					for( auto it = begin( *areas ); it != end( *areas ); ++it )
 					{
-						backfacing = !( *it )->IsAlphaCutout() && ( ( Dot( normal, rayDirection ) > 0 ) != ( *it )->IsReversed() );
-						if( rayLength < frontFaceMinDistance )
+						if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, nullptr, &normal, false, nullptr, nullptr, ( *it )->GetIndex(), rayLength ) )
 						{
-							occluded = true;
-							break;
+							backfacing = !( *it )->IsAlphaCutout() && ( ( Dot( normal, rayDirection ) > 0 ) != ( *it )->IsReversed() );
+							if( rayLength < frontFaceMinDistance )
+							{
+								occluded = true;
+								break;
+							}
 						}
 					}
 				}
+				if( occluded )
+				{
+					break;
+				}
 			}
-			if( occluded )
-			{
-				break;
-			}
-		}
 
-		m_damageLocatorEnabled[i++] = !occluded && !backfacing;
+			enabled[i] = !occluded && !backfacing;
+		} );
+
+		// We need to copy the results, because std::vector<bool> might be bitpacked. Writing to it multithreaded is not safe.
+		for( size_t i = 0; i < m_damageLocatorEnabled.size(); i++ )
+		{
+			m_damageLocatorEnabled[i] = enabled[i];
+		}
 	}
 
 	ReleaseDamageFilterSessions();

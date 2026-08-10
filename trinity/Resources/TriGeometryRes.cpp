@@ -15,7 +15,7 @@
 #include "Utilities/BoundingBox.h"
 
 #include <cctype>
-
+#include "TbbStub.h"
 
 using namespace Tr2RenderContextEnum;
 
@@ -115,6 +115,7 @@ BlueAsyncRes::LoadingResult Tr2RaycastGeometryRes::DoLoad()
 		}
 	}
 
+	// BVH creation also decompresses the cmf buffers, which allows safe multithreaded raycast queries.
 	m_bvh = BVH::CreateBVHContent( cmfContent, m_lodIndices );
 
 	return LR_SUCCESS;
@@ -1609,13 +1610,22 @@ bool TriGeometryRes::HasRayCasterPreparationFailed() const
 	return m_bvh.geometry && m_bvh.geometry->IsPrepared() && !m_bvh.geometry->IsGood();
 }
 
+static std::vector<BVH::IntersectedNode>& GetRaycastStack()
+{
+	static Tr2EnumerableThreadSpecific<std::vector<BVH::IntersectedNode>> stacks;
+	return stacks.local();
+}
+
 bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, RayCastColorResult* colorNear, unsigned int areaIx, float& rayLength )
 {
-	CCP_STATS_ZONE( __FUNCTION__ );
-
 	if( !m_useCMF || !m_bvh.geometry || !m_bvh.geometry->IsGood() )
 	{
-		return GetIntersectionPointsLegacy( &pos, &dir, hitpointNear, hitpointNearNormal, normalizeNormal, boneIndexNear, colorNear, areaIx, rayLength );
+		if( BeResMan->IsOnMainThread() )
+		{
+			return GetIntersectionPointsLegacy( &pos, &dir, hitpointNear, hitpointNearNormal, normalizeNormal, boneIndexNear, colorNear, areaIx, rayLength );
+		}
+		CCP_ASSERT_M( false, "Raycast fallback is not available in a multithreaded environment! You need to wait for IsRayCasterReady before raycasting!" );
+		return false;
 	}
 
 	if( boneIndexNear )
@@ -1634,11 +1644,11 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 	bool hit = false;
 	if( areaIx != -1 )
 	{
-		hit = BVH::Intersection( m_bvh.geometry->GetBVH(), m_bvh.mainThreadStack, CcpMath::Ray{ pos, dir }, rayLength, areaIx, meshIndex, primitive, u, v, rayLength );
+		hit = BVH::Intersection( m_bvh.geometry->GetBVH(), GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, areaIx, meshIndex, primitive, u, v, rayLength );
 	}
 	else
 	{
-		hit = BVH::Intersection( m_bvh.geometry->GetBVH(), m_bvh.mainThreadStack, CcpMath::Ray{ pos, dir }, rayLength, meshIndex, primitive, u, v, rayLength );
+		hit = BVH::Intersection( m_bvh.geometry->GetBVH(), GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, meshIndex, primitive, u, v, rayLength );
 	}
 
 	if( !hit )
@@ -1695,8 +1705,6 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 // Careful: This function is slow and only works on main thread!
 bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3* pos, const Vector3* dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, RayCastColorResult* colorNear, unsigned int areaIx, float& rayLength )
 {
-	CCP_STATS_ZONE( __FUNCTION__ );
-
 	USE_MAIN_THREAD_RENDER_CONTEXT();
 	
 	if( boneIndexNear )

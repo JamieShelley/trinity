@@ -413,7 +413,6 @@ public:
 	struct
 	{
 		Tr2RaycastGeometryResPtr geometry = nullptr;
-		std::vector<BVH::IntersectedNode> mainThreadStack;	// TODO: intern, this does not have to exist per TriGeometryRes!
 		int32_t sessions = 0;
 	} m_bvh;
 
