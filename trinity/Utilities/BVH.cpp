@@ -46,14 +46,14 @@ CcpMath::AxisAlignedBox CreateAABB( const std::vector<Primitive>& primitives, in
 	return aabb;
 }
 
-void CreateBVHNodes(
+void CreateNodes(
 	std::vector<Primitive>& primitives,
-	std::vector<BVHNode>& nodes,
+	std::vector<Node>& nodes,
 	int leftIndex,
 	int rightIndex,
 	uint32_t nodeIndex )
 {
-	BVHNode& node = nodes[nodeIndex];
+	Node& node = nodes[nodeIndex];
 	if( rightIndex - leftIndex > BVH_MAX_NODE_SIZE )
 	{
 		int dimension = FindLargestDimension( node.boundsMax - node.boundsMin );
@@ -76,11 +76,11 @@ void CreateBVHNodes(
 		node.firstChildIndex = nodes.size();
 		node.numObj = 2;
 		node.leaf = false;
-		BVHNode leftChild;
+		Node leftChild;
 		auto leftChildAABB = CreateAABB( primitives, leftIndex, split );
 		leftChild.boundsMin = leftChildAABB.m_min;
 		leftChild.boundsMax = leftChildAABB.m_max;
-		BVHNode rightChild;
+		Node rightChild;
 		auto rightChildAABB = CreateAABB( primitives, split, rightIndex );
 		rightChild.boundsMin = rightChildAABB.m_min;
 		rightChild.boundsMax = rightChildAABB.m_max;
@@ -88,8 +88,8 @@ void CreateBVHNodes(
 		nodes.push_back( rightChild );
 		uint32_t leftChildIndex = (uint32_t)nodes.size() - 2;
 		uint32_t rightChildIndex = (uint32_t)nodes.size() - 1;
-		CreateBVHNodes( primitives, nodes, leftIndex, split, leftChildIndex );
-		CreateBVHNodes( primitives, nodes, split, rightIndex, rightChildIndex );
+		CreateNodes( primitives, nodes, leftIndex, split, leftChildIndex );
+		CreateNodes( primitives, nodes, split, rightIndex, rightChildIndex );
 	}
 	else
 	{
@@ -99,33 +99,32 @@ void CreateBVHNodes(
 	}
 }
 
-template <typename GetIndex, typename GetPosition>
-BoundingVolumeHierarchy CreateBVH(
-	const GetIndex& indices,
-	const GetPosition& positions,
+Tree CreateTree(
+	const cmf::ConstIndexBufferStream& indices,
+	const cmf::ConstBufferElementStream<Vector3>& positions,
 	uint32_t firstElement,
 	uint32_t elementCount )
 {
-	BoundingVolumeHierarchy bvh{};
+	Tree tree{};
 
 	if( elementCount == 0 )
 	{
-		return bvh;
+		return tree;
 	}
 
 	std::vector<Primitive> primitives;
 	primitives.reserve( elementCount );
-	bvh.triangles.reserve( elementCount );
-	bvh.nodes.reserve( 2 * elementCount - 1 );
+	tree.triangles.reserve( elementCount );
+	tree.nodes.reserve( 2 * elementCount - 1 );
 
 	auto triangleVertices = [&indices, &positions]( int32_t i, Vector3 vertices[3] ) {
-		int index0 = indices( i * 3 );
-		int index1 = indices( i * 3 + 1 );
-		int index2 = indices( i * 3 + 2 );
+		int index0 = indices[i * 3];
+		int index1 = indices[i * 3 + 1];
+		int index2 = indices[i * 3 + 2];
 
-		vertices[0] = positions( index0 );
-		vertices[1] = positions( index1 );
-		vertices[2] = positions( index2 );
+		vertices[0] = positions[index0];
+		vertices[1] = positions[index1];
+		vertices[2] = positions[index2];
 	};
 
 	for( uint32_t i = firstElement; i < firstElement + elementCount; i++ )
@@ -145,32 +144,32 @@ BoundingVolumeHierarchy CreateBVH(
 
 	int leftIndex = 0;
 	int rightIndex = elementCount;
-	BVHNode root;
+	Node root;
 	auto rootAABB = CreateAABB( primitives, 0, (int)primitives.size() );
 	root.boundsMin = rootAABB.m_min;
 	root.boundsMax = rootAABB.m_max;
-	bvh.nodes.push_back( root );
-	CreateBVHNodes( primitives, bvh.nodes, leftIndex, rightIndex, 0 );
+	tree.nodes.push_back( root );
+	CreateNodes( primitives, tree.nodes, leftIndex, rightIndex, 0 );
 
 	for( int i = 0; i < primitives.size(); i++ )
 	{
-		BVHLeafTriangle triangle;
+		Triangle triangle;
 		Vector3 vertices[3];
 		triangleVertices( primitives[i].element, vertices );
 		triangle.vertex0 = vertices[0];
 		triangle.edge1 = vertices[1] - vertices[0];
 		triangle.edge2 = vertices[2] - vertices[0];
 		triangle.element = primitives[i].element;
-		bvh.triangles.push_back( triangle );
+		tree.triangles.push_back( triangle );
 	}
 
-	bvh.nodes.shrink_to_fit();
+	tree.nodes.shrink_to_fit();
 
-	return bvh;
+	return tree;
 }
 
 // modified version of IntersectAxisAlignedBoxRay
-bool Intersects( const XMVECTOR& origin, const XMVECTOR& invRayDir, const BVHNode& node, float& distance )
+bool Intersects( const XMVECTOR& origin, const XMVECTOR& invRayDir, const Node& node, float& distance )
 {
 	XMVECTOR minA = *(Vector4*)&node.boundsMin;
 	XMVECTOR maxA = *(Vector4*)&node.boundsMax;
@@ -190,7 +189,7 @@ bool Intersects( const XMVECTOR& origin, const XMVECTOR& invRayDir, const BVHNod
 }
 
 bool Intersection(
-	const BoundingVolumeHierarchy& bvh,
+	const Tree& tree,
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -199,7 +198,7 @@ bool Intersection(
 	float& v,
 	float& distance )
 {
-	if( bvh.nodes.empty() )
+	if( tree.nodes.empty() )
 	{
 		return false;
 	}
@@ -215,20 +214,20 @@ bool Intersection(
 
 	uint32_t hitPrimitive;
 	float hitDistance;
-	if( !Intersects( rayOrigin, invRayDir, bvh.nodes[0], hitDistance ) || rayLength < hitDistance )
+	if( !Intersects( rayOrigin, invRayDir, tree.nodes[0], hitDistance ) || rayLength < hitDistance )
 	{
 		return false;
 	}
 
 	stack.clear();
 	bool hit = false;
-	const BVHNode* currentNode = &bvh.nodes[0];
+	const Node* currentNode = &tree.nodes[0];
 	while( true )
 	{
 		if( !currentNode->leaf )
 		{
-			const BVHNode* leftChild = &bvh.nodes[currentNode->firstChildIndex];
-			const BVHNode* rightChild = &bvh.nodes[currentNode->firstChildIndex + 1];
+			const Node* leftChild = &tree.nodes[currentNode->firstChildIndex];
+			const Node* rightChild = &tree.nodes[currentNode->firstChildIndex + 1];
 			float leftDistance;
 			float rightDistance;
 			bool hitLeft = Intersects( rayOrigin, invRayDir, *leftChild, leftDistance ) && leftDistance <= rayLength;
@@ -263,9 +262,9 @@ bool Intersection(
 			for( uint32_t i = currentNode->firstChildIndex; i < currentNode->firstChildIndex + currentNode->numObj; i++ )
 			{
 				float hitU, hitV;
-				XMVECTOR vertex0 = *(Vector4*)&bvh.triangles[i].vertex0;
-				XMVECTOR edge1 = *(Vector4*)&bvh.triangles[i].edge1;
-				XMVECTOR edge2 = *(Vector4*)&bvh.triangles[i].edge2;
+				XMVECTOR vertex0 = *(Vector4*)&tree.triangles[i].vertex0;
+				XMVECTOR edge1 = *(Vector4*)&tree.triangles[i].edge1;
+				XMVECTOR edge2 = *(Vector4*)&tree.triangles[i].edge2;
 				if( IntersectTri( vertex0, edge1, edge2, rayOrigin, rayDir, &hitU, &hitV, &hitDistance ) )
 				{
 					if( hitDistance < rayLength )
@@ -273,7 +272,7 @@ bool Intersection(
 						rayLength = hitDistance;
 						u = hitU;
 						v = hitV;
-						hitPrimitive = bvh.triangles[i].element;
+						hitPrimitive = tree.triangles[i].element;
 						hit = true;
 					}
 				}
@@ -302,36 +301,36 @@ bool Intersection(
 	return hit;
 }
 
-cmf::ConstIndexBufferStream GetIndices( BVHContent& self, int meshIndex )
+cmf::ConstIndexBufferStream BoundingVolumeHierarchy::GetIndices( int meshIndex )
 {
-	const auto& mesh = self.content.GetData()->meshes[meshIndex];
-	int32_t lodIndex = self.lodIndices[meshIndex];
+	const auto& mesh = m_content.GetData()->meshes[meshIndex];
+	int32_t lodIndex = m_lodIndices[meshIndex];
 	auto ib = mesh.lods[lodIndex].ib;
-	auto ibSectionData = self.content.GetSection( ib.index );
+	auto ibSectionData = m_content.GetSection( ib.index );
 	auto indices = cmf::ConstIndexBufferStream( ibSectionData, ib );
 	return indices;
 }
 
-cmf::ConstBufferElementStream<Vector3> GetPositions( BVHContent& self, int meshIndex )
+cmf::ConstBufferElementStream<Vector3> BoundingVolumeHierarchy::GetPositions( int meshIndex )
 {
-	const auto& mesh = self.content.GetData()->meshes[meshIndex];
-	int32_t lodIndex = self.lodIndices[meshIndex];
+	const auto& mesh = m_content.GetData()->meshes[meshIndex];
+	int32_t lodIndex = m_lodIndices[meshIndex];
 	auto positionElement = cmf::FindElement( mesh.decl, cmf::Usage::Position );
 	auto vb = mesh.lods[lodIndex].vb;
 	uint32_t numVerts = cmf::GetStreamElementCount( vb );
-	auto vertices = self.content.GetViewData( vb );
+	auto vertices = m_content.GetViewData( vb );
 	cmf::ConstBufferElementStream<Vector3> positions( *positionElement, vertices, numVerts, vb.stride );
 	return positions;
 }
 
-std::optional<cmf::ConstBufferElementStream<std::array<uint32_t, 4>>> GetBones( BVHContent& self, int meshIndex )
+std::optional<cmf::ConstBufferElementStream<std::array<uint32_t, 4>>> BoundingVolumeHierarchy::GetBones( int meshIndex )
 {
-	const auto& mesh = self.content.GetData()->meshes[meshIndex];
-	int32_t lodIndex = self.lodIndices[meshIndex];
+	const auto& mesh = m_content.GetData()->meshes[meshIndex];
+	int32_t lodIndex = m_lodIndices[meshIndex];
 	auto boneElement = cmf::FindElement( mesh.decl, cmf::Usage::BoneIndices );
 	auto vb = mesh.lods[lodIndex].vb;
 	uint32_t numVerts = cmf::GetStreamElementCount( vb );
-	auto vertices = self.content.GetViewData( vb );
+	auto vertices = m_content.GetViewData( vb );
 	std::optional<cmf::ConstBufferElementStream<std::array<uint32_t, 4>>> bones;
 	if( boneElement )
 	{
@@ -340,14 +339,14 @@ std::optional<cmf::ConstBufferElementStream<std::array<uint32_t, 4>>> GetBones( 
 	return bones;
 }
 
-std::optional<cmf::ConstBufferElementStream<Vector4>> GetColors( BVHContent& self, int meshIndex )
+std::optional<cmf::ConstBufferElementStream<Vector4>> BoundingVolumeHierarchy::GetColors( int meshIndex )
 {
-	const auto& mesh = self.content.GetData()->meshes[meshIndex];
-	int32_t lodIndex = self.lodIndices[meshIndex];
+	const auto& mesh = m_content.GetData()->meshes[meshIndex];
+	int32_t lodIndex = m_lodIndices[meshIndex];
 	auto colorElement = cmf::FindElement( mesh.decl, cmf::Usage::Color );
 	auto vb = mesh.lods[lodIndex].vb;
 	uint32_t numVerts = cmf::GetStreamElementCount( vb );
-	auto vertices = self.content.GetViewData( vb );
+	auto vertices = m_content.GetViewData( vb );
 	std::optional<cmf::ConstBufferElementStream<Vector4>> colors;
 	if( colorElement )
 	{
@@ -356,36 +355,30 @@ std::optional<cmf::ConstBufferElementStream<Vector4>> GetColors( BVHContent& sel
 	return colors;
 }
 
-BVHContent CreateBVHContent( Tr2CmfContents& content, const std::vector<int32_t>& lodIndices )
+BoundingVolumeHierarchy::BoundingVolumeHierarchy( Tr2CmfContents&& content, const std::vector<int32_t>& lodIndices )
 {
-	BVHContent bvhContent;
-	bvhContent.content = std::move( content );
-	bvhContent.lodIndices = lodIndices;
-	for( int32_t i = 0; i < bvhContent.content.GetData()->meshes.size(); i++ )
+	m_content = std::move( content );
+	m_lodIndices = lodIndices;
+	for( int32_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
 	{
-		const auto& mesh = bvhContent.content.GetData()->meshes[i];
+		const auto& mesh = m_content.GetData()->meshes[i];
 
 		if( mesh.topology != cmf::MeshTopology::TriangleList )
 		{
 			continue;
 		}
 
-		auto indices = GetIndices( bvhContent, i );
-		auto positions = GetPositions( bvhContent, i );
-
-		auto getIndex = [&indices]( int32_t i ) { return indices[i]; };
-		auto getPositions = [&positions]( int32_t i ) { return positions[i]; };
+		auto indices = GetIndices( i );
+		auto positions = GetPositions( i );
 
 		for( const auto& area : mesh.lods[lodIndices[i]].areas )
 		{
-			bvhContent.bvhs.push_back( CreateBVH( getIndex, getPositions, area.firstElement, area.elementCount ) );
+			m_areaTrees.push_back( CreateTree( indices, positions, area.firstElement, area.elementCount ) );
 		}
 	}
-	return bvhContent;
 }
 
-bool Intersection(
-	const BVHContent& bvhContent,
+bool BoundingVolumeHierarchy::Intersection(
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -394,9 +387,9 @@ bool Intersection(
 	uint32_t& primitive,
 	float& u,
 	float& v,
-	float& distance )
+	float& distance ) const
 {
-	if( bvhContent.content.GetData()->meshes[meshIndex].topology != cmf::MeshTopology::TriangleList )
+	if( m_content.GetData()->meshes[meshIndex].topology != cmf::MeshTopology::TriangleList )
 	{
 		return false;
 	}
@@ -404,7 +397,7 @@ bool Intersection(
 	size_t areasOffset = 0;
 	for( int32_t i = 0; i < meshIndex; i++ )
 	{
-		const auto& mesh = bvhContent.content.GetData()->meshes[i];
+		const auto& mesh = m_content.GetData()->meshes[i];
 		if( mesh.topology != cmf::MeshTopology::TriangleList )
 		{
 			continue;
@@ -412,11 +405,10 @@ bool Intersection(
 		areasOffset += mesh.areas.size();
 	}
 
-	return Intersection( bvhContent.bvhs[areasOffset + areaIndex], stack, ray, rayLength, primitive, u, v, distance );
+	return BVH::Intersection( m_areaTrees[areasOffset + areaIndex], stack, ray, rayLength, primitive, u, v, distance );
 }
 
-bool Intersection(
-	const BVHContent& bvhContent,
+bool BoundingVolumeHierarchy::Intersection(
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -424,9 +416,9 @@ bool Intersection(
 	uint32_t& primitive,
 	float& u,
 	float& v,
-	float& distance )
+	float& distance ) const
 {
-	if( bvhContent.content.GetData()->meshes[meshIndex].topology != cmf::MeshTopology::TriangleList )
+	if( m_content.GetData()->meshes[meshIndex].topology != cmf::MeshTopology::TriangleList )
 	{
 		return false;
 	}
@@ -434,7 +426,7 @@ bool Intersection(
 	size_t areasOffset = 0;
 	for( int32_t i = 0; i < meshIndex; i++ )
 	{
-		const auto& mesh = bvhContent.content.GetData()->meshes[i];
+		const auto& mesh = m_content.GetData()->meshes[i];
 		if( mesh.topology != cmf::MeshTopology::TriangleList )
 		{
 			continue;
@@ -443,11 +435,11 @@ bool Intersection(
 	}
 
 	bool hit = false;
-	for( size_t areaIndex = 0; areaIndex < bvhContent.content.GetData()->meshes[meshIndex].areas.size(); areaIndex++ )
+	for( size_t areaIndex = 0; areaIndex < m_content.GetData()->meshes[meshIndex].areas.size(); areaIndex++ )
 	{
-		const auto& bvh = bvhContent.bvhs[areasOffset + areaIndex];
+		const auto& tree = m_areaTrees[areasOffset + areaIndex];
 		uint32_t hitPrimitive;
-		if( Intersection( bvh, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+		if( BVH::Intersection( tree, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
 		{
 			primitive = hitPrimitive;
 			distance = rayLength;
@@ -457,8 +449,7 @@ bool Intersection(
 	return hit;
 }
 
-bool Intersection(
-	const BVHContent& bvhContent,
+bool BoundingVolumeHierarchy::Intersection(
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -466,13 +457,13 @@ bool Intersection(
 	uint32_t& primitive,
 	float& u,
 	float& v,
-	float& distance )
+	float& distance ) const
 {
 	bool hit = false;
 	size_t areasOffset = 0;
-	for( size_t i = 0; i < bvhContent.content.GetData()->meshes.size(); i++ )
+	for( size_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
 	{
-		const auto& mesh = bvhContent.content.GetData()->meshes[i];
+		const auto& mesh = m_content.GetData()->meshes[i];
 		if( mesh.topology != cmf::MeshTopology::TriangleList )
 		{
 			continue;
@@ -480,9 +471,9 @@ bool Intersection(
 
 		for( size_t areaIndex = 0; areaIndex < mesh.areas.size(); areaIndex++ )
 		{
-			const auto& bvh = bvhContent.bvhs[areasOffset + areaIndex];
+			const auto& tree = m_areaTrees[areasOffset + areaIndex];
 			uint32_t hitPrimitive;
-			if( Intersection( bvh, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+			if( BVH::Intersection( tree, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
 			{
 				meshIndex = (uint32_t)i;
 				primitive = hitPrimitive;
@@ -495,8 +486,7 @@ bool Intersection(
 	return hit;
 }
 
-bool Intersection(
-	const BVHContent& bvhContent,
+bool BoundingVolumeHierarchy::Intersection(
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
@@ -505,13 +495,13 @@ bool Intersection(
 	uint32_t& primitive,
 	float& u,
 	float& v,
-	float& distance )
+	float& distance ) const
 {
 	bool hit = false;
 	size_t areasOffset = 0;
-	for( size_t i = 0; i < bvhContent.content.GetData()->meshes.size(); i++ )
+	for( size_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
 	{
-		const auto& mesh = bvhContent.content.GetData()->meshes[i];
+		const auto& mesh = m_content.GetData()->meshes[i];
 		if( mesh.topology != cmf::MeshTopology::TriangleList )
 		{
 			continue;
@@ -519,9 +509,9 @@ bool Intersection(
 
 		if( areaIndex < mesh.areas.size() )
 		{
-			const auto& bvh = bvhContent.bvhs[areasOffset + areaIndex];
+			const auto& tree = m_areaTrees[areasOffset + areaIndex];
 			uint32_t hitPrimitive;
-			if( Intersection( bvh, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+			if( BVH::Intersection( tree, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
 			{
 				meshIndex = (uint32_t)i;
 				primitive = hitPrimitive;
@@ -534,32 +524,21 @@ bool Intersection(
 	return hit;
 }
 
-void Visualize( const BVHNode& node, Tr2DebugObjectReference owner, const Matrix& transform, ITr2DebugRenderer2& renderer )
+void BoundingVolumeHierarchy::Visualize( Tr2DebugObjectReference owner, const Matrix& transform, ITr2DebugRenderer2& renderer ) const
 {
-	if( node.leaf )
+	for( const auto& tree : m_areaTrees )
 	{
-		renderer.DrawBox( owner, transform, node.boundsMin, node.boundsMax, ITr2DebugRenderer2::Wireframe, Color( 1.f, 0.f, 0.f, 1.f ) );
-	}
-	else
-	{
-		renderer.DrawBox( owner, transform, node.boundsMin, node.boundsMax, ITr2DebugRenderer2::Wireframe, Color( 1.f, 1.f, 1.f, 1.f ) );
-	}
-}
-
-void Visualize( const BoundingVolumeHierarchy& bvh, Tr2DebugObjectReference owner, const Matrix& transform, ITr2DebugRenderer2& renderer )
-{
-	for( const auto& node : bvh.nodes )
-	{
-		Visualize( node, owner, transform, renderer );
-	}
-}
-
-
-void Visualize( const BVHContent& bvhContent, Tr2DebugObjectReference owner, const Matrix& transform, ITr2DebugRenderer2& renderer )
-{
-	for( const auto& bvh : bvhContent.bvhs )
-	{
-		Visualize( bvh, owner, transform, renderer );
+		for( const auto& node : tree.nodes )
+		{
+			if( node.leaf )
+			{
+				renderer.DrawBox( owner, transform, node.boundsMin, node.boundsMax, ITr2DebugRenderer2::Wireframe, Color( 1.f, 0.f, 0.f, 1.f ) );
+			}
+			else
+			{
+				renderer.DrawBox( owner, transform, node.boundsMin, node.boundsMax, ITr2DebugRenderer2::Wireframe, Color( 1.f, 1.f, 1.f, 1.f ) );
+			}
+		}
 	}
 }
 

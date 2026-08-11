@@ -29,7 +29,7 @@ public:
 	EXPOSE_TO_BLUE();
 
 	void SetLodIndices( const std::vector<int32_t>& lodIndices );
-	BVH::BVHContent& GetBVH();
+	BVH::BoundingVolumeHierarchy& GetBVH();
 	
 protected:
 	LoadingResult DoLoad() override;
@@ -37,7 +37,7 @@ protected:
 
 private:
 	std::vector<int32_t> m_lodIndices;
-	BVH::BVHContent m_bvh;
+	BVH::BoundingVolumeHierarchy m_bvh;
 };
 
 TYPEDEF_BLUECLASS_WR_SHUTDOWN( Tr2RaycastGeometryRes );

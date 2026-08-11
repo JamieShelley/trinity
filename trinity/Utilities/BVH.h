@@ -13,7 +13,7 @@ namespace BVH
 
 const int32_t BVH_MAX_NODE_SIZE = 4;
 
-struct alignas( 16 ) BVHNode
+struct alignas( 16 ) Node
 {
 	Vector3 boundsMin;
 	uint32_t firstChildIndex : 26;
@@ -23,7 +23,7 @@ struct alignas( 16 ) BVHNode
 	Vector3 boundsMax;
 	uint32_t padding = 0;
 
-	BVHNode() : 
+	Node() : 
 		boundsMin( {} ),
 		firstChildIndex( 0 ),
 		numObj( 0 ),
@@ -35,7 +35,7 @@ struct alignas( 16 ) BVHNode
 	}
 };
 
-struct alignas( 16 ) BVHLeafTriangle
+struct alignas( 16 ) Triangle
 {
 	Vector3 vertex0;
 	uint32_t element : 30;
@@ -45,7 +45,7 @@ struct alignas( 16 ) BVHLeafTriangle
 	Vector3 edge2;
 	uint32_t padding1;
 
-	BVHLeafTriangle() :
+	Triangle() :
 		vertex0( {} ),
 		element( 0 ),
 		magicalPadding( 3 ),
@@ -57,85 +57,83 @@ struct alignas( 16 ) BVHLeafTriangle
 	}
 };
 
-// BVHNode and BVHLeafTriangle data layout have been optimized for SIMD. That's why there is padding in those structs, and why we assert it here.
-static_assert( sizeof( BVHNode ) == 32 );
-static_assert( offsetof( BVHNode, boundsMax ) == 16 );
-static_assert( sizeof( BVHLeafTriangle ) == 48 );
-static_assert( offsetof( BVHLeafTriangle, edge1 ) == 16 );
+// Node and Triangle data layout have been optimized for SIMD. That's why there is padding in those structs, and why we assert it here.
+static_assert( sizeof( Node ) == 32 );
+static_assert( offsetof( Node, boundsMax ) == 16 );
+static_assert( sizeof( Triangle ) == 48 );
+static_assert( offsetof( Triangle, edge1 ) == 16 );
 
-struct BoundingVolumeHierarchy
+struct Tree
 {
-	std::vector<BVHLeafTriangle> triangles;
-	std::vector<BVHNode> nodes;
+	std::vector<Triangle> triangles;
+	std::vector<Node> nodes;
 };
 
 struct IntersectedNode
 {
-	const BVHNode* node;
+	const Node* node;
 	float distance;
 };
 
-struct BVHContent
+class BoundingVolumeHierarchy
 {
-	Tr2CmfContents content;
-	std::vector<int32_t> lodIndices;
-	std::vector<BoundingVolumeHierarchy> bvhs;
+	Tr2CmfContents m_content;
+	std::vector<int32_t> m_lodIndices;
+	std::vector<Tree> m_areaTrees;
+
+public:
+	BoundingVolumeHierarchy() = default;
+	BoundingVolumeHierarchy( Tr2CmfContents&& content, const std::vector<int32_t>& lodIndex );
+
+	bool Intersection(
+		std::vector<IntersectedNode>& stack,
+		const CcpMath::Ray& ray,
+		float rayLength,
+		int32_t meshIndex,
+		int32_t areaIndex,
+		uint32_t& primitive,
+		float& u,
+		float& v,
+		float& distance ) const;
+
+	bool Intersection(
+		std::vector<IntersectedNode>& stack,
+		const CcpMath::Ray& ray,
+		float rayLength,
+		int32_t meshIndex,
+		uint32_t& primitive,
+		float& u,
+		float& v,
+		float& distance ) const;
+
+	bool Intersection(
+		std::vector<IntersectedNode>& stack,
+		const CcpMath::Ray& ray,
+		float rayLength,
+		uint32_t& meshIndex,
+		uint32_t& primitive,
+		float& u,
+		float& v,
+		float& distance ) const;
+
+	bool Intersection(
+		std::vector<IntersectedNode>& stack,
+		const CcpMath::Ray& ray,
+		float rayLength,
+		uint32_t areaIndex,
+		uint32_t& meshIndex,
+		uint32_t& primitive,
+		float& u,
+		float& v,
+		float& distance ) const;
+
+	cmf::ConstIndexBufferStream GetIndices( int meshIndex );
+	cmf::ConstBufferElementStream<Vector3> GetPositions( int meshIndex );
+	std::optional<cmf::ConstBufferElementStream<std::array<uint32_t, 4>>> GetBones( int meshIndex );
+	std::optional<cmf::ConstBufferElementStream<Vector4>> GetColors( int meshIndex );
+
+	void Visualize( Tr2DebugObjectReference owner, const Matrix& transform, ITr2DebugRenderer2& renderer ) const;
 };
-
-cmf::ConstIndexBufferStream GetIndices( BVHContent& self, int meshIndex );
-cmf::ConstBufferElementStream<Vector3> GetPositions( BVHContent& self, int meshIndex );
-std::optional<cmf::ConstBufferElementStream<std::array<uint32_t, 4>>> GetBones( BVHContent& self, int meshIndex );
-std::optional<cmf::ConstBufferElementStream<Vector4>> GetColors( BVHContent& self, int meshIndex );
-
-BVHContent CreateBVHContent( Tr2CmfContents& content, const std::vector<int32_t>& lodIndex );
-
-bool Intersection(
-	const BVHContent& bvhContent,
-	std::vector<IntersectedNode>& stack,
-	const CcpMath::Ray& ray,
-	float rayLength,
-	int32_t meshIndex,
-	int32_t areaIndex,
-	uint32_t& primitive,
-	float& u,
-	float& v,
-	float& distance );
-
-bool Intersection(
-	const BVHContent& bvhContent,
-	std::vector<IntersectedNode>& stack,
-	const CcpMath::Ray& ray,
-	float rayLength,
-	int32_t meshIndex,
-	uint32_t& primitive,
-	float& u,
-	float& v,
-	float& distance );
-
-bool Intersection(
-	const BVHContent& bvhContent,
-	std::vector<IntersectedNode>& stack,
-	const CcpMath::Ray& ray,
-	float rayLength,
-	uint32_t& meshIndex,
-	uint32_t& primitive,
-	float& u,
-	float& v,
-	float& distance );
-
-bool Intersection(
-	const BVHContent& bvhContent,
-	std::vector<IntersectedNode>& stack,
-	const CcpMath::Ray& ray,
-	float rayLength,
-	uint32_t areaIndex,
-	uint32_t& meshIndex,
-	uint32_t& primitive,
-	float& u,
-	float& v,
-	float& distance );
-
-void Visualize( const BVHContent& bvhContent, Tr2DebugObjectReference owner, const Matrix& transform, ITr2DebugRenderer2& renderer );
 
 }
 

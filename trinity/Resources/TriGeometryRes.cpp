@@ -80,7 +80,7 @@ void Tr2RaycastGeometryRes::SetLodIndices( const std::vector<int32_t>& lodIndice
 	m_lodIndices = lodIndices;
 }
 
-BVH::BVHContent& Tr2RaycastGeometryRes::GetBVH()
+BVH::BoundingVolumeHierarchy& Tr2RaycastGeometryRes::GetBVH()
 {
 	return m_bvh;
 }
@@ -116,7 +116,7 @@ BlueAsyncRes::LoadingResult Tr2RaycastGeometryRes::DoLoad()
 	}
 
 	// BVH creation also decompresses the cmf buffers, which allows safe multithreaded raycast queries.
-	m_bvh = BVH::CreateBVHContent( cmfContent, m_lodIndices );
+	m_bvh = BVH::BoundingVolumeHierarchy( std::move( cmfContent ), m_lodIndices );
 
 	return LR_SUCCESS;
 }
@@ -1644,11 +1644,11 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 	bool hit = false;
 	if( areaIx != -1 )
 	{
-		hit = BVH::Intersection( m_bvh.geometry->GetBVH(), GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, areaIx, meshIndex, primitive, u, v, rayLength );
+		hit = m_bvh.geometry->GetBVH().Intersection( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, areaIx, meshIndex, primitive, u, v, rayLength );
 	}
 	else
 	{
-		hit = BVH::Intersection( m_bvh.geometry->GetBVH(), GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, meshIndex, primitive, u, v, rayLength );
+		hit = m_bvh.geometry->GetBVH().Intersection( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, meshIndex, primitive, u, v, rayLength );
 	}
 
 	if( !hit )
@@ -1662,10 +1662,10 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 	}
 
 	auto& bvh = m_bvh.geometry->GetBVH();
-	auto indices = BVH::GetIndices( bvh, meshIndex );
-	auto positions = BVH::GetPositions( bvh, meshIndex );
-	auto bones = BVH::GetBones( bvh, meshIndex );
-	auto colors = BVH::GetColors( bvh, meshIndex );
+	auto indices = bvh.GetIndices( meshIndex );
+	auto positions = bvh.GetPositions( meshIndex );
+	auto bones = bvh.GetBones( meshIndex );
+	auto colors = bvh.GetColors( meshIndex );
 
 	uint32_t index1 = indices[primitive * 3 + 0];
 	uint32_t index2 = indices[primitive * 3 + 1];

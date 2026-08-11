@@ -1432,7 +1432,7 @@ void EveChildMesh::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 		}
 		if( m_bvhVisualizationGeometry && m_bvhVisualizationGeometry->IsRayCasterReady() )
 		{
-			BVH::Visualize( m_bvhVisualizationGeometry->m_bvh.geometry->GetBVH(), this, m_worldTransform, renderer );
+			m_bvhVisualizationGeometry->m_bvh.geometry->GetBVH().Visualize( this, m_worldTransform, renderer );
 		}
 	}
 
