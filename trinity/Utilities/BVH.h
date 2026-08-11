@@ -13,22 +13,31 @@ namespace BVH
 
 const int32_t BVH_MAX_NODE_SIZE = 4; // TODO: intern, play around with this value and profile...
 
-struct BVHNode
+struct alignas( 16 ) BVHNode
 {
-	CcpMath::AxisAlignedBox aabb;
+	Vector3 boundsMin;
 	uint32_t firstChildIndex : 28;
 	uint32_t numObj : 3;
 	uint32_t leaf : 1;
+	Vector3 boundsMax;
+	uint32_t padding = 0;
 };
 
-// TODO: intern, consider struct of array for better cache usage, also future simd optimization?
-struct BVHLeafTriangle
+struct alignas( 16 ) BVHLeafTriangle
 {
 	Vector3 vertex0;
-	Vector3 vertex1;
-	Vector3 vertex2;
 	uint32_t element;
+	Vector3 edge1;
+	uint32_t padding0 = 0;
+	Vector3 edge2;
+	uint32_t padding1 = 0;
 };
+
+// BVHNode and BVHLeafTriangle data layout have been optimized for SIMD. That's why there is padding in those structs, and why we assert it here.
+static_assert( sizeof( BVHNode ) == 32 );
+static_assert( offsetof( BVHNode, boundsMax ) == 16 );
+static_assert( sizeof( BVHLeafTriangle ) == 48 );
+static_assert( offsetof( BVHLeafTriangle, edge1 ) == 16 );
 
 struct BoundingVolumeHierarchy
 {

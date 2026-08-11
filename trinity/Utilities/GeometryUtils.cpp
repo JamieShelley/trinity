@@ -305,7 +305,6 @@ bool IntersectTri(
 	float* v,
 	float* dist )
 {
-#if 1
 	// Möller–Trumbore intersection algorithm
 	Vector3 e1 = *p1 - *p0;
 	Vector3 e2 = *p2 - *p0;
@@ -342,17 +341,20 @@ bool IntersectTri(
 	*v = vv;
 	*dist = t;
 	return true;
+}
 
-#else
-	XMVECTOR pos = XMVectorSet( rayPos->x, rayPos->y, rayPos->z, 0.f );
-	XMVECTOR dir = XMVectorSet( rayDir->x, rayDir->y, rayDir->z, 0.f );
-	XMVECTOR v0 = XMVectorSet( p0->x, p0->y, p0->z, 1.f );
-	XMVECTOR v1 = XMVectorSet( p1->x, p1->y, p1->z, 1.f );
-	XMVECTOR v2 = XMVectorSet( p2->x, p2->y, p2->z, 1.f );
-
-	XMVECTOR e1 = XMVectorSubtract( v1, v0 );
-	XMVECTOR e2 = XMVectorSubtract( v2, v0 );
-	XMVECTOR a = XMVector3Cross( dir, e2 );
+bool IntersectTri(
+	const XMVECTOR& v0,
+	const XMVECTOR& e1,
+	const XMVECTOR& e2,
+	const XMVECTOR& rayPos,
+	const XMVECTOR& rayDir,
+	float* u,
+	float* v,
+	float* dist )
+{
+	// Möller–Trumbore intersection algorithm, SIMD
+	XMVECTOR a = XMVector3Cross( rayDir, e2 );
 
 	float det = XMVectorGetX( XMVector3Dot( e1, a ) );
 	if( std::abs( det ) < std::numeric_limits<float>::min() )
@@ -360,8 +362,8 @@ bool IntersectTri(
 		return false;
 	}
 	float invDet = 1.f / det;
-	
-	XMVECTOR t0 = XMVectorSubtract( pos, v0 );
+
+	XMVECTOR t0 = XMVectorSubtract( rayPos, v0 );
 	float uu = XMVectorGetX( XMVector3Dot( t0, a ) ) * invDet;
 	if( uu < 0.f || uu > 1.f )
 	{
@@ -369,7 +371,7 @@ bool IntersectTri(
 	}
 
 	XMVECTOR b = XMVector3Cross( t0, e1 );
-	float vv = XMVectorGetX( XMVector3Dot( dir, b ) ) * invDet;
+	float vv = XMVectorGetX( XMVector3Dot( rayDir, b ) ) * invDet;
 	if( vv < 0.f || uu + vv > 1.f )
 	{
 		return false;
@@ -385,8 +387,6 @@ bool IntersectTri(
 	*v = vv;
 	*dist = t;
 	return true;
-
-#endif
 }
 
 bool GetBoneIndex( Tr2VertexDefinition::DataType elementType, const void* src, int& dest )

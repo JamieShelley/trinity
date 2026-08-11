@@ -56,10 +56,10 @@ void CreateBVHNodes(
 	BVHNode& node = nodes[nodeIndex];
 	if( rightIndex - leftIndex > BVH_MAX_NODE_SIZE )
 	{
-		int dimension = FindLargestDimension( node.aabb.m_max - node.aabb.m_min );
+		int dimension = FindLargestDimension( node.boundsMax - node.boundsMin );
 
 		// TODO: intern, experiment with splitting criteria
-		float target = ( node.aabb.m_max[dimension] + node.aabb.m_min[dimension] );
+		float target = ( node.boundsMax[dimension] + node.boundsMin[dimension] );
 		auto partitionedElement = std::partition( primitives.begin() + leftIndex, primitives.begin() + rightIndex, [dimension, target]( const Primitive& p ) {
 			return ( p.aabb.m_max[dimension] + p.aabb.m_min[dimension] ) < target;
 		} );
@@ -77,9 +77,13 @@ void CreateBVHNodes(
 		node.numObj = 2;
 		node.leaf = false;
 		BVHNode leftChild;
-		leftChild.aabb = CreateAABB( primitives, leftIndex, split );
+		auto leftChildAABB = CreateAABB( primitives, leftIndex, split );
+		leftChild.boundsMin = leftChildAABB.m_min;
+		leftChild.boundsMax = leftChildAABB.m_max;
 		BVHNode rightChild;
-		rightChild.aabb = CreateAABB( primitives, split, rightIndex );
+		auto rightChildAABB = CreateAABB( primitives, split, rightIndex );
+		rightChild.boundsMin = rightChildAABB.m_min;
+		rightChild.boundsMax = rightChildAABB.m_max;
 		nodes.push_back( leftChild );
 		nodes.push_back( rightChild );
 		uint32_t leftChildIndex = (uint32_t)nodes.size() - 2;
@@ -142,7 +146,9 @@ BoundingVolumeHierarchy CreateBVH(
 	int leftIndex = 0;
 	int rightIndex = elementCount;
 	BVHNode root;
-	root.aabb = CreateAABB( primitives, 0, (int)primitives.size() );
+	auto rootAABB = CreateAABB( primitives, 0, (int)primitives.size() );
+	root.boundsMin = rootAABB.m_min;
+	root.boundsMax = rootAABB.m_max;
 	bvh.nodes.push_back( root );
 	CreateBVHNodes( primitives, bvh.nodes, leftIndex, rightIndex, 0 );
 
@@ -152,8 +158,8 @@ BoundingVolumeHierarchy CreateBVH(
 		Vector3 vertices[3];
 		triangleVertices( primitives[i].element, vertices );
 		triangle.vertex0 = vertices[0];
-		triangle.vertex1 = vertices[1];
-		triangle.vertex2 = vertices[2];
+		triangle.edge1 = vertices[1] - vertices[0];
+		triangle.edge2 = vertices[2] - vertices[0];
 		triangle.element = primitives[i].element;
 		bvh.triangles.push_back( triangle );
 	}
@@ -164,10 +170,10 @@ BoundingVolumeHierarchy CreateBVH(
 }
 
 // modified version of IntersectAxisAlignedBoxRay
-bool Intersects( const Vector3& origin, const XMVECTOR& invRayDir, const CcpMath::AxisAlignedBox& aabb, float& distance )
+bool Intersects( const XMVECTOR& origin, const XMVECTOR& invRayDir, const BVHNode& node, float& distance )
 {
-	XMVECTOR minA = XMVectorSet( aabb.m_min.x, aabb.m_min.y, aabb.m_min.z, 0.0f );
-	XMVECTOR maxA = XMVectorSet( aabb.m_max.x, aabb.m_max.y, aabb.m_max.z, 0.0f );
+	XMVECTOR minA = *(Vector4*)&node.boundsMin;
+	XMVECTOR maxA = *(Vector4*)&node.boundsMax;
 
 	XMVECTOR t0 = ( minA - origin ) * invRayDir;
 	XMVECTOR t1 = ( maxA - origin ) * invRayDir;
@@ -198,6 +204,8 @@ bool Intersection(
 		return false;
 	}
 
+	XMVECTOR rayOrigin = ray.origin;
+	XMVECTOR rayDir = ray.direction;
 	XMVECTOR invRayDir = XMVectorReciprocal( ray.direction );
 	invRayDir = XMVectorClamp( 
 		invRayDir, 
@@ -207,7 +215,7 @@ bool Intersection(
 
 	uint32_t hitPrimitive;
 	float hitDistance;
-	if( !Intersects( ray.origin, invRayDir, bvh.nodes[0].aabb, hitDistance ) || rayLength < hitDistance )
+	if( !Intersects( rayOrigin, invRayDir, bvh.nodes[0], hitDistance ) || rayLength < hitDistance )
 	{
 		return false;
 	}
@@ -223,8 +231,8 @@ bool Intersection(
 			const BVHNode* rightChild = &bvh.nodes[currentNode->firstChildIndex + 1];
 			float leftDistance;
 			float rightDistance;
-			bool hitLeft = Intersects( ray.origin, invRayDir, leftChild->aabb, leftDistance ) && leftDistance <= rayLength;
-			bool hitRight = Intersects( ray.origin, invRayDir, rightChild->aabb, rightDistance ) && rightDistance <= rayLength;
+			bool hitLeft = Intersects( rayOrigin, invRayDir, *leftChild, leftDistance ) && leftDistance <= rayLength;
+			bool hitRight = Intersects( rayOrigin, invRayDir, *rightChild, rightDistance ) && rightDistance <= rayLength;
 			if( hitLeft && hitRight )
 			{
 				if( leftDistance < rightDistance )
@@ -255,10 +263,11 @@ bool Intersection(
 			for( uint32_t i = currentNode->firstChildIndex; i < currentNode->firstChildIndex + currentNode->numObj; i++ )
 			{
 				float hitU, hitV;
-				Vector3 vertex0 = bvh.triangles[i].vertex0;
-				Vector3 vertex1 = bvh.triangles[i].vertex1;
-				Vector3 vertex2 = bvh.triangles[i].vertex2;
-				if( IntersectTri( &vertex0, &vertex1, &vertex2, &ray.origin, &ray.direction, &hitU, &hitV, &hitDistance ) )
+				// We need to mask the .w component. The garbage in it causes performance degradation.
+				XMVECTOR vertex0 = XMVectorAndInt( *(Vector4*)&bvh.triangles[i].vertex0, g_XMMask3 );
+				XMVECTOR edge1 = *(Vector4*)&bvh.triangles[i].edge1;
+				XMVECTOR edge2 = *(Vector4*)&bvh.triangles[i].edge2;
+				if( IntersectTri( vertex0, edge1, edge2, rayOrigin, rayDir, &hitU, &hitV, &hitDistance ) )
 				{
 					if( hitDistance < rayLength )
 					{
@@ -530,11 +539,11 @@ void Visualize( const BVHNode& node, Tr2DebugObjectReference owner, const Matrix
 {
 	if( node.leaf )
 	{
-		renderer.DrawBox( owner, transform, node.aabb.m_min, node.aabb.m_max, ITr2DebugRenderer2::Wireframe, Color( 1.f, 0.f, 0.f, 1.f ) );
+		renderer.DrawBox( owner, transform, node.boundsMin, node.boundsMax, ITr2DebugRenderer2::Wireframe, Color( 1.f, 0.f, 0.f, 1.f ) );
 	}
 	else
 	{
-		renderer.DrawBox( owner, transform, node.aabb.m_min, node.aabb.m_max, ITr2DebugRenderer2::Wireframe, Color( 1.f, 1.f, 1.f, 1.f ) );
+		renderer.DrawBox( owner, transform, node.boundsMin, node.boundsMax, ITr2DebugRenderer2::Wireframe, Color( 1.f, 1.f, 1.f, 1.f ) );
 	}
 }
 
