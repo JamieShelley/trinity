@@ -58,7 +58,7 @@ void CreateBVHNodes(
 	{
 		int dimension = FindLargestDimension( node.boundsMax - node.boundsMin );
 
-		// TODO: intern, experiment with splitting criteria
+		// If we were to move the bvh construction into cmf, we could choose more expensive splitting criteria. Right now this has to be fast.
 		float target = ( node.boundsMax[dimension] + node.boundsMin[dimension] );
 		auto partitionedElement = std::partition( primitives.begin() + leftIndex, primitives.begin() + rightIndex, [dimension, target]( const Primitive& p ) {
 			return ( p.aabb.m_max[dimension] + p.aabb.m_min[dimension] ) < target;
@@ -263,8 +263,7 @@ bool Intersection(
 			for( uint32_t i = currentNode->firstChildIndex; i < currentNode->firstChildIndex + currentNode->numObj; i++ )
 			{
 				float hitU, hitV;
-				// We need to mask the .w component. The garbage in it causes performance degradation.
-				XMVECTOR vertex0 = XMVectorAndInt( *(Vector4*)&bvh.triangles[i].vertex0, g_XMMask3 );
+				XMVECTOR vertex0 = *(Vector4*)&bvh.triangles[i].vertex0;
 				XMVECTOR edge1 = *(Vector4*)&bvh.triangles[i].edge1;
 				XMVECTOR edge2 = *(Vector4*)&bvh.triangles[i].edge2;
 				if( IntersectTri( vertex0, edge1, edge2, rayOrigin, rayDir, &hitU, &hitV, &hitDistance ) )
