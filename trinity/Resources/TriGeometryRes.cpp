@@ -3016,3 +3016,11 @@ const cmf::Data* TriGeometryRes::GetCMFData() const
 {
 	return m_cmfContents.GetData();
 }
+
+void TriGeometryRes::VisualizeBVH( Tr2DebugObjectReference owner, const Matrix& transform, ITr2DebugRenderer2& renderer ) const
+{
+	if( m_bvh.geometry && m_bvh.geometry->IsGood() )
+	{
+		m_bvh.geometry->GetBVH().Visualize( owner, transform, renderer );
+	}
+}

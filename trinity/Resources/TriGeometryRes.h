@@ -294,27 +294,9 @@ public:
 
 	void RebuildCachedData();
 
-	bool GetIntersectionPoints( 
-		const Vector3& pos, 
-		const Vector3& dir, 
-		Vector3* hitpointNear, 
-		Vector3* hitpointNearNormal, 
-		bool normalizeNormal,
-		int* boneIndexNear, 
-		RayCastColorResult* colorNear,
-		unsigned int areaIx, 
-		float& rayLength );
+	bool GetIntersectionPoints( const Vector3& pos, const Vector3& dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, RayCastColorResult* colorNear, unsigned int areaIx, float& rayLength );
 
-	bool GetIntersectionPointsLegacy( 
-		const Vector3* pos, 
-		const Vector3* dir, 
-		Vector3* hitpointNear, 
-		Vector3* hitpointNearNormal,
-		bool normalizeNormal,
-		int* boneIndexNear, 
-		RayCastColorResult* colorNear,
-		unsigned int areaIx,
-		float& rayLength );
+	bool GetIntersectionPointsLegacy( const Vector3* pos, const Vector3* dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, RayCastColorResult* colorNear, unsigned int areaIx, float& rayLength );
 
 	void PrepareRayCaster();
 	void ResetRayCaster();
@@ -322,15 +304,7 @@ public:
 	bool HasRayCasterPreparationFailed() const;
 	void DestroyRayCaster();
 
-	bool GetIntersectionPointNormalBoneColor(
-		const Vector3* pos,
-		const Vector3* dir,
-		Vector3* hitpoint,
-		Vector3* normal,
-		int* boneIndex,
-		RayCastColorResult* color,
-		unsigned int areaIx = -1,
-		float rayLength = std::numeric_limits<float>::infinity() );
+	bool GetIntersectionPointNormalBoneColor( const Vector3* pos, const Vector3* dir, Vector3* hitpoint, Vector3* normal, int* boneIndex, RayCastColorResult* color, unsigned int areaIx = -1, float rayLength = std::numeric_limits<float>::infinity() );
 
 	std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>> GetIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir );
 	Be::Result<std::string> GetAreaIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir, int areaIx, std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>>& result );
@@ -409,12 +383,7 @@ public:
 	bool IsUsingCMF() const;
 	const cmf::Data* GetCMFData() const;
 
-	// TODO: intern, don't make bvh public
-	struct
-	{
-		Tr2RaycastGeometryResPtr geometry = nullptr;
-		int32_t sessions = 0;
-	} m_bvh;
+	void VisualizeBVH( Tr2DebugObjectReference owner, const Matrix& transform, ITr2DebugRenderer2& renderer ) const;
 
 private:
 	unsigned int m_memoryUse;
@@ -430,6 +399,12 @@ private:
 
 	int32_t m_forcedLodIndex = -1;
 	bool m_forceLod = false;
+
+	struct
+	{
+		Tr2RaycastGeometryResPtr geometry = nullptr;
+		int32_t sessions = 0;
+	} m_bvh;
 
 private:
 	// Provide the functions that do the actual work of loading and preparing.

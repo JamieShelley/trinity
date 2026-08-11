@@ -1928,7 +1928,7 @@ void EveSpaceObject2::EnsureChildLocatorMerged() const
 		{
 			auto transform = TransformationMatrix( locator->scale, locator->direction, locator->position ) * childLocatorSet.childToObject;
 			Locator transformedLocator;
-			transformedLocator.boneIndex = -1; // locator->boneIndex; // TODO: intern, is caching locators a problem?
+			transformedLocator.boneIndex = -1;
 			Decompose( transformedLocator.scale, transformedLocator.direction, transformedLocator.position, transform );
 			( *mergedLocatorSet )->Append( &transformedLocator, 1 );
 		}

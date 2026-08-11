@@ -171,8 +171,8 @@ Tree CreateTree(
 // modified version of IntersectAxisAlignedBoxRay
 bool Intersects( const XMVECTOR& origin, const XMVECTOR& invRayDir, const Node& node, float& distance )
 {
-	XMVECTOR minA = *(Vector4*)&node.boundsMin;
-	XMVECTOR maxA = *(Vector4*)&node.boundsMax;
+	XMVECTOR minA = XMLoadFloat4A( reinterpret_cast<const XMFLOAT4A*>( &node.boundsMin ) );
+	XMVECTOR maxA = XMLoadFloat4A( reinterpret_cast<const XMFLOAT4A*>( &node.boundsMax ) );
 
 	XMVECTOR t0 = ( minA - origin ) * invRayDir;
 	XMVECTOR t1 = ( maxA - origin ) * invRayDir;
@@ -262,9 +262,9 @@ bool Intersection(
 			for( uint32_t i = currentNode->firstChildIndex; i < currentNode->firstChildIndex + currentNode->numObj; i++ )
 			{
 				float hitU, hitV;
-				XMVECTOR vertex0 = *(Vector4*)&tree.triangles[i].vertex0;
-				XMVECTOR edge1 = *(Vector4*)&tree.triangles[i].edge1;
-				XMVECTOR edge2 = *(Vector4*)&tree.triangles[i].edge2;
+				XMVECTOR vertex0 = XMLoadFloat4A( reinterpret_cast<const XMFLOAT4A*>( &tree.triangles[i].vertex0 ) );
+				XMVECTOR edge1 = XMLoadFloat4A( reinterpret_cast<const XMFLOAT4A*>( &tree.triangles[i].edge1 ) );
+				XMVECTOR edge2 = XMLoadFloat4A( reinterpret_cast<const XMFLOAT4A*>( &tree.triangles[i].edge2 ) );
 				if( IntersectTri( vertex0, edge1, edge2, rayOrigin, rayDir, &hitU, &hitV, &hitDistance ) )
 				{
 					if( hitDistance < rayLength )
@@ -301,6 +301,8 @@ bool Intersection(
 	return hit;
 }
 
+const uint32_t INVALID_AREA_OFFSET = std::numeric_limits<uint32_t>::max();
+
 BoundingVolumeHierarchy::BoundingVolumeHierarchy( Tr2CmfContents&& content, const std::vector<int32_t>& lodIndices )
 {
 	m_content = std::move( content );
@@ -312,7 +314,7 @@ BoundingVolumeHierarchy::BoundingVolumeHierarchy( Tr2CmfContents&& content, cons
 
 		if( mesh.topology != cmf::MeshTopology::TriangleList )
 		{
-			m_areaOffsets.push_back( -1 );
+			m_areaOffsets.push_back( INVALID_AREA_OFFSET );
 			continue;
 		}
 		m_areaOffsets.push_back( areasOffset );
@@ -340,7 +342,7 @@ bool BoundingVolumeHierarchy::IntersectArea(
 	float& distance ) const
 {
 	uint32_t areasOffset = m_areaOffsets[meshIndex];
-	if( areasOffset == -1 )
+	if( areasOffset == INVALID_AREA_OFFSET )
 	{
 		return false;
 	}
@@ -359,7 +361,7 @@ bool BoundingVolumeHierarchy::IntersectMesh(
 	float& distance ) const
 {
 	uint32_t areasOffset = m_areaOffsets[meshIndex];
-	if( areasOffset == -1 )
+	if( areasOffset == INVALID_AREA_OFFSET )
 	{
 		return false;
 	}
@@ -393,7 +395,7 @@ bool BoundingVolumeHierarchy::IntersectAll(
 	for( size_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
 	{
 		uint32_t areasOffset = m_areaOffsets[i];
-		if( areasOffset == -1 )
+		if( areasOffset == INVALID_AREA_OFFSET )
 		{
 			continue;
 		}
@@ -430,7 +432,7 @@ bool BoundingVolumeHierarchy::IntersectAreaAcrossMeshes(
 	for( size_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
 	{
 		uint32_t areasOffset = m_areaOffsets[i];
-		if( areasOffset == -1 )
+		if( areasOffset == INVALID_AREA_OFFSET )
 		{
 			continue;
 		}
