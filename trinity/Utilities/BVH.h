@@ -77,15 +77,11 @@ struct IntersectedNode
 
 class BoundingVolumeHierarchy
 {
-	Tr2CmfContents m_content;
-	std::vector<int32_t> m_lodIndices;
-	std::vector<Tree> m_areaTrees;
-
 public:
 	BoundingVolumeHierarchy() = default;
 	BoundingVolumeHierarchy( Tr2CmfContents&& content, const std::vector<int32_t>& lodIndex );
 
-	bool Intersection(
+	bool IntersectArea(
 		std::vector<IntersectedNode>& stack,
 		const CcpMath::Ray& ray,
 		float rayLength,
@@ -96,7 +92,7 @@ public:
 		float& v,
 		float& distance ) const;
 
-	bool Intersection(
+	bool IntersectMesh(
 		std::vector<IntersectedNode>& stack,
 		const CcpMath::Ray& ray,
 		float rayLength,
@@ -106,7 +102,7 @@ public:
 		float& v,
 		float& distance ) const;
 
-	bool Intersection(
+	bool IntersectAll(
 		std::vector<IntersectedNode>& stack,
 		const CcpMath::Ray& ray,
 		float rayLength,
@@ -116,7 +112,7 @@ public:
 		float& v,
 		float& distance ) const;
 
-	bool Intersection(
+	bool IntersectAreaAcrossMeshes(
 		std::vector<IntersectedNode>& stack,
 		const CcpMath::Ray& ray,
 		float rayLength,
@@ -133,6 +129,12 @@ public:
 	std::optional<cmf::ConstBufferElementStream<Vector4>> GetColors( int meshIndex );
 
 	void Visualize( Tr2DebugObjectReference owner, const Matrix& transform, ITr2DebugRenderer2& renderer ) const;
+
+private:
+	Tr2CmfContents m_content;
+	std::vector<int32_t> m_lodIndices;
+	std::vector<Tree> m_areaTrees;
+	std::vector<uint32_t> m_areaOffsets;
 };
 
 }

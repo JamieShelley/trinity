@@ -301,6 +301,157 @@ bool Intersection(
 	return hit;
 }
 
+BoundingVolumeHierarchy::BoundingVolumeHierarchy( Tr2CmfContents&& content, const std::vector<int32_t>& lodIndices )
+{
+	m_content = std::move( content );
+	m_lodIndices = lodIndices;
+	uint32_t areasOffset = 0;
+	for( int32_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
+	{
+		const auto& mesh = m_content.GetData()->meshes[i];
+
+		if( mesh.topology != cmf::MeshTopology::TriangleList )
+		{
+			m_areaOffsets.push_back( -1 );
+			continue;
+		}
+		m_areaOffsets.push_back( areasOffset );
+		areasOffset += uint32_t( mesh.areas.size() );
+
+		auto indices = GetIndices( i );
+		auto positions = GetPositions( i );
+
+		for( const auto& area : mesh.lods[lodIndices[i]].areas )
+		{
+			m_areaTrees.push_back( CreateTree( indices, positions, area.firstElement, area.elementCount ) );
+		}
+	}
+}
+
+bool BoundingVolumeHierarchy::IntersectArea(
+	std::vector<IntersectedNode>& stack,
+	const CcpMath::Ray& ray,
+	float rayLength,
+	int32_t meshIndex,
+	int32_t areaIndex,
+	uint32_t& primitive,
+	float& u,
+	float& v,
+	float& distance ) const
+{
+	uint32_t areasOffset = m_areaOffsets[meshIndex];
+	if( areasOffset == -1 )
+	{
+		return false;
+	}
+
+	return BVH::Intersection( m_areaTrees[areasOffset + areaIndex], stack, ray, rayLength, primitive, u, v, distance );
+}
+
+bool BoundingVolumeHierarchy::IntersectMesh(
+	std::vector<IntersectedNode>& stack,
+	const CcpMath::Ray& ray,
+	float rayLength,
+	int32_t meshIndex,
+	uint32_t& primitive,
+	float& u,
+	float& v,
+	float& distance ) const
+{
+	uint32_t areasOffset = m_areaOffsets[meshIndex];
+	if( areasOffset == -1 )
+	{
+		return false;
+	}
+
+	bool hit = false;
+	for( size_t areaIndex = 0; areaIndex < m_content.GetData()->meshes[meshIndex].areas.size(); areaIndex++ )
+	{
+		const auto& tree = m_areaTrees[areasOffset + areaIndex];
+		uint32_t hitPrimitive;
+		if( BVH::Intersection( tree, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+		{
+			primitive = hitPrimitive;
+			distance = rayLength;
+			hit = true;
+		}
+	}
+	return hit;
+}
+
+bool BoundingVolumeHierarchy::IntersectAll(
+	std::vector<IntersectedNode>& stack,
+	const CcpMath::Ray& ray,
+	float rayLength,
+	uint32_t& meshIndex,
+	uint32_t& primitive,
+	float& u,
+	float& v,
+	float& distance ) const
+{
+	bool hit = false;
+	for( size_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
+	{
+		uint32_t areasOffset = m_areaOffsets[i];
+		if( areasOffset == -1 )
+		{
+			continue;
+		}
+
+		const auto& mesh = m_content.GetData()->meshes[i];
+		for( size_t areaIndex = 0; areaIndex < mesh.areas.size(); areaIndex++ )
+		{
+			const auto& tree = m_areaTrees[areasOffset + areaIndex];
+			uint32_t hitPrimitive;
+			if( BVH::Intersection( tree, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+			{
+				meshIndex = (uint32_t)i;
+				primitive = hitPrimitive;
+				distance = rayLength;
+				hit = true;
+			}
+		}
+	}
+	return hit;
+}
+
+bool BoundingVolumeHierarchy::IntersectAreaAcrossMeshes(
+	std::vector<IntersectedNode>& stack,
+	const CcpMath::Ray& ray,
+	float rayLength,
+	uint32_t areaIndex,
+	uint32_t& meshIndex,
+	uint32_t& primitive,
+	float& u,
+	float& v,
+	float& distance ) const
+{
+	bool hit = false;
+	for( size_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
+	{
+		uint32_t areasOffset = m_areaOffsets[i];
+		if( areasOffset == -1 )
+		{
+			continue;
+		}
+
+		const auto& mesh = m_content.GetData()->meshes[i];
+		if( areaIndex < mesh.areas.size() )
+		{
+			const auto& tree = m_areaTrees[areasOffset + areaIndex];
+			uint32_t hitPrimitive;
+			if( BVH::Intersection( tree, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+			{
+				meshIndex = (uint32_t)i;
+				primitive = hitPrimitive;
+				distance = rayLength;
+				hit = true;
+			}
+		}
+	}
+	return hit;
+}
+
 cmf::ConstIndexBufferStream BoundingVolumeHierarchy::GetIndices( int meshIndex )
 {
 	const auto& mesh = m_content.GetData()->meshes[meshIndex];
@@ -353,175 +504,6 @@ std::optional<cmf::ConstBufferElementStream<Vector4>> BoundingVolumeHierarchy::G
 		colors.emplace( *colorElement, vertices, numVerts, vb.stride );
 	}
 	return colors;
-}
-
-BoundingVolumeHierarchy::BoundingVolumeHierarchy( Tr2CmfContents&& content, const std::vector<int32_t>& lodIndices )
-{
-	m_content = std::move( content );
-	m_lodIndices = lodIndices;
-	for( int32_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
-	{
-		const auto& mesh = m_content.GetData()->meshes[i];
-
-		if( mesh.topology != cmf::MeshTopology::TriangleList )
-		{
-			continue;
-		}
-
-		auto indices = GetIndices( i );
-		auto positions = GetPositions( i );
-
-		for( const auto& area : mesh.lods[lodIndices[i]].areas )
-		{
-			m_areaTrees.push_back( CreateTree( indices, positions, area.firstElement, area.elementCount ) );
-		}
-	}
-}
-
-bool BoundingVolumeHierarchy::Intersection(
-	std::vector<IntersectedNode>& stack,
-	const CcpMath::Ray& ray,
-	float rayLength,
-	int32_t meshIndex,
-	int32_t areaIndex,
-	uint32_t& primitive,
-	float& u,
-	float& v,
-	float& distance ) const
-{
-	if( m_content.GetData()->meshes[meshIndex].topology != cmf::MeshTopology::TriangleList )
-	{
-		return false;
-	}
-
-	size_t areasOffset = 0;
-	for( int32_t i = 0; i < meshIndex; i++ )
-	{
-		const auto& mesh = m_content.GetData()->meshes[i];
-		if( mesh.topology != cmf::MeshTopology::TriangleList )
-		{
-			continue;
-		}
-		areasOffset += mesh.areas.size();
-	}
-
-	return BVH::Intersection( m_areaTrees[areasOffset + areaIndex], stack, ray, rayLength, primitive, u, v, distance );
-}
-
-bool BoundingVolumeHierarchy::Intersection(
-	std::vector<IntersectedNode>& stack,
-	const CcpMath::Ray& ray,
-	float rayLength,
-	int32_t meshIndex,
-	uint32_t& primitive,
-	float& u,
-	float& v,
-	float& distance ) const
-{
-	if( m_content.GetData()->meshes[meshIndex].topology != cmf::MeshTopology::TriangleList )
-	{
-		return false;
-	}
-
-	size_t areasOffset = 0;
-	for( int32_t i = 0; i < meshIndex; i++ )
-	{
-		const auto& mesh = m_content.GetData()->meshes[i];
-		if( mesh.topology != cmf::MeshTopology::TriangleList )
-		{
-			continue;
-		}
-		areasOffset += mesh.areas.size();
-	}
-
-	bool hit = false;
-	for( size_t areaIndex = 0; areaIndex < m_content.GetData()->meshes[meshIndex].areas.size(); areaIndex++ )
-	{
-		const auto& tree = m_areaTrees[areasOffset + areaIndex];
-		uint32_t hitPrimitive;
-		if( BVH::Intersection( tree, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
-		{
-			primitive = hitPrimitive;
-			distance = rayLength;
-			hit = true;
-		}
-	}
-	return hit;
-}
-
-bool BoundingVolumeHierarchy::Intersection(
-	std::vector<IntersectedNode>& stack,
-	const CcpMath::Ray& ray,
-	float rayLength,
-	uint32_t& meshIndex,
-	uint32_t& primitive,
-	float& u,
-	float& v,
-	float& distance ) const
-{
-	bool hit = false;
-	size_t areasOffset = 0;
-	for( size_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
-	{
-		const auto& mesh = m_content.GetData()->meshes[i];
-		if( mesh.topology != cmf::MeshTopology::TriangleList )
-		{
-			continue;
-		}
-
-		for( size_t areaIndex = 0; areaIndex < mesh.areas.size(); areaIndex++ )
-		{
-			const auto& tree = m_areaTrees[areasOffset + areaIndex];
-			uint32_t hitPrimitive;
-			if( BVH::Intersection( tree, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
-			{
-				meshIndex = (uint32_t)i;
-				primitive = hitPrimitive;
-				distance = rayLength;
-				hit = true;
-			}
-		}
-		areasOffset += mesh.areas.size();
-	}
-	return hit;
-}
-
-bool BoundingVolumeHierarchy::Intersection(
-	std::vector<IntersectedNode>& stack,
-	const CcpMath::Ray& ray,
-	float rayLength,
-	uint32_t areaIndex,
-	uint32_t& meshIndex,
-	uint32_t& primitive,
-	float& u,
-	float& v,
-	float& distance ) const
-{
-	bool hit = false;
-	size_t areasOffset = 0;
-	for( size_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
-	{
-		const auto& mesh = m_content.GetData()->meshes[i];
-		if( mesh.topology != cmf::MeshTopology::TriangleList )
-		{
-			continue;
-		}
-
-		if( areaIndex < mesh.areas.size() )
-		{
-			const auto& tree = m_areaTrees[areasOffset + areaIndex];
-			uint32_t hitPrimitive;
-			if( BVH::Intersection( tree, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
-			{
-				meshIndex = (uint32_t)i;
-				primitive = hitPrimitive;
-				distance = rayLength;
-				hit = true;
-			}
-		}
-		areasOffset += mesh.areas.size();
-	}
-	return hit;
 }
 
 void BoundingVolumeHierarchy::Visualize( Tr2DebugObjectReference owner, const Matrix& transform, ITr2DebugRenderer2& renderer ) const

@@ -2095,11 +2095,26 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 					Vector3 rayOrigin = Transform( origin, occluder.fromObject ).GetXYZ();
 					Vector3 rayDirection = TransformNormal( direction, occluder.fromObject );
 
+					// Note that we deliberately don't normalize the rayDirection. 
+					// 
+					// We transform the 'direction' from object space to child space to compute 'rayDirection'.
+					// A child, that has been scaled to a large size, will get a small rayDirection.
+					// After all, we go from object space to child space, so we transform rayDirection with the inverse child scale!
+					// 
+					// The intersection function will then find an intersection at a proportionally larger distance.
+					// Consider the line equation: intersectionPoint = distance * rayDirection + rayOrigin
+					// If rayDirection is small, then distance has to be larger to compensate.
+					// 
+					// That larger distance is in our object space!
+					// So rayLength is always in object space, and can safely be compared with frontFaceMinDistance. :)
+
 					Vector3 normal;
 					for( auto it = begin( *areas ); it != end( *areas ); ++it )
 					{
+						// rayLength is an in-out parameter. So we only trace up to the distance of the closest intersection that we have found so far.
 						if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, nullptr, &normal, false, nullptr, nullptr, ( *it )->GetIndex(), rayLength ) )
 						{
+							// TRIBATCHTYPE_OPAQUE also contains alpha cutouts, which can be one-sided. Ignore them to prevent false positives.
 							backfacing = !( *it )->IsAlphaCutout() && ( ( Dot( normal, rayDirection ) > 0 ) != ( *it )->IsReversed() );
 							if( rayLength < frontFaceMinDistance )
 							{

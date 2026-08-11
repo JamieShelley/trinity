@@ -1644,11 +1644,11 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 	bool hit = false;
 	if( areaIx != -1 )
 	{
-		hit = m_bvh.geometry->GetBVH().Intersection( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, areaIx, meshIndex, primitive, u, v, rayLength );
+		hit = m_bvh.geometry->GetBVH().IntersectAreaAcrossMeshes( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, areaIx, meshIndex, primitive, u, v, rayLength );
 	}
 	else
 	{
-		hit = m_bvh.geometry->GetBVH().Intersection( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, meshIndex, primitive, u, v, rayLength );
+		hit = m_bvh.geometry->GetBVH().IntersectAll( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, meshIndex, primitive, u, v, rayLength );
 	}
 
 	if( !hit )
