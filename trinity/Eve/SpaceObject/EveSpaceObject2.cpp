@@ -2056,7 +2056,7 @@ void EveSpaceObject2::RefreshDamageLocatorMask( const LocatorStructureList* dama
 		bool occluded = false;
 		bool backfacing = false;
 
-		float frontFaceMinDistance = 0.0316f * m_boundingSphereRadius;
+		float frontFaceMinDistance = 0.05f * m_boundingSphereRadius;
 		float rayLength = std::numeric_limits<float>::infinity();
 
 		for( auto& occluder : m_damageFilterOccluders )
