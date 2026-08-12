@@ -172,6 +172,9 @@ BlueStdResult EveModularObjectModifier::SetTransform( EveSpaceObjectChild::PartT
 		}
 	}
 
+	found->boundingSphere.center = cmf::TransformPoint( cmf::TransformPoint( found->boundingSphere.center, invOldTransform ), newTransform );
+	found->boundingSphere.radius *= std::max( { scale.x, scale.y, scale.z } ) / std::max( { found->scale.x, found->scale.y, found->scale.z } );
+
 	found->position = position;
 	found->rotation = rotation;
 	found->scale = scale;
