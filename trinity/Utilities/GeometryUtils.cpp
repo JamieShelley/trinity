@@ -296,19 +296,19 @@ void ConvertDataToVector3( Tr2VertexDefinition::DataType elementType, const void
 }
 
 bool IntersectTri(
-	const Vector3* p0,
-	const Vector3* p1,
-	const Vector3* p2,
-	const Vector3* rayPos,
-	const Vector3* rayDir,
-	float* u,
-	float* v,
-	float* dist )
+	const Vector3& p0,
+	const Vector3& p1,
+	const Vector3& p2,
+	const Vector3& rayPos,
+	const Vector3& rayDir,
+	float& u,
+	float& v,
+	float& dist )
 {
 	// Möller–Trumbore intersection algorithm
-	Vector3 e1 = *p1 - *p0;
-	Vector3 e2 = *p2 - *p0;
-	Vector3 a = Cross( *rayDir, e2 );
+	Vector3 e1 = p1 - p0;
+	Vector3 e2 = p2 - p0;
+	Vector3 a = Cross( rayDir, e2 );
 
 	float det = Dot( e1, a );
 	if( std::abs( det ) < std::numeric_limits<float>::min() )
@@ -317,7 +317,7 @@ bool IntersectTri(
 	}
 	float invDet = 1.f / det;
 
-	Vector3 t0 = *rayPos - *p0;
+	Vector3 t0 = rayPos - p0;
 	float uu = Dot( t0, a ) * invDet;
 	if( uu < 0.f || uu > 1.f )
 	{
@@ -325,7 +325,7 @@ bool IntersectTri(
 	}
 
 	Vector3 b = Cross( t0, e1 );
-	float vv = Dot( *rayDir, b ) * invDet;
+	float vv = Dot( rayDir, b ) * invDet;
 	if( vv < 0.f || uu + vv > 1.f )
 	{
 		return false;
@@ -337,9 +337,9 @@ bool IntersectTri(
 		return false;
 	}
 
-	*u = uu;
-	*v = vv;
-	*dist = t;
+	u = uu;
+	v = vv;
+	dist = t;
 	return true;
 }
 
@@ -349,9 +349,9 @@ bool IntersectTri(
 	const XMVECTOR& e2,
 	const XMVECTOR& rayPos,
 	const XMVECTOR& rayDir,
-	float* u,
-	float* v,
-	float* dist )
+	float& u,
+	float& v,
+	float& dist )
 {
 	// Möller–Trumbore intersection algorithm, SIMD
 	XMVECTOR a = XMVector3Cross( rayDir, e2 );
@@ -383,9 +383,9 @@ bool IntersectTri(
 		return false;
 	}
 
-	*u = uu;
-	*v = vv;
-	*dist = t;
+	u = uu;
+	v = vv;
+	dist = t;
 	return true;
 }
 

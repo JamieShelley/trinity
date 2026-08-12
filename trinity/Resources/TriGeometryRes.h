@@ -240,10 +240,14 @@ struct TriGeometryResSkeletonData
 	TrackableStdVector<TriGeometryResJointData> m_joints;
 };
 
-struct RayCastColorResult
+struct RayCastResult
 {
-	Color vertex1;
-	Color interpolated;
+	float hitDistance = std::numeric_limits<float>::infinity();
+	Vector3 hitpoint;
+	Vector3 hitpointNormal;
+	int boneIndex = -1;
+	Color firstVertexColor;
+	Color interpolatedVertexColor;
 };
 
 BLUE_CLASS( TriGeometryRes ) :
@@ -294,17 +298,15 @@ public:
 
 	void RebuildCachedData();
 
-	bool GetIntersectionPoints( const Vector3& pos, const Vector3& dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, RayCastColorResult* colorNear, unsigned int areaIx, float& rayLength );
+	bool GetIntersectionPoints( const Vector3& pos, const Vector3& dir, RayCastResult& result, uint32_t areaIx = -1, float rayLength = std::numeric_limits<float>::infinity() );
 
-	bool GetIntersectionPointsLegacy( const Vector3* pos, const Vector3* dir, Vector3* hitpointNear, Vector3* hitpointNearNormal, bool normalizeNormal, int* boneIndexNear, RayCastColorResult* colorNear, unsigned int areaIx, float& rayLength );
+	bool GetIntersectionPointsLegacy( const Vector3& pos, const Vector3& dir, RayCastResult& result, uint32_t areaIx = -1, float rayLength = std::numeric_limits<float>::infinity() );
 
 	void PrepareRayCaster();
 	void ResetRayCaster();
 	bool IsRayCasterReady() const;
 	bool HasRayCasterPreparationFailed() const;
 	void DestroyRayCaster();
-
-	bool GetIntersectionPointNormalBoneColor( const Vector3* pos, const Vector3* dir, Vector3* hitpoint, Vector3* normal, int* boneIndex, RayCastColorResult* color, unsigned int areaIx = -1, float rayLength = std::numeric_limits<float>::infinity() );
 
 	std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>> GetIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir );
 	Be::Result<std::string> GetAreaIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir, int areaIx, std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>>& result );

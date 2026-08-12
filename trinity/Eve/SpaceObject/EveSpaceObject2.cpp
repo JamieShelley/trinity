@@ -2079,14 +2079,15 @@ void EveSpaceObject2::RefreshDamageLocatorMask( const LocatorStructureList* dama
 				// That larger distance is in our object space!
 				// So rayLength is always in object space, and can safely be compared with frontFaceMinDistance. :)
 
-				Vector3 normal;
 				for( auto it = begin( *areas ); it != end( *areas ); ++it )
 				{
-					// rayLength is an in-out parameter. So we only trace up to the distance of the closest intersection that we have found so far.
-					if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, nullptr, &normal, false, nullptr, nullptr, ( *it )->GetIndex(), rayLength ) )
+					// We only trace up to the distance of the closest intersection that we have found so far.
+					RayCastResult hitInfo;
+					if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, hitInfo, ( *it )->GetIndex(), rayLength ) )
 					{
+						rayLength = hitInfo.hitDistance;
 						// TRIBATCHTYPE_OPAQUE also contains alpha cutouts, which can be one-sided. Ignore them to prevent false positives.
-						backfacing = !( *it )->IsAlphaCutout() && ( ( Dot( normal, rayDirection ) > 0 ) != ( *it )->IsReversed() );
+						backfacing = !( *it )->IsAlphaCutout() && ( ( Dot( hitInfo.hitpointNormal, rayDirection ) > 0 ) != ( *it )->IsReversed() );
 						if( rayLength < frontFaceMinDistance )
 						{
 							occluded = true;

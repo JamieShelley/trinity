@@ -265,7 +265,7 @@ bool Intersection(
 				XMVECTOR vertex0 = XMLoadFloat4A( reinterpret_cast<const XMFLOAT4A*>( &tree.triangles[i].vertex0 ) );
 				XMVECTOR edge1 = XMLoadFloat4A( reinterpret_cast<const XMFLOAT4A*>( &tree.triangles[i].edge1 ) );
 				XMVECTOR edge2 = XMLoadFloat4A( reinterpret_cast<const XMFLOAT4A*>( &tree.triangles[i].edge2 ) );
-				if( IntersectTri( vertex0, edge1, edge2, rayOrigin, rayDir, &hitU, &hitV, &hitDistance ) )
+				if( IntersectTri( vertex0, edge1, edge2, rayOrigin, rayDir, hitU, hitV, hitDistance ) )
 				{
 					if( hitDistance < rayLength )
 					{
