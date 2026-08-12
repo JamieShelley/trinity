@@ -804,7 +804,6 @@ private:
 
 	Tr2RingBufferOffsets m_boneOffsets;
 
-	std::vector<LocatorSourceRange> m_baseDamageLocatorSources;	// Ranges identifying damage locators of this object in m_mergedLocatorSets.
 	mutable std::vector<LocatorSourceRange> m_mergedDamageLocatorSources;	// Ranges identifying damage locators owners in m_mergedLocatorSets.
 	mutable std::vector<EveLocatorSetsPtr> m_mergedLocatorSets;	// Locator sets of this object and all children.
 	std::vector<bool> m_damageLocatorEnabled;	// Mask for damage locators in m_mergedLocatorSets to filter selection.

@@ -1889,7 +1889,7 @@ void EveSpaceObject2::EnsureChildLocatorMerged() const
 	}
 
 	m_mergedLocatorSets.clear();
-	m_mergedDamageLocatorSources = m_baseDamageLocatorSources;
+	m_mergedDamageLocatorSources.clear();
 
 	std::vector<EveChildLocatorSetsSource> childrenLocatorSets;
 	for( const auto& child : m_effectChildren )
@@ -2851,25 +2851,6 @@ void EveSpaceObject2::MergeToLocatorSet( const EveLocatorSets& locatorSet )
 		return;
 	}
 
-	if( locatorSet.HasName( DAMAGE_LOCATOR_SET_NAME ) )
-	{
-		int32_t start = 0;
-		for( auto it = m_locatorSets.cbegin(); it != m_locatorSets.cend(); ++it )
-		{
-			if( ( *it )->HasName( DAMAGE_LOCATOR_SET_NAME ) )
-			{
-				start = int32_t( ( *it )->GetLocators()->size() );
-				break;
-			}
-		}
-		LocatorSourceRange sourceRange{};
-		sourceRange.start = start;
-		sourceRange.count = int32_t( locatorSet.GetLocators()->size() );
-		sourceRange.owner = nullptr;
-		sourceRange.partTag = EveSpaceObjectChild::NO_PART_TAG;
-		m_baseDamageLocatorSources.push_back( sourceRange );
-	}
-
 	const Locator* locators = (const Locator*)&( *locatorSet.GetLocators() )[0];
 
 	InvalidateMergedLocators( LocatorInvalidationReason::StructureChanged );
@@ -3344,7 +3325,6 @@ void EveSpaceObject2::AddLocatorSet( const char* name, const Locator* locators, 
 void EveSpaceObject2::ClearLocatorSets()
 {
 	m_locatorSets.Clear();
-	m_baseDamageLocatorSources.clear();
 	InvalidateMergedLocators( LocatorInvalidationReason::StructureChanged );
 }
 
