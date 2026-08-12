@@ -1493,8 +1493,8 @@ std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>> TriGeometryRes::Get
 {
 	RayCastResult hitInfo;
 	bool hit = GetIntersectionPoints( pos, dir, hitInfo );
-	hitInfo.normal = Normalize( hitInfo.normal );
-	return std::make_pair( hit, std::make_pair( hitInfo.boneIndex, std::make_pair( hitInfo.position, hitInfo.normal ) ) );
+	Vector3 normal = Normalize( hitInfo.unnormalizedNormal );
+	return std::make_pair( hit, std::make_pair( hitInfo.boneIndex, std::make_pair( hitInfo.position, normal ) ) );
 }
 
 Be::Result<std::string> TriGeometryRes::GetAreaIntersectionPointNormalBoneFromScript( const Vector3& pos, const Vector3& dir, int areaIx, std::pair<bool, std::pair<int, std::pair<Vector3, Vector3>>>& result )
@@ -1512,8 +1512,8 @@ Be::Result<std::string> TriGeometryRes::GetAreaIntersectionPointNormalBoneFromSc
 
 	RayCastResult hitInfo;
 	bool hit = GetIntersectionPoints( pos, dir, hitInfo, unsignedAreaIndex );
-	hitInfo.normal = Normalize( hitInfo.normal );
-	result = std::make_pair( hit, std::make_pair( hitInfo.boneIndex, std::make_pair( hitInfo.position, hitInfo.normal ) ) );
+	Vector3 normal = Normalize( hitInfo.unnormalizedNormal );
+	result = std::make_pair( hit, std::make_pair( hitInfo.boneIndex, std::make_pair( hitInfo.position, normal ) ) );
 	return Be::Result<std::string>();
 }
 
@@ -1521,8 +1521,8 @@ std::pair<bool, std::pair<int, std::pair<Vector3, std::pair<Vector3, std::pair<C
 {
 	RayCastResult hitInfo;
 	bool hit = GetIntersectionPoints( pos, dir, hitInfo );
-	hitInfo.normal = Normalize( hitInfo.normal );
-	return std::make_pair( hit, std::make_pair( hitInfo.boneIndex, std::make_pair( hitInfo.position, std::make_pair( hitInfo.normal, std::make_pair( hitInfo.firstVertexColor, hitInfo.interpolatedVertexColor ) ) ) ) );
+	Vector3 normal = Normalize( hitInfo.unnormalizedNormal );
+	return std::make_pair( hit, std::make_pair( hitInfo.boneIndex, std::make_pair( hitInfo.position, std::make_pair( normal, std::make_pair( hitInfo.firstVertexColor, hitInfo.interpolatedVertexColor ) ) ) ) );
 }
 
 Be::Result<std::string> TriGeometryRes::GetAreaIntersectionPointNormalBoneColorFromScript( const Vector3& pos, const Vector3& dir, int areaIx, std::pair<bool, std::pair<int, std::pair<Vector3, std::pair<Vector3, std::pair<Color, Color>>>>>& result )
@@ -1540,8 +1540,8 @@ Be::Result<std::string> TriGeometryRes::GetAreaIntersectionPointNormalBoneColorF
 
 	RayCastResult hitInfo;
 	bool hit = GetIntersectionPoints( pos, dir, hitInfo, unsignedAreaIndex );
-	hitInfo.normal = Normalize( hitInfo.normal );
-	result = std::make_pair( hit, std::make_pair( hitInfo.boneIndex, std::make_pair( hitInfo.position, std::make_pair( hitInfo.normal, std::make_pair( hitInfo.firstVertexColor, hitInfo.interpolatedVertexColor ) ) ) ) );
+	Vector3 normal = Normalize( hitInfo.unnormalizedNormal );
+	result = std::make_pair( hit, std::make_pair( hitInfo.boneIndex, std::make_pair( hitInfo.position, std::make_pair( normal, std::make_pair( hitInfo.firstVertexColor, hitInfo.interpolatedVertexColor ) ) ) ) );
 	return Be::Result<std::string>();
 }
 
@@ -1621,15 +1621,15 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 		return false;
 	}
 
-	BVH::RayCastResult hitInfo;
+	BVH::RayHit rayHit;
 	bool hit = false;
 	if( areaIx != -1 )
 	{
-		hit = m_bvh.geometry->GetBVH().IntersectAreaAcrossMeshes( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, areaIx, hitInfo );
+		hit = m_bvh.geometry->GetBVH().IntersectAreaAcrossMeshes( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, areaIx, rayHit );
 	}
 	else
 	{
-		hit = m_bvh.geometry->GetBVH().IntersectAll( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, hitInfo );
+		hit = m_bvh.geometry->GetBVH().IntersectAll( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, rayHit );
 	}
 
 	if( !hit )
@@ -1637,18 +1637,18 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 		return false;
 	}
 
-	result.distance = hitInfo.distance;
-	result.position = pos + dir * hitInfo.distance;
+	result.distance = rayHit.distance;
+	result.position = pos + dir * rayHit.distance;
 
 	auto& bvh = m_bvh.geometry->GetBVH();
-	auto indices = bvh.GetIndices( hitInfo.meshIndex );
-	auto positions = bvh.GetPositions( hitInfo.meshIndex );
-	auto bones = bvh.GetBones( hitInfo.meshIndex );
-	auto colors = bvh.GetColors( hitInfo.meshIndex );
+	auto indices = bvh.GetIndices( rayHit.meshIndex );
+	auto positions = bvh.GetPositions( rayHit.meshIndex );
+	auto bones = bvh.GetBones( rayHit.meshIndex );
+	auto colors = bvh.GetColors( rayHit.meshIndex );
 
-	uint32_t index1 = indices[hitInfo.primitive * 3 + 0];
-	uint32_t index2 = indices[hitInfo.primitive * 3 + 1];
-	uint32_t index3 = indices[hitInfo.primitive * 3 + 2];
+	uint32_t index1 = indices[rayHit.primitive * 3 + 0];
+	uint32_t index2 = indices[rayHit.primitive * 3 + 1];
+	uint32_t index3 = indices[rayHit.primitive * 3 + 2];
 
 	Vector3 p1 = positions[index1];
 	Vector3 p2 = positions[index2];
@@ -1656,7 +1656,7 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 
 	Vector3 avec = p2 - p1;
 	Vector3 bvec = p3 - p1;
-	result.normal = Cross( avec, bvec );
+	result.unnormalizedNormal = Cross( avec, bvec );
 
 	if( bones.has_value() )
 	{
@@ -1664,12 +1664,12 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 	}
 	if( colors.has_value() )
 	{
-		float v1 = 1.0f - ( hitInfo.u + hitInfo.v );
+		float v1 = 1.0f - ( rayHit.u + rayHit.v );
 		Color color1 = colors.value()[index1];
 		Color color2 = colors.value()[index2];
 		Color color3 = colors.value()[index3];
 		result.firstVertexColor = color1;
-		result.interpolatedVertexColor = color1 * v1 + color2 * hitInfo.u + color3 * hitInfo.v;
+		result.interpolatedVertexColor = color1 * v1 + color2 * rayHit.u + color3 * rayHit.v;
 	}
 
 	return true;
@@ -1770,7 +1770,7 @@ bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3& pos, const Vect
 
 					Vector3 avec = p2 - p1;
 					Vector3 bvec = p3 - p1;
-					result.normal = Cross( avec, bvec );
+					result.unnormalizedNormal = Cross( avec, bvec );
 
 					result.distance = rayLength = dist;
 

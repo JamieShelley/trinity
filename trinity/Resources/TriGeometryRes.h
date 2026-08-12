@@ -244,7 +244,7 @@ struct RayCastResult
 {
 	float distance = std::numeric_limits<float>::infinity();
 	Vector3 position;
-	Vector3 normal;
+	Vector3 unnormalizedNormal;
 	int boneIndex = -1;
 	Color firstVertexColor;
 	Color interpolatedVertexColor;

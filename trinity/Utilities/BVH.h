@@ -1,4 +1,4 @@
-// Copyright � 2026 CCP ehf.
+﻿// Copyright © 2026 CCP ehf.
 
 #pragma once
 #ifndef BVH_H
@@ -75,7 +75,7 @@ struct IntersectedNode
 	float distance;
 };
 
-struct RayCastResult
+struct RayHit
 {
 	uint32_t meshIndex;
 	uint32_t primitive;
@@ -96,27 +96,27 @@ public:
 		float rayLength,
 		int32_t meshIndex,
 		int32_t areaIndex,
-		RayCastResult& result ) const;
+		RayHit& result ) const;
 
 	bool IntersectMesh(
 		std::vector<IntersectedNode>& stack,
 		const CcpMath::Ray& ray,
 		float rayLength,
 		int32_t meshIndex,
-		RayCastResult& result ) const;
+		RayHit& result ) const;
 
 	bool IntersectAll(
 		std::vector<IntersectedNode>& stack,
 		const CcpMath::Ray& ray,
 		float rayLength,
-		RayCastResult& result ) const;
+		RayHit& result ) const;
 
 	bool IntersectAreaAcrossMeshes(
 		std::vector<IntersectedNode>& stack,
 		const CcpMath::Ray& ray,
 		float rayLength,
 		uint32_t areaIndex,
-		RayCastResult& result ) const;
+		RayHit& result ) const;
 
 	cmf::ConstIndexBufferStream GetIndices( int meshIndex );
 	cmf::ConstBufferElementStream<Vector3> GetPositions( int meshIndex );

@@ -1,3 +1,5 @@
+﻿// Copyright © 2026 CCP ehf.
+
 #include "StdAfx.h"
 #include "BVH.h"
 
@@ -330,7 +332,7 @@ bool BoundingVolumeHierarchy::IntersectArea(
 	float rayLength,
 	int32_t meshIndex,
 	int32_t areaIndex,
-	RayCastResult& result ) const
+	RayHit& result ) const
 {
 	uint32_t areasOffset = m_areaOffsets[meshIndex];
 	if( areasOffset == INVALID_AREA_OFFSET )
@@ -351,7 +353,7 @@ bool BoundingVolumeHierarchy::IntersectMesh(
 	const CcpMath::Ray& ray,
 	float rayLength,
 	int32_t meshIndex,
-	RayCastResult& result ) const
+	RayHit& result ) const
 {
 	uint32_t areasOffset = m_areaOffsets[meshIndex];
 	if( areasOffset == INVALID_AREA_OFFSET )
@@ -378,7 +380,7 @@ bool BoundingVolumeHierarchy::IntersectAll(
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
-	RayCastResult& result ) const
+	RayHit& result ) const
 {
 	bool hit = false;
 	for( size_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
@@ -409,7 +411,7 @@ bool BoundingVolumeHierarchy::IntersectAreaAcrossMeshes(
 	const CcpMath::Ray& ray,
 	float rayLength,
 	uint32_t areaIndex,
-	RayCastResult& result ) const
+	RayHit& result ) const
 {
 	bool hit = false;
 	for( size_t i = 0; i < m_content.GetData()->meshes.size(); i++ )

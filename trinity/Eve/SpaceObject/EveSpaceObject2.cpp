@@ -1042,6 +1042,7 @@ void EveSpaceObject2::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 
 				if( isDamageLocatorSet && i < m_damageLocatorEnabled.size() && !m_damageLocatorEnabled[i] )
 				{
+					// swizzle color when locator is disabled to make it visually distinct
 					locatorColor = Color( c.b, c.g, c.r, c.a );
 				}
 
@@ -2087,7 +2088,7 @@ void EveSpaceObject2::RefreshDamageLocatorMask( const LocatorStructureList* dama
 					{
 						rayLength = hitInfo.distance;
 						// TRIBATCHTYPE_OPAQUE also contains alpha cutouts, which can be one-sided. Ignore them to prevent false positives.
-						backfacing = !( *it )->IsAlphaCutout() && ( ( Dot( hitInfo.normal, rayDirection ) > 0 ) != ( *it )->IsReversed() );
+						backfacing = !( *it )->IsAlphaCutout() && ( ( Dot( hitInfo.unnormalizedNormal, rayDirection ) > 0 ) != ( *it )->IsReversed() );
 						if( rayLength < frontFaceMinDistance )
 						{
 							occluded = true;

@@ -195,7 +195,7 @@ IRootPtr EveSOF::BuildFromDNA( const char* dnaString )
 	// set all easy consts
 	SetupConsts( newObj, dna );
 
-	int partTag = 1;
+	int partTag = 1;	// we start at 1 because NO_PART_TAG is 0
 
 	auto centerOffset = std::vector<Matrix>( 1, IdentityMatrix() );
 	if( dna->GetBuildClass() == EveSOFDataHull::BUILDCLASS_EXTENSION )
