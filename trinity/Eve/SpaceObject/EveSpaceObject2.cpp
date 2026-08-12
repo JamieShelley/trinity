@@ -2141,7 +2141,7 @@ void EveSpaceObject2::UpdateDamageLocatorFilter()
 	}
 
 	m_damageLocatorEnabled.resize( damageLocators->size(), true );
-	
+
 	// Try loading occluders, if geometry is available.
 	if( m_damageFilterState == DamageFilterState::Pending )
 	{

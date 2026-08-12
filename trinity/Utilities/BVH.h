@@ -1,4 +1,4 @@
-// Copyright © 2023 CCP ehf.
+// Copyright © 2026 CCP ehf.
 
 #pragma once
 #ifndef BVH_H
@@ -23,7 +23,7 @@ struct alignas( 16 ) Node
 	Vector3 boundsMax;
 	uint32_t padding = 0;
 
-	Node() : 
+	Node() :
 		boundsMin( {} ),
 		firstChildIndex( 0 ),
 		numObj( 0 ),

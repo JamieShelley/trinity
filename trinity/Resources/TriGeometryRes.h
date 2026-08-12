@@ -391,7 +391,7 @@ private:
 	unsigned int m_memoryUse;
 	TrackableStdVector<std::unique_ptr<TriGeometryResMeshData>> m_meshes;
 	TrackableStdVector<std::unique_ptr<TriGeometryResSkeletonData>> m_skeletons;
-	
+
 #if WITH_GRANNY
 	granny_file* m_pGrannyFile;
 #endif

@@ -1123,7 +1123,7 @@ void EveChildMesh::UpdateAsyncronous( const EveUpdateContext& updateContext, con
 				CcpMath::Sphere localBoundingSphere( localBoundingBox );
 				info.boundingSphere = Vector4( localBoundingSphere.center, localBoundingSphere.radius );
 			}
-		}		
+		}
 		info.estimatedPixelDiameter = max( m_currentScreenSize, 0.f );
 		info.isInFrustum = m_isVisible;
 		info.getDamageLocatorPositionOS = [this]( int index, Vector3& out ) {
@@ -2124,7 +2124,7 @@ bool EveChildMesh::GetDamageLocatorPositionLocal( int index, Vector3& out ) cons
 			out = locator.position;
 
 			// for reference, see EveSpaceObject2::GetLocatorInObjectSpace
-			if( locator.boneIndex > 0 && m_animationUpdater && m_animationUpdater->IsInitialized() && 
+			if( locator.boneIndex > 0 && m_animationUpdater && m_animationUpdater->IsInitialized() &&
 				locator.boneIndex < m_animationUpdater->GetMeshBoneCount() )
 			{
 				const Float4x3* bones = m_animationUpdater->GetMeshBoneMatrixList();

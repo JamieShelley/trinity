@@ -1770,11 +1770,11 @@ bool TriGeometryRes::GetIntersectionPointsLegacy( const Vector3& pos, const Vect
 					float v1 = 1.0f - ( pu + pv );
 
 					result.position = p1 * v1 + p2 * pu + p3 * pv;
-					
+
 					Vector3 avec = p2 - p1;
 					Vector3 bvec = p3 - p1;
 					result.normal = Cross( avec, bvec );
-					
+
 					result.distance = rayLength = dist;
 
 					int boneIndex = 0;

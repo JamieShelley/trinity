@@ -570,4 +570,3 @@ Tr2Effect* EveDamageOverlay::GetArmorDamageShader( TriBatchType batchType ) cons
 	}
 	return m_armorDamageShader;
 }
-

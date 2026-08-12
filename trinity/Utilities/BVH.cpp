@@ -206,10 +206,10 @@ bool Intersection(
 	XMVECTOR rayOrigin = ray.origin;
 	XMVECTOR rayDir = ray.direction;
 	XMVECTOR invRayDir = XMVectorReciprocal( ray.direction );
-	invRayDir = XMVectorClamp( 
-		invRayDir, 
-		XMVectorReplicate( -std::numeric_limits<float>::max() ), 
-		XMVectorReplicate( std::numeric_limits<float>::max() ) 
+	invRayDir = XMVectorClamp(
+		invRayDir,
+		XMVectorReplicate( -std::numeric_limits<float>::max() ),
+		XMVectorReplicate( std::numeric_limits<float>::max() )
 	);
 
 	uint32_t hitPrimitive;

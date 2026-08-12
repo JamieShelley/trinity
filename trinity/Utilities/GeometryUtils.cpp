@@ -266,7 +266,7 @@ void ConvertDataToVector3( Tr2VertexDefinition::DataType elementType, const void
 	switch( elementType )
 	{
 	case Tr2VertexDefinition::FLOAT16_4: {
-		*reinterpret_cast<Vector3*>( dest ) = *static_cast<const Vector3_16*>( src );
+		*dest = *static_cast<const Vector3_16*>( src );
 		break;
 	}
 	case Tr2VertexDefinition::FLOAT32_3: {

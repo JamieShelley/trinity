@@ -3046,7 +3046,7 @@ std::vector<EveLocatorSetsPtr> EveSOF::BuildHullLocalLocatorSets( const EveSOFDN
 			{
 				continue;
 			}
-			
+
 			std::vector<Locator> localLocators;
 			for( auto locator : *locators )
 			{
@@ -3054,7 +3054,7 @@ std::vector<EveLocatorSetsPtr> EveSOF::BuildHullLocalLocatorSets( const EveSOFDN
 				localLocator.position += hullOffset;
 				localLocators.push_back( localLocator );
 			}
-			
+
 			auto resultSet = std::find_if( result.begin(), result.end(), [&locatorSetName]( EveLocatorSetsPtr set ) {
 				return set->HasName( locatorSetName.c_str() );
 			} );

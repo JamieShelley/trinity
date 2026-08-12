@@ -128,7 +128,7 @@ const Be::ClassInfo* TriGeometryRes::ExposeToBlue()
 		MAP_METHOD_AND_WRAP(
 			"HasRayCasterPreparationFailed",
 			HasRayCasterPreparationFailed,
-			"Call this after PrepareRayCaster to see if the loading asset has failed." )		
+			"Call this after PrepareRayCaster to see if the loading asset has failed." )
 
 		MAP_METHOD_AND_WRAP(
 			"GetIntersectionPointNormalBone",
