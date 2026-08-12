@@ -3019,7 +3019,7 @@ void EveSOF::SetupLocatorSets( EveSpaceObject2Ptr obj, const EveSOFDNAPtr dna, c
 					}
 					locSets->Set( locatorSetName->c_str(), distributedLocators.data(), distributedLocators.size() );
 				}
-				obj->MergeToLocatorSetTracked( *locSets );
+				obj->MergeToLocatorSet( *locSets );
 			}
 		}
 		// next hull needs offset update from hull's locator

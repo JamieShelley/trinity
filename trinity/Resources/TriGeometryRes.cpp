@@ -1621,18 +1621,15 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 		return false;
 	}
 
-	uint32_t meshIndex;
-	uint32_t primitive;
-	float u, v;
+	BVH::RayCastResult hitInfo;
 	bool hit = false;
-	float hitDistance;
 	if( areaIx != -1 )
 	{
-		hit = m_bvh.geometry->GetBVH().IntersectAreaAcrossMeshes( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, areaIx, meshIndex, primitive, u, v, hitDistance );
+		hit = m_bvh.geometry->GetBVH().IntersectAreaAcrossMeshes( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, areaIx, hitInfo );
 	}
 	else
 	{
-		hit = m_bvh.geometry->GetBVH().IntersectAll( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, meshIndex, primitive, u, v, hitDistance );
+		hit = m_bvh.geometry->GetBVH().IntersectAll( GetRaycastStack(), CcpMath::Ray{ pos, dir }, rayLength, hitInfo );
 	}
 
 	if( !hit )
@@ -1640,18 +1637,18 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 		return false;
 	}
 
-	result.distance = hitDistance;
-	result.position = pos + dir * hitDistance;
+	result.distance = hitInfo.distance;
+	result.position = pos + dir * hitInfo.distance;
 
 	auto& bvh = m_bvh.geometry->GetBVH();
-	auto indices = bvh.GetIndices( meshIndex );
-	auto positions = bvh.GetPositions( meshIndex );
-	auto bones = bvh.GetBones( meshIndex );
-	auto colors = bvh.GetColors( meshIndex );
+	auto indices = bvh.GetIndices( hitInfo.meshIndex );
+	auto positions = bvh.GetPositions( hitInfo.meshIndex );
+	auto bones = bvh.GetBones( hitInfo.meshIndex );
+	auto colors = bvh.GetColors( hitInfo.meshIndex );
 
-	uint32_t index1 = indices[primitive * 3 + 0];
-	uint32_t index2 = indices[primitive * 3 + 1];
-	uint32_t index3 = indices[primitive * 3 + 2];
+	uint32_t index1 = indices[hitInfo.primitive * 3 + 0];
+	uint32_t index2 = indices[hitInfo.primitive * 3 + 1];
+	uint32_t index3 = indices[hitInfo.primitive * 3 + 2];
 
 	Vector3 p1 = positions[index1];
 	Vector3 p2 = positions[index2];
@@ -1667,12 +1664,12 @@ bool TriGeometryRes::GetIntersectionPoints( const Vector3& pos, const Vector3& d
 	}
 	if( colors.has_value() )
 	{
-		float v1 = 1.0f - ( u + v );
+		float v1 = 1.0f - ( hitInfo.u + hitInfo.v );
 		Color color1 = colors.value()[index1];
 		Color color2 = colors.value()[index2];
 		Color color3 = colors.value()[index3];
 		result.firstVertexColor = color1;
-		result.interpolatedVertexColor = color1 * v1 + color2 * u + color3 * v;
+		result.interpolatedVertexColor = color1 * v1 + color2 * hitInfo.u + color3 * hitInfo.v;
 	}
 
 	return true;

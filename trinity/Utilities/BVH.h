@@ -75,6 +75,15 @@ struct IntersectedNode
 	float distance;
 };
 
+struct RayCastResult
+{
+	uint32_t meshIndex;
+	uint32_t primitive;
+	float u;
+	float v;
+	float distance;
+};
+
 class BoundingVolumeHierarchy
 {
 public:
@@ -87,41 +96,27 @@ public:
 		float rayLength,
 		int32_t meshIndex,
 		int32_t areaIndex,
-		uint32_t& primitive,
-		float& u,
-		float& v,
-		float& distance ) const;
+		RayCastResult& result ) const;
 
 	bool IntersectMesh(
 		std::vector<IntersectedNode>& stack,
 		const CcpMath::Ray& ray,
 		float rayLength,
 		int32_t meshIndex,
-		uint32_t& primitive,
-		float& u,
-		float& v,
-		float& distance ) const;
+		RayCastResult& result ) const;
 
 	bool IntersectAll(
 		std::vector<IntersectedNode>& stack,
 		const CcpMath::Ray& ray,
 		float rayLength,
-		uint32_t& meshIndex,
-		uint32_t& primitive,
-		float& u,
-		float& v,
-		float& distance ) const;
+		RayCastResult& result ) const;
 
 	bool IntersectAreaAcrossMeshes(
 		std::vector<IntersectedNode>& stack,
 		const CcpMath::Ray& ray,
 		float rayLength,
 		uint32_t areaIndex,
-		uint32_t& meshIndex,
-		uint32_t& primitive,
-		float& u,
-		float& v,
-		float& distance ) const;
+		RayCastResult& result ) const;
 
 	cmf::ConstIndexBufferStream GetIndices( int meshIndex );
 	cmf::ConstBufferElementStream<Vector3> GetPositions( int meshIndex );

@@ -2845,24 +2845,6 @@ const LocatorStructureList* EveSpaceObject2::GetLocatorsForSet( const BlueShared
 // --------------------------------------------------------------------------------
 void EveSpaceObject2::MergeToLocatorSet( const EveLocatorSets& locatorSet )
 {
-	const Locator* locators = (const Locator*)&( *locatorSet.GetLocators() )[0];
-
-	InvalidateMergedLocators( LocatorInvalidationReason::StructureChanged );
-
-	for( auto it = m_locatorSets.cbegin(); it != m_locatorSets.cend(); ++it )
-	{
-		if( ( *it )->HasName( locatorSet.GetName() ) )
-		{
-			( *it )->Append( locators, locatorSet.GetLocators()->size() );
-			return;
-		}
-	}
-
-	AddLocatorSet( locatorSet.GetName(), locators, locatorSet.GetLocators()->size() );
-}
-
-void EveSpaceObject2::MergeToLocatorSetTracked( const EveLocatorSets& locatorSet )
-{
 	if( !locatorSet.GetLocators() || locatorSet.GetLocators()->empty() )
 	{
 		return;
@@ -2887,7 +2869,20 @@ void EveSpaceObject2::MergeToLocatorSetTracked( const EveLocatorSets& locatorSet
 		m_baseDamageLocatorSources.push_back( sourceRange );
 	}
 
-	MergeToLocatorSet( locatorSet );
+	const Locator* locators = (const Locator*)&( *locatorSet.GetLocators() )[0];
+
+	InvalidateMergedLocators( LocatorInvalidationReason::StructureChanged );
+
+	for( auto it = m_locatorSets.cbegin(); it != m_locatorSets.cend(); ++it )
+	{
+		if( ( *it )->HasName( locatorSet.GetName() ) )
+		{
+			( *it )->Append( locators, locatorSet.GetLocators()->size() );
+			return;
+		}
+	}
+
+	AddLocatorSet( locatorSet.GetName(), locators, locatorSet.GetLocators()->size() );
 }
 
 // --------------------------------------------------------------------------------

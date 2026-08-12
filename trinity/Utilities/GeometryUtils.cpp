@@ -296,9 +296,9 @@ void ConvertDataToVector3( Tr2VertexDefinition::DataType elementType, const void
 }
 
 bool IntersectTri(
-	const Vector3& p0,
-	const Vector3& p1,
-	const Vector3& p2,
+	const Vector3& vertex0,
+	const Vector3& vertex1,
+	const Vector3& vertex2,
 	const Vector3& rayPos,
 	const Vector3& rayDir,
 	float& u,
@@ -306,8 +306,8 @@ bool IntersectTri(
 	float& dist )
 {
 	// Möller–Trumbore intersection algorithm
-	Vector3 e1 = p1 - p0;
-	Vector3 e2 = p2 - p0;
+	Vector3 e1 = vertex1 - vertex0;
+	Vector3 e2 = vertex2 - vertex0;
 	Vector3 a = Cross( rayDir, e2 );
 
 	float det = Dot( e1, a );
@@ -317,7 +317,7 @@ bool IntersectTri(
 	}
 	float invDet = 1.f / det;
 
-	Vector3 t0 = rayPos - p0;
+	Vector3 t0 = rayPos - vertex0;
 	float uu = Dot( t0, a ) * invDet;
 	if( uu < 0.f || uu > 1.f )
 	{
@@ -343,10 +343,10 @@ bool IntersectTri(
 	return true;
 }
 
-bool IntersectTri(
-	const XMVECTOR& v0,
-	const XMVECTOR& e1,
-	const XMVECTOR& e2,
+bool IntersectTriXM(
+	const XMVECTOR& vertex0,
+	const XMVECTOR& edge1,
+	const XMVECTOR& edge2,
 	const XMVECTOR& rayPos,
 	const XMVECTOR& rayDir,
 	float& u,
@@ -354,30 +354,30 @@ bool IntersectTri(
 	float& dist )
 {
 	// Möller–Trumbore intersection algorithm, SIMD
-	XMVECTOR a = XMVector3Cross( rayDir, e2 );
+	XMVECTOR a = XMVector3Cross( rayDir, edge2 );
 
-	float det = XMVectorGetX( XMVector3Dot( e1, a ) );
+	float det = XMVectorGetX( XMVector3Dot( edge1, a ) );
 	if( std::abs( det ) < std::numeric_limits<float>::min() )
 	{
 		return false;
 	}
 	float invDet = 1.f / det;
 
-	XMVECTOR t0 = XMVectorSubtract( rayPos, v0 );
+	XMVECTOR t0 = XMVectorSubtract( rayPos, vertex0 );
 	float uu = XMVectorGetX( XMVector3Dot( t0, a ) ) * invDet;
 	if( uu < 0.f || uu > 1.f )
 	{
 		return false;
 	}
 
-	XMVECTOR b = XMVector3Cross( t0, e1 );
+	XMVECTOR b = XMVector3Cross( t0, edge1 );
 	float vv = XMVectorGetX( XMVector3Dot( rayDir, b ) ) * invDet;
 	if( vv < 0.f || uu + vv > 1.f )
 	{
 		return false;
 	}
 
-	float t = XMVectorGetX( XMVector3Dot( e2, b ) ) * invDet;
+	float t = XMVectorGetX( XMVector3Dot( edge2, b ) ) * invDet;
 	if( t < 0.f )
 	{
 		return false;

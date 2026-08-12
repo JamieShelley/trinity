@@ -212,7 +212,6 @@ bool Intersection(
 		XMVectorReplicate( std::numeric_limits<float>::max() )
 	);
 
-	uint32_t hitPrimitive;
 	float hitDistance;
 	if( !Intersects( rayOrigin, invRayDir, tree.nodes[0], hitDistance ) || rayLength < hitDistance )
 	{
@@ -265,14 +264,14 @@ bool Intersection(
 				XMVECTOR vertex0 = XMLoadFloat4A( reinterpret_cast<const XMFLOAT4A*>( &tree.triangles[i].vertex0 ) );
 				XMVECTOR edge1 = XMLoadFloat4A( reinterpret_cast<const XMFLOAT4A*>( &tree.triangles[i].edge1 ) );
 				XMVECTOR edge2 = XMLoadFloat4A( reinterpret_cast<const XMFLOAT4A*>( &tree.triangles[i].edge2 ) );
-				if( IntersectTri( vertex0, edge1, edge2, rayOrigin, rayDir, hitU, hitV, hitDistance ) )
+				if( IntersectTriXM( vertex0, edge1, edge2, rayOrigin, rayDir, hitU, hitV, hitDistance ) )
 				{
 					if( hitDistance < rayLength )
 					{
-						rayLength = hitDistance;
+						distance = rayLength = hitDistance;
 						u = hitU;
 						v = hitV;
-						hitPrimitive = tree.triangles[i].element;
+						primitive = tree.triangles[i].element;
 						hit = true;
 					}
 				}
@@ -293,11 +292,6 @@ bool Intersection(
 		}
 	}
 
-	if( hit )
-	{
-		distance = rayLength;
-		primitive = hitPrimitive;
-	}
 	return hit;
 }
 
@@ -336,10 +330,7 @@ bool BoundingVolumeHierarchy::IntersectArea(
 	float rayLength,
 	int32_t meshIndex,
 	int32_t areaIndex,
-	uint32_t& primitive,
-	float& u,
-	float& v,
-	float& distance ) const
+	RayCastResult& result ) const
 {
 	uint32_t areasOffset = m_areaOffsets[meshIndex];
 	if( areasOffset == INVALID_AREA_OFFSET )
@@ -347,7 +338,12 @@ bool BoundingVolumeHierarchy::IntersectArea(
 		return false;
 	}
 
-	return BVH::Intersection( m_areaTrees[areasOffset + areaIndex], stack, ray, rayLength, primitive, u, v, distance );
+	bool hit = BVH::Intersection( m_areaTrees[areasOffset + areaIndex], stack, ray, rayLength, result.primitive, result.u, result.v, result.distance );
+	if( hit )
+	{
+		result.meshIndex = meshIndex;
+	}
+	return hit;
 }
 
 bool BoundingVolumeHierarchy::IntersectMesh(
@@ -355,10 +351,7 @@ bool BoundingVolumeHierarchy::IntersectMesh(
 	const CcpMath::Ray& ray,
 	float rayLength,
 	int32_t meshIndex,
-	uint32_t& primitive,
-	float& u,
-	float& v,
-	float& distance ) const
+	RayCastResult& result ) const
 {
 	uint32_t areasOffset = m_areaOffsets[meshIndex];
 	if( areasOffset == INVALID_AREA_OFFSET )
@@ -370,14 +363,14 @@ bool BoundingVolumeHierarchy::IntersectMesh(
 	for( size_t areaIndex = 0; areaIndex < m_content.GetData()->meshes[meshIndex].areas.size(); areaIndex++ )
 	{
 		const auto& tree = m_areaTrees[areasOffset + areaIndex];
-		uint32_t hitPrimitive;
-		if( BVH::Intersection( tree, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+		if( BVH::Intersection( tree, stack, ray, rayLength, result.primitive, result.u, result.v, rayLength ) )
 		{
-			primitive = hitPrimitive;
-			distance = rayLength;
+			result.distance = rayLength;
+			result.meshIndex = meshIndex;
 			hit = true;
 		}
 	}
+
 	return hit;
 }
 
@@ -385,11 +378,7 @@ bool BoundingVolumeHierarchy::IntersectAll(
 	std::vector<IntersectedNode>& stack,
 	const CcpMath::Ray& ray,
 	float rayLength,
-	uint32_t& meshIndex,
-	uint32_t& primitive,
-	float& u,
-	float& v,
-	float& distance ) const
+	RayCastResult& result ) const
 {
 	bool hit = false;
 	for( size_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
@@ -404,12 +393,10 @@ bool BoundingVolumeHierarchy::IntersectAll(
 		for( size_t areaIndex = 0; areaIndex < mesh.areas.size(); areaIndex++ )
 		{
 			const auto& tree = m_areaTrees[areasOffset + areaIndex];
-			uint32_t hitPrimitive;
-			if( BVH::Intersection( tree, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+			if( BVH::Intersection( tree, stack, ray, rayLength, result.primitive, result.u, result.v, rayLength ) )
 			{
-				meshIndex = (uint32_t)i;
-				primitive = hitPrimitive;
-				distance = rayLength;
+				result.meshIndex = (uint32_t)i;
+				result.distance = rayLength;
 				hit = true;
 			}
 		}
@@ -422,11 +409,7 @@ bool BoundingVolumeHierarchy::IntersectAreaAcrossMeshes(
 	const CcpMath::Ray& ray,
 	float rayLength,
 	uint32_t areaIndex,
-	uint32_t& meshIndex,
-	uint32_t& primitive,
-	float& u,
-	float& v,
-	float& distance ) const
+	RayCastResult& result ) const
 {
 	bool hit = false;
 	for( size_t i = 0; i < m_content.GetData()->meshes.size(); i++ )
@@ -441,12 +424,10 @@ bool BoundingVolumeHierarchy::IntersectAreaAcrossMeshes(
 		if( areaIndex < mesh.areas.size() )
 		{
 			const auto& tree = m_areaTrees[areasOffset + areaIndex];
-			uint32_t hitPrimitive;
-			if( BVH::Intersection( tree, stack, ray, rayLength, hitPrimitive, u, v, rayLength ) )
+			if( BVH::Intersection( tree, stack, ray, rayLength, result.primitive, result.u, result.v, rayLength ) )
 			{
-				meshIndex = (uint32_t)i;
-				primitive = hitPrimitive;
-				distance = rayLength;
+				result.meshIndex = (uint32_t)i;
+				result.distance = rayLength;
 				hit = true;
 			}
 		}

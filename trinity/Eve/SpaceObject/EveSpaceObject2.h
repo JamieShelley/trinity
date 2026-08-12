@@ -478,7 +478,6 @@ public:
 	Vector3 GetDamageLocatorDirectionLocal( uint32_t index ) const;
 	const LocatorStructureList* GetLocatorsForSet( const BlueSharedString& setName ) const;
 	void MergeToLocatorSet( const EveLocatorSets& locatorSet );
-	void MergeToLocatorSetTracked( const EveLocatorSets& locatorSet );
 	void RunDamageLocatorFilter();
 
 	// clear stuff
