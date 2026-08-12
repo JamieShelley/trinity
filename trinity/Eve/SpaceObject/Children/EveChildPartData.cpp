@@ -49,11 +49,14 @@ EveModularObjectModifier::~EveModularObjectModifier()
 	if( m_object )
 	{
 		CcpMath::Sphere bounds;
+		CcpMath::AxisAlignedBox box;
 		for( auto& part : m_data->m_parts )
 		{
 			bounds.Include( part.boundingSphere );
+			box.IncludeSphere( part.boundingSphere );
 		}
 		m_object->SetBoundingSphereInformation( bounds );
+		m_object->SetShapeEllipsoid( m_data->m_parts.empty() ? CcpMath::AxisAlignedEllipsoid{} : CcpMath::AxisAlignedEllipsoid{ box, true } );
 	}
 }
 
