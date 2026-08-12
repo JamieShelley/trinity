@@ -128,7 +128,7 @@ BlueStdResult EveModularObjectModifier::Remove( EveSpaceObjectChild::PartTag par
 		auto removed = std::remove_if( locators.begin(), locators.end(), [partId]( const auto& locator ) {
 			return locator.partTag == partId;
 		} );
-		locators.Resize( std::distance( removed, locators.end() ) );
+		locators.Resize( std::distance( locators.begin(), removed ) );
 	}
 
 	if( m_instancedMeshes )
