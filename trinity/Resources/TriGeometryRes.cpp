@@ -75,9 +75,9 @@ static void CopyGrannyName( std::string& dest, const char* src )
 }
 
 
-void Tr2RaycastGeometryRes::SetLodIndices( const std::vector<int32_t>& lodIndices )
+void Tr2RaycastGeometryRes::SetLodIndices( std::vector<int32_t>&& lodIndices )
 {
-	m_lodIndices = lodIndices;
+	m_lodIndices = std::move( lodIndices );
 }
 
 BVH::BoundingVolumeHierarchy& Tr2RaycastGeometryRes::GetBVH()
@@ -97,19 +97,25 @@ BlueAsyncRes::LoadingResult Tr2RaycastGeometryRes::DoLoad()
 	CCP_ASSERT( m_path.size() >= 4 && m_path.compare( m_path.size() - 4, 4, L".cmf" ) == 0 );
 
 	auto cmfContent = Tr2CmfContents( *m_dataStream, CW2A( m_path.c_str() ) );
-	if( !cmfContent || !cmfContent.GetData() )
+	if( !cmfContent )
 	{
 		return LR_FAILED;
 	}
 
-	if( m_lodIndices.size() != cmfContent.GetData()->meshes.size() )
+	auto cmfData = cmfContent.GetData();
+	if( !cmfData )
 	{
 		return LR_FAILED;
 	}
 
-	for( int32_t i = 0; i < cmfContent.GetData()->meshes.size(); i++ )
+	if( m_lodIndices.size() != cmfData->meshes.size() )
 	{
-		if( m_lodIndices[i] >= cmfContent.GetData()->meshes[i].lods.size() )
+		return LR_FAILED;
+	}
+
+	for( size_t i = 0; i < cmfData->meshes.size(); i++ )
+	{
+		if( m_lodIndices[i] >= cmfData->meshes[i].lods.size() )
 		{
 			return LR_FAILED;
 		}
@@ -1569,7 +1575,7 @@ void TriGeometryRes::PrepareRayCaster()
 	}
 
 	m_bvh.geometry.CreateInstance();
-	m_bvh.geometry->SetLodIndices( lodIndices );
+	m_bvh.geometry->SetLodIndices( std::move( lodIndices ) );
 	m_bvh.geometry->Initialize( GetFilePath().c_str(), GetExt() );
 }
 

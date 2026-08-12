@@ -205,8 +205,7 @@ EveSpaceObject2::EveSpaceObject2( IRoot* lockobj ) :
 	m_mergedLocatorSetsDirty( true ),
 	m_damageLocatorAutoFilterEnabled( false ),
 	m_damageLocatorFilterRequested( false ),
-	m_damageLocatorFilterDirty( true ),
-	m_activeDamageFilterSession( false )
+	m_damageFilterState( DamageFilterState::Pending )
 {
 	m_positionDelta.CreateInstance();
 
@@ -605,7 +604,7 @@ void EveSpaceObject2::UpdateSyncronous( const EveUpdateContext& updateContext )
 	}
 
 	EnsureChildLocatorMerged();
-	UpdateDamageLocatorAutoFilter();
+	UpdateDamageLocatorFilter();
 
 	if( m_impactOverlay )
 	{
@@ -1875,9 +1874,9 @@ void EveSpaceObject2::InvalidateMergedLocators( LocatorInvalidationReason reason
 {
 	m_mergedLocatorSetsDirty = true;
 	ReleaseDamageFilterSessions();
-	if( reason == LocatorInvalidationReason::StructureChanged || m_damageLocatorAutoFilterEnabled )
+	if( reason == LocatorInvalidationReason::StructureChanged || m_damageLocatorAutoFilterEnabled || m_damageFilterState != DamageFilterState::Idle )
 	{
-		m_damageLocatorFilterDirty = true;
+		m_damageFilterState = DamageFilterState::Pending;
 	}
 }
 
@@ -1949,7 +1948,7 @@ void EveSpaceObject2::EnsureChildLocatorMerged() const
 
 void EveSpaceObject2::ReleaseDamageFilterSessions()
 {
-	if( m_activeDamageFilterSession )
+	if( m_damageFilterState == DamageFilterState::SessionActive )
 	{
 		for( auto& occluder : m_damageFilterOccluders )
 		{
@@ -1957,96 +1956,65 @@ void EveSpaceObject2::ReleaseDamageFilterSessions()
 		}
 
 		m_damageFilterOccluders.clear();
-		m_activeDamageFilterSession = false;
 	}
 }
 
-void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
+bool EveSpaceObject2::CollectOccluders()
 {
-	CCP_STATS_ZONE( __FUNCTION__ );
-
-	if( !m_damageLocatorFilterDirty )
+	if( m_mesh && m_mesh->GetGeometryResource() )
 	{
-		return;
-	}
-
-	if( !m_damageLocatorAutoFilterEnabled && !m_damageLocatorFilterRequested )
-	{
-		m_damageLocatorEnabled.clear();
-		m_damageLocatorFilterDirty = false;
-		ReleaseDamageFilterSessions();
-		return;
-	}
-
-	auto damageLocators = GetLocatorsForSet( DAMAGE_LOCATOR_SET_NAME );
-
-	if( damageLocators == nullptr || damageLocators->size() == 0 )
-	{
-		m_damageLocatorEnabled.clear();
-		m_damageLocatorFilterDirty = false;
-		m_damageLocatorFilterRequested = false;
-		ReleaseDamageFilterSessions();
-		return;
-	}
-
-	m_damageLocatorEnabled.resize( damageLocators->size(), true );
-	
-	// try loading occluders, if geometry is available
-	if( !m_activeDamageFilterSession )
-	{
-		if( m_mesh && m_mesh->GetGeometryResource() )
+		if( !m_mesh->GetGeometryResource()->IsPrepared() )
 		{
-			if( !m_mesh->GetGeometryResource()->IsPrepared() )
-			{
-				m_damageFilterOccluders.clear();
-				return;
-			}
-
-			if( m_mesh->GetGeometryResource()->IsGood() )
-			{
-				DamageFilterOccluder occluder;
-				occluder.geometry = m_mesh->GetGeometryResource();
-				occluder.fromObject = IdentityMatrix();
-				occluder.mesh = m_mesh;
-				m_damageFilterOccluders.push_back( occluder );
-			}
+			m_damageFilterOccluders.clear();
+			return false;
 		}
 
-		std::vector<EveChildGeometry> childGeometries;
-		for( auto& child : m_effectChildren )
+		if( m_mesh->GetGeometryResource()->IsGood() )
 		{
-			child->CollectOwnedGeometry( IdentityMatrix(), childGeometries );
-		}
-
-		for( auto& childGeometry : childGeometries )
-		{
-			if( !childGeometry.geometry->IsPrepared() )
-			{
-				m_damageFilterOccluders.clear();
-				return;
-			}
-
-			if( !childGeometry.geometry->IsGood() )
-			{
-				continue;
-			}
-
 			DamageFilterOccluder occluder;
-			occluder.geometry = childGeometry.geometry;
-			occluder.fromObject = Inverse( childGeometry.childToObject );
-			occluder.mesh = childGeometry.mesh;
+			occluder.geometry = m_mesh->GetGeometryResource();
+			occluder.fromObject = IdentityMatrix();
+			occluder.mesh = m_mesh;
 			m_damageFilterOccluders.push_back( occluder );
 		}
-
-		for( auto& occluder : m_damageFilterOccluders )
-		{
-			occluder.geometry->PrepareRayCaster();
-		}
-
-		m_activeDamageFilterSession = true;
 	}
 
-	// make sure occluders are ready
+	std::vector<EveChildGeometry> childGeometries;
+	for( auto& child : m_effectChildren )
+	{
+		child->CollectOwnedGeometry( IdentityMatrix(), childGeometries );
+	}
+
+	for( auto& childGeometry : childGeometries )
+	{
+		if( !childGeometry.geometry->IsPrepared() )
+		{
+			m_damageFilterOccluders.clear();
+			return false;
+		}
+
+		if( !childGeometry.geometry->IsGood() )
+		{
+			continue;
+		}
+
+		DamageFilterOccluder occluder;
+		occluder.geometry = childGeometry.geometry;
+		occluder.fromObject = Inverse( childGeometry.childToObject );
+		occluder.mesh = childGeometry.mesh;
+		m_damageFilterOccluders.push_back( occluder );
+	}
+
+	for( auto& occluder : m_damageFilterOccluders )
+	{
+		occluder.geometry->PrepareRayCaster();
+	}
+
+	return true;
+}
+
+bool EveSpaceObject2::AreOccludersReadyForRaycasts()
+{
 	for( size_t i = 0; i < m_damageFilterOccluders.size(); )
 	{
 		const auto& occluder = m_damageFilterOccluders[i];
@@ -2061,90 +2029,143 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 
 		if( !occluder.geometry->IsRayCasterReady() )
 		{
-			return;
+			return false;
 		}
 
 		i++;
 	}
 
-	// filter by raycasting
-	{
-		CCP_STATS_ZONE( "Damage Locator Filter Raycasts" );
+	return true;
+}
 
-		std::vector<uint8_t> enabled;
-		enabled.resize( m_damageLocatorEnabled.size() );
+void EveSpaceObject2::RefreshDamageLocatorMask( const LocatorStructureList* damageLocators )
+{
+	CCP_STATS_ZONE( "Damage Locator Filter Raycasts" );
 
-		Tr2ParallelFor( size_t( 0 ), damageLocators->size(), [&]( size_t i ) {
-			auto damageLocator = damageLocators->begin() + i;
+	std::vector<uint8_t> enabled;
+	enabled.resize( m_damageLocatorEnabled.size() );
 
-			Vector3 direction = Vector3( 0.f, 1.f, 0.f );
-			TriVectorRotateQuaternion( &direction, &direction, &damageLocator->direction );
-			Vector3 origin = damageLocator->position + direction * 0.1f;
+	Tr2ParallelFor( size_t( 0 ), damageLocators->size(), [&]( size_t i ) {
+		auto damageLocator = damageLocators->begin() + i;
 
-			bool occluded = false;
-			bool backfacing = false;
+		Vector3 direction = Vector3( 0.f, 1.f, 0.f );
+		TriVectorRotateQuaternion( &direction, &direction, &damageLocator->direction );
+		Vector3 origin = damageLocator->position + direction * 0.1f;
 
-			float frontFaceMinDistance = 0.0316f * m_boundingSphereRadius;
-			float rayLength = std::numeric_limits<float>::infinity();
+		bool occluded = false;
+		bool backfacing = false;
 
-			for( auto& occluder : m_damageFilterOccluders )
+		float frontFaceMinDistance = 0.0316f * m_boundingSphereRadius;
+		float rayLength = std::numeric_limits<float>::infinity();
+
+		for( auto& occluder : m_damageFilterOccluders )
+		{
+			auto areas = occluder.mesh->GetAreas( TRIBATCHTYPE_OPAQUE );
+			if( !areas->empty() )
 			{
-				auto areas = occluder.mesh->GetAreas( TRIBATCHTYPE_OPAQUE );
-				if( !areas->empty() )
+				Vector3 rayOrigin = Transform( origin, occluder.fromObject ).GetXYZ();
+				Vector3 rayDirection = TransformNormal( direction, occluder.fromObject );
+
+				// Note that we deliberately don't normalize the rayDirection.
+				//
+				// We transform the 'direction' from object space to child space to compute 'rayDirection'.
+				// A child, that has been scaled to a large size, will get a small rayDirection.
+				// After all, we go from object space to child space, so we transform rayDirection with the inverse child scale!
+				//
+				// The intersection function will then find an intersection at a proportionally larger distance.
+				// Consider the line equation: intersectionPoint = distance * rayDirection + rayOrigin
+				// If rayDirection is small, then distance has to be larger to compensate.
+				//
+				// That larger distance is in our object space!
+				// So rayLength is always in object space, and can safely be compared with frontFaceMinDistance. :)
+
+				Vector3 normal;
+				for( auto it = begin( *areas ); it != end( *areas ); ++it )
 				{
-					Vector3 rayOrigin = Transform( origin, occluder.fromObject ).GetXYZ();
-					Vector3 rayDirection = TransformNormal( direction, occluder.fromObject );
-
-					// Note that we deliberately don't normalize the rayDirection. 
-					// 
-					// We transform the 'direction' from object space to child space to compute 'rayDirection'.
-					// A child, that has been scaled to a large size, will get a small rayDirection.
-					// After all, we go from object space to child space, so we transform rayDirection with the inverse child scale!
-					// 
-					// The intersection function will then find an intersection at a proportionally larger distance.
-					// Consider the line equation: intersectionPoint = distance * rayDirection + rayOrigin
-					// If rayDirection is small, then distance has to be larger to compensate.
-					// 
-					// That larger distance is in our object space!
-					// So rayLength is always in object space, and can safely be compared with frontFaceMinDistance. :)
-
-					Vector3 normal;
-					for( auto it = begin( *areas ); it != end( *areas ); ++it )
+					// rayLength is an in-out parameter. So we only trace up to the distance of the closest intersection that we have found so far.
+					if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, nullptr, &normal, false, nullptr, nullptr, ( *it )->GetIndex(), rayLength ) )
 					{
-						// rayLength is an in-out parameter. So we only trace up to the distance of the closest intersection that we have found so far.
-						if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, nullptr, &normal, false, nullptr, nullptr, ( *it )->GetIndex(), rayLength ) )
+						// TRIBATCHTYPE_OPAQUE also contains alpha cutouts, which can be one-sided. Ignore them to prevent false positives.
+						backfacing = !( *it )->IsAlphaCutout() && ( ( Dot( normal, rayDirection ) > 0 ) != ( *it )->IsReversed() );
+						if( rayLength < frontFaceMinDistance )
 						{
-							// TRIBATCHTYPE_OPAQUE also contains alpha cutouts, which can be one-sided. Ignore them to prevent false positives.
-							backfacing = !( *it )->IsAlphaCutout() && ( ( Dot( normal, rayDirection ) > 0 ) != ( *it )->IsReversed() );
-							if( rayLength < frontFaceMinDistance )
-							{
-								occluded = true;
-								break;
-							}
+							occluded = true;
+							break;
 						}
 					}
 				}
-				if( occluded )
-				{
-					break;
-				}
 			}
-
-			enabled[i] = !occluded && !backfacing;
-		} );
-
-		// We need to copy the results, because std::vector<bool> might be bitpacked. Writing to it multithreaded is not safe.
-		for( size_t i = 0; i < m_damageLocatorEnabled.size(); i++ )
-		{
-			m_damageLocatorEnabled[i] = enabled[i];
+			if( occluded )
+			{
+				break;
+			}
 		}
+
+		enabled[i] = !occluded && !backfacing;
+	} );
+
+	// We need to copy the results, because std::vector<bool> might be bitpacked. Writing to it multithreaded is not safe.
+	for( size_t i = 0; i < m_damageLocatorEnabled.size(); i++ )
+	{
+		m_damageLocatorEnabled[i] = enabled[i];
+	}
+}
+
+void EveSpaceObject2::UpdateDamageLocatorFilter()
+{
+	CCP_STATS_ZONE( __FUNCTION__ );
+
+	if( m_damageFilterState == DamageFilterState::Idle )
+	{
+		return;
 	}
 
+	if( !m_damageLocatorAutoFilterEnabled && !m_damageLocatorFilterRequested )
+	{
+		m_damageLocatorEnabled.clear();
+		ReleaseDamageFilterSessions();
+		m_damageFilterState = DamageFilterState::Idle;
+		return;
+	}
+
+	auto damageLocators = GetLocatorsForSet( DAMAGE_LOCATOR_SET_NAME );
+
+	if( damageLocators == nullptr || damageLocators->size() == 0 )
+	{
+		m_damageLocatorEnabled.clear();
+		ReleaseDamageFilterSessions();
+		m_damageFilterState = DamageFilterState::Idle;
+		m_damageLocatorFilterRequested = false;
+		return;
+	}
+
+	m_damageLocatorEnabled.resize( damageLocators->size(), true );
+	
+	// Try loading occluders, if geometry is available.
+	if( m_damageFilterState == DamageFilterState::Pending )
+	{
+		if( !CollectOccluders() )
+		{
+			return;
+		}
+		m_damageFilterState = DamageFilterState::SessionActive;
+	}
+
+	// Make sure occluders are ready.
+	if( !AreOccludersReadyForRaycasts() )
+	{
+		return;
+	}
+
+	// Filter by raycasting.
+	RefreshDamageLocatorMask( damageLocators );
+
+	// Done. Clear occluders.
 	ReleaseDamageFilterSessions();
-	m_damageLocatorFilterDirty = false;
+	m_damageFilterState = DamageFilterState::Idle;
 	m_damageLocatorFilterRequested = false;
 
-	// set impact state again
+	// Set impact state again.
 	if( m_impactOverlay && m_impactOverlay->GetArmorImpactGoalCount() > 0 )
 	{
 		ClearImpactDamage();
@@ -2156,7 +2177,10 @@ void EveSpaceObject2::UpdateDamageLocatorAutoFilter()
 void EveSpaceObject2::RunDamageLocatorFilter()
 {
 	m_damageLocatorFilterRequested = true;
-	m_damageLocatorFilterDirty = true;
+	if( m_damageFilterState == DamageFilterState::Idle )
+	{
+		m_damageFilterState = DamageFilterState::Pending;
+	}
 }
 
 // --------------------------------------------------------------------------------
@@ -2433,7 +2457,10 @@ bool EveSpaceObject2::OnModified( Be::Var* val )
 	}
 	else if( IsMatch( val, m_damageLocatorAutoFilterEnabled ) )
 	{
-		m_damageLocatorFilterDirty = true;
+		if( m_damageFilterState == DamageFilterState::Idle )
+		{
+			m_damageFilterState = DamageFilterState::Pending;
+		}
 	}
 	return true;
 }

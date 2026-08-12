@@ -307,7 +307,7 @@ public:
 	void InvalidateMergedLocators( LocatorInvalidationReason reason ) override;
 
 	void EnsureChildLocatorMerged() const;
-	void UpdateDamageLocatorAutoFilter();
+	void UpdateDamageLocatorFilter();
 	EveDamageOverlayPtr EnsureChildDamageOverlay( const LocatorSourceRange& range );
 
 	//////////////////////////////////////////////////////////////////////////////////////
@@ -496,8 +496,8 @@ public:
 	unsigned int GetLocatorCount( BlueSharedString locatorSetName ) const;
 	Vector3 GetLocatorPositionFromSet( int index, bool inWorldSpace, BlueSharedString locatorSetName );
 	Vector3 GetLocatorRotationFromSet( int index, bool inWorldSpace, BlueSharedString locatorSetName );
-	bool GetLocatorPosition( Vector3 * out, int index, bool inWorldSpace, BlueSharedString locatorSetName );
-	bool GetLocatorDirection( Vector3 * out, int index, bool inWorldSpace, BlueSharedString locatorSetName );
+	bool GetLocatorPosition( Vector3* out, int index, bool inWorldSpace, BlueSharedString locatorSetName );
+	bool GetLocatorDirection( Vector3* out, int index, bool inWorldSpace, BlueSharedString locatorSetName );
 	int GetGoodLocatorIndex( const Vector3& position, BlueSharedString locatorSetName );
 	// Function to find closest locator without worrying about direction of locator
 	int GetCloseLocatorIndex( const Vector3& position, BlueSharedString locatorSetName );
@@ -752,7 +752,7 @@ protected:
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// Object space damage locator information
-	virtual void GetLocatorInObjectSpace( Vector3 & position, Vector3 & direction, const Locator& locator ) const;
+	virtual void GetLocatorInObjectSpace( Vector3& position, Vector3& direction, const Locator& locator ) const;
 
 
 	/////////////////////////////////////////////////////////////////////////////////////
@@ -786,6 +786,9 @@ private:
 #endif
 
 	void ReleaseDamageFilterSessions();
+	bool CollectOccluders();
+	bool AreOccludersReadyForRaycasts();
+	void RefreshDamageLocatorMask( const LocatorStructureList* damageLocators );
 
 	bool m_dynamicBoundingSphereEnabled;
 
@@ -802,16 +805,20 @@ private:
 
 	Tr2RingBufferOffsets m_boneOffsets;
 
-	std::vector<LocatorSourceRange> m_baseDamageLocatorSources;
-	mutable std::vector<LocatorSourceRange> m_mergedDamageLocatorSources;
-	mutable std::vector<EveLocatorSetsPtr> m_mergedLocatorSets;
-	std::vector<bool> m_damageLocatorEnabled;
-	mutable bool m_mergedLocatorSetsDirty;
-	bool m_damageLocatorAutoFilterEnabled;
-	bool m_damageLocatorFilterRequested;
-	mutable bool m_damageLocatorFilterDirty;
-	std::vector<DamageFilterOccluder> m_damageFilterOccluders;
-	bool m_activeDamageFilterSession;
+	std::vector<LocatorSourceRange> m_baseDamageLocatorSources;	// Ranges identifying damage locators of this object in m_mergedLocatorSets.
+	mutable std::vector<LocatorSourceRange> m_mergedDamageLocatorSources;	// Ranges identifying damage locators owners in m_mergedLocatorSets.
+	mutable std::vector<EveLocatorSetsPtr> m_mergedLocatorSets;	// Locator sets of this object and all children.
+	std::vector<bool> m_damageLocatorEnabled;	// Mask for damage locators in m_mergedLocatorSets to filter selection.
+	mutable bool m_mergedLocatorSetsDirty;	// Does m_mergedLocatorSets need to be rebuilt?
+	bool m_damageLocatorAutoFilterEnabled;	// For debugging purposes: Shall we run damage locator filtering whenever parts are moved?
+	bool m_damageLocatorFilterRequested;	// Did someone request filtering damage locator?
+	std::vector<DamageFilterOccluder> m_damageFilterOccluders;	// Occluders used during damage locator filtering (geometry to raycast against).
+	enum class DamageFilterState	// State machine for damage locator filtering, since we have to wait on stuff before we can start raycasting.
+	{
+		Idle,	// No need to run filtering this frame.
+		Pending,	// Filtering has been requested. We need to collect occluders and wait until their geometry IsPrepared.
+		SessionActive	// Occluders have been collected. We need to wait until the BVH is ready, and then we can start raycasting.
+	} m_damageFilterState;
 };
 
 TYPEDEF_BLUECLASS( EveSpaceObject2 );
