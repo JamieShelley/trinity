@@ -1690,6 +1690,13 @@ void Tr2GrannyAnimation::PrePhysicsAnimation( Be::Time time, const Matrix& model
 
 			m_morphAnimations.clear();
 
+			// sampling only writes bones referenced by active animations, so restore the
+			// sampled pose first or the pose modifier compounds onto its own output
+			if( m_poseModifier && m_sampledPose.skeleton == m_pose.skeleton && m_sampledPose.boneTransforms.size() == m_pose.boneTransforms.size() )
+			{
+				m_pose = m_sampledPose;
+			}
+
 			m_baseLayer.SampleAnimation( animationTime, &m_pose, m_eventListener, m_morphAnimations );
 			for( auto& [_, layer] : m_animationLayers )
 			{
@@ -1700,6 +1707,7 @@ void Tr2GrannyAnimation::PrePhysicsAnimation( Be::Time time, const Matrix& model
 
 			if( m_poseModifier )
 			{
+				m_sampledPose = m_pose;
 				m_poseModifier->ModifyPose( skeleton, m_pose );
 			}
 

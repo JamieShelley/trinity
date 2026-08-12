@@ -197,6 +197,7 @@ private:
 #endif
 	cmf::SkeletonPose m_pose;
 	cmf::SkeletonPose m_tmpPose;
+	cmf::SkeletonPose m_sampledPose;
 	std::vector<int32_t> m_skeletonBoneIndices;
 	std::vector<Matrix> m_worldTransforms;
 
