@@ -2046,7 +2046,7 @@ void EveChildMesh::CollectOwnedLocatorSets( const Matrix& parentTransform, std::
 		return;
 	}
 
-	Matrix localTransform = ( m_staticTransform || !m_useSRT ) ? m_localTransform : TransformationMatrix( m_scaling, m_rotation, m_translation );
+	Matrix localTransform = ComputeLocalTransform();
 
 	for( const auto& entry : m_ownedLocatorSets )
 	{
@@ -2065,7 +2065,7 @@ void EveChildMesh::CollectOwnedGeometry( const Matrix& parentTransform, std::vec
 		return;
 	}
 
-	Matrix localTransform = ( m_staticTransform || !m_useSRT ) ? m_localTransform : TransformationMatrix( m_scaling, m_rotation, m_translation );
+	Matrix localTransform = ComputeLocalTransform();
 
 	EveChildGeometry source;
 	source.childToObject = localTransform * parentTransform;
