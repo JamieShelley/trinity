@@ -242,9 +242,9 @@ struct TriGeometryResSkeletonData
 
 struct RayCastResult
 {
-	float hitDistance = std::numeric_limits<float>::infinity();
-	Vector3 hitpoint;
-	Vector3 hitpointNormal;
+	float distance = std::numeric_limits<float>::infinity();
+	Vector3 position;
+	Vector3 normal;
 	int boneIndex = -1;
 	Color firstVertexColor;
 	Color interpolatedVertexColor;

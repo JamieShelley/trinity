@@ -2085,9 +2085,9 @@ void EveSpaceObject2::RefreshDamageLocatorMask( const LocatorStructureList* dama
 					RayCastResult hitInfo;
 					if( occluder.geometry->GetIntersectionPoints( rayOrigin, rayDirection, hitInfo, ( *it )->GetIndex(), rayLength ) )
 					{
-						rayLength = hitInfo.hitDistance;
+						rayLength = hitInfo.distance;
 						// TRIBATCHTYPE_OPAQUE also contains alpha cutouts, which can be one-sided. Ignore them to prevent false positives.
-						backfacing = !( *it )->IsAlphaCutout() && ( ( Dot( hitInfo.hitpointNormal, rayDirection ) > 0 ) != ( *it )->IsReversed() );
+						backfacing = !( *it )->IsAlphaCutout() && ( ( Dot( hitInfo.normal, rayDirection ) > 0 ) != ( *it )->IsReversed() );
 						if( rayLength < frontFaceMinDistance )
 						{
 							occluded = true;
