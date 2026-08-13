@@ -21,7 +21,7 @@ struct alignas( 16 ) Node
 	uint32_t leaf : 1;
 	uint32_t magicalPadding : 2; // this exists to prevent performance degradation due to simd interpreting its .w component as denormal float
 	Vector3 boundsMax;
-	uint32_t padding = 0;
+	uint32_t padding;
 
 	Node() :
 		boundsMin( {} ),
