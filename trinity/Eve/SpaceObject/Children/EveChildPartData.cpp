@@ -48,12 +48,20 @@ EveModularObjectModifier::~EveModularObjectModifier()
 {
 	if( m_object )
 	{
+		std::vector<const EveChildPartData::PartData*> orderedParts;
+		orderedParts.reserve( m_data->m_parts.size() );
+		for( const auto& part : m_data->m_parts )
+			orderedParts.push_back( &part );
+		std::sort( orderedParts.begin(), orderedParts.end(), []( const auto* a, const auto* b ) {
+			return a->boundingSphere.radius > b->boundingSphere.radius;
+		} );
+
 		CcpMath::Sphere bounds;
 		CcpMath::AxisAlignedBox box;
-		for( auto& part : m_data->m_parts )
+		for( const auto* part : orderedParts )
 		{
-			bounds.Include( part.boundingSphere );
-			box.IncludeSphere( part.boundingSphere );
+			bounds.Include( part->boundingSphere );
+			box.IncludeSphere( part->boundingSphere );
 		}
 		m_object->SetBoundingSphereInformation( bounds );
 		m_object->SetShapeEllipsoid( m_data->m_parts.empty() ? CcpMath::AxisAlignedEllipsoid{} : CcpMath::AxisAlignedEllipsoid{ box, true } );
