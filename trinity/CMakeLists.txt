@@ -306,6 +306,9 @@ set(_SOURCES
     Eve/SpaceObject/Attachments/EveBoosterSet2.cpp
     Eve/SpaceObject/Attachments/EveBoosterSet2.h
     Eve/SpaceObject/Attachments/EveBoosterSet2_Blue.cpp
+    Eve/SpaceObject/Attachments/EveDamageOverlay.cpp
+    Eve/SpaceObject/Attachments/EveDamageOverlay.h
+    Eve/SpaceObject/Attachments/EveDamageOverlay_Blue.cpp
     Eve/SpaceObject/Attachments/EveImpactOverlay.cpp
     Eve/SpaceObject/Attachments/EveImpactOverlay.h
     Eve/SpaceObject/Attachments/EveImpactOverlay_Blue.cpp
@@ -1388,6 +1391,8 @@ set(_SOURCES
     Utilities/BoundingBox.h
     Utilities/BoundingSphere.cpp
     Utilities/BoundingSphere.h
+    Utilities/BVH.cpp
+    Utilities/BVH.h
     Utilities/GeometryUtils.cpp
     Utilities/GeometryUtils.h
     Utilities/GrannyCurveHelpers.h
