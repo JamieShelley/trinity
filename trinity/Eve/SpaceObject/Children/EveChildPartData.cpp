@@ -98,6 +98,7 @@ EveSpaceObjectChild::PartTag EveModularObjectModifier::AddChild( const char* res
 		child->Setup( &scale, &rotation, &position, Tr2Lod::TR2_LOD_LOW );
 		m_object->AddToEffectChildrenList( child );
 		auto id = m_data->GetUnusedPartID();
+		child->SetPartTag( id );
 		m_data->m_parts.emplace_back( EveChildPartData::PartData{ id, position, rotation, scale } );
 		return id;
 	}
