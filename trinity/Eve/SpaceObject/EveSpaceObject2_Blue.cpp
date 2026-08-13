@@ -507,29 +507,29 @@ const Be::ClassInfo* EveSpaceObject2::ExposeToBlue()
 			"Get the closest locator in set to target, does not mind about direction of locator.\n"
 			":param position: position of target\n"
 			":param locatorSetName: name of locator set \n" )
-			MAP_METHOD_AND_WRAP(
-				"GetLocatorPositionFromSet",
-				GetLocatorPositionFromSet,
-				"locator position from a set Specified by name\n"
-				":param index: locator index\n"
-				":param inWorldSpace: position of target\n"
-				":param locatorSetName: name of locator set \n" )
-				MAP_METHOD_AND_WRAP(
-					"GetLocatorRotationFromSet",
-					GetLocatorRotationFromSet,
-					"locator rotation in worldspace\n"
-					":param index: locator index\n"
-					":param inWorldSpace: position of target\n"
-					":param locatorSetName: name of locator set \n" )
-					MAP_METHOD_AND_WRAP( "ClearImpactDamage", ClearImpactDamage, "Clear all the impact/damage effects." )
-						MAP_METHOD_AND_WRAP(
-							"CreateImpact",
-							CreateImpact,
-							"debug only\n"
-							":param idx: damage locator index\n"
-							":param direction: incoming damage direction\n"
-							":param lifeTime: effect time\n"
-							":param size: effect size" );
+		MAP_METHOD_AND_WRAP(
+			"GetLocatorPositionFromSet",
+			GetLocatorPositionFromSet,
+			"locator position from a set Specified by name\n"
+			":param index: locator index\n"
+			":param inWorldSpace: position of target\n"
+			":param locatorSetName: name of locator set \n" )
+		MAP_METHOD_AND_WRAP(
+			"GetLocatorRotationFromSet",
+			GetLocatorRotationFromSet,
+			"locator rotation in worldspace\n"
+			":param index: locator index\n"
+			":param inWorldSpace: position of target\n"
+			":param locatorSetName: name of locator set \n" )
+		MAP_METHOD_AND_WRAP( "ClearImpactDamage", ClearImpactDamage, "Clear all the impact/damage effects." )
+		MAP_METHOD_AND_WRAP(
+			"CreateImpact",
+			CreateImpact,
+			"debug only\n"
+			":param idx: damage locator index\n"
+			":param direction: incoming damage direction\n"
+			":param lifeTime: effect time\n"
+			":param size: effect size" );
 		MAP_METHOD_AND_WRAP(
 			"CreateImpactFromPosition",
 			CreateImpactFromPosition,
