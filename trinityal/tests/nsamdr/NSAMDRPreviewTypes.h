@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NSAMDRPreviewPlatform.h"
+#include "../../../trinity/NSAMDR/NSAMDRSettings.h"
 
 namespace nsamdr
 {
@@ -50,6 +51,9 @@ struct SceneConstants
     XMFLOAT4 semanticChannels2;
     XMFLOAT4 debug;
     XMFLOAT4 repair;
+    XMFLOAT4 cleanup;        // x = quality, y = master, z = flat denoise, w = dark separation
+    XMFLOAT4 cleanup2;       // x = highlight cleanup, y = detail sharpen, z = debug view, w = reserved
+    XMFLOAT4 cleanup3;       // x = directional deblock, y = contour reconstruction, z = thin-line clarity, w = overshoot limit
 };
 
 static_assert((sizeof(SceneConstants) % 16U) == 0U, "D3D11 constant buffers must be 16-byte aligned");
@@ -115,27 +119,41 @@ struct ObjMesh
 
 struct NSAMDRTrainingSettings
 {
-    int epochs = 24;
+    int albedoBootstrapEpochs = 4;
+    int jointPbrEpochs = 20;
+    int renderFinetuneEpochs = 8;
     int tilesPerEpoch = 2048;
-    int batchSize = 8;
-    int baseChannels = 32;
-    int residualBlocks = 8;
-    int tileSize = 96;
-    int maxSourceFiles = 0;
-    int maxOffsetPixels = 8;
-    int seed = 1337;
-    float learningRate = 0.0002f;
-    float reconstructionWeight = 1.0f;
-    float edgeWeight = 1.5f;
-    float identityWeight = 0.65f;
-    float confidenceWeight = 0.25f;
-    float flowSmoothnessWeight = 0.05f;
-    float maxResidual = 0.25f;
-    float realSourceFraction = 0.15f;
-    float artifactFraction = 0.80f;
+    int validationTiles = 128;
+    int batchSize = 1;
+    int baseChannels = 96;
+    int tileSize = 128;
+    int maxFamilies = 192;
+    int cropsPerFamily = 10;
+    int sourceCropSize = 640;
+    int minSourceDimension = 1024;
+    int seed = 20260805;
+    float learningRate = 0.00012f;
+    float renderFinetuneLearningRate = 0.00004f;
+    float albedoWeight = 1.00f;
+    float normalWeight = 0.90f;
+    float materialWeight = 0.55f;
+    float edgeWeight = 1.35f;
+    float orientationWeight = 0.35f;
+    float bevelWeight = 0.75f;
+    float waveletWeight = 0.65f;
+    float downsampleWeight = 0.30f;
+    float renderWeight = 0.85f;
+    float confidenceWeight = 0.18f;
+    float proposalWeight = 0.32f;
+    float hallucinationWeight = 0.28f;
+    float residualTvWeight = 0.025f;
+    float maxAlbedoResidual = 0.36f;
+    float maxNormalResidual = 0.24f;
+    float maxMaterialResidual = 0.24f;
     std::array<char, 512> sourceRoot{};
-    std::string status = "Mode 3 uses an offline V4 tile-context checkpoint baked into candidate textures. Retraining regenerates the candidate before reopening the preview.";
+    std::string status = "Mode 3 requires a trained V9.8.2 metric-SDF geometry-convergence CUDA checkpoint. Retraining learns continuous boundary SDF/edge/orientation/hardness plus an explicit benefit gate, rebuilds aligned PBR contours, verifies raw-source provenance, regenerates the candidate and reopens the preview.";
 };
+
 
 struct PreviewState
 {
@@ -144,6 +162,8 @@ struct PreviewState
     bool splitCompare = true;
     bool splitVertical = true;
     bool swapSplitSides = false;
+    bool emulateLegacyEveBaseline = true;
+    bool verifyPaneIdentity = false;
     float splitPosition = 0.5f;
     float strength = 1.0f;
     float damageLow = 0.12f;
@@ -188,6 +208,18 @@ struct PreviewState
     float transferStrength = 0.92f;
     int diagnosticView = 0;
     int repairMethod = 2;
+    NSAMDRGraphicsSettings nsamdrGraphics = ResolveNSAMDRGraphicsSettings(NSAMDRQuality::Off);
+    int textureDetailReconstructionQuality = 2;
+    int cleanupDebugView = 0;
+    float cleanupMasterStrength = 1.0f;
+    float cleanupFlatDenoiseStrength = 0.40f;
+    float cleanupDarkSeparationStrength = 0.25f;
+    float cleanupHighlightStrength = 0.30f;
+    float cleanupDetailSharpenStrength = 0.08f;
+    float cleanupDirectionalDeblockStrength = 0.55f;
+    float cleanupContourReconstructionStrength = 0.48f;
+    float cleanupThinLineStrength = 0.36f;
+    float cleanupEdgeOvershootLimit = 0.012f;
     int lightingPreset = 0;
     bool autoOrbit = false;
     bool wireframe = false;
@@ -332,6 +364,7 @@ struct PreviewResources
     ComPtr<ID3D11ShaderResourceView> pgsView;
     ComPtr<ID3D11ShaderResourceView> environmentView;
     ComPtr<ID3D11SamplerState> textureSampler;
+    ComPtr<ID3D11SamplerState> baselineTextureSampler;
     uint32_t indexCount = 0;
     uint32_t width = 0;
     uint32_t height = 0;

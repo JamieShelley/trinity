@@ -32,14 +32,46 @@ class TileContextPipelineTests(unittest.TestCase):
         converter = self.read("tools/nsamdr/gr2_converter/convert_eve_asset.mjs")
         types = self.read("trinityal/tests/nsamdr/NSAMDRPreviewTypes.h")
         panel = self.read("trinityal/tests/nsamdr/NSAMDRPreviewPanel.cpp")
-        self.assertIn('schema: "NSAMDR_GR2_CONVERSION_V5_BAKED_EVE_TEXTURE_V"', converter)
+        self.assertIn('schema: "NSAMDR_GR2_CONVERSION_V6_EVE_DIRECTX_LH_HANDEDNESS"', converter)
         self.assertIn("const sourceV = texcoords[i * 2 + 1]", converter)
+        self.assertIn("const outputU = sourceU", converter)
         self.assertIn("const bakedTextureV = sourceV", converter)
         self.assertIn('textureVTransform: "v_out = v_gr2"', converter)
         self.assertIn("runtimeTextureVFlipRequired: false", converter)
+        self.assertIn("function mirrorGr2X(value) { return -value; }", converter)
+        self.assertIn("function previewTriangleWinding(a, b, c) { return [a, c, b]; }", converter)
+        self.assertIn("const outputX = mirrorGr2X(sourceX)", converter)
+        self.assertIn("const outputNormalX = mirrorGr2X(sourceNormalX)", converter)
+        self.assertIn("validTriangles.push(previewTriangleWinding(a, b, c))", converter)
+        self.assertIn('mirrorAxis: GR2_PREVIEW_MIRROR_AXIS', converter)
+        self.assertIn('triangleWindingTransform: "a,b,c -> a,c,b"', converter)
+        self.assertIn('uvTransform: "u_out = u_gr2; v_out = v_gr2"', converter)
         self.assertNotIn("${1 - texcoords[i * 2 + 1]}", converter)
         self.assertIn("bool flipV = false", types)
         self.assertIn('Debug invert baked texture V (V)', panel)
+
+    def test_gr2_x_reflection_and_reversed_winding_preserve_transformed_face_normal(self) -> None:
+        def subtract(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+            return tuple(a[index] - b[index] for index in range(3))
+
+        def cross(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+            return (
+                a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0],
+            )
+
+        def mirror_x(value: tuple[float, float, float]) -> tuple[float, float, float]:
+            return (-value[0], value[1], value[2])
+
+        a = (1.0, 0.0, 0.0)
+        b = (2.0, 1.0, 0.0)
+        c = (1.5, 0.25, 2.0)
+        source_normal = cross(subtract(b, a), subtract(c, a))
+        transformed_normal = mirror_x(source_normal)
+        output_a, output_b, output_c = mirror_x(a), mirror_x(c), mirror_x(b)
+        output_face_normal = cross(subtract(output_b, output_a), subtract(output_c, output_a))
+        self.assertEqual(output_face_normal, transformed_normal)
 
     def test_same_renderer_granny_free_ab_contract(self) -> None:
         render = self.read("trinityal/tests/nsamdr/NSAMDRRenderPipeline.cpp")
@@ -47,7 +79,9 @@ class TileContextPipelineTests(unittest.TestCase):
         types = self.read("trinityal/tests/nsamdr/NSAMDRPreviewTypes.h")
         cmake = self.read("scripts/build/nsamdr/NSAMDROBJProjectInclude.cmake")
         launcher = self.read("scripts/build/run_nsamdr_obj_preview_dx11.bat")
-        self.assertIn("strict same-renderer A/B comparison", render)
+        self.assertIn("A) untouched source with the SAME high-quality sampler as the candidate", render)
+        self.assertIn("Reuse the exact", render)
+        self.assertIn("source geometry and index order on both sides", render)
         self.assertIn("baselineAsset.vertexBuffer", render)
         self.assertIn("baselineAsset.indexBuffer", render)
         self.assertIn("context->VSSetShader(resources.vertexShader.Get()", render)
@@ -72,43 +106,79 @@ class TileContextPipelineTests(unittest.TestCase):
         self.assertIn('ImGui::BeginChild("NSAMDRScrollableControls"', panel)
         self.assertIn("for (const StrategyDescriptor& descriptor : m_strategyModes.Registry())", panel)
         self.assertNotIn("if (!m_strategyModes.IsVisible(candidates, mode)) continue", panel)
-        self.assertIn("MODE 3 UNAVAILABLE - no Mode 1 fallback", panel)
+        self.assertIn("MODE 3 UNAVAILABLE - no source fallback", panel)
         self.assertIn("return AssetBinding{nullptr, nullptr, 0U, nullptr, false, false}", render)
         self.assertNotIn("baseline fallback shown", panel)
         self.assertIn('"3 - NSAMDR cleanup"', modes)
 
-    def test_v4_tile_context_architecture(self) -> None:
-        trainer = self.read("tools/nsamdr/neural/train_nsamdr_kernel.py")
-        config = json.loads(self.read("tools/nsamdr/neural/default_training_config.json"))
-        self.assertIn('MODEL_SCHEMA = "NSAMDR_TILE_CONTEXT_MATERIAL_V4"', trainer)
-        self.assertIn("class MaterialTileContextNet", trainer)
-        self.assertIn("class DilatedResidualBlock", trainer)
-        self.assertIn("DILATION_PATTERN = (1, 2, 4, 8, 8, 4, 2, 1)", trainer)
-        self.assertIn("def receptive_field_pixels", trainer)
-        self.assertIn("def infer_tiled", trainer)
-        self.assertIn("F.grid_sample", trainer)
-        self.assertIn('"flow": flow', trainer)
-        self.assertIn('"residual": residual', trainer)
-        self.assertIn('"confidence": confidence', trainer)
-        self.assertEqual(config["batchSize"], 8)
-        self.assertEqual(config["baseChannels"], 32)
-        self.assertEqual(config["residualBlocks"], 8)
-        self.assertEqual(config["tileSize"], 96)
-        self.assertEqual(config["inferenceTileSize"], 512)
-        self.assertEqual(config["inferenceOverlap"], 64)
+    def test_v9_metric_sdf_architecture_uses_the_neutral_authored_dataset(self) -> None:
+        model = self.read("tools/nsamdr/neural/v9/model.py")
+        dataset = self.read("tools/nsamdr/neural/v9/dataset.py")
+        authored_dataset = self.read("tools/nsamdr/neural/authored_texture_dataset.py")
+        losses = self.read("tools/nsamdr/neural/v9/losses.py")
+        training = self.read("tools/nsamdr/neural/v9/training.py")
+        config = json.loads(self.read("tools/nsamdr/neural/configs/v9_fidelity_full.json"))
+
+        self.assertIn('MODEL_SCHEMA = "NSAMDR_SIGN_GAUGE_METRIC_SDF_RENDERER_4X_V9_8_3"', model)
+        for component in (
+            "class FidelityResidualNetV9",
+            "class GeometryNet",
+            "class BoundaryRenderer",
+            "class ImplicitSDFResidualHead",
+            "class ResizeDecoderStage",
+        ):
+            self.assertIn(component, model)
+        self.assertIn('"geometryOutputs": ("sdf", "edge", "orientation", "hardness", "boundary_gate")', model)
+        self.assertIn('"sharedAcrossPhysicalMaps": True', model)
+        self.assertIn('"reconstructionPrimitive": "sign-gauge-metric-coarse-sdf', model)
+        self.assertNotIn("nn.PixelShuffle", model)
+
+        self.assertIn("authored_texture_dataset import prepare_dataset", dataset)
+        self.assertIn("return _prepare_crop_bundles(", dataset)
+        self.assertIn("def discover_shared_cache_families", authored_dataset)
+        self.assertIn("def prepare_dataset", authored_dataset)
+        self.assertIn("def load_normal_training_rgb", authored_dataset)
+        self.assertIn("_d.dds", authored_dataset)
+        self.assertIn("_n.dds", authored_dataset)
+        self.assertIn("_pgs.dds", authored_dataset)
+
+        self.assertIn("_sdf_global_polarity", losses)
+        self.assertIn("_balanced_metric_band_mean", losses)
+        self.assertIn("if bool(config.sdf_sign_gauge_invariant)", losses)
+        self.assertIn("NSAMDR V9.8.3 GEOMETRY CHECKPOINT READY", training)
+        self.assertEqual(config["targetScale"], 4)
+        self.assertEqual(config["tileSize"], 128)
+        self.assertEqual(config["inferenceTileSize"], 128)
+        self.assertEqual(config["inferenceOverlap"], 24)
+        self.assertTrue(config["sdfSignGaugeInvariant"])
+        self.assertFalse(config["appearanceEnabled"])
+        self.assertEqual(config["checkpointName"], "nsamdr_v9_fidelity.pt")
         self.assertEqual(config["device"], "cuda")
 
-    def test_v4_model_is_contextual_but_compact(self) -> None:
-        from tools.nsamdr.neural.train_nsamdr_kernel import (
-            MaterialTileContextNet,
-            parameter_count,
-            receptive_field_pixels,
-        )
+    def test_v9_metric_sdf_losses_keep_sensitive_reductions_in_fp32(self) -> None:
+        losses = self.read("tools/nsamdr/neural/v9/losses.py")
+        model = self.read("tools/nsamdr/neural/v9/model.py")
+        self.assertIn("def _mean_fp32", losses)
+        self.assertIn("return value.float().mean()", losses)
+        self.assertIn("def _sum_fp32", losses)
+        self.assertIn("return value.float().sum()", losses)
+        self.assertIn('outputs["boundary_gate"].float()', losses)
+        self.assertIn('"confidence_logits": confidence_logits', model)
+        self.assertIn('"plateau_confidence": boundary["plateau_confidence"]', model)
 
-        model = MaterialTileContextNet()
-        self.assertGreaterEqual(parameter_count(model), 100_000)
-        self.assertLessEqual(parameter_count(model), 500_000)
-        self.assertEqual(receptive_field_pixels(8), 125)
+    def test_v9_model_is_specialised_but_compact(self) -> None:
+        from tools.nsamdr.neural.v9.config import V9Config
+        from tools.nsamdr.neural.v9.model import FidelityResidualNetV9, parameter_count
+
+        model = FidelityResidualNetV9(V9Config())
+        contract = model.architecture_contract()
+        self.assertEqual(contract["geometryModel"], "GeometryNet")
+        self.assertEqual(contract["renderer"], "BoundaryRenderer")
+        self.assertFalse(contract["geometryCanPaintRgb"])
+        self.assertTrue(contract["sharedAcrossPhysicalMaps"])
+        self.assertGreaterEqual(parameter_count(model), 6_000_000)
+        self.assertLessEqual(parameter_count(model), 11_000_000)
+        self.assertNotIn("PixelShuffle", {type(module).__name__ for module in model.modules()})
 
     def test_runtime_per_pixel_compute_is_removed(self) -> None:
         shader = self.read("trinityal/tests/nsamdr/NSAMDRPreview.hlsl")
@@ -128,82 +198,108 @@ class TileContextPipelineTests(unittest.TestCase):
         self.assertNotIn("NSAMDRNeuralWeights", combined)
         self.assertNotIn("neuralAlbedoView", combined)
         self.assertNotIn("neuralAlbedoReady", combined)
-        self.assertIn("already reconstructed by the offline V4 tile-context", render)
+        self.assertIn("already reconstructed by the offline V9 CUDA fidelity 4x", render)
 
     def test_candidate_generation_bakes_overlapping_tile_inference(self) -> None:
         generator = self.read("tools/nsamdr/generate_strategy_candidates.py")
-        self.assertIn('REPORT_SCHEMA = "NSAMDR_THREE_MODE_PIPELINE_V2_TILE_CONTEXT"', generator)
-        self.assertIn("nsamdr_tile_context.pt", generator)
+        self.assertIn('REPORT_SCHEMA = "NSAMDR_THREE_MODE_PIPELINE_V9_6_SCIENTIFIC_CONTROL"', generator)
+        self.assertIn("nsamdr_v9_fidelity.pt", generator)
         self.assertIn("_apply_tile_context_model", generator)
         self.assertIn("tile_model.infer_tiled", generator)
         self.assertIn('"runtimeComputeKernelRequired": False', generator)
-        self.assertIn('"overlappingTileInferenceBaked": tile_runtime is not None', generator)
-        self.assertIn('"bootstrapCandidateAvailable": tile_runtime is None', generator)
-        self.assertIn('"offlineTileContext": tile_runtime is not None', generator)
-        self.assertIn('"bootstrapCandidate": tile_runtime is None', generator)
-        self.assertIn("previous V3 per-pixel checkpoint is intentionally incompatible", generator)
+        self.assertIn('"fp16OverlappingInferenceBaked": True', generator)
+        self.assertIn('"bootstrapCandidateAvailable": False', generator)
+        self.assertIn('"offlineCudaNeuralInference": True', generator)
+        self.assertIn('"materialMapPassthrough": False', generator)
+        self.assertIn('"mapsReconstructed": ["albedo", "normalXY", "materialRGB", "roughness", "emissive"]', generator)
+        self.assertIn('"bootstrapCandidate": False', generator)
+        self.assertIn("deterministic bootstrap is disabled", generator)
+        self.assertIn("sign-gauge metric-SDF geometry-convergence renderer 4x", generator)
         self.assertNotIn("NSAMDR_THREE_MODE_PIPELINE_V1", generator)
 
     def test_mode3_ui_describes_offline_baked_reconstruction(self) -> None:
         panel = self.read("trinityal/tests/nsamdr/NSAMDRPreviewPanel.cpp")
         mode3 = self.read("trinityal/tests/nsamdr/NSAMDRMode3Pipeline.cpp")
         app = self.read("trinityal/tests/nsamdr/NSAMDRPreviewApplication.cpp")
-        self.assertIn("Mode 3 baked tile reconstruction", panel)
+        self.assertIn("Mode 3 CUDA neural reconstruction", panel)
         self.assertIn("Offline retraining", panel)
-        self.assertIn("continuous source transport", panel)
-        self.assertIn("125-pixel receptive field", panel + mode3)
-        self.assertIn("baked reconstructed material textures", mode3)
-        self.assertIn("trained V4 tile-context inference or the deterministic bootstrap", app)
+        self.assertIn("shared BoundaryRenderer", panel)
+        self.assertIn("continuous 4x signed-distance field", mode3)
+        self.assertIn("FP16 overlapping CUDA inference bakes reconstructed resources", mode3)
+        self.assertIn("trained V9 fidelity-first checkpoint", app)
         self.assertNotIn("Mode 3 runtime correction", panel)
         self.assertNotIn("Redispatch loaded model", panel)
 
-    def test_training_controller_writes_v4_profile(self) -> None:
+    def test_training_controller_writes_v9_profile_and_uses_dispatcher(self) -> None:
         controller = self.read("trinityal/tests/nsamdr/NSAMDRTrainingController.cpp")
-        types = self.read("trinityal/tests/nsamdr/NSAMDRPreviewTypes.h")
         for key in (
-            'tilesPerEpoch', 'baseChannels', 'residualBlocks', 'tileSize',
-            'reconstructionWeight', 'edgeWeight', 'confidenceWeight',
-            'flowSmoothnessWeight', 'inferenceTileSize', 'inferenceOverlap',
+            'datasetManifest', 'datasetRoot', 'maxFamilies', 'cropsPerFamily',
+            'sourceCropSize', 'identityEpochs', 'residualEpochs', 'boundaryEpochs',
+            'detailEpochs', 'physicalFinetuneEpochs', 'tilesPerEpoch',
+            'validationTiles', 'tileSize', 'targetScale', 'widths',
+            'blocksPerLevel', 'decoderBlocks', 'inferenceTileSize',
+            'inferenceOverlap',
         ):
             self.assertIn(key, controller)
-        self.assertIn("nsamdr_tile_context.pt", controller)
-        self.assertIn("nsamdr_tile_context.json", controller)
-        for field in ("tilesPerEpoch", "baseChannels", "residualBlocks", "tileSize"):
-            self.assertIn(field, types)
-        for old in ("samplesPerEpoch", "hiddenChannels", "transportWeight", "requestNeuralRedispatch"):
-            self.assertNotIn(old, controller + types)
+        self.assertIn("nsamdr_v9_fidelity.pt", controller)
+        self.assertIn("nsamdr_v9_fidelity.json", controller)
+        self.assertIn(r"\\scripts\\build\\nsamdr.bat", controller)
+        self.assertIn('L" retrain-preview --config "', controller)
+        self.assertIn("--shared-cache", controller)
+        self.assertIn("--wait-pid", controller)
 
-    def test_cuda_training_and_prompt_are_retained(self) -> None:
+    def test_cuda_setup_and_v9_workflows_are_exposed_by_the_dispatcher(self) -> None:
         setup = self.read("scripts/build/setup_nsamdr_cuda.bat")
-        train_bat = self.read("scripts/build/train_nsamdr.bat")
+        launcher = self.read("scripts/build/nsamdr.bat")
+        dispatcher = self.read("tools/nsamdr/nsamdr_cli.py")
         self.assertIn("torch==2.11.0", setup)
         self.assertIn("/whl/cu128", setup)
         self.assertIn("--require-arch sm_120", setup)
-        self.assertIn("SELECT NSAMDR TRAINING DEVICE", train_bat)
-        self.assertIn("Select 1 or 2 [1]", train_bat)
-        self.assertIn("artifacts\\nsamdr\\python-env", train_bat)
-        self.assertIn("python-env-cpu", train_bat)
-
-    def test_layout_verifier_is_strict_and_removes_v3_runtime(self) -> None:
-        verifier = self.read("scripts/build/verify_and_clean_nsamdr_layout.bat")
-        required_start = verifier.index('for %%F in (\n    "trinityal\\CMakeLists.txt"')
-        required_block = verifier[required_start:verifier.index(") do call :RequireFile", required_start)]
-        for stale in (
-            "NSAMDRNeuralRuntime.h",
-            "NSAMDRNeuralRuntime.cpp",
-            "NSAMDRNeuralWeights.hlsli",
+        self.assertIn(r"%ROOT%\tools\nsamdr\nsamdr_cli.py", launcher)
+        self.assertIn(r"artifacts\nsamdr\python-env", launcher)
+        self.assertIn(r"artifacts\nsamdr\python-env-cpu", launcher)
+        for command in (
+            "gui", "setup", "tune", "index", "train", "preview", "candidate",
+            "compare", "promote", "validate", "test", "cleanup", "integrate",
+            "run", "retrain-preview", "native",
         ):
-            self.assertIn(f'call :RemoveFile "trinityal\\tests\\nsamdr\\{stale}"', verifier)
-            self.assertNotIn(stale, required_block)
-        for upstream in ("trinityal\\scripts", "trinityal\\tools", "trinityal\\trinityal"):
-            self.assertNotIn(f'call :RemoveDirectory "{upstream}"', verifier)
-        self.assertIn("Preserve all upstream TrinityAL directories", verifier)
-        self.assertIn("RepairMissingTrinityALMarker.ps1", verifier)
-        self.assertIn('call :RemoveFile "scripts\\build\\nsamdr\\SourceBuildState.ps1"', verifier)
-        self.assertIn(":CleanNSAMDRSourceDirectory", verifier)
-        self.assertNotIn('rmdir /s /q "scripts"', verifier)
-        self.assertNotIn('rmdir /s /q "tools"', verifier)
-        self.assertNotIn('rmdir /s /q "trinityal"', verifier)
+            self.assertIn(f'add_parser("{command}"', dispatcher)
+        for backend in (
+            "run_nsamdr_v9_raven_tune_preview.py",
+            "index_eve_texture_dataset_v9.py",
+            "train_nsamdr_v9_preview_experiment.py",
+            "train_nsamdr_v9.py",
+            "preview_nsamdr_v9_experiment.py",
+            "compare_nsamdr_v9_experiments.py",
+            "promote_nsamdr_v9_experiment.py",
+        ):
+            self.assertIn(backend, dispatcher)
+
+    def test_dispatcher_layout_validation_and_cleanup_are_scoped(self) -> None:
+        dispatcher = self.read("tools/nsamdr/nsamdr_cli.py")
+        for retained_batch in (
+            "scripts/build/nsamdr.bat",
+            "scripts/build/run_nsamdr_v9_gui.bat",
+            "scripts/build/setup_nsamdr_cuda.bat",
+            "scripts/build/setup_nsamdr_cpu.bat",
+            "scripts/build/run_nsamdr_obj_preview_dx11.bat",
+        ):
+            self.assertIn(retained_batch, dispatcher)
+        self.assertIn("REQUIRED_LAYOUT = (", dispatcher)
+        self.assertIn("missing = [relative for relative in REQUIRED_LAYOUT", dispatcher)
+        self.assertIn("def _safe_resolved_target(target: Path) -> Path:", dispatcher)
+        self.assertIn("def _safe_target(relative: str) -> Path:", dispatcher)
+        self.assertIn("resolved.relative_to(root)", dispatcher)
+        self.assertIn('raise ValueError("refusing to clean the repository root")', dispatcher)
+        self.assertIn('cleanup.add_argument("--dry-run"', dispatcher)
+        for artifact_root in (
+            "artifacts/nsamdr/training_v9_preview_raven",
+            "artifacts/nsamdr/experiments",
+            "artifacts/nsamdr/promoted",
+            "artifacts/nsamdr/training_v9",
+            "artifacts/nsamdr/neural_v9",
+        ):
+            self.assertIn(artifact_root, dispatcher)
 
     def test_cmake_registers_every_cpp_and_header(self) -> None:
         cmake = self.read("scripts/build/nsamdr/NSAMDROBJProjectInclude.cmake")
@@ -216,11 +312,7 @@ class TileContextPipelineTests(unittest.TestCase):
 
     def test_build_uses_cmake_incremental_state_without_private_overlay(self) -> None:
         launcher = self.read("scripts/build/run_nsamdr_obj_preview_dx11.bat")
-        repair = self.read("scripts/build/nsamdr/RepairMissingTrinityALMarker.ps1")
-        verifier = self.read("scripts/build/verify_and_clean_nsamdr_layout.bat")
         self.assertNotIn("SourceBuildState.ps1", launcher)
-        self.assertNotIn("Get-SourceStateSignature", launcher + repair)
-        self.assertNotIn("Get-FileHash", launcher + repair)
         self.assertIn("CMake will perform its normal incremental configure/build", launcher)
         self.assertNotIn("vcpkg-overlay-ports", launcher)
         self.assertIn('set "VCPKG_OVERLAY_PORTS="', launcher)
@@ -230,14 +322,7 @@ class TileContextPipelineTests(unittest.TestCase):
         self.assertIn(":resolve_fxc", launcher)
         self.assertIn("Windows Kits\\10\\bin", launcher)
         self.assertIn("NSAMDR will not download CCP's private fxc package", launcher)
-        self.assertIn("ls-files --deleted -- trinityal", repair)
-        self.assertIn("'restore', '--source=HEAD', '--worktree'", repair)
-        self.assertIn("trinityal/tests/nsamdr/", repair)
-        self.assertIn("Existing files were not overwritten", repair)
-        self.assertIn("trinityal\\ALLog.h", verifier)
-        self.assertIn("trinityal\\tests\\ALResultTest.cpp", verifier)
-        self.assertIn("No commit was created", repair)
-        self.assertIn("TRINITYAL_REPAIR", verifier)
+        self.assertIn("cmake --preset x64-windows-trinitydev", launcher)
         self.assertIn("Windows SDK x64 fxc.exe", launcher)
         self.assertIn("Refusing non-x64 FXC compiler", launcher)
         self.assertNotIn("where.exe /r", launcher[launcher.index(":resolve_fxc"):launcher.index(":resolve_model")])
@@ -248,7 +333,7 @@ class TileContextPipelineTests(unittest.TestCase):
         converter = (converter_dir / "convert_eve_asset.mjs").read_text(encoding="utf-8")
         eve_test = self.read("tools/nsamdr/eve_asset_test.py")
         launcher = self.read("scripts/build/run_nsamdr_obj_preview_dx11.bat")
-        verifier = self.read("scripts/build/verify_and_clean_nsamdr_layout.bat")
+        dispatcher = self.read("tools/nsamdr/nsamdr_cli.py")
         shim_dir = converter_dir / "vendor/core-math-compat"
         self.assertTrue((converter_dir / "README.md").is_file())
         self.assertIn("github.com/carbonenginejs/format-gr2/archive/", package["dependencies"]["@carbonenginejs/format-gr2"])
@@ -272,7 +357,7 @@ class TileContextPipelineTests(unittest.TestCase):
         self.assertIn("selectModelMeshes", converter)
         self.assertIn("collapseLodAlternatives", converter)
         self.assertIn("highest-detail-per-mesh-family", converter)
-        self.assertIn("NSAMDR_GR2_CONVERSION_V5_BAKED_EVE_TEXTURE_V", converter)
+        self.assertIn("NSAMDR_GR2_CONVERSION_V6_EVE_DIRECTX_LH_HANDEDNESS", converter)
         self.assertIn("NSAMDR_SOF_VISUALS_V2", converter)
         self.assertIn("materialIndex", converter)
         self.assertNotIn("sofUnsupported", converter)
@@ -282,11 +367,11 @@ class TileContextPipelineTests(unittest.TestCase):
         self.assertIn("public GitHub source archives", eve_test)
         self.assertIn("probe_converter_modules", eve_test)
         self.assertIn("CONVERTER_MODULE_PROBE", eve_test)
-        self.assertIn("await import('black-reader')", eve_test)
-        self.assertIn("draws_by_material_index", eve_test)
-        self.assertIn('draw.get("materialIndex", group_index)', eve_test)
+        self.assertIn("await import('@carbonenginejs/format-gr2')", eve_test)
+        self.assertIn("existing_groups", eve_test)
+        self.assertIn("for group_index in range(first_group, first_group + group_count)", eve_test)
         self.assertIn("--input-type=module", eve_test)
-        self.assertIn("Node could not import the GR2, DDS or EVE Black reader entry points", eve_test)
+        self.assertIn("Node could not import the converter's actual entry points", eve_test)
         self.assertNotIn("installed_core_math.is_dir()", eve_test)
         self.assertNotIn("installed_runtime_utils.is_dir()", eve_test)
         self.assertIn("--input-type=module", launcher)
@@ -295,11 +380,12 @@ class TileContextPipelineTests(unittest.TestCase):
         self.assertNotIn("CONVERTER_CORE_MATH", launcher)
         self.assertNotIn("CONVERTER_RUNTIME_UTILS", launcher)
         self.assertIn("--package-lock=false", launcher)
-        self.assertIn(r'tools\nsamdr\gr2_converter\convert_eve_asset.mjs', verifier)
-        self.assertIn(r'tools\nsamdr\gr2_converter\vendor\core-math-compat\package.json', verifier)
+        self.assertIn('native_eve = native_commands.add_parser("eve"', dispatcher)
+        self.assertIn('"tools/nsamdr/eve_asset_test.py"', dispatcher)
 
 
-    def test_direct_raven_path_uses_deterministic_base_sof_identity(self) -> None:
+    def test_direct_raven_path_uses_deterministic_model_identity_when_sde_has_no_match(self) -> None:
+        import zipfile
         from unittest.mock import patch
         from tools.nsamdr.eve_asset_test import ResourceRow, _resolve_sof_identity
 
@@ -308,17 +394,18 @@ class TileContextPipelineTests(unittest.TestCase):
             "hashed/cb1_t1.gr2",
             "resfileindex.txt",
         )
-        with patch(
-            "tools.nsamdr.eve_asset_test._ensure_sde_archive",
-            side_effect=AssertionError("direct model identity must not scan shared SDE graphics"),
-        ):
-            identity = _resolve_sof_identity([model], self.root, model, "")
+        with tempfile.TemporaryDirectory() as temp:
+            archive_path = Path(temp) / "sde.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("graphics.jsonl", "")
+                archive.writestr("types.jsonl", "")
+            with patch("tools.nsamdr.eve_asset_test._ensure_sde_archive", return_value=archive_path):
+                identity = _resolve_sof_identity([model], self.root, model, "")
 
-        self.assertEqual(identity["hull"], "cb1")
+        self.assertEqual(identity["hull"], "cb1_t1")
         self.assertEqual(identity["faction"], "caldaribase")
         self.assertEqual(identity["race"], "caldari")
-        self.assertEqual(identity["identitySource"], "direct-model-base")
-        self.assertFalse(identity["preferFactionTextures"])
+        self.assertEqual(identity["raceSource"], "modelPath")
 
     def test_base_texture_resolution_preserves_authored_source_before_faction_insert(self) -> None:
         from tools.nsamdr.eve_asset_test import ResourceRow, _resolve_sof_texture
@@ -333,17 +420,18 @@ class TileContextPipelineTests(unittest.TestCase):
                 logical.lower(): ResourceRow(logical, "base.dds", "index"),
                 modified.lower(): ResourceRow(modified, "navy.dds", "index"),
             }
-            source = _resolve_sof_texture(rows, root, logical, "navy", False)
-            faction = _resolve_sof_texture(rows, root, logical, "navy", True)
+            faction = _resolve_sof_texture(rows, root, logical, "navy")
+            (root / "navy.dds").unlink()
+            source = _resolve_sof_texture(rows, root, logical, "navy")
 
         self.assertIsNotNone(source)
         self.assertIsNotNone(faction)
         self.assertEqual(source.logical, logical)
         self.assertEqual(faction.logical, modified)
 
-    def test_sof_failure_uses_real_extracted_textures_not_neutral_1x1_fallback(self) -> None:
+    def test_sof_failure_writes_an_explicitly_incomplete_tint_only_manifest(self) -> None:
         import csv
-        from tools.nsamdr.eve_asset_test import _write_extracted_texture_material_manifest
+        from tools.nsamdr.eve_asset_test import _write_tint_only_material_manifest
 
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -354,28 +442,21 @@ class TileContextPipelineTests(unittest.TestCase):
                     {"groupIndex": 1, "indexCount": 6},
                 ]
             }), encoding="utf-8")
-            albedo = root / "ship_albedo.png"
-            normal = root / "ship_normal.png"
-            albedo.write_bytes(b"real-albedo-placeholder")
-            normal.write_bytes(b"real-normal-placeholder")
-
-            manifest = _write_extracted_texture_material_manifest(
-                root, conversion, "caldari", "SOF unavailable", albedo, normal, None)
+            manifest = _write_tint_only_material_manifest(
+                root, conversion, "caldari", "SOF unavailable")
             lines = [line for line in manifest.read_text(encoding="utf-8").splitlines() if not line.startswith("#")]
             rows = list(csv.DictReader(lines, delimiter="\t"))
 
             self.assertEqual(len(rows), 2)
-            self.assertTrue(all(Path(row["albedo"]) == albedo.resolve() for row in rows))
-            self.assertTrue(all(Path(row["normal"]) == normal.resolve() for row in rows))
-            self.assertTrue(all(row["normal_x_channel"] == "3" for row in rows))
-            self.assertTrue(all(row["normal_y_channel"] == "1" for row in rows))
-            self.assertTrue(all(row["mtl1_r"] == "1" and row["mtl1_g"] == "1" and row["mtl1_b"] == "1" for row in rows))
+            self.assertTrue(all(not row["albedo"] and not row["normal"] and not row["material"] for row in rows))
+            self.assertTrue(all(row["semantic_complete"] == "0" for row in rows))
             self.assertTrue(all(row["baseline_complete"] == "0" for row in rows))
+            self.assertTrue(all(row["unresolved_semantics"] == "sof_visual_manifest" for row in rows))
 
             report = json.loads((root / "ship.materials.report.json").read_text(encoding="utf-8"))
-            self.assertEqual(report["fallback"], "real-extracted-textures")
-            self.assertEqual(report["textures"]["albedo"], str(albedo.resolve()))
-            self.assertEqual(report["textures"]["normal"], str(normal.resolve()))
+            self.assertFalse(report["complete"])
+            self.assertEqual(report["unresolvedCount"], 2)
+            self.assertEqual(report["reason"], "SOF unavailable")
 
 
     def test_legacy_pgs_keeps_authored_albedo_identity(self) -> None:
@@ -393,11 +474,15 @@ class TileContextPipelineTests(unittest.TestCase):
         self.assertEqual(layout["shaderFamily"], "legacy_pgs")
         self.assertEqual(layout["material"], pgs)
         self.assertEqual(layout["glow"], "")
+        self.assertTrue(layout["semanticComplete"])
+        self.assertEqual(layout["channels"]["normalX"], 3)
+        self.assertEqual(layout["channels"]["roughness"], 1)
+        self.assertEqual(layout["channels"]["material"], 2)
 
         source = self.read("tools/nsamdr/eve_asset_test.py")
         shader = self.read("trinityal/tests/nsamdr/NSAMDRPreview.hlsl")
-        self.assertIn("exact-selected-legacy", source)
-        self.assertIn('slots = [{**slot, "color": (1.0, 1.0, 1.0)} for slot in slots]', source)
+        self.assertIn("Pre-PBR PGS: R=sub-mask, G=specular, B=mask, A=glow/opacity", source)
+        self.assertIn("The renderer keeps this family explicit", source)
         self.assertIn("shaderFamily == 1", shader)
         self.assertIn("_d maps are already authored colour textures", shader)
         self.assertNotIn("Legacy EVE PGS stores glow/opacity in alpha", shader)
@@ -412,8 +497,10 @@ class TileContextPipelineTests(unittest.TestCase):
         self.assertIn("Prefer the unsuffixed production/high-detail mesh", converter)
         self.assertIn("materialIndexFromGroup", converter)
         self.assertIn("groupIndex,", converter)
-        self.assertIn("draws_by_material_index.setdefault(material_index, []).append(draw)", eve_test)
-        self.assertIn("matching_draws.extend(draws_by_material_index.get(material_index, []))", eve_test)
+        self.assertIn('existing_groups = {int(draw.get("groupIndex", -1)) for draw in draw_ranges}', eve_test)
+        self.assertIn("for group_index in range(first_group, first_group + group_count)", eve_test)
+        self.assertIn("if group_index not in existing_groups", eve_test)
+        self.assertIn('assigned_groups = {int(record["group"]) for record in records}', eve_test)
 
     def test_sof_hull_resolver_uses_exact_model_geometry_not_directory_guess(self) -> None:
         converter = self.read("tools/nsamdr/gr2_converter/convert_eve_asset.mjs")
@@ -427,41 +514,41 @@ class TileContextPipelineTests(unittest.TestCase):
         self.assertIn("requestedModelPath", converter)
         self.assertIn("hullResolution", converter)
         self.assertIn("model.logical", eve_test)
-        self.assertIn("hull, faction, race, model_path", eve_test)
+        self.assertIn("_resolve_sof_identity(rows, repo_root, model, selection_key)", eve_test)
+        self.assertIn('str(sof_identity["hull"])', eve_test)
+        self.assertIn("raceSource", eve_test)
 
     def test_current_sof_schema_includes_shield_ellipsoid_flag(self) -> None:
         converter = self.read("tools/nsamdr/gr2_converter/convert_eve_asset.mjs")
         self.assertIn('ensureBlackClass("EveSOFDataHullExtensionPlacement"', converter)
         self.assertIn("extendsShieldEllipsoid: r.boolean", converter)
 
-    def test_preview_fails_closed_on_incomplete_sof_materials(self) -> None:
+    def test_incomplete_sof_materials_are_explicit_and_conversion_schema_fails_closed(self) -> None:
         eve_test = self.read("tools/nsamdr/eve_asset_test.py")
-        self.assertIn("refusing to render an invented material fallback", eve_test)
-        self.assertIn("preview launch is blocked rather than", eve_test)
-        self.assertIn("SOF material baseline remains incomplete", eve_test)
-        self.assertIn('conversion_record.get("schema") != "NSAMDR_GR2_CONVERSION_V5_BAKED_EVE_TEXTURE_V"', eve_test)
+        processor = self.read("trinityal/tests/nsamdr/NSAMDRAssetProcessor.cpp")
+        self.assertIn("_write_tint_only_material_manifest", eve_test)
+        self.assertIn("incomplete tint-only fallback", eve_test)
+        self.assertIn('"complete": False', eve_test)
+        self.assertIn('value("semantic_complete")', processor)
+        self.assertIn('value("baseline_complete")', processor)
+        self.assertIn('value("unresolved_semantics")', processor)
+        self.assertIn('EXPECTED_GR2_CONVERSION_SCHEMA = "NSAMDR_GR2_CONVERSION_V6_EVE_DIRECTX_LH_HANDEDNESS"', eve_test)
+        self.assertIn('conversion_record.get("schema") != EXPECTED_GR2_CONVERSION_SCHEMA', eve_test)
 
-    def test_readme_documents_v4_and_mandatory_retraining(self) -> None:
+    def test_readme_documents_the_active_v9_operator_workflow(self) -> None:
         readme = self.read("trinityal/tests/nsamdr/README.md")
-        self.assertTrue(readme.startswith("# NSAMDR V5.34"))
         for phrase in (
-            "## Quick start",
-            "mandatory",
-            "NSAMDR_TILE_CONTEXT_MATERIAL_V4",
-            "125-pixel receptive field",
-            "overlapping 512×512 tiles",
-            "64-pixel overlap",
-            "old V3 checkpoint is incompatible",
-            "Mode 1 — original source, no cleanup",
-            "Mode 3 — tile-context cleanup",
-            "same mesh, camera, lighting, environment and shader",
-            "No runtime neural compute shader",
-            "window and taskbar icon",
+            "# NSAMDR V9",
+            "Operator guide",
+            "Raven tuning",
+            "all-assets production run",
+            "same production architecture",
+            "Configuration promotion",
+            "Full production training",
+            "Full production preview",
+            "nsamdr_v9_fidelity.pt",
         ):
             self.assertIn(phrase, readme)
-        self.assertNotIn("NSAMDRNeuralWeights.hlsli", readme)
-        self.assertNotIn("NSAMDRNeuralRuntime", readme)
-        self.assertNotIn("13×13", readme)
 
     def test_manifest_contains_only_mode3_candidate(self) -> None:
         from tools.nsamdr.strategy_pipeline.model import CandidateArtifact, StrategyManifest
@@ -473,12 +560,12 @@ class TileContextPipelineTests(unittest.TestCase):
             obj.write_text("", encoding="utf-8")
             materials.write_text("", encoding="utf-8")
             manifest = StrategyManifest(
-                "NSAMDR_THREE_MODE_PIPELINE_V2_TILE_CONTEXT", 4096, obj, materials)
-            manifest.add(CandidateArtifact(3, "NSAMDR cleanup", obj, materials, metadata={"offlineTileContext": True}))
+                "NSAMDR_THREE_MODE_PIPELINE_V9_6_SCIENTIFIC_CONTROL", 4096, obj, materials)
+            manifest.add(CandidateArtifact(3, "NSAMDR cleanup", obj, materials, metadata={"offlineCudaNeuralInference": True}))
             report = manifest.to_report()
-            self.assertEqual(report["schema"], "NSAMDR_THREE_MODE_PIPELINE_V2_TILE_CONTEXT")
+            self.assertEqual(report["schema"], "NSAMDR_THREE_MODE_PIPELINE_V9_6_SCIENTIFIC_CONTROL")
             self.assertEqual(set(report["strategies"]), {"3"})
-            self.assertTrue(report["strategies"]["3"]["offlineTileContext"])
+            self.assertTrue(report["strategies"]["3"]["offlineCudaNeuralInference"])
 
     def test_no_inl_and_window_icon_is_integrated(self) -> None:
         source_dir = self.root / "trinityal/tests/nsamdr"

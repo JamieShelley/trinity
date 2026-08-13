@@ -5,6 +5,7 @@ Checked-in source for the EVE SharedCache comparison path.
 - GR2 conversion uses the public CarbonEngineJS `format-gr2` reader.
 - Every mesh bound by the highest-detail GR2 model is exported, not only the largest mesh.
 - GR2 material indices are retained separately from sequential OBJ draw-group indices.
+- GR2 positions and normals are mirrored on X and triangle winding is reversed once when exporting into the DirectX left-handed preview basis; U and the baked EVE V coordinate remain unchanged.
 - DDS/BC1-BC7 conversion uses the public CarbonEngineJS `runtime-resource` reader.
 - EVE `data.black` SOF data is decoded with the public `black-reader-js` project.
 - The SOF projection selects the requested hull and faction, then exports area passes, textures, faction colours, material-library parameters and instanced-mesh diagnostics.

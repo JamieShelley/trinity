@@ -10,6 +10,11 @@ import blackClasses from "black-reader/black-classes.js";
 import * as blackReaders from "black-reader/black-readers.js";
 
 const PNG_SIG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+const GR2_PREVIEW_MIRROR_AXIS = "x";
+
+function mirrorGr2X(value) { return -value; }
+function previewTriangleWinding(a, b, c) { return [a, c, b]; }
 const CRC = (() => {
     const table = new Uint32Array(256);
     for (let n = 0; n < 256; n++) {
@@ -208,7 +213,10 @@ function materialIndexFromGroup(group, fallback) {
 function gr2ToObj(input, output, summary) {
     const decoded = readGr2(input);
     const selection = selectModelMeshes(decoded.root);
-    const lines = ["# NSAMDR complete model-bound GR2 to OBJ"];
+    const lines = [
+        "# NSAMDR complete model-bound GR2 to OBJ",
+        "# Coordinate basis: EVE/GR2 -> NSAMDR DirectX LH; mirror X; reverse triangle winding; preserve baked UV"
+    ];
     const drawRanges = [];
     let positionBase = 0, texcoordBase = 0, normalBase = 0;
     let groupIndex = 0, totalVertices = 0, totalTriangles = 0;
@@ -227,7 +235,9 @@ function gr2ToObj(input, output, summary) {
 
         lines.push(`o ${meshName}`);
         for (let i = 0; i < vertexCount; i++) {
-            lines.push(`v ${positions[i * 3]} ${positions[i * 3 + 1]} ${positions[i * 3 + 2]}`);
+            const sourceX = positions[i * 3];
+            const outputX = mirrorGr2X(sourceX);
+            lines.push(`v ${outputX} ${positions[i * 3 + 1]} ${positions[i * 3 + 2]}`);
         }
         if (hasTexcoord) {
             // The previous exporter wrote (1 - sourceV), then the preview had to
@@ -237,12 +247,17 @@ function gr2ToObj(input, output, summary) {
             for (let i = 0; i < vertexCount; i++) {
                 const sourceU = texcoords[i * 2];
                 const sourceV = texcoords[i * 2 + 1];
+                const outputU = sourceU;
                 const bakedTextureV = sourceV;
-                lines.push(`vt ${sourceU} ${bakedTextureV}`);
+                lines.push(`vt ${outputU} ${bakedTextureV}`);
             }
         }
         if (hasNormal) {
-            for (let i = 0; i < vertexCount; i++) lines.push(`vn ${normals[i * 3]} ${normals[i * 3 + 1]} ${normals[i * 3 + 2]}`);
+            for (let i = 0; i < vertexCount; i++) {
+                const sourceNormalX = normals[i * 3];
+                const outputNormalX = mirrorGr2X(sourceNormalX);
+                lines.push(`vn ${outputNormalX} ${normals[i * 3 + 1]} ${normals[i * 3 + 2]}`);
+            }
         }
 
         for (let localGroupIndex = 0; localGroupIndex < groups.length; localGroupIndex++) {
@@ -252,7 +267,7 @@ function gr2ToObj(input, output, summary) {
             for (let i = 0; i + 2 < faces.length; i += 3) {
                 const a = faces[i], b = faces[i + 1], c = faces[i + 2];
                 if (a < 0 || b < 0 || c < 0 || a >= vertexCount || b >= vertexCount || c >= vertexCount) continue;
-                validTriangles.push([a, b, c]);
+                validTriangles.push(previewTriangleWinding(a, b, c));
             }
             if (!validTriangles.length) continue;
             const materialIndex = materialIndexFromGroup(group, localGroupIndex);
@@ -297,7 +312,7 @@ function gr2ToObj(input, output, summary) {
     if (summary) {
         parent(summary);
         fs.writeFileSync(summary, JSON.stringify({
-            schema: "NSAMDR_GR2_CONVERSION_V5_BAKED_EVE_TEXTURE_V",
+            schema: "NSAMDR_GR2_CONVERSION_V6_EVE_DIRECTX_LH_HANDEDNESS",
             source: path.resolve(input),
             output: path.resolve(output),
             selectedModelIndex: selection.modelIndex,
@@ -314,10 +329,20 @@ function gr2ToObj(input, output, summary) {
             textureVConvention: "eve-gr2-source-v-baked",
             textureVTransform: "v_out = v_gr2",
             runtimeTextureVFlipRequired: false,
+            coordinateBasis: {
+                source: "EVE_GR2_LOCAL",
+                target: "NSAMDR_DIRECTX_LEFT_HANDED",
+                mirrorAxis: GR2_PREVIEW_MIRROR_AXIS,
+                positionTransform: "x_out = -x_gr2; y_out = y_gr2; z_out = z_gr2",
+                normalTransform: "x_out = -x_gr2; y_out = y_gr2; z_out = z_gr2",
+                triangleWindingTransform: "a,b,c -> a,c,b",
+                uvTransform: "u_out = u_gr2; v_out = v_gr2"
+            },
             parserOptions: decoded.options,
             drawRanges
         }, null, 2) + "\n");
     }
+    console.log(`GR2 coordinate basis: source=EVE_GR2_LOCAL target=NSAMDR_DIRECTX_LEFT_HANDED mirrorAxis=${GR2_PREVIEW_MIRROR_AXIS} winding=a,c,b uv=u,v`);
     console.log(`GR2 render model: model=${selection.modelName || selection.modelIndex} meshes=${selection.selected.length} rejectedLods=${(selection.rejectedLods || []).length} vertices=${totalVertices} triangles=${totalTriangles} draws=${drawRanges.length}`);
 }
 

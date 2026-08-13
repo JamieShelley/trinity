@@ -52,72 +52,94 @@ bool NSAMDRTrainingController::WriteConfig(
 {
     const std::string artifacts = repositoryRoot + "\\artifacts";
     const std::string nsamdr = artifacts + "\\nsamdr";
-    const std::string neural = nsamdr + "\\neural";
+    const std::string neural = nsamdr + "\\neural_v9";
     if (!EnsureDirectory(artifacts) || !EnsureDirectory(nsamdr) || !EnsureDirectory(neural))
     {
-        error = "Could not create artifacts\\nsamdr\\neural.";
+        error = "Could not create artifacts\\nsamdr\\neural_v9.";
         return false;
     }
-    configPath = neural + "\\ui_training_profile.json";
+    configPath = neural + "\\ui_training_profile_v9.json";
     std::ofstream output(configPath, std::ios::binary | std::ios::trunc);
     if (!output)
     {
-        error = "Could not write the neural training profile.";
+        error = "Could not write the V9 fidelity-first training profile.";
         return false;
     }
     output << "{\n"
-        << "  \"epochs\": " << settings.epochs << ",\n"
+        << "  \"datasetManifest\": \"artifacts/nsamdr/training_v9/dataset_manifest.json\",\n"
+        << "  \"datasetRoot\": \"artifacts/nsamdr/training_v9\",\n"
+        << "  \"maxFamilies\": " << settings.maxFamilies << ",\n"
+        << "  \"cropsPerFamily\": " << settings.cropsPerFamily << ",\n"
+        << "  \"sourceCropSize\": " << std::max(settings.sourceCropSize, 512) << ",\n"
+        << "  \"minSourceDimension\": " << settings.minSourceDimension << ",\n"
+        << "  \"validationFraction\": 0.10,\n"
+        << "  \"requireCompletePbrFamily\": false,\n"
+        << "  \"identityEpochs\": 1,\n"
+        << "  \"residualEpochs\": " << settings.albedoBootstrapEpochs << ",\n"
+        << "  \"boundaryEpochs\": " << std::max(settings.jointPbrEpochs / 3, 1) << ",\n"
+        << "  \"detailEpochs\": " << std::max(settings.jointPbrEpochs - std::max(settings.jointPbrEpochs / 3, 1), 1) << ",\n"
+        << "  \"physicalFinetuneEpochs\": " << settings.renderFinetuneEpochs << ",\n"
         << "  \"tilesPerEpoch\": " << settings.tilesPerEpoch << ",\n"
-        << "  \"batchSize\": " << settings.batchSize << ",\n"
+        << "  \"validationTiles\": " << settings.validationTiles << ",\n"
+        << "  \"batchSize\": 1,\n"
         << "  \"learningRate\": " << settings.learningRate << ",\n"
-        << "  \"baseChannels\": " << settings.baseChannels << ",\n"
-        << "  \"residualBlocks\": " << settings.residualBlocks << ",\n"
-        << "  \"tileSize\": " << settings.tileSize << ",\n"
-        << "  \"reconstructionWeight\": " << settings.reconstructionWeight << ",\n"
+        << "  \"finetuneLearningRate\": " << settings.renderFinetuneLearningRate << ",\n"
+        << "  \"weightDecay\": 0.00001,\n"
+        << "  \"tileSize\": 128,\n"
+        << "  \"targetScale\": 4,\n"
+        << "  \"boundaryCandidateCount\": 8,\n"
+        << "  \"boundarySamplingProbability\": 0.62,\n"
+        << "  \"widths\": [80, 128, 192, 256],\n"
+        << "  \"blocksPerLevel\": [3, 4, 6, 6],\n"
+        << "  \"decoderBlocks\": [4, 3, 3],\n"
+        << "  \"attentionHeads\": 8,\n"
+        << "  \"attentionWindow\": 8,\n"
+        << "  \"dropPath\": 0.05,\n"
+        << "  \"albedoWeight\": " << settings.albedoWeight << ",\n"
+        << "  \"normalWeight\": " << settings.normalWeight << ",\n"
+        << "  \"materialWeight\": " << settings.materialWeight << ",\n"
         << "  \"edgeWeight\": " << settings.edgeWeight << ",\n"
-        << "  \"identityWeight\": " << settings.identityWeight << ",\n"
+        << "  \"orientationWeight\": " << settings.orientationWeight << ",\n"
         << "  \"confidenceWeight\": " << settings.confidenceWeight << ",\n"
-        << "  \"flowSmoothnessWeight\": " << settings.flowSmoothnessWeight << ",\n"
-        << "  \"maxResidual\": " << settings.maxResidual << ",\n"
-        << "  \"maxOffsetPixels\": " << settings.maxOffsetPixels << ",\n"
-        << "  \"maxSourceFiles\": " << settings.maxSourceFiles << ",\n"
-        << "  \"realSourceFraction\": " << settings.realSourceFraction << ",\n"
-        << "  \"artifactFraction\": " << settings.artifactFraction << ",\n"
+        << "  \"proposalWeight\": 0.55,\n"
+        << "  \"sdfWeight\": 1.20,\n"
+        << "  \"crossMapWeight\": 0.45,\n"
+        << "  \"seamWeight\": 0.15,\n"
+        << "  \"lodBiasMin\": 0.50,\n"
+        << "  \"lodBiasMax\": 1.80,\n"
+        << "  \"anisotropicBlurProbability\": 0.80,\n"
+        << "  \"bcBlockProbability\": 0.85,\n"
+        << "  \"chromaLossProbability\": 0.60,\n"
+        << "  \"ringingProbability\": 0.45,\n"
+        << "  \"haloProbability\": 0.45,\n"
         << "  \"seed\": " << settings.seed << ",\n"
-        << "  \"sourceRoot\": \"" << EscapeJson(settings.sourceRoot.data()) << "\",\n"
-        << "  \"sourceGlobs\": [\"**/*_d.png\", \"**/*_ar.png\", \"**/*.dds\"],\n"
-        << "  \"outputDir\": \"artifacts/nsamdr/neural\",\n"
-        << "  \"checkpointName\": \"nsamdr_tile_context.pt\",\n"
-        << "  \"metadataName\": \"nsamdr_tile_context.json\",\n"
-        << "  \"inferenceTileSize\": 512,\n"
-        << "  \"inferenceOverlap\": 64,\n"
+        << "  \"outputDir\": \"artifacts/nsamdr/neural_v9\",\n"
+        << "  \"checkpointName\": \"nsamdr_v9_fidelity.pt\",\n"
+        << "  \"metadataName\": \"nsamdr_v9_fidelity.json\",\n"
+        << "  \"trainingStateName\": \"nsamdr_v9_training_state.pt\",\n"
+        << "  \"inferenceTileSize\": 128,\n"
+        << "  \"inferenceOverlap\": 24,\n"
         << "  \"device\": \"cuda\",\n"
         << "  \"cudaDeviceIndex\": 0,\n"
-        << "  \"matmulPrecision\": \"high\"\n"
+        << "  \"matmulPrecision\": \"high\",\n"
+        << "  \"ampInitialScale\": 512.0,\n"
+        << "  \"gradientClipNorm\": 1.5\n"
         << "}\n";
     if (!output)
     {
-        error = "Writing the neural training profile failed.";
+        error = "Writing the V9 fidelity-first training profile failed.";
         return false;
     }
     return true;
 }
 
-
 void NSAMDRTrainingController::InitializeFromEnvironment(NSAMDRTrainingSettings& settings) const
 {
-    const std::string sourceRoot = GetEnvironmentString("NSAMDR_TRAINING_SOURCE_ROOT");
-    if (!sourceRoot.empty())
+    std::string cacheRoot = GetEnvironmentString("NSAMDR_EVE_CACHE");
+    if (cacheRoot.empty()) cacheRoot = GetEnvironmentString("EVE_SHARED_CACHE");
+    if (!cacheRoot.empty())
     {
-        std::snprintf(settings.sourceRoot.data(), settings.sourceRoot.size(), "%s", sourceRoot.c_str());
-    }
-    else
-    {
-        const std::string cacheRoot = GetEnvironmentString("NSAMDR_EVE_CACHE");
-        if (!cacheRoot.empty())
-        {
-            std::snprintf(settings.sourceRoot.data(), settings.sourceRoot.size(), "%s", cacheRoot.c_str());
-        }
+        std::snprintf(settings.sourceRoot.data(), settings.sourceRoot.size(), "%s", cacheRoot.c_str());
     }
 }
 
@@ -129,20 +151,25 @@ bool NSAMDRTrainingController::LaunchRetrainBuildPreview(NSAMDRTrainingSettings&
         error = "Could not determine the repository root.";
         return false;
     }
-    const std::string script = repositoryRoot + "\\scripts\\build\\retrain_nsamdr_and_preview.bat";
+    const std::string script = repositoryRoot + "\\scripts\\build\\nsamdr.bat";
     const DWORD attributes = GetFileAttributesA(script.c_str());
     if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
     {
-        error = "Missing retraining launcher: " + script;
+        error = "Missing NSAMDR command launcher: " + script;
         return false;
     }
 
     std::string configPath;
     if (!WriteConfig(repositoryRoot, settings, configPath, error)) return false;
+    std::wstring scriptArguments =
+        L" retrain-preview --config " + QuoteWindowsArgument(ToWidePath(configPath)) +
+        L" --wait-pid " + std::to_wstring(GetCurrentProcessId());
+    if (!settings.sourceRoot.empty() && settings.sourceRoot[0] != '\0')
+    {
+        scriptArguments += L" --shared-cache " + QuoteWindowsArgument(ToWidePath(settings.sourceRoot.data()));
+    }
     const std::wstring command =
-        L"cmd.exe /d /s /c \"" + QuoteWindowsArgument(ToWidePath(script)) +
-        L" --config " + QuoteWindowsArgument(ToWidePath(configPath)) +
-        L" --wait-pid " + std::to_wstring(GetCurrentProcessId()) + L"\"";
+        L"cmd.exe /d /s /c \"" + QuoteWindowsArgument(ToWidePath(script)) + scriptArguments + L"\"";
     std::vector<wchar_t> mutableCommand(command.begin(), command.end());
     mutableCommand.push_back(L'\0');
 

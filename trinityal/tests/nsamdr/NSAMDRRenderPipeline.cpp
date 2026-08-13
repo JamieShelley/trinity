@@ -117,6 +117,21 @@ bool RenderPipeline::UpdateSceneConstants(
     constants.semanticChannels2 = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
     constants.debug = XMFLOAT4(static_cast<float>(state.diagnosticView), 0.0f, resources.baselineComplete ? 1.0f : 0.0f, 0.0f);
     constants.repair = XMFLOAT4(static_cast<float>(state.repairMethod), (state.mode == 1 || state.repairMethod == 0) ? state.samplingLodBias : state.uvRecoveryScale, state.projectionStrength, state.transferStrength);
+    constants.cleanup = XMFLOAT4(
+        static_cast<float>(state.textureDetailReconstructionQuality),
+        state.cleanupMasterStrength,
+        state.cleanupFlatDenoiseStrength,
+        state.cleanupDarkSeparationStrength);
+    constants.cleanup2 = XMFLOAT4(
+        state.cleanupHighlightStrength,
+        state.cleanupDetailSharpenStrength,
+        static_cast<float>(state.cleanupDebugView),
+        0.0f);
+    constants.cleanup3 = XMFLOAT4(
+        state.cleanupDirectionalDeblockStrength,
+        state.cleanupContourReconstructionStrength,
+        state.cleanupThinLineStrength,
+        state.cleanupEdgeOvershootLimit);
 
     outputConstants = constants;
     return UploadSceneConstants(context, constantBuffer, constants);
@@ -178,13 +193,22 @@ void RenderPipeline::RenderShip(
 
     ID3D11Buffer* constantBuffer = resources.constantBuffer.Get();
     ID3D11SamplerState* textureSampler = resources.textureSampler.Get();
+    ID3D11SamplerState* baselineTextureSampler = resources.baselineTextureSampler.Get() != nullptr
+        ? resources.baselineTextureSampler.Get()
+        : textureSampler;
     const EnvironmentGpu* selectedEnvironment = SelectedEnvironment(resources, state);
     ID3D11ShaderResourceView* environmentView = selectedEnvironment ? selectedEnvironment->view.Get() : nullptr;
 
     const uint32_t sceneX = std::min(state.sceneViewportX, resources.width > 1U ? resources.width - 1U : 0U);
     const uint32_t sceneWidth = std::max(1U, resources.width - sceneX);
     const uint32_t sceneHeight = std::max(1U, resources.height);
+    // Scientific Mode 3 comparison renders three simultaneous panes:
+    // A) untouched source with the SAME high-quality sampler as the candidate,
+    // B) the same untouched source through the labelled legacy sampler emulation,
+    // C) the NSAMDR candidate with the high-quality sampler.
     const bool splitActive = state.mode != static_cast<int>(StrategyMode::OriginalBaseline) && state.splitCompare;
+    const bool scientificTriple =
+        splitActive && state.mode == static_cast<int>(StrategyMode::NeuralReconstruction);
 
     struct PaneRect
     {
@@ -241,7 +265,29 @@ void RenderPipeline::RenderShip(
 
     PaneRect firstPane{sceneX, 0U, sceneWidth, sceneHeight};
     PaneRect secondPane = firstPane;
-    if (splitActive)
+    PaneRect thirdPane = firstPane;
+    if (scientificTriple)
+    {
+        if (state.splitVertical)
+        {
+            const uint32_t firstWidth = std::max(1U, sceneWidth / 3U);
+            const uint32_t secondWidth = std::max(1U, (sceneWidth - firstWidth) / 2U);
+            const uint32_t thirdWidth = std::max(1U, sceneWidth - firstWidth - secondWidth);
+            firstPane = PaneRect{sceneX, 0U, firstWidth, sceneHeight};
+            secondPane = PaneRect{sceneX + firstWidth, 0U, secondWidth, sceneHeight};
+            thirdPane = PaneRect{sceneX + firstWidth + secondWidth, 0U, thirdWidth, sceneHeight};
+        }
+        else
+        {
+            const uint32_t firstHeight = std::max(1U, sceneHeight / 3U);
+            const uint32_t secondHeight = std::max(1U, (sceneHeight - firstHeight) / 2U);
+            const uint32_t thirdHeight = std::max(1U, sceneHeight - firstHeight - secondHeight);
+            firstPane = PaneRect{sceneX, 0U, sceneWidth, firstHeight};
+            secondPane = PaneRect{sceneX, firstHeight, sceneWidth, secondHeight};
+            thirdPane = PaneRect{sceneX, firstHeight + secondHeight, sceneWidth, thirdHeight};
+        }
+    }
+    else if (splitActive)
     {
         if (state.splitVertical)
         {
@@ -263,8 +309,14 @@ void RenderPipeline::RenderShip(
         }
     }
 
-    const PaneRect baselinePane = state.swapSplitSides ? secondPane : firstPane;
-    const PaneRect candidatePane = state.swapSplitSides ? firstPane : secondPane;
+    PaneRect rawControlPane = firstPane;
+    PaneRect legacyControlPane = scientificTriple ? secondPane : firstPane;
+    PaneRect candidatePane = scientificTriple ? thirdPane : secondPane;
+    if (state.swapSplitSides)
+    {
+        std::swap(rawControlPane, candidatePane);
+    }
+    const PaneRect baselinePane = rawControlPane;
     const float blendFactor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     const UINT stride = sizeof(Vertex);
     const UINT offset = 0;
@@ -299,18 +351,22 @@ void RenderPipeline::RenderShip(
         return true;
     };
 
-    auto drawPane = [&](const PaneRect& pane, int uiMode, const AssetBinding& asset)
+    auto drawPane = [&](const PaneRect& pane, int uiMode, const AssetBinding& asset, bool useLegacySampler)
     {
-        // This is a strict same-renderer A/B comparison. Both panes use the
-        // same mesh, camera, lighting, material shader, render states and
-        // environment. Mode 1 samples the original source textures. Mode 3
-        // samples the NSAMDR candidate/neural output.
+        // Every pane retains the same mesh, camera, lighting, material shader
+        // and environment. Sampler choice is explicit per pane so the raw source
+        // control and NSAMDR candidate can be compared under identical sampling.
         const bool originalSource = uiMode == static_cast<int>(StrategyMode::OriginalBaseline);
         if (!asset.valid) return;
         const int shaderMode = m_strategyModes.ShaderMode(uiMode);
         SceneConstants paneConstants = BuildViewportSceneConstants(
             state, baseConstants, pane.width, pane.height, shaderMode);
+        paneConstants.options.w = state.verifyPaneIdentity
+            ? (originalSource ? -1.0f : 1.0f)
+            : 0.0f;
         const PreviewState& renderState = state;
+        ID3D11SamplerState* paneTextureSampler =
+            useLegacySampler ? baselineTextureSampler : textureSampler;
 
         viewport.TopLeftX = static_cast<float>(pane.x);
         viewport.TopLeftY = static_cast<float>(pane.y);
@@ -327,7 +383,7 @@ void RenderPipeline::RenderShip(
         context->PSSetShader(resources.pixelShader.Get(), nullptr, 0);
         context->VSSetConstantBuffers(0, 1, &constantBuffer);
         context->PSSetConstantBuffers(0, 1, &constantBuffer);
-        context->PSSetSamplers(0, 1, &textureSampler);
+        context->PSSetSamplers(0, 1, &paneTextureSampler);
 
         auto drawArea = [&](const AreaMaterialGpu& material)
         {
@@ -383,7 +439,7 @@ void RenderPipeline::RenderShip(
                 static_cast<float>(static_cast<int>(material.source.shaderFamily)));
             if (!UploadSceneConstants(context, constantBuffer, constants)) return false;
 
-            // Mode 3 albedo is already reconstructed by the offline V4 tile-context
+            // Mode 3 albedo is already reconstructed by the offline V9 CUDA fidelity 4x
             // pipeline. Both panes therefore sample their own material manifests
             // through the same live shader with no hidden runtime correction pass.
             ID3D11ShaderResourceView* selectedAlbedoView = material.albedoView.Get();
@@ -445,23 +501,48 @@ void RenderPipeline::RenderShip(
     };
 
     const AssetBinding selectedAsset = assetForMode(state.mode);
-    if (splitActive)
+    if (scientificTriple)
     {
-        // Render each pane from the same camera/light/environment state. Only
-        // the source geometry, ship shader and render state are identical. Only
-        // the original-vs-cleaned material resources differ. This keeps the comparison
-        // pixel-aligned and prevents one half of the panorama from being
-        // mistaken for a Mode 1/Mode 3 rendering difference.
+        // C: NSAMDR candidate, high-quality sampler.
         drawBackgroundPane(candidatePane);
-        drawPane(candidatePane, state.mode, selectedAsset);
+        drawPane(candidatePane, state.mode, selectedAsset, false);
+        context->ClearDepthStencilView(resources.depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+        // B: same untouched source, legacy EVE-like sampler emulation.
+        drawBackgroundPane(legacyControlPane);
+        drawPane(
+            legacyControlPane,
+            static_cast<int>(StrategyMode::OriginalBaseline),
+            baselineAsset,
+            true);
+        context->ClearDepthStencilView(resources.depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+        // A: authoritative raw control, untouched source and the exact same
+        // high-quality sampler used by C.
+        drawBackgroundPane(rawControlPane);
+        drawPane(
+            rawControlPane,
+            static_cast<int>(StrategyMode::OriginalBaseline),
+            baselineAsset,
+            false);
+    }
+    else if (splitActive)
+    {
+        drawBackgroundPane(candidatePane);
+        drawPane(candidatePane, state.mode, selectedAsset, false);
         context->ClearDepthStencilView(resources.depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
         drawBackgroundPane(baselinePane);
-        drawPane(baselinePane, static_cast<int>(StrategyMode::OriginalBaseline), baselineAsset);
+        drawPane(
+            baselinePane,
+            static_cast<int>(StrategyMode::OriginalBaseline),
+            baselineAsset,
+            state.emulateLegacyEveBaseline);
     }
     else
     {
         drawBackgroundPane(firstPane);
-        drawPane(firstPane, state.mode, selectedAsset);
+        // Mode 1 is now a true untouched-source control by default.
+        drawPane(firstPane, state.mode, selectedAsset, false);
     }
 
     ID3D11ShaderResourceView* nullViews[9] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};

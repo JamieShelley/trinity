@@ -17,14 +17,17 @@ D:\REPOS\trinity
 From the repository root:
 
 ```bat
-scripts\build\run_nsamdr_preview_dx11.bat
+call scripts\build\nsamdr.bat native obj
 ```
 
-The script configures and builds `TrinityALTest_dx11`, then launches only:
+The dispatcher configures and builds `TrinityALTest_dx11`, then launches only:
 
 ```text
 NSAMDRRendering.ShipPreview
 ```
+
+The retained `run_nsamdr_obj_preview_dx11.bat` launcher is an internal native
+CMake/build bridge used by the dispatcher, not a separate operator entry point.
 
 ## Controls
 

@@ -46,7 +46,15 @@ cmake-build*
 /imgui.ini
 
 ### Generated NSAMDR outputs ###
-/artifacts/nsamdr/
+# Ignore generated datasets, samples, caches, temporary checkpoints and previews.
+/artifacts/nsamdr/*
+
+# Keep only the final validated inference checkpoint and its verification metadata.
+!/artifacts/nsamdr/neural/
+/artifacts/nsamdr/neural/*
+!/artifacts/nsamdr/neural/nsamdr_tile_context.pt
+!/artifacts/nsamdr/neural/nsamdr_tile_context.json
+!/artifacts/nsamdr/neural/nsamdr_tile_context.sha256
 
 ### Dependency trees ###
 node_modules/

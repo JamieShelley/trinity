@@ -3,20 +3,15 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 for %%I in ("%~dp0..\..") do set "ROOT=%%~fI"
 set "BUILD_DIR=%ROOT%\.cmake-build-x64-windows-trinitydev-nsamdr-obj-dx11"
-set "SETUP_DRIVER=%~dp0setup_dependencies.bat"
 set "PROJECT_INCLUDE=%~dp0nsamdr\NSAMDROBJProjectInclude.cmake"
 set "VCPKG_DIR=%ROOT%\vendor\github.com\microsoft\vcpkg"
 set "REGISTRY_DIR=%ROOT%\vendor\github.com\carbonengine\vcpkg-registry"
 set "SOURCE_CONTEXT=viewer=NSAMDROriginalVsCleanup-v5.32;config=TrinityDev;dx11=ON;dx12=OFF;tests=ON;shader=OFF;granny=OFF"
 set "PREVIEW_EXE="
 set "BUILD_ONLY=0"
-
-rem Permanent constraint: this preview must never enable or install the proprietary SDK.
-set "VCPKG_MANIFEST_INSTALL=OFF"
-set "VCPKG_MANIFEST_FEATURES="
 if /I "%NSAMDR_BUILD_ONLY%"=="1" set "BUILD_ONLY=1"
 
-if not exist "%ROOT%\CMakePresets.json" (
+if not exist "%ROOT%\CMakeLists.txt" (
     echo ERROR: This script must be under scripts\build in the Carbon Trinity repository.
     exit /b 2
 )
@@ -31,21 +26,18 @@ if not exist "%PROJECT_INCLUDE%" (
     exit /b 4
 )
 
-if not exist "%VCPKG_DIR%\scripts\buildsystems\vcpkg.cmake" goto :setup_dependencies
-if not exist "%REGISTRY_DIR%\triplets" goto :setup_dependencies
-goto :dependencies_ready
-
-:setup_dependencies
-if not exist "%SETUP_DRIVER%" (
-    echo ERROR: Missing dependency setup script:
-    echo   "%SETUP_DRIVER%"
+if not exist "%VCPKG_DIR%\scripts\buildsystems\vcpkg.cmake" (
+    echo ERROR: The repository vcpkg checkout is missing:
+    echo   "%VCPKG_DIR%"
+    echo Initialise the repository dependencies before building the preview.
     exit /b 6
 )
-echo Repository dependencies are missing. Running setup_dependencies.bat...
-call "%SETUP_DRIVER%"
-if errorlevel 1 exit /b !ERRORLEVEL!
-
-:dependencies_ready
+if not exist "%REGISTRY_DIR%\triplets" (
+    echo ERROR: The Carbon vcpkg registry is missing:
+    echo   "%REGISTRY_DIR%"
+    echo Initialise the repository dependencies before building the preview.
+    exit /b 6
+)
 rem NSAMDR does not require a private vcpkg overlay.  Earlier packages
 rem exported a path to an empty directory that ZIP extraction could not
 rem preserve, causing vcpkg configuration to fail before the build began.
@@ -57,12 +49,6 @@ if errorlevel 1 (
     echo ERROR: cmake.exe was not found in PATH.
     exit /b 7
 )
-where powershell.exe >nul 2>nul
-if errorlevel 1 (
-    echo ERROR: powershell.exe was not found.
-    exit /b 9
-)
-
 call :resolve_fxc
 if errorlevel 1 exit /b !ERRORLEVEL!
 
@@ -87,7 +73,7 @@ echo ============================================================
 echo Repository : %ROOT%
 echo Build dir  : %BUILD_DIR%
 echo Target     : TrinityALTest_dx11
-echo Proprietary geometry SDK: OFF
+echo Granny     : OFF
 if "%BUILD_ONLY%"=="0" echo Model      : !NSAMDR_OBJ!
 if "%BUILD_ONLY%"=="0" if defined NSAMDR_ALBEDO echo Albedo     : !NSAMDR_ALBEDO!
 if "%BUILD_ONLY%"=="0" if not defined NSAMDR_ALBEDO echo Albedo     : neutral fallback
@@ -103,21 +89,32 @@ echo ============================================================
 pushd "%ROOT%" || exit /b 11
 
 echo CMake will perform its normal incremental configure/build.
+echo CMake source directory: %ROOT%
 
-cmake --preset x64-windows-trinitydev ^
-    -S "%ROOT%" ^
-    -B "%BUILD_DIR%" ^
-    -DBUILD_DX11=ON ^
-    -DBUILD_DX12=OFF ^
-    -DBUILD_TESTING=ON ^
-    -DBUILD_SHADER_COMPILER=OFF ^
-    -DWITH_GRANNY=OFF ^
-    -DVCPKG_MANIFEST_INSTALL=OFF ^
-    -DVCPKG_OVERLAY_PORTS= ^
-    -DFXC_TOOL:FILEPATH="!FXC_TOOL!" ^
-    -DCMAKE_PROJECT_INCLUDE="%PROJECT_INCLUDE%"
-if errorlevel 1 (
-    echo ERROR: CMake configuration failed.
+call :validate_cmake_cache
+set "CACHE_RESULT=!ERRORLEVEL!"
+if not "!CACHE_RESULT!"=="0" (
+    popd
+    exit /b !CACHE_RESULT!
+)
+
+call :configure_preview
+set "CONFIGURE_RESULT=!ERRORLEVEL!"
+if not "!CONFIGURE_RESULT!"=="0" (
+    call :report_failed_cmake_identity
+    echo WARNING: Initial CMake configuration failed with exit code !CONFIGURE_RESULT!.
+    echo Resetting stale CMake metadata and retrying once. Installed vcpkg packages are preserved.
+    call :reset_cmake_metadata
+    if errorlevel 1 (
+        popd
+        exit /b !ERRORLEVEL!
+    )
+    call :configure_preview
+    set "CONFIGURE_RESULT=!ERRORLEVEL!"
+)
+if not "!CONFIGURE_RESULT!"=="0" (
+    call :report_failed_cmake_identity
+    echo ERROR: CMake configuration failed after a clean metadata retry.
     popd
     exit /b 20
 )
@@ -140,7 +137,7 @@ if "%BUILD_ONLY%"=="1" (
 )
 
 rem The Carbon output is normally placed below carbon\autobuild rather than
-rem directly in BUILD_DIR.  FOR /R with a literal filename can yield a candidate
+rem directly in BUILD_DIR. FOR /R with a literal filename can yield a candidate
 rem path even when that file does not exist, so only accept verified files.
 set "EXPECTED_PREVIEW_EXE=%BUILD_DIR%\carbon\autobuild\TrinityALTest\Windows\x64\v141\TrinityALTest_dx11_trinitydev.exe"
 if exist "!EXPECTED_PREVIEW_EXE!" set "PREVIEW_EXE=!EXPECTED_PREVIEW_EXE!"
@@ -165,10 +162,104 @@ if not defined PREVIEW_EXE (
 
 echo Launching: !PREVIEW_EXE!
 pushd "%ROOT%" || exit /b 31
-"!PREVIEW_EXE!" --gtest_filter=NSAMDRRendering.RealObjShipPreview --interactive --gtest_color=yes
-set "RUN_RESULT=!ERRORLEVEL!"
+if /I "!NSAMDR_PREVIEW_VISIBLE_LAUNCH!"=="1" (
+    echo Launch mode: visible foreground child
+    start "" /wait "!PREVIEW_EXE!" --gtest_filter=NSAMDRRendering.RealObjShipPreview --interactive --gtest_color=yes
+    set "RUN_RESULT=!ERRORLEVEL!"
+) else (
+    "!PREVIEW_EXE!" --gtest_filter=NSAMDRRendering.RealObjShipPreview --interactive --gtest_color=yes
+    set "RUN_RESULT=!ERRORLEVEL!"
+)
 popd
 exit /b !RUN_RESULT!
+
+:configure_preview
+cmake --preset x64-windows-trinitydev ^
+    -S "%ROOT%" ^
+    -B "%BUILD_DIR%" ^
+    -DBUILD_DX11=ON ^
+    -DBUILD_DX12=OFF ^
+    -DBUILD_TESTING=ON ^
+    -DBUILD_SHADER_COMPILER=OFF ^
+    -DWITH_GRANNY=OFF ^
+    -DVCPKG_MANIFEST_INSTALL=OFF ^
+    -DVCPKG_OVERLAY_PORTS= ^
+    -DFXC_TOOL:FILEPATH="!FXC_TOOL!" ^
+    -DCMAKE_PROJECT_INCLUDE="%PROJECT_INCLUDE%"
+exit /b !ERRORLEVEL!
+
+:report_failed_cmake_identity
+set "NSAMDR_FAILED_CACHE_HOME="
+set "NSAMDR_FAILED_CACHE_PROJECT="
+if exist "%BUILD_DIR%\CMakeCache.txt" (
+    for /f "tokens=1,* delims==" %%A in ('findstr /B /C:"CMAKE_HOME_DIRECTORY:INTERNAL=" "%BUILD_DIR%\CMakeCache.txt" 2^>nul') do set "NSAMDR_FAILED_CACHE_HOME=%%B"
+    for /f "tokens=1,* delims==" %%A in ('findstr /B /C:"CMAKE_PROJECT_NAME:STATIC=" "%BUILD_DIR%\CMakeCache.txt" 2^>nul') do set "NSAMDR_FAILED_CACHE_PROJECT=%%B"
+)
+if defined NSAMDR_FAILED_CACHE_HOME (
+    echo Failed CMake source identity:
+    echo   CMAKE_HOME_DIRECTORY=!NSAMDR_FAILED_CACHE_HOME!
+) else (
+    echo Failed CMake source identity: cache did not record CMAKE_HOME_DIRECTORY
+)
+if defined NSAMDR_FAILED_CACHE_PROJECT (
+    echo   CMAKE_PROJECT_NAME=!NSAMDR_FAILED_CACHE_PROJECT!
+)
+exit /b 0
+
+:validate_cmake_cache
+if not exist "%BUILD_DIR%\CMakeCache.txt" exit /b 0
+set "NSAMDR_CACHE_HOME="
+set "NSAMDR_CACHE_PROJECT="
+for /f "tokens=1,* delims==" %%A in ('findstr /B /C:"CMAKE_HOME_DIRECTORY:INTERNAL=" "%BUILD_DIR%\CMakeCache.txt" 2^>nul') do set "NSAMDR_CACHE_HOME=%%B"
+for /f "tokens=1,* delims==" %%A in ('findstr /B /C:"CMAKE_PROJECT_NAME:STATIC=" "%BUILD_DIR%\CMakeCache.txt" 2^>nul') do set "NSAMDR_CACHE_PROJECT=%%B"
+if not defined NSAMDR_CACHE_HOME (
+    echo WARNING: Existing CMake cache has no CMAKE_HOME_DIRECTORY entry.
+    call :reset_cmake_metadata
+    exit /b !ERRORLEVEL!
+)
+for %%I in ("!NSAMDR_CACHE_HOME!") do set "NSAMDR_CACHE_HOME_FULL=%%~fI"
+echo Existing CMake cache source: !NSAMDR_CACHE_HOME_FULL!
+if /I not "!NSAMDR_CACHE_HOME_FULL!"=="%ROOT%" (
+    echo WARNING: CMake cache source does not match the Trinity repository root.
+    call :reset_cmake_metadata
+    exit /b !ERRORLEVEL!
+)
+if not defined NSAMDR_CACHE_PROJECT (
+    echo WARNING: Existing CMake cache has no CMAKE_PROJECT_NAME entry.
+    call :reset_cmake_metadata
+    exit /b !ERRORLEVEL!
+)
+if /I not "!NSAMDR_CACHE_PROJECT!"=="carbon-trinity" (
+    echo WARNING: CMake cache top-level project is "!NSAMDR_CACHE_PROJECT!" instead of "carbon-trinity".
+    call :reset_cmake_metadata
+    exit /b !ERRORLEVEL!
+)
+echo Existing CMake cache project: !NSAMDR_CACHE_PROJECT!
+exit /b 0
+
+:reset_cmake_metadata
+if not exist "%BUILD_DIR%" exit /b 0
+echo Removing stale CMake configuration metadata from:
+echo   "%BUILD_DIR%"
+if exist "%BUILD_DIR%\CMakeCache.txt" del /f /q "%BUILD_DIR%\CMakeCache.txt" >nul 2>nul
+if exist "%BUILD_DIR%\CMakeFiles" rmdir /s /q "%BUILD_DIR%\CMakeFiles"
+if exist "%BUILD_DIR%\Testing" rmdir /s /q "%BUILD_DIR%\Testing"
+for %%F in (
+    cmake_install.cmake
+    CTestTestfile.cmake
+    Makefile
+    build.ninja
+    rules.ninja
+    .ninja_deps
+    .ninja_log
+) do (
+    if exist "%BUILD_DIR%\%%F" del /f /q "%BUILD_DIR%\%%F" >nul 2>nul
+)
+del /f /q "%BUILD_DIR%\*.sln" >nul 2>nul
+del /f /q "%BUILD_DIR%\*.vcxproj" >nul 2>nul
+del /f /q "%BUILD_DIR%\*.vcxproj.filters" >nul 2>nul
+rem Keep vcpkg_installed and compiled outputs; regenerate only CMake identity.
+exit /b 0
 
 :resolve_fxc
 set "FXC_TOOL="

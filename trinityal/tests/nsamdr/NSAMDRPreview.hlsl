@@ -9,7 +9,7 @@ cbuffer SceneConstants : register(b0)
     float4 gRimLight;        // xyz = travel direction, w = intensity
     float4 gMaterial;        // x = use albedo, y = flip V, z = exposure, w = ambient
     float4 gSurface;         // x = micro normal, y = normal map strength, z = specular, w = roughness bias
-    float4 gOptions;         // x = use normal, y = use PGS, z = force repair mask, w = reserved
+    float4 gOptions;         // x = use normal, y = use PGS, z = force repair mask, w = pane proof tint (-1 left, +1 right)
     float4 gCameraRight;     // xyz = camera right, w = aspect * tan(fov / 2)
     float4 gCameraUp;        // xyz = camera up, w = tan(fov / 2)
     float4 gCameraForward;   // xyz = camera forward
@@ -33,6 +33,9 @@ cbuffer SceneConstants : register(b0)
     float4 gSemanticChannels2; // x = AO, y = paint, z = dirt, w = glow
     float4 gDebug;             // x = diagnostic view, y = area id, z = area complete, w = shader family
     float4 gRepair;            // x = repair method, y = sampling LOD bias, z = source-neighbourhood radius, w = transfer strength
+    float4 gCleanup;           // x = quality, y = master, z = flat denoise, w = dark separation
+    float4 gCleanup2;          // x = highlight cleanup, y = detail sharpen, z = cleanup debug view, w = reserved
+    float4 gCleanup3;          // x = directional deblock, y = contour reconstruction, z = thin-line clarity, w = overshoot limit
 };
 
 Texture2D gAlbedo : register(t0);
@@ -303,7 +306,7 @@ float2 SampleNormalXYGrad(float2 sampleUv, float2 gradientX, float2 gradientY)
 
 float4 SampleNSAMDRAlbedo(float2 sampleUv)
 {
-    // Public Mode 3 receives the V4 tile-context material already reconstructed
+    // Public Mode 3 receives the V5 CUDA neural material already reconstructed
     // offline. The live pixel shader uses the same anisotropic sampling path as
     // the original-source pane and performs no hidden cleanup or sharpening.
     return gAlbedo.SampleGrad(gTextureSampler, sampleUv, ddx(sampleUv), ddy(sampleUv));
@@ -314,6 +317,294 @@ float2 SampleNSAMDRNormalXY(float2 sampleUv)
     // Semantic textures remain deterministic. Mode 3 samples the authored normal
     // map with the same gradients as the baseline material path.
     return SampleNormalXYGrad(sampleUv, ddx(sampleUv), ddy(sampleUv));
+}
+
+
+struct Mode3CleanupResult
+{
+    float3 colour;
+    float3 debugColour;
+};
+
+float3 ReconstructTangentNormal(float2 normalXY)
+{
+    const float normalZ = sqrt(saturate(1.0 - dot(normalXY, normalXY)));
+    return normalize(float3(normalXY, normalZ));
+}
+
+Mode3CleanupResult ApplyMode3Cleanup(float2 sampleUv, float3 candidate)
+{
+    Mode3CleanupResult result;
+    result.colour = candidate;
+    result.debugColour = candidate;
+
+    const int quality = (int)round(gCleanup.x);
+    const int debugView = (int)round(gCleanup2.z);
+    if (quality <= 0 && debugView <= 0)
+    {
+        return result;
+    }
+
+    const float master = saturate(gCleanup.y);
+    const float presetScale = quality >= 2 ? 1.0 : (quality == 1 ? 0.78 : 0.0);
+    const float denoiseStrength = saturate(gCleanup.z) * presetScale;
+    const float darkStrength = saturate(gCleanup.w) * presetScale;
+    const float highlightStrength = saturate(gCleanup2.x) * presetScale;
+    const float sharpenStrength = quality >= 2 ? saturate(gCleanup2.y) : 0.0;
+    const float directionalDeblockStrength = quality >= 2 ? saturate(gCleanup3.x) : 0.0;
+    const float contourReconstructionStrength = quality >= 2 ? saturate(gCleanup3.y) : 0.0;
+    const float thinLineStrength = quality >= 2 ? saturate(gCleanup3.z) : 0.0;
+    const float overshootLimit = clamp(gCleanup3.w, 0.0, 0.030);
+
+    const float2 textureSize = max(gDiagnostics.zw, float2(1.0, 1.0));
+    const float2 texel = 1.0 / textureSize;
+    const float2 gradientX = ddx(sampleUv);
+    const float2 gradientY = ddy(sampleUv);
+    const float centerLuminance = Luminance(candidate);
+    const float3 centerNormal = ReconstructTangentNormal(SampleNormalXYGrad(sampleUv, gradientX, gradientY));
+
+    float3 weightedColour = 0.0;
+    float totalWeight = 0.0;
+    float weightedLuminance = 0.0;
+    float weightedLuminanceSquared = 0.0;
+    float maximumLuminanceDelta = 0.0;
+    float maximumNormalDelta = 0.0;
+    float3 localMinimum = candidate;
+    float3 localMaximum = candidate;
+
+    [unroll]
+    for (int y = -1; y <= 1; ++y)
+    {
+        [unroll]
+        for (int x = -1; x <= 1; ++x)
+        {
+            const float2 offset = float2((float)x, (float)y);
+            const float2 neighbourUv = sampleUv + texel * offset;
+            const float3 neighbourColour = gAlbedo.SampleGrad(
+                gTextureSampler, neighbourUv, gradientX, gradientY).rgb;
+            const float neighbourLuminance = Luminance(neighbourColour);
+            const float3 neighbourNormal = ReconstructTangentNormal(
+                SampleNormalXYGrad(neighbourUv, gradientX, gradientY));
+
+            const float luminanceDelta = abs(neighbourLuminance - centerLuminance);
+            const float normalDelta = 1.0 - saturate(dot(centerNormal, neighbourNormal));
+            maximumLuminanceDelta = max(maximumLuminanceDelta, luminanceDelta);
+            maximumNormalDelta = max(maximumNormalDelta, normalDelta);
+
+            const float spatialWeight = (x == 0 && y == 0) ? 1.0 :
+                ((x == 0 || y == 0) ? 0.72 : 0.52);
+            const float colourWeight = exp2(-luminanceDelta * 20.0);
+            const float normalWeight = exp2(-normalDelta * 58.0);
+            const float weight = spatialWeight * colourWeight * normalWeight;
+
+            weightedColour += neighbourColour * weight;
+            weightedLuminance += neighbourLuminance * weight;
+            weightedLuminanceSquared += neighbourLuminance * neighbourLuminance * weight;
+            totalWeight += weight;
+            localMinimum = min(localMinimum, neighbourColour);
+            localMaximum = max(localMaximum, neighbourColour);
+        }
+    }
+
+    const float inverseWeight = 1.0 / max(totalWeight, 1.0e-5);
+    const float3 localAverage = weightedColour * inverseWeight;
+    const float localMeanLuminance = weightedLuminance * inverseWeight;
+    const float localVariance = max(
+        weightedLuminanceSquared * inverseWeight - localMeanLuminance * localMeanLuminance,
+        0.0);
+
+    const float luminanceEdge = saturate(maximumLuminanceDelta / 0.105);
+    const float normalEdge = saturate(maximumNormalDelta / 0.115);
+    const float structureEdge = max(luminanceEdge, normalEdge);
+    const float variancePenalty = saturate(localVariance * 110.0);
+    const float cavityConfidence = 1.0 - smoothstep(0.018, 0.070, centerLuminance);
+    const float brightDelta = centerLuminance - localMeanLuminance;
+    const float highlightConfidence =
+        smoothstep(0.025, 0.120, brightDelta) *
+        smoothstep(0.10, 0.52, centerLuminance);
+    const float flatConfidence = saturate(
+        (1.0 - structureEdge) *
+        (1.0 - variancePenalty) *
+        (1.0 - highlightConfidence) *
+        (1.0 - cavityConfidence));
+
+    float3 cleaned = lerp(candidate, localAverage, flatConfidence * denoiseStrength);
+
+    const float cleanedLuminance = Luminance(cleaned);
+    const float darkBand =
+        smoothstep(0.035, 0.10, cleanedLuminance) *
+        (1.0 - smoothstep(0.25, 0.36, cleanedLuminance)) *
+        (1.0 - cavityConfidence);
+    const float contrastDelta = clamp(
+        (cleanedLuminance - localMeanLuminance) * darkStrength * 0.42,
+        -0.040,
+        0.040);
+    const float targetDarkLuminance = max(cleanedLuminance + contrastDelta * darkBand, 0.0);
+    cleaned *= targetDarkLuminance / max(cleanedLuminance, 1.0e-4);
+
+    const float highlightCore = smoothstep(0.12, 0.24, brightDelta);
+    const float highlightHalo =
+        highlightConfidence *
+        (1.0 - highlightCore) *
+        saturate(structureEdge + variancePenalty * 0.35);
+    cleaned = lerp(cleaned, localAverage, highlightHalo * highlightStrength * 0.42);
+
+    if (sharpenStrength > 0.0)
+    {
+        const float3 detail = cleaned - localAverage;
+        const float sharpenMask = structureEdge * (1.0 - highlightConfidence) * (1.0 - cavityConfidence);
+        cleaned += detail * sharpenStrength * sharpenMask * 0.22;
+    }
+
+    // Quality mode: estimate the local contour direction with a Sobel gradient,
+    // smooth only along the contour tangent, and restore bounded contrast across
+    // its normal. This targets diagonal stair steps and broken one-texel panel
+    // lines without shifting UVs or changing the authored material boundary.
+    float2 edgeNormal = float2(1.0, 0.0);
+    float sobelEdge = 0.0;
+    float contourConfidence = 0.0;
+    float stairStepConfidence = 0.0;
+    float thinLineConfidence = 0.0;
+    float3 directionalCorrection = 0.0;
+
+    if (quality >= 2 || debugView >= 9)
+    {
+        const float3 colourNorthWest = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv + texel * float2(-1.0, -1.0), gradientX, gradientY).rgb;
+        const float3 colourNorth = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv + texel * float2(0.0, -1.0), gradientX, gradientY).rgb;
+        const float3 colourNorthEast = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv + texel * float2(1.0, -1.0), gradientX, gradientY).rgb;
+        const float3 colourWest = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv + texel * float2(-1.0, 0.0), gradientX, gradientY).rgb;
+        const float3 colourEast = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv + texel * float2(1.0, 0.0), gradientX, gradientY).rgb;
+        const float3 colourSouthWest = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv + texel * float2(-1.0, 1.0), gradientX, gradientY).rgb;
+        const float3 colourSouth = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv + texel * float2(0.0, 1.0), gradientX, gradientY).rgb;
+        const float3 colourSouthEast = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv + texel * float2(1.0, 1.0), gradientX, gradientY).rgb;
+
+        const float luminanceNorthWest = Luminance(colourNorthWest);
+        const float luminanceNorth = Luminance(colourNorth);
+        const float luminanceNorthEast = Luminance(colourNorthEast);
+        const float luminanceWest = Luminance(colourWest);
+        const float luminanceEast = Luminance(colourEast);
+        const float luminanceSouthWest = Luminance(colourSouthWest);
+        const float luminanceSouth = Luminance(colourSouth);
+        const float luminanceSouthEast = Luminance(colourSouthEast);
+
+        const float sobelX =
+            (luminanceNorthEast + 2.0 * luminanceEast + luminanceSouthEast) -
+            (luminanceNorthWest + 2.0 * luminanceWest + luminanceSouthWest);
+        const float sobelY =
+            (luminanceSouthWest + 2.0 * luminanceSouth + luminanceSouthEast) -
+            (luminanceNorthWest + 2.0 * luminanceNorth + luminanceNorthEast);
+        const float2 sobelGradient = float2(sobelX, sobelY);
+        const float sobelMagnitude = length(sobelGradient);
+        edgeNormal = sobelGradient / max(sobelMagnitude, 1.0e-5);
+        const float2 edgeTangent = float2(-edgeNormal.y, edgeNormal.x);
+        sobelEdge = smoothstep(0.025, 0.260, sobelMagnitude);
+
+        const float3 tangentNearPositive = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv + edgeTangent * texel * 0.72, gradientX, gradientY).rgb;
+        const float3 tangentNearNegative = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv - edgeTangent * texel * 0.72, gradientX, gradientY).rgb;
+        const float3 tangentFarPositive = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv + edgeTangent * texel * 1.45, gradientX, gradientY).rgb;
+        const float3 tangentFarNegative = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv - edgeTangent * texel * 1.45, gradientX, gradientY).rgb;
+        const float3 normalNearPositive = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv + edgeNormal * texel * 0.62, gradientX, gradientY).rgb;
+        const float3 normalNearNegative = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv - edgeNormal * texel * 0.62, gradientX, gradientY).rgb;
+        const float3 normalFarPositive = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv + edgeNormal * texel * 1.20, gradientX, gradientY).rgb;
+        const float3 normalFarNegative = gAlbedo.SampleGrad(
+            gTextureSampler, sampleUv - edgeNormal * texel * 1.20, gradientX, gradientY).rgb;
+
+        const float3 tangentMean =
+            candidate * 0.34 +
+            (tangentNearPositive + tangentNearNegative) * 0.23 +
+            (tangentFarPositive + tangentFarNegative) * 0.10;
+        const float3 normalNearMean = 0.5 * (normalNearPositive + normalNearNegative);
+        const float3 normalFarMean = 0.5 * (normalFarPositive + normalFarNegative);
+        const float3 contourNormalMean = lerp(normalNearMean, normalFarMean, 0.34);
+
+        const float normalContrast = abs(
+            Luminance(normalFarPositive) - Luminance(normalFarNegative));
+        const float tangentVariation = abs(
+            Luminance(tangentFarPositive) - Luminance(tangentFarNegative));
+        const float edgeCoherence = saturate(
+            normalContrast / max(normalContrast + tangentVariation + 0.012, 1.0e-5));
+        const float diagonalConfidence = saturate(2.0 * abs(edgeNormal.x * edgeNormal.y));
+        contourConfidence = saturate(
+            max(sobelEdge, normalEdge * 0.78) *
+            lerp(0.62, 1.0, edgeCoherence) *
+            (1.0 - highlightConfidence * 0.50) *
+            (1.0 - cavityConfidence * 0.70));
+        stairStepConfidence = saturate(
+            contourConfidence *
+            lerp(0.30, 1.0, diagonalConfidence) *
+            lerp(0.45, 1.0, edgeCoherence));
+
+        const float centreForLine = Luminance(cleaned);
+        const float lineDeltaPositive = centreForLine - Luminance(normalNearPositive);
+        const float lineDeltaNegative = centreForLine - Luminance(normalNearNegative);
+        const float sameSide = step(0.0, lineDeltaPositive * lineDeltaNegative);
+        const float lineMagnitude = min(abs(lineDeltaPositive), abs(lineDeltaNegative));
+        const float lineSymmetry = 1.0 - saturate(
+            abs(abs(lineDeltaPositive) - abs(lineDeltaNegative)) /
+            max(lineMagnitude + 0.025, 1.0e-5));
+        thinLineConfidence = saturate(
+            sameSide *
+            smoothstep(0.012, 0.095, lineMagnitude) *
+            lerp(0.55, 1.0, lineSymmetry) *
+            max(sobelEdge, normalEdge * 0.70) *
+            (1.0 - highlightConfidence * 0.35) *
+            (1.0 - cavityConfidence * 0.55));
+
+        float3 directional = cleaned;
+        directional = lerp(
+            directional,
+            tangentMean,
+            stairStepConfidence * directionalDeblockStrength * 0.30);
+
+        const float3 contourDetail = directional - contourNormalMean;
+        directional += contourDetail *
+            contourConfidence * contourReconstructionStrength * 0.31;
+
+        const float3 lineDetail = cleaned - contourNormalMean;
+        directional += lineDetail *
+            thinLineConfidence * thinLineStrength * 0.36;
+
+        directional = clamp(
+            directional,
+            localMinimum - overshootLimit,
+            localMaximum + overshootLimit);
+        directionalCorrection = directional - cleaned;
+        cleaned = directional;
+    }
+
+    cleaned = clamp(cleaned, localMinimum - overshootLimit, localMaximum + overshootLimit);
+    result.colour = lerp(candidate, cleaned, master);
+
+    if (debugView == 1) result.debugColour = candidate;
+    else if (debugView == 2) result.debugColour = luminanceEdge.xxx;
+    else if (debugView == 3) result.debugColour = normalEdge.xxx;
+    else if (debugView == 4) result.debugColour = structureEdge.xxx;
+    else if (debugView == 5) result.debugColour = flatConfidence.xxx;
+    else if (debugView == 6) result.debugColour = highlightConfidence.xxx;
+    else if (debugView == 7) result.debugColour = darkBand.xxx;
+    else if (debugView == 8) result.debugColour = saturate(abs(result.colour - candidate) * 7.5);
+    else if (debugView == 9) result.debugColour = float3(edgeNormal * 0.5 + 0.5, sobelEdge);
+    else if (debugView == 10) result.debugColour = stairStepConfidence.xxx;
+    else if (debugView == 11) result.debugColour = thinLineConfidence.xxx;
+    else if (debugView == 12) result.debugColour = saturate(abs(directionalCorrection) * 10.0);
+    else result.debugColour = result.colour;
+
+    return result;
 }
 
 float PatchWeight(float2 delta)
@@ -540,6 +831,15 @@ float4 PSMain(VSOutput input) : SV_TARGET
         ? SampleNSAMDRAlbedo(uv)
         : gAlbedo.Sample(gTextureSampler, uv);
     float3 sampledAlbedo = sampledAlbedoRgba.rgb;
+    if (mode == 3)
+    {
+        const Mode3CleanupResult cleanupResult = ApplyMode3Cleanup(uv, sampledAlbedo);
+        sampledAlbedo = cleanupResult.colour;
+        if ((int)round(gCleanup2.z) > 0)
+        {
+            return float4(saturate(cleanupResult.debugColour), 1.0);
+        }
+    }
     float paintMask = gAuxTextures.z > 0.5
         ? SampleChannel(gPaintMaskMap.Sample(gTextureSampler, uv), gSemanticChannels2.y) : 0.0;
 
@@ -596,7 +896,7 @@ float4 PSMain(VSOutput input) : SV_TARGET
     {
         authoredNormalXY = (mode == 3
             ? SampleNSAMDRNormalXY(uv)
-            : SampleNormalXY(uv, 0.0)) * gSurface.y;
+            : SampleNormalXYGrad(uv, ddx(uv), ddy(uv))) * gSurface.y;
         const float authoredNormalZ = sqrt(saturate(1.0 - dot(authoredNormalXY, authoredNormalXY)));
         mappedNormal = ApplyMappedNormal(
             geometricNormal,
@@ -653,6 +953,17 @@ float4 PSMain(VSOutput input) : SV_TARGET
     colour *= gMaterial.z;
     colour = colour / (1.0 + colour);
     colour = pow(saturate(colour), 1.0 / 2.2);
+
+    // Optional visual proof that the two draw calls are independent.  This is
+    // disabled by default and never affects saved neural textures.
+    if (gOptions.w < -0.5)
+    {
+        colour = lerp(colour, float3(0.05, 0.55, 0.10), 0.24);
+    }
+    else if (gOptions.w > 0.5)
+    {
+        colour = lerp(colour, float3(0.70, 0.05, 0.72), 0.24);
+    }
 
     float textureAlpha = (gAreaTextures.x > 0.5 && (int)round(gDebug.w) == 1) ? sampledAlbedoRgba.a : 1.0;
     float outputAlpha = gAreaTint.w > 0.5 ? saturate(gAreaSurface.z * textureAlpha) : 1.0;

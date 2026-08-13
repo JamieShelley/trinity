@@ -1,293 +1,255 @@
-# NSAMDR V5.34 — tile-context material reconstruction
+# NSAMDR V9.8.3 Operator guide
 
-## V5.34 converter dependency resolution correction
-
-The converter now validates the two JavaScript entry points it actually imports instead of assuming npm hoisted every transitive package into a particular physical `node_modules` directory. npm may legally nest or hoist `runtime-utils` and the `core-math` compatibility package. A successful Node ESM import probe is the readiness contract; failures now print the real module-resolution diagnostic.
-
-## V5.26 mode selector and icon correction
-
-- Mode 1 remains the startup default.
-- Modes 1, 2 and 3 are permanently visible in a fixed selector at the top of the controls panel.
-- Mode 3 remains selectable even when its candidate is unavailable; it displays an explicit error rather than disappearing or falling back to Mode 1.
-- The generated NSAMDR icon is embedded as the executable's primary icon and applied to both the window and its Win32 class for title-bar and taskbar use.
-
-
-## V5.25 historical mode and icon changes — superseded by V5.26
-
-- V5.25 temporarily started the viewer in Mode 3 with split comparison enabled; V5.26 restored Mode 1 as the startup default.
-- Mode 3 is always present in the UI, even before the first V4 training run.
-- Before training, Mode 3 uses a deterministic prepared-4K bootstrap candidate; retraining replaces it with the tile-context result.
-- Missing Mode 3 resources never fall back to Mode 1 under a Mode 3 label. The pane displays an explicit unavailable state instead.
-- A bundled multi-resolution NSAMDR icon is embedded in the executable and applied to both the window and Windows taskbar icon.
-
-
-## Build-state and repository-marker repair
-
-CMake performs its normal incremental configure and build. If the tracked `trinityal/CMakeLists.txt` marker is missing, the verifier restores only that missing file from the current working-tree `HEAD`; it does not create a commit.
-
-## Build dependency correction
-
-The NSAMDR launcher now disables automatic vcpkg manifest installation for this already-populated build directory and resolves `fxc.exe` from the installed Windows SDK. This prevents the preview build from trying to redownload CCP's private `fxc-v10.1.zip` package. It does not enable Granny and does not use a private overlay.
-
-
-## V5.33 public-source converter dependency repair
-
-V5.32 requested `@carbonenginejs/format-gr2` and `@carbonenginejs/runtime-resource` as npm-registry versions, but those package names are not published there. V5.33 installs the readers from their public GitHub source archives instead. It deletes the failed V5.32 `package-lock.json` and partial `node_modules` tree before the one-time install.
-
-The archived GR2 reader still imports its former `@carbonenginejs/core-math` subpaths. A checked-in compatibility package with that exact package name and compatible version re-exports `mesh`, `num`, `tangent`, and `vec3` from the maintained public `@carbonenginejs/runtime-utils` source. No npm-registry copy of the unpublished CarbonEngineJS packages is required.
-
-## V5.32 converter-source packaging repair
-
-The complete source override now includes `tools/nsamdr/gr2_converter` rather than merely referencing it. The bridge uses `@carbonenginejs/format-gr2` for Granny-free `.gr2` geometry decoding and `@carbonenginejs/runtime-resource` for DDS decoding. On the first EVE-asset test run, npm installs those two open-source readers locally beneath the converter directory. No native Granny library or private CCP SDK is used.
-
-The converter writes every mesh bound by the selected highest-detail GR2 model to OBJ, converts DDS material maps to PNG, converts DDS cube environments to an equirectangular PNG, and decodes the selected hull/faction material definition from SOF `data.black`. The tint-only path remains only as an explicit failure fallback.
-
-## V5.31 source-tree repair
-
-The verifier preserves the upstream `trinityal/scripts`, `trinityal/tools` and `trinityal/trinityal` directories. It restores only tracked TrinityAL files that are absent from the working tree, excludes the override-owned `trinityal/tests/nsamdr` directory, and never overwrites an existing modified file. The launcher also requires the Windows SDK **x64** `fxc.exe`; ARM64 and x86 tools are rejected.
-
-## Quick start
-
-V5.24 replaces the old per-pixel V3 network with a fully convolutional tile-context model. **Retraining is mandatory** because the old V3 checkpoint is incompatible.
-
-From Command Prompt in the repository root:
+NSAMDR uses one supported command surface:
 
 ```bat
-call scripts\build\verify_and_clean_nsamdr_layout.bat
-call scripts\build\setup_nsamdr_cuda.bat
-call scripts\build\train_nsamdr.bat --source-root "D:\actual\EVE\SharedCache" --device cuda
-call scripts\build\test_nsamdr.bat
-call scripts\build\test_nsamdr_real_eve_asset.bat
+scripts\build\nsamdr.bat --help
 ```
 
-Use the real SharedCache or extracted texture directory. Do not use the literal placeholder `D:\actual\EVE\SharedCache`.
+The launcher resolves the repository root and Python environment, then delegates
+to `tools\nsamdr\nsamdr_cli.py`. Commands work from any current directory and
+return the underlying tool's exit code.
 
-For CPU training:
+`run_nsamdr_v9_gui.bat` remains only as a double-click GUI shim. The CUDA and
+CPU setup BATs remain bootstrap entry points. The native DX11 OBJ launcher is
+an internal bridge used by the dispatcher and preview tooling; call it through
+`nsamdr.bat native ...` for normal use.
 
-```bat
-call scripts\build\setup_nsamdr_cpu.bat
-call scripts\build\train_nsamdr.bat --source-root "D:\actual\EVE\SharedCache" --device cpu
-```
+## Command surface
 
-The RTX 5080 profile uses PyTorch 2.11.0 with the CUDA 12.8 wheel and verifies `sm_120` before training.
-
-## Comparison contract
-
-The viewer is a strict material-cleanup A/B test:
-
-| Pane | Content |
+| Capability | Command |
 |---|---|
-| **Mode 1 — original source, no cleanup** | Original extracted source material. |
-| **Mode 2 — UV/stretch diagnostics** | Stretch and sampling-pressure evidence. |
-| **Mode 3 — tile-context cleanup** | V4 reconstructed albedo baked into the Mode 3 material manifest. |
+| GUI | `nsamdr.bat gui` |
+| Environment | `nsamdr.bat setup cuda`; `nsamdr.bat setup cpu` |
+| Guarded Raven workflow | `nsamdr.bat tune [options]` |
+| Raven dataset | `nsamdr.bat index raven [options]` |
+| Low-level Raven trainer | `nsamdr.bat train preview [options]` |
+| Experiment preview | `nsamdr.bat preview EXP_#### [options]` |
+| Compare | `nsamdr.bat compare EXP_#### EXP_#### [EXP_####]` |
+| Promote | `nsamdr.bat promote EXP_####` |
+| Full EVE dataset | `nsamdr.bat index eve [options]` |
+| Full production training | `nsamdr.bat train full [options]` |
+| Full production preview | `nsamdr.bat preview production [options]` |
+| Promoted production pipeline | `nsamdr.bat run` |
+| Validation | `nsamdr.bat validate`; `nsamdr.bat test ...` |
+| Candidate/native preview | `nsamdr.bat candidate`; `nsamdr.bat native ...` |
+| Maintenance | `nsamdr.bat cleanup`; `nsamdr.bat integrate` |
 
-Mode 1 and Mode 3 use the **same mesh, camera, lighting, environment and shader**. The intended difference is the albedo resource selected by each material manifest. Mode 3 does not receive hidden exposure, normal, specular, roughness or lighting advantages.
+Use a leaf command's `--help` for its owned options. Backend-specific options
+are forwarded without a shell, so existing V9 option names remain valid.
 
-This remains Granny-free:
+## Current workflow
 
-```text
-WITH_GRANNY=OFF
-```
-
-The preview applies the bundled NSAMDR window and taskbar icon to the title bar and Windows taskbar while it is active.
-
-## Why V4
-
-The V3 model evaluated one pixel from a sparse local feature vector. It could soften isolated stair steps, but it could not maintain a panel contour over a long distance or distinguish coherent trim from repeated texture damage.
-
-V4 uses broad spatial context. It can see complete corners, parallel trim lines, repeated stair-step patterns and surrounding material evidence before deciding how to reconstruct a pixel.
-
-## Network architecture
-
-Schema:
-
-```text
-NSAMDR_TILE_CONTEXT_MATERIAL_V4
-```
-
-Default model:
+The supported tuning path is:
 
 ```text
-8-channel material tile
-    -> two 3×3 stem convolutions
-    -> 8 dilated residual blocks
-       dilation: 1, 2, 4, 8, 8, 4, 2, 1
-    -> continuous flow XY
-    -> bounded RGB residual
-    -> confidence gate
+Stage A: parameter-free renderer preflight
+  -> sign-gauge metric-SDF training
+  -> Stage B: predicted-SDF proof with the learned gate blocked
+  -> gate training only after PASS
+  -> synthetic acceptance gate
+  -> Raven audit and native preview
 ```
 
-Inputs:
-
-1. albedo RGB;
-2. authored normal XY;
-3. material selector;
-4. paint support;
-5. roughness.
-
-Outputs:
-
-1. continuous source offset X/Y;
-2. RGB residual;
-3. confidence.
-
-The default model has approximately 160,000 parameters and a **125-pixel receptive field**. It is large enough to understand extended panel structure while remaining practical for offline GPU inference.
-
-The model reconstructs material colour, not the final lit image. Lighting therefore remains controlled by the common preview renderer.
-
-## Offline overlapping inference
-
-Mode 3 generation runs the model over **overlapping 512×512 tiles** with a **64-pixel overlap**. A tapered blend window combines neighbouring predictions to prevent tile seams.
-
-Data flow:
-
-```text
-original EVE material maps
-    -> deterministic 4K preparation
-    -> 8-channel semantic material tensor
-    -> overlapping V4 tile inference
-    -> continuous colour transport + residual + confidence
-    -> baked Mode 3 albedo
-    -> common live preview shader
-```
-
-There is **No runtime neural compute shader**. There is no generated HLSL weight include and no transient neural-albedo resource. This removes the previous per-pixel runtime path and makes the A/B boundary explicit.
-
-Generated model files:
-
-```text
-artifacts\nsamdr\neural\nsamdr_tile_context.pt
-artifacts\nsamdr\neural\nsamdr_tile_context.json
-```
-
-Generated Mode 3 files:
-
-```text
-artifacts\nsamdr\eve_assets\<asset>\strategy_candidates_4096\mode3_nsamdr_neural
-```
-
-## Training data behaviour
-
-Synthetic training creates clean panel materials and then degrades the input with combinations of:
-
-- low-resolution resampling;
-- diagonal staircase contours;
-- broken bright trim;
-- compression-like blocks;
-- anisotropic blur;
-- halo and edge fuzz;
-- local normal/material disagreement.
-
-The clean material remains the target. Normal, material, paint and roughness maps provide structural guidance.
-
-Real source textures are also sampled for identity-preservation training. They are not silently treated as perfect contour truth. The identity loss discourages changes to valid flat panels and existing authored detail.
-
-Training losses cover:
-
-- reconstructed colour;
-- Sobel contour agreement;
-- identity preservation;
-- confidence supervision;
-- flow and residual smoothness.
-
-## Default training configuration
-
-File:
-
-```text
-tools\nsamdr\neural\default_training_config.json
-```
-
-| Key | Default | Purpose |
-|---|---:|---|
-| `epochs` | 24 | Complete passes over generated tiles. |
-| `tilesPerEpoch` | 2048 | Training tiles generated per epoch. |
-| `batchSize` | 8 | Tiles per optimiser step. |
-| `baseChannels` | 32 | Feature width. |
-| `residualBlocks` | 8 | Dilated context blocks. |
-| `tileSize` | 96 | Training crop size. |
-| `maxOffsetPixels` | 8 | Maximum learned source transport. |
-| `maxResidual` | 0.25 | Maximum bounded RGB residual. |
-| `edgeWeight` | 1.5 | Contour fidelity weight. |
-| `identityWeight` | 0.65 | Valid-region preservation weight. |
-| `inferenceTileSize` | 512 | Candidate-generation tile size. |
-| `inferenceOverlap` | 64 | Seam-prevention overlap. |
-
-The training panel writes an override JSON and launches:
-
-```text
-scripts\build\retrain_nsamdr_and_preview.bat
-```
-
-That process trains, validates, regenerates the Mode 3 candidate, rebuilds and relaunches the viewer.
-
-## Model validation
-
-Run:
+Run that complete guarded sequence with:
 
 ```bat
-call scripts\build\test_nsamdr.bat
+call scripts\build\nsamdr.bat tune
 ```
 
-The validator checks:
+The GUI uses this same dispatcher route:
 
-- V4 schema;
-- model hash;
-- 8 input and 6 output channels;
-- parameter count between 100,000 and 500,000;
-- output dimensions and bounded values;
-- receptive field of at least 125 pixels;
-- stored validation metrics.
+```bat
+call scripts\build\nsamdr.bat gui
+```
 
-Candidate generation rejects an old V3 checkpoint instead of silently producing an identity comparison.
+Expected title: `NSAMDR V9 Workflow Controller 4.9.3`.
 
-## C++ architecture
+### `tune` versus `train preview`
 
-The preview remains ordinary `.h` and `.cpp` composition:
+`tune` is the normal operator command. It prepares or reuses the deterministic
+Raven data, preserves the Stage A/SDF/Stage B/gate ordering, enforces the hard
+acceptance gates, audits the result, and launches the Raven preview only after
+PASS.
+
+`train preview` is a lower-level experiment trainer. It does not build the
+Raven dataset, orchestrate both proof stages, or launch the final preview. Use
+it only for isolated recovery or debugging.
+
+Quick tuning uses 11 epochs and 96 training/16 validation tiles per epoch. It
+is previewable and comparable but cannot be promoted. A Full proof uses the
+complete 24-epoch phase schedule with 128 training/32 validation tiles per
+epoch and is the only promotion-eligible mode.
+
+## Raven tuning and experiments
+
+Build the fixed, non-overlapping Raven Navy Issue dataset explicitly when
+needed:
+
+```bat
+call scripts\build\nsamdr.bat index raven ^
+  --shared-cache "C:\CCP\EVE" ^
+  --train-crops 12 ^
+  --validation-crops 4
+```
+
+Start a Quick experiment:
+
+```bat
+call scripts\build\nsamdr.bat tune ^
+  --experiment new ^
+  --training-mode quick
+```
+
+For a promotion proof, use `--training-mode full`. Experiments are immutable;
+resume an existing `EXP_####` only with its stored mode and semantic settings.
+
+Preview, compare, and promote completed experiments:
+
+```bat
+call scripts\build\nsamdr.bat preview EXP_0001
+call scripts\build\nsamdr.bat compare EXP_0001 EXP_0002
+call scripts\build\nsamdr.bat promote EXP_0002
+```
+
+Configuration promotion copies the exact accepted semantic hyperparameters
+into a production-scoped config. It does not copy Raven weights into the
+production model.
+
+## Production
+
+Index the authored EVE dataset using the selected promoted config:
+
+```bat
+call scripts\build\nsamdr.bat index eve ^
+  --config artifacts\nsamdr\promoted\EXP_0002\v9_fidelity_full.json ^
+  --shared-cache "C:\CCP\EVE"
+```
+
+Run Full production training:
+
+```bat
+call scripts\build\nsamdr.bat train full ^
+  --config artifacts\nsamdr\promoted\EXP_0002\v9_fidelity_full.json ^
+  --shared-cache "C:\CCP\EVE" ^
+  --control auto
+```
+
+The command performs CUDA preflight, optional indexing, manifest validation,
+training, checkpoint validation, and candidate-cache invalidation in that
+order. `--resume` and `--restart` retain their existing meanings.
+
+Preview the validated production checkpoint:
+
+```bat
+call scripts\build\nsamdr.bat preview production ^
+  --checkpoint-dir artifacts\nsamdr\neural_v9 ^
+  --force-candidate
+```
+
+After a Full Raven proof has been promoted, the entire production sequence is:
+
+The all-assets production run uses the promoted configuration for indexing,
+full training, checkpoint validation, and the native production preview.
+
+```bat
+call scripts\build\nsamdr.bat run --shared-cache "C:\CCP\EVE"
+```
+
+The final checkpoint is `artifacts\nsamdr\neural_v9\nsamdr_v9_fidelity.pt`.
+
+## Validation
+
+Run the capability/layout check, semantic contract, and architecture smoke test:
+
+```bat
+call scripts\build\nsamdr.bat validate --device cpu
+```
+
+Individual checks are available as:
+
+```bat
+call scripts\build\nsamdr.bat test contract
+call scripts\build\nsamdr.bat test architecture --device cpu
+call scripts\build\nsamdr.bat test checkpoint
+```
+
+The checkpoint command expects a completed production checkpoint unless a
+different config is supplied.
+
+Current invariants:
+
+- schema: `NSAMDR_SIGN_GAUGE_METRIC_SDF_RENDERER_4X_V9_8_3`
+- upscale factor: 4
+- model input channels: 16
+- production parameter count: 7,915,282
+- production semantic config hash:
+  `ce04236d056f41a5376a167d15232083d9e7ffdf1965205ffb170bb4e1bc05a0`
+
+The Raven tuning model uses the same production architecture. Dataset scope and
+work volume differ; architecture and semantic gates do not.
+
+## Native preview
+
+Build the specialized TrinityAL DX11 preview without launching it:
+
+```bat
+call scripts\build\nsamdr.bat native build
+```
+
+Open a local OBJ or GR2 asset:
+
+```bat
+call scripts\build\nsamdr.bat native obj "D:\assets\ship.obj" "D:\assets\ship.png"
+```
+
+Extract and preview an installed EVE asset:
+
+```bat
+call scripts\build\nsamdr.bat native eve --shared-cache "C:\CCP\EVE"
+```
+
+The retained `run_nsamdr_obj_preview_dx11.bat` owns the specialized incremental
+CMake configuration and launch. It is intentionally not another public workflow
+surface.
+
+## Trinity integration
+
+The upstream renderer files do not contain the local NSAMDR quality override by
+default. Apply the idempotent anchor-based integration with:
+
+```bat
+call scripts\build\nsamdr.bat integrate
+```
+
+Dry-run and verify anchors without writing:
+
+```bat
+call scripts\build\nsamdr.bat integrate --check
+```
+
+The exposed policy remains Off/Balanced/High/Ultra with Off as the default.
+
+## Cleanup and artifacts
+
+With no artifact flags, cleanup removes only Python caches. Artifact deletion is
+explicit and repository-contained. Always inspect a dry run first:
+
+```bat
+call scripts\build\nsamdr.bat cleanup --all-artifacts --dry-run
+```
+
+Then select only the intended roots, for example `--tuning-dataset`,
+`--experiments`, `--promotion`, `--dataset`, or `--production`.
+
+Important artifact roots:
 
 ```text
-PreviewApplication
-    +-- CameraController
-    +-- MeshProcessor
-    +-- InputController
-    +-- StrategyModes
-    +-- NSAMDRPipeline
-    +-- AssetProcessor
-    +-- NSAMDRTrainingController
-    +-- SceneController
-    +-- RenderPipeline
-    +-- PreviewRenderer
-    +-- PreviewProcessing
-    +-- PreviewPanel
+artifacts\nsamdr\training_v9_preview_raven   fixed Raven dataset
+artifacts\nsamdr\experiments                immutable experiments
+artifacts\nsamdr\promoted                   selected configuration
+artifacts\nsamdr\training_v9                full authored dataset
+artifacts\nsamdr\neural_v9                  production checkpoint/state
 ```
 
-The former C++ runtime-compute subsystem is removed. Mode 3 preparation is now owned by the Python candidate generator, while C++ only loads and displays the resulting material resources.
-
-The only inheritance is the GoogleTest fixture required by the TrinityAL test host. `.inl` implementation files are forbidden.
-
-## Source ownership
-
-| Responsibility | File |
-|---|---|
-| V4 model, training and tiled inference | `tools/nsamdr/neural/train_nsamdr_kernel.py` |
-| V4 checkpoint validator | `tools/nsamdr/neural/test_nsamdr_kernel.py` |
-| Mode 3 4K candidate generation | `tools/nsamdr/generate_strategy_candidates.py` |
-| Real EVE asset preparation and launch | `tools/nsamdr/eve_asset_test.py` |
-| CUDA environment setup | `scripts/build/setup_nsamdr_cuda.bat` |
-| Training entry point | `scripts/build/train_nsamdr.bat` |
-| Full retrain/build/relaunch | `scripts/build/retrain_nsamdr_and_preview.bat` |
-| Layout and stale-runtime cleanup | `scripts/build/verify_and_clean_nsamdr_layout.bat` |
-| Same-renderer A/B draw path | `trinityal/tests/nsamdr/NSAMDRRenderPipeline.cpp` |
-| Common material shader | `trinityal/tests/nsamdr/NSAMDRPreview.hlsl` |
-| UI and training controls | `trinityal/tests/nsamdr/NSAMDRPreviewPanel.cpp` |
-
-## Acceptance criteria
-
-A V4 result is useful only when:
-
-1. long panel contours become continuous;
-2. bright trim loses staircase and fuzzy halo artefacts;
-3. valid surface grain and authored markings remain;
-4. no tile seams appear;
-5. Mode 1 remains unchanged when the model or candidate changes;
-6. lighting, geometry and shader state remain identical between panes.
+Cleanup is never run automatically by the GUI or training commands.

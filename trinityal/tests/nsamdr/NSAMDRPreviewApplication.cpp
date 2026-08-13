@@ -32,7 +32,7 @@ void PreviewApplication::Run()
 
     const std::string objPath = GetEnvironmentString("NSAMDR_OBJ");
     ASSERT_FALSE(objPath.empty())
-        << "NSAMDR_OBJ is not set. Launch through scripts\\build\\run_nsamdr_obj_preview_dx11.bat <ship.obj|ship.gr2> [albedo.png].";
+        << "NSAMDR_OBJ is not set. Launch through scripts\\build\\nsamdr.bat native obj <ship.obj|ship.gr2> [albedo.png].";
 
     ObjMesh mesh;
     std::string meshError;
@@ -90,7 +90,7 @@ void PreviewApplication::Run()
     if (m_pipeline.IsConfigured(candidates) && m_pipeline.IsReady(candidates))
     {
         state.neuralTraining.status =
-            "Mode 3 candidate loaded. Its analysis identifies whether trained V4 tile-context inference or the deterministic bootstrap was baked.";
+            "Mode 3 candidate loaded. Its analysis records the trained V9 fidelity-first checkpoint, FP16 CUDA 4x multi-head reconstruction backend, inference time, confidence telemetry and model hash.";
     }
 
     ShipCatalog shipCatalog;

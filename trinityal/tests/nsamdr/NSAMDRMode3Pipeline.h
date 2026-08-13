@@ -20,7 +20,7 @@ struct NSAMDRPipelineContract
     const char* validationEnvironment = "NSAMDR_MODE3_VALIDATION";
     const char* objEnvironment = "NSAMDR_MODE3_OBJ";
     const char* materialsEnvironment = "NSAMDR_MODE3_MATERIALS";
-    const char* schema = "NSAMDR_MODE3_TILE_CONTEXT_V4";
+    const char* schema = "NSAMDR_MODE3_CUDA_CACHE_PBR_2X_V7";
 };
 
 class NSAMDRPipeline final

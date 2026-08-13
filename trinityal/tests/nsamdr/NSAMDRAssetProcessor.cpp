@@ -696,9 +696,28 @@ bool AssetProcessor::CreatePreviewResources(
     samplerDescription.MaxLOD = D3D11_FLOAT32_MAX;
     if (FAILED(device->CreateSamplerState(&samplerDescription, resources.textureSampler.GetAddressOf())))
     {
-        ADD_FAILURE() << "Failed to create albedo sampler";
+        ADD_FAILURE() << "Failed to create high-quality NSAMDR sampler";
         return false;
     }
+
+    // The left pane is intended to resemble the visibly softer legacy EVE
+    // client presentation rather than a lossless PNG shown through the same
+    // 16x sampler as the neural result.  Keep this as a separate immutable
+    // sampler so the right pane cannot accidentally inherit the degradation.
+    D3D11_SAMPLER_DESC baselineSamplerDescription = samplerDescription;
+    baselineSamplerDescription.Filter = D3D11_FILTER_ANISOTROPIC;
+    baselineSamplerDescription.MaxAnisotropy = 2;
+    baselineSamplerDescription.MipLODBias = 1.0f;
+    if (FAILED(device->CreateSamplerState(
+            &baselineSamplerDescription,
+            resources.baselineTextureSampler.GetAddressOf())))
+    {
+        ADD_FAILURE() << "Failed to create legacy EVE-like baseline sampler";
+        return false;
+    }
+
+    std::printf(
+        "NSAMDR A/B samplers: baseline=2x anisotropic lodBias=+1.00 | candidate=16x anisotropic lodBias=0.00\n");
 
     bool success = true;
     if (albedoPath.empty())
