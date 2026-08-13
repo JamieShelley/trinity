@@ -1596,7 +1596,7 @@ bool TriGeometryRes::IsRayCasterReady() const
 
 bool TriGeometryRes::HasRayCasterPreparationFailed() const
 {
-	if( m_bvh.sessions > 0 && !m_bvh.geometry )	// ReleaseResources destroyed our bvh :(
+	if( m_bvh.sessions > 0 && !m_bvh.geometry ) // ReleaseResources destroyed our bvh :(
 	{
 		return true;
 	}

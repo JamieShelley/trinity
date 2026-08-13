@@ -82,15 +82,15 @@ public:
 	float GetHullDamageFactor() const;
 	void SetHullDamageFactor( float factor );
 	Tr2Effect* GetArmorDamageShaderEffect() const;
-	void SetArmorDamageShaderEffect( Tr2Effect* shader );
+	void SetArmorDamageShaderEffect( Tr2Effect * shader );
 	TriPerlinCurve* GetHullDamageFlickerCurve() const;
-	void SetHullDamageFlickerCurve( TriPerlinCurve* curve );
+	void SetHullDamageFlickerCurve( TriPerlinCurve * curve );
 	Tr2ScalarFader* GetArmorRepairing() const;
-	void SetArmorRepairing( Tr2ScalarFader* fader );
+	void SetArmorRepairing( Tr2ScalarFader * fader );
 	Tr2ScalarFader* GetArmorHardening() const;
-	void SetArmorHardening( Tr2ScalarFader* fader );
+	void SetArmorHardening( Tr2ScalarFader * fader );
 	Tr2ScalarFader* GetHullRepairing() const;
-	void SetHullRepairing( Tr2ScalarFader* fader );
+	void SetHullRepairing( Tr2ScalarFader * fader );
 
 	// setters
 	void SetSeed( const unsigned int seed );

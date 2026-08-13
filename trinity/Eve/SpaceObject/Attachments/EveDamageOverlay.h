@@ -76,7 +76,7 @@ public:
 	// Updates
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const OwnerInfo& info, size_t minTexelRows, bool hasExternalActivity );
 	void UpdateSyncronous( const EveUpdateContext& updateContext );
-	void UpdateBlockData( Tr2DataTextureManager* dataTextureMgr, bool hasActivity );
+	void UpdateBlockData( Tr2DataTextureManager * dataTextureMgr, bool hasActivity );
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// Rendering
@@ -108,12 +108,12 @@ public:
 	void SetEnabledDamageLocators( std::vector<bool>::iterator begin, std::vector<bool>::iterator end );
 	void SetDebugForceSpawnDebris( bool value );
 	void SetHullDamageFactor( float factor );
-	void SetArmorDamageShaderEffect( Tr2Effect* shader );
-	void SetHullDamageFlickerCurve( TriPerlinCurve* curve );
-	void SetArmorRepairing( Tr2ScalarFader* fader );
-	void SetArmorHardening( Tr2ScalarFader* fader );
-	void SetHullRepairing( Tr2ScalarFader* fader );
-	void SetImpactIndexSource( EveDamageOverlay* source );
+	void SetArmorDamageShaderEffect( Tr2Effect * shader );
+	void SetHullDamageFlickerCurve( TriPerlinCurve * curve );
+	void SetArmorRepairing( Tr2ScalarFader * fader );
+	void SetArmorHardening( Tr2ScalarFader * fader );
+	void SetHullRepairing( Tr2ScalarFader * fader );
+	void SetImpactIndexSource( EveDamageOverlay * source );
 
 	// control animation
 	void ToggleEffect( const char* name, bool on, float duration );

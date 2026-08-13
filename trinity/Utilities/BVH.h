@@ -19,7 +19,7 @@ struct alignas( 16 ) Node
 	uint32_t firstChildIndex : 26;
 	uint32_t numObj : 3;
 	uint32_t leaf : 1;
-	uint32_t magicalPadding : 2;	// this exists to prevent performance degradation due to simd interpreting its .w component as denormal float
+	uint32_t magicalPadding : 2; // this exists to prevent performance degradation due to simd interpreting its .w component as denormal float
 	Vector3 boundsMax;
 	uint32_t padding = 0;
 
@@ -39,7 +39,7 @@ struct alignas( 16 ) Triangle
 {
 	Vector3 vertex0;
 	uint32_t element : 30;
-	uint32_t magicalPadding : 2;	// this exists to prevent performance degradation due to simd interpreting its .w component as denormal float
+	uint32_t magicalPadding : 2; // this exists to prevent performance degradation due to simd interpreting its .w component as denormal float
 	Vector3 edge1;
 	uint32_t padding0;
 	Vector3 edge2;

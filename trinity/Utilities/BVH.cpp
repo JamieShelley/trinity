@@ -211,8 +211,7 @@ bool Intersection(
 	invRayDir = XMVectorClamp(
 		invRayDir,
 		XMVectorReplicate( -std::numeric_limits<float>::max() ),
-		XMVectorReplicate( std::numeric_limits<float>::max() )
-	);
+		XMVectorReplicate( std::numeric_limits<float>::max() ) );
 
 	float hitDistance;
 	if( !Intersects( rayOrigin, invRayDir, tree.nodes[0], hitDistance ) || rayLength < hitDistance )
