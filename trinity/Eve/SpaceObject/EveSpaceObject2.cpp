@@ -1962,6 +1962,8 @@ void EveSpaceObject2::ReleaseDamageFilterSessions()
 
 bool EveSpaceObject2::CollectOccluders()
 {
+	CCP_STATS_ZONE( __FUNCTION__ );
+
 	if( m_mesh && m_mesh->GetGeometryResource() )
 	{
 		if( !m_mesh->GetGeometryResource()->IsPrepared() )
@@ -2016,6 +2018,8 @@ bool EveSpaceObject2::CollectOccluders()
 
 bool EveSpaceObject2::AreOccludersReadyForRaycasts()
 {
+	CCP_STATS_ZONE( __FUNCTION__ );
+
 	for( size_t i = 0; i < m_damageFilterOccluders.size(); )
 	{
 		const auto& occluder = m_damageFilterOccluders[i];
@@ -2041,7 +2045,7 @@ bool EveSpaceObject2::AreOccludersReadyForRaycasts()
 
 void EveSpaceObject2::RefreshDamageLocatorMask( const LocatorStructureList* damageLocators )
 {
-	CCP_STATS_ZONE( "Damage Locator Filter Raycasts" );
+	CCP_STATS_ZONE( __FUNCTION__ );
 
 	std::vector<uint8_t> enabled;
 	enabled.resize( m_damageLocatorEnabled.size() );
