@@ -212,22 +212,33 @@ void TriDevice::HandleRenderTick( Be::Time realTime, Be::Time simTime )
 
 				CCP_LOGERR( "[DRED] Last tracked GPU operations:" );
 				std::map<UINT, std::wstring> contextStrings;
-				D3D12_AUTO_BREADCRUMB_NODE1 const* pNode = dredAutoBreadcrumbsOutput.pHeadAutoBreadcrumbNode;
-				while( pNode && pNode->pLastBreadcrumbValue )
+				for( D3D12_AUTO_BREADCRUMB_NODE1 const* pNode = dredAutoBreadcrumbsOutput.pHeadAutoBreadcrumbNode; pNode; pNode = pNode->pNext )
 				{
-					UINT lastCompletedOp = *pNode->pLastBreadcrumbValue;
-					if( lastCompletedOp != (int)pNode->BreadcrumbCount && lastCompletedOp != 0 )
+					if( !pNode->pLastBreadcrumbValue )
 					{
-						CCP_LOGERR( "[DRED] Commandlist completed %d of %d commands", lastCompletedOp, pNode->BreadcrumbCount );
+						continue;
+					}
+					UINT lastCompletedOp = *pNode->pLastBreadcrumbValue;
+					// Only lists in flight at removal time; 0 = never started, BreadcrumbCount = fully retired
+					if( lastCompletedOp != pNode->BreadcrumbCount && lastCompletedOp != 0 )
+					{
+						CCP_LOGERR( "[DRED] Commandlist '%s' (%p) on queue '%s' completed %d of %d commands (%d contexts)",
+							pNode->pCommandListDebugNameA ? pNode->pCommandListDebugNameA : "<unnamed>",
+							pNode->pCommandList,
+							pNode->pCommandQueueDebugNameA ? pNode->pCommandQueueDebugNameA : "<unnamed>",
+							lastCompletedOp, pNode->BreadcrumbCount, pNode->BreadcrumbContextsCount );
 
-						UINT firstOp = std::max<UINT>( lastCompletedOp - 100, 0 );
+						UINT firstOp = lastCompletedOp > 100 ? lastCompletedOp - 100 : 0;
 						UINT lastOp = std::min<UINT>( lastCompletedOp + 20, UINT( pNode->BreadcrumbCount ) - 1 );
 
 						contextStrings.clear();
-						for( UINT breadcrumbContext = firstOp; breadcrumbContext < pNode->BreadcrumbContextsCount; ++breadcrumbContext )
+						for( UINT breadcrumbContext = 0; breadcrumbContext < pNode->BreadcrumbContextsCount; ++breadcrumbContext )
 						{
 							const D3D12_DRED_BREADCRUMB_CONTEXT& context = pNode->pBreadcrumbContexts[breadcrumbContext];
-							contextStrings[context.BreadcrumbIndex] = context.pContextString;
+							if( context.BreadcrumbIndex >= firstOp && context.BreadcrumbIndex <= lastOp )
+							{
+								contextStrings[context.BreadcrumbIndex] = context.pContextString;
+							}
 						}
 
 						for( UINT op = firstOp; op <= lastOp; ++op )
@@ -242,27 +253,21 @@ void TriDevice::HandleRenderTick( Be::Time realTime, Be::Time simTime )
 							}
 
 							char const* opName = DredBreadcrumbOpName( breadcrumbOp );
-							CCP_LOGERR( "\tOp: %d, %s%ls%s", op, opName, contextString.c_str(), ( op + 1 == lastCompletedOp ) ? " - Last completed" : "" );
+							char const* status = op == lastCompletedOp ? " - IN FLIGHT" : ( op + 1 == lastCompletedOp ) ? " - Last completed" : "";
+							CCP_LOGERR( "\tOp: %d, %s %ls%s", op, opName, contextString.c_str(), status );
 						}
 					}
-					pNode = pNode->pNext;
 				}
 			}
 			if( SUCCEEDED( pDred->GetPageFaultAllocationOutput1( &dredPageFaultOutput ) ) )
 			{
 				for( auto node = dredPageFaultOutput.pHeadExistingAllocationNode; node != nullptr; node = node->pNext )
 				{
-					if( node->ObjectNameW )
-					{
-						CCP_LOGERR( "Page Fault Allocation on: %ls", node->ObjectNameW );
-					}
+					CCP_LOGERR( "Page Fault Allocation on: %ls (type %d)", node->ObjectNameW ? node->ObjectNameW : L"<unnamed>", node->AllocationType );
 				}
 				for( auto node = dredPageFaultOutput.pHeadRecentFreedAllocationNode; node != nullptr; node = node->pNext )
 				{
-					if( node->ObjectNameW )
-					{
-						CCP_LOGERR( "Page Fault Free on: %ls", node->ObjectNameW );
-					}
+					CCP_LOGERR( "Page Fault Free on: %ls (type %d)", node->ObjectNameW ? node->ObjectNameW : L"<unnamed>", node->AllocationType );
 				}
 			}
 		}

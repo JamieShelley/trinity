@@ -17,6 +17,7 @@
 #include "util/AmdExtDevice.h"
 
 extern bool g_requestDebugMarkers;
+extern bool g_dredBreadcrumbsEnabled;
 
 CCP_STATS_DECLARE( primitiveCount, "Trinity/AL/primitiveCount", true, CST_COUNTER_HIGH, "Primitive count in DrawPrimitive calls." );
 CCP_STATS_DECLARE( vertexCount, "Trinity/AL/vertexCount", true, CST_COUNTER_HIGH, "Vertex count in DrawPrimitive calls." );
@@ -139,6 +140,7 @@ ALResult Tr2RenderContextAL::CreateDx12( ID3D12CommandAllocator* commandAllocato
 		commandAllocator,
 		nullptr,
 		IID_PPV_ARGS( &m_commandList ) ) );
+	TrinityALImpl::SetDebugName( m_commandList, "Tr2RenderContext CommandList" );
 	CR_RETURN_HR( m_commandList->Close() );
 	m_commandList.QueryInterface( &m_commandList2 );
 
@@ -1568,6 +1570,25 @@ void Tr2RenderContextAL::ResetDx12()
 	m_srgbWriteEnable = false;
 }
 
+namespace
+{
+// DRED breadcrumb contexts are only captured from PIX3-blob markers (Metadata=2,
+// WinPixEventRuntime encoding); legacy ANSI/unicode markers are ignored
+void SetDredMarker( ID3D12GraphicsCommandList* commandList, const char* text )
+{
+	constexpr UINT64 PIXEvent_SetMarker_NoArgs = 0x008;
+	UINT64 blob[64];
+	blob[0] = PIXEvent_SetMarker_NoArgs << 10;                  // timestamp 0, event type
+	blob[1] = 0xFF000000;                                       // ARGB color
+	blob[2] = ( UINT64( 8 ) << 55 ) | ( UINT64( 1 ) << 54 );    // string info: copy chunk 8, isANSI
+	size_t lenBytes = strlen( text ) + 1;
+	size_t qwords = std::min( ( lenBytes + 7 ) / 8, size_t( 60 ) );
+	memset( &blob[3], 0, qwords * 8 );
+	memcpy( &blob[3], text, std::min( lenBytes, qwords * 8 - 1 ) );
+	commandList->SetMarker( 2, blob, UINT( ( 3 + qwords ) * 8 ) );
+}
+}
+
 void Tr2RenderContextAL::AddGpuMarker( const char* marker )
 {
 	m_ownerDevice->GetMarkerBuffer().PutMarker( m_commandList2, marker );
@@ -1575,6 +1596,10 @@ void Tr2RenderContextAL::AddGpuMarker( const char* marker )
 	if( crashTracker )
 	{
 		crashTracker->PutMarker( m_commandList2, marker );
+	}
+	if( g_dredBreadcrumbsEnabled )
+	{
+		SetDredMarker( m_commandList, marker );
 	}
 }
 
@@ -1720,10 +1745,51 @@ void Tr2RenderContextAL::ResourceBarrierDx12( const D3D12_RESOURCE_BARRIER& barr
 	ResourceBarrierDx12( 1, &barrier );
 }
 
+namespace
+{
+// Recorded immediately before each ResourceBarrier so the DRED breadcrumb context
+// identifies which resources/states the otherwise anonymous RESOURCEBARRIER op contains
+void EmitBarrierBreadcrumb( ID3D12GraphicsCommandList* commandList, const D3D12_RESOURCE_BARRIER* barriers, size_t count )
+{
+	if( !g_dredBreadcrumbsEnabled )
+	{
+		return;
+	}
+	char buf[512];
+	size_t pos = size_t( snprintf( buf, sizeof( buf ), "Barriers:" ) );
+	for( size_t i = 0; i < count && pos < sizeof( buf ) - 1; ++i )
+	{
+		const auto& barrier = barriers[i];
+		ID3D12Resource* resource = barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_UAV ? barrier.UAV.pResource : barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_ALIASING ? barrier.Aliasing.pResourceAfter : barrier.Transition.pResource;
+		char name[128];
+		UINT nameSize = sizeof( name ) - 1;
+		if( !resource || FAILED( resource->GetPrivateData( WKPDID_D3DDebugObjectName, &nameSize, name ) ) || nameSize >= sizeof( name ) )
+		{
+			nameSize = UINT( snprintf( name, sizeof( name ), "%p", resource ) );
+		}
+		name[nameSize] = 0;
+		if( barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION )
+		{
+			pos += size_t( snprintf( buf + pos, sizeof( buf ) - pos, " %s(0x%x->0x%x)", name, barrier.Transition.StateBefore, barrier.Transition.StateAfter ) );
+		}
+		else if( barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_UAV )
+		{
+			pos += size_t( snprintf( buf + pos, sizeof( buf ) - pos, " UAV(%s)", name ) );
+		}
+		else
+		{
+			pos += size_t( snprintf( buf + pos, sizeof( buf ) - pos, " Alias(%s)", name ) );
+		}
+	}
+	SetDredMarker( commandList, buf );
+}
+}
+
 void Tr2RenderContextAL::FlushBarriersDx12()
 {
 	if( !m_barriers.empty() )
 	{
+		EmitBarrierBreadcrumb( m_commandList, m_barriers.data(), m_barriers.size() );
 		m_commandList->ResourceBarrier( UINT( m_barriers.size() ), m_barriers.data() );
 		m_barriers.clear();
 	}
@@ -1771,6 +1837,7 @@ void Tr2RenderContextAL::FlushBarriersDx12( size_t count, ID3D12Resource** resou
 		}
 		if( barrierCount )
 		{
+			EmitBarrierBreadcrumb( m_commandList, barriers, barrierCount );
 			m_commandList->ResourceBarrier( UINT( barrierCount ), barriers );
 		}
 	}
@@ -1797,6 +1864,7 @@ void Tr2RenderContextAL::FlushBarriersDx12( size_t count, ID3D12Resource** resou
 		}
 		if( !barriers.empty() )
 		{
+			EmitBarrierBreadcrumb( m_commandList, barriers.data(), barriers.size() );
 			m_commandList->ResourceBarrier( UINT( barriers.size() ), barriers.data() );
 		}
 	}

@@ -15,6 +15,7 @@
 
 extern bool g_requestDeviceDebugLayer;
 extern bool g_requestDebugMarkers;
+extern bool g_dredBreadcrumbsEnabled;
 bool g_gatherPipelineStatistics = false;
 extern ICrashReporter* TrinityALCrashes;
 
@@ -36,7 +37,7 @@ CCP_STATS_DECLARE( dx12GpuMemoryBudgetLocal, "Trinity/AL/gpuMemory/budgetLocal",
 
 namespace
 {
-bool EnableDebugLayer()
+void EnableDredBreadcrumbs()
 {
 	CComPtr<ID3D12DeviceRemovedExtendedDataSettings1> pDredSettings;
 	if( SUCCEEDED( D3D12GetDebugInterface( IID_PPV_ARGS( &pDredSettings ) ) ) )
@@ -44,9 +45,14 @@ bool EnableDebugLayer()
 		// Turn on auto-breadcrumbs and page fault reporting.
 		pDredSettings->SetAutoBreadcrumbsEnablement( D3D12_DRED_ENABLEMENT_FORCED_ON );
 		pDredSettings->SetPageFaultEnablement( D3D12_DRED_ENABLEMENT_FORCED_ON );
+		// Capture SetMarker/BeginEvent strings alongside the breadcrumb ops
+		pDredSettings->SetBreadcrumbContextEnablement( D3D12_DRED_ENABLEMENT_FORCED_ON );
+		g_dredBreadcrumbsEnabled = true;
 	}
+}
 
-
+bool EnableDebugLayer()
+{
 	CComPtr<ID3D12Debug> debugInterface;
 	CComPtr<ID3D12Debug1> debugInterface1;
 	if( SUCCEEDED( D3D12GetDebugInterface( IID_PPV_ARGS( &debugInterface ) ) ) )
@@ -300,6 +306,7 @@ ALResult Tr2PrimaryRenderContextAL::CreateDevice(
 	bool hasDebugLayer = false;
 	if( g_requestDeviceDebugLayer )
 	{
+		EnableDredBreadcrumbs();
 		hasDebugLayer = EnableDebugLayer();
 	}
 
@@ -393,6 +400,7 @@ ALResult Tr2PrimaryRenderContextAL::CreateDevice(
 	desc.NodeMask = 0;
 
 	CR_RETURN_HR( CreateCommandQueue( device, &desc, commandQueue ) );
+	TrinityALImpl::SetDebugName( commandQueue, "PrimaryDirectQueue" );
 
 	const bool isWindowless = ( focusWindow == 0 ) && presentationParameters.software;
 
