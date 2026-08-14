@@ -170,6 +170,9 @@ public:
 
 	bool Empty() const;
 
+	void CollectOwnedLocatorSets( const Matrix& parentTransform, std::vector<EveChildLocatorSetsSource>& out ) const override;
+	void CollectOwnedGeometry( const Matrix& parentTransform, std::vector<EveChildGeometry>& out ) const override;
+
 	PEveSpaceObjectChildVector m_objects;
 
 protected:

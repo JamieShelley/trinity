@@ -195,6 +195,8 @@ IRootPtr EveSOF::BuildFromDNA( const char* dnaString )
 	// set all easy consts
 	SetupConsts( newObj, dna );
 
+	int partTag = 1; // we start at 1 because NO_PART_TAG is 0
+
 	auto centerOffset = std::vector<Matrix>( 1, IdentityMatrix() );
 	if( dna->GetBuildClass() == EveSOFDataHull::BUILDCLASS_EXTENSION )
 	{
@@ -222,7 +224,7 @@ IRootPtr EveSOF::BuildFromDNA( const char* dnaString )
 		extensionContainer->SetIsPlacementRoot( true );
 
 		EveChildInstancedMeshesPtr sharedMeshes;
-		CreatePlacement( newObj, sharedMeshes, dna, dna, fakePlacement, std::vector<EveSOFDataMgr::LocatorDirectionData>( 1, center ), centerOffset, extensionContainer );
+		CreatePlacement( newObj, sharedMeshes, dna, dna, fakePlacement, std::vector<EveSOFDataMgr::LocatorDirectionData>( 1, center ), centerOffset, extensionContainer, partTag );
 
 		newObj->AddToEffectChildrenList( extensionContainer );
 		// create an empty mesh...
@@ -276,11 +278,12 @@ IRootPtr EveSOF::BuildFromDNA( const char* dnaString )
 	layoutContainer->SetOrigin( EveSpaceObjectChild::SOF );
 	layoutContainer->SetIsPlacementRoot( true );
 	layoutContainer->SetAlwaysOn( true );
-	SetupLayout( newObj, layoutContainer, sharedMeshes, dna, centerOffset );
+	SetupLayout( newObj, layoutContainer, sharedMeshes, dna, centerOffset, partTag );
 
 	if( layoutContainer->m_objects.size() != 0 )
 	{
 		newObj->AddToEffectChildrenList( layoutContainer );
+		newObj->RunDamageLocatorFilter();
 	}
 
 	// EveShip2-specific setups
@@ -335,12 +338,12 @@ bool EveSOF::BuildChild( EveSpaceObject2* newObj, const char* dnaString, uint32_
 	bool hasAttachments = false;
 	for( size_t hullIdx = 0; hullIdx < dna->GetMultiHullCount(); ++hullIdx )
 	{
-		if( !dna->GetHullSpriteSets( hullIdx ).empty() || 
-			!dna->GetHullSpotlightSets( hullIdx ).empty() || 
-			!dna->GetHullPlaneSets( hullIdx ).empty() || 
+		if( !dna->GetHullSpriteSets( hullIdx ).empty() ||
+			!dna->GetHullSpotlightSets( hullIdx ).empty() ||
+			!dna->GetHullPlaneSets( hullIdx ).empty() ||
 			!dna->GetHullSpriteLineSets( hullIdx ).empty() ||
 			!dna->GetHullHazeSets( hullIdx ).empty() ||
-			!dna->GetHullBanners( hullIdx ).empty() || 
+			!dna->GetHullBanners( hullIdx ).empty() ||
 			!dna->GetHullBannerSets( hullIdx ).empty() ||
 			!dna->GetHullLightSets( hullIdx ).empty() )
 		{
@@ -486,7 +489,8 @@ bool EveSOF::BuildChild( EveSpaceObject2* newObj, const char* dnaString, uint32_
 	//SetupCustomMask( newObj, dna );
 	SetupLocatorSets( newObj, dna, placementOffsets, partTag );
 	// setup nested layout
-	SetupLayout( newObj, placementContainer, sharedMeshes, dna, placementOffsets );
+	int layoutPartTag = static_cast<int>( partTag );
+	SetupLayout( newObj, placementContainer, sharedMeshes, dna, placementOffsets, layoutPartTag );
 	return true;
 }
 
@@ -861,6 +865,7 @@ size_t EveSOF::FillMeshAreaVector( Tr2MeshAreaVector* meshAreaVector, TriBatchTy
 		newMeshArea->SetIndex( area->index + (unsigned int)meshIndexOffset );
 		newMeshArea->SetCount( area->count );
 		newMeshArea->SetCastsShadows( castsShadows );
+		newMeshArea->SetAlphaCutout( areaType == TRIBATCHTYPE_DECAL );
 
 		meshAreaVector->Append( newMeshArea );
 	}
@@ -3219,7 +3224,58 @@ void EveSOF::SetupLocatorSets( EveSpaceObject2Ptr obj, const EveSOFDNAPtr dna, c
 	}
 }
 
-void EveSOF::SetupLayout( EveSpaceObject2Ptr obj, EveChildContainerPtr layoutContainer, EveChildInstancedMeshesPtr& sharedMeshes, const EveSOFDNAPtr dna, const std::vector<Matrix>& offsets, uint32_t seedOverwrite )
+std::vector<EveLocatorSetsPtr> EveSOF::BuildHullLocalLocatorSets( const EveSOFDNAPtr dna ) const
+{
+	std::vector<EveLocatorSetsPtr> result;
+
+	Vector3 hullOffset( 0.f, 0.f, 0.f );
+	for( size_t hullIdx = 0; hullIdx < dna->GetMultiHullCount(); hullIdx++ )
+	{
+		const std::vector<BlueSharedString> locatorSetsNames = dna->GetHullLocatorSetNames( hullIdx );
+		for( const auto& locatorSetName : locatorSetsNames )
+		{
+			auto locators = dna->GetHullLocators( locatorSetName.c_str(), hullIdx );
+			if( !locators || locators->empty() )
+			{
+				continue;
+			}
+
+			std::vector<Locator> localLocators;
+			for( auto locator : *locators )
+			{
+				Locator localLocator = locator;
+				localLocator.position += hullOffset;
+				localLocators.push_back( localLocator );
+			}
+
+			auto resultSet = std::find_if( result.begin(), result.end(), [&locatorSetName]( EveLocatorSetsPtr set ) {
+				return set->HasName( locatorSetName.c_str() );
+			} );
+
+			if( resultSet != result.end() )
+			{
+				( *resultSet )->Append( localLocators.data(), localLocators.size() );
+			}
+			else
+			{
+				EveLocatorSetsPtr set;
+				set.CreateInstance();
+				set->Set( locatorSetName.c_str(), localLocators.data(), localLocators.size() );
+				result.push_back( set );
+			}
+		}
+
+		const Vector3* nextSubsystemOffset = dna->GetHullNextSubsystemOffset( hullIdx );
+		if( nextSubsystemOffset )
+		{
+			hullOffset += *nextSubsystemOffset;
+		}
+	}
+
+	return result;
+}
+
+void EveSOF::SetupLayout( EveSpaceObject2Ptr obj, EveChildContainerPtr layoutContainer, EveChildInstancedMeshesPtr& sharedMeshes, const EveSOFDNAPtr dna, const std::vector<Matrix>& offsets, int& partTag, uint32_t seedOverwrite )
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
@@ -3273,7 +3329,7 @@ void EveSOF::SetupLayout( EveSpaceObject2Ptr obj, EveChildContainerPtr layoutCon
 		// Go over all the placements (each layout can have multiple mesh attachments)
 		for( auto placement : layout->placements )
 		{
-			ProcessPlacementDistributionOrGroup( placement, obj, sharedMeshes, dna, locatorSets, layoutIdx, placementIdx, offsets, layoutContainer );
+			ProcessPlacementDistributionOrGroup( placement, obj, sharedMeshes, dna, locatorSets, layoutIdx, placementIdx, offsets, layoutContainer, partTag );
 		}
 
 		if( layout->scrambleSeed )
@@ -3291,7 +3347,8 @@ void EveSOF::ProcessPlacementDistributionOrGroup( EveSOFDataMgr::ExtensionPlacem
 												  size_t& layoutIdx,
 												  size_t& placementIdx,
 												  const std::vector<Matrix>& offsets,
-												  EveChildContainerPtr layoutContainer )
+												  EveChildContainerPtr layoutContainer,
+												  int& partTag )
 {
 	if( placement.isAGroup )
 	{
@@ -3310,7 +3367,7 @@ void EveSOF::ProcessPlacementDistributionOrGroup( EveSOFDataMgr::ExtensionPlacem
 		// Go over all the placements (each layout can have multiple mesh attachments)
 		for( auto& placement : placement.placements )
 		{
-			ProcessPlacementDistributionOrGroup( placement, obj, sharedMeshes, dna, managedLocatorSets, layoutIdx, placementIdx, offsets, layoutContainer );
+			ProcessPlacementDistributionOrGroup( placement, obj, sharedMeshes, dna, managedLocatorSets, layoutIdx, placementIdx, offsets, layoutContainer, partTag );
 		}
 		return;
 	}
@@ -3414,12 +3471,12 @@ void EveSOF::ProcessPlacementDistributionOrGroup( EveSOFDataMgr::ExtensionPlacem
 			for( auto& locator : locators )
 			{
 				singleLocator[0] = locator;
-				CreatePlacement( obj, sharedMeshes, placementDna, dna, placement, singleLocator, offsets, layoutContainer );
+				CreatePlacement( obj, sharedMeshes, placementDna, dna, placement, singleLocator, offsets, layoutContainer, partTag );
 			}
 		}
 		else
 		{
-			CreatePlacement( obj, sharedMeshes, placementDna, dna, placement, locators, offsets, layoutContainer );
+			CreatePlacement( obj, sharedMeshes, placementDna, dna, placement, locators, offsets, layoutContainer, partTag );
 		}
 	}
 
@@ -3644,7 +3701,8 @@ void EveSOF::CreatePlacement(
 	EveSOFDataMgr::ExtensionPlacementData& placement,
 	const std::vector<EveSOFDataMgr::LocatorDirectionData>& locators,
 	const std::vector<Matrix>& nestedOffsets,
-	EveChildContainerPtr layoutContainer )
+	EveChildContainerPtr layoutContainer,
+	int& partTag )
 {
 	Matrix placementOffset = TranslationMatrix( placement.offset );
 
@@ -3676,6 +3734,12 @@ void EveSOF::CreatePlacement(
 	bool hasAnimation = extensionDna->IsHullAnimated();
 
 	bool needsPlacementContainer = hasControllers || hasAnimation;
+
+	std::vector<EveLocatorSetsPtr> childLocatorSets;
+	if( !placement.isInstanced )
+	{
+		childLocatorSets = BuildHullLocalLocatorSets( extensionDna );
+	}
 
 	for( auto& offset : nestedOffsets )
 	{
@@ -3738,6 +3802,8 @@ void EveSOF::CreatePlacement(
 				child->SetMinScreenSize( MIN_MESH_SCREEN_SIZE );
 				child->SetName( "Hull" );
 				child->SetupWithStaticTransform( &randomScale, &rotation, &translation, Tr2Lod::TR2_LOD_LOW );
+				child->SetOwnedLocatorSets( childLocatorSets );
+				child->SetPartTag( partTag++ );
 
 				if( m_editorMode )
 				{
@@ -3878,8 +3944,8 @@ void EveSOF::CreatePlacement(
 				BeObjectMetadata->Set( weak, "SofLocatorSetName", placement.locatorSetName.c_str() );
 			}
 
-				layoutContainer->AddToEffectChildrenList( child );
-			}
+			layoutContainer->AddToEffectChildrenList( child );
+		}
 
 		SetupAttachments( BlueCastPtr( layoutContainer->GetRawRoot() ), extensionDna, placementOffsets, buildFlags );
 	}
@@ -3922,15 +3988,18 @@ void EveSOF::CreatePlacement(
 			// we don't really know until now if we have an empty placement container
 			if( !placementContainer->Empty() )
 			{
-					layoutContainer->AddToEffectChildrenList( placementContainer );
-				}
+				layoutContainer->AddToEffectChildrenList( placementContainer );
+			}
 		}
 	}
 
 	//SetupCustomMask( newObj, dna );
-	SetupLocatorSets( parent, extensionDna, placementOffsets );
+	if( placement.isInstanced )
+	{
+		SetupLocatorSets( parent, extensionDna, placementOffsets );
+	}
 	// setup nested layout
-	SetupLayout( parent, layoutContainer, sharedMeshes, extensionDna, placementOffsets );
+	SetupLayout( parent, layoutContainer, sharedMeshes, extensionDna, placementOffsets, partTag );
 
 	CCP_LOGNOTICE( "Creating %s extensions on %zu places", placement.isInstanced ? " instanced" : "", locators.size() );
 }

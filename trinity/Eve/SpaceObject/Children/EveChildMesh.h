@@ -7,6 +7,7 @@
 #include "EveSpaceObjectChild.h"
 #include "EveChildTransform.h"
 #include "Eve/SpaceObject/EveSpaceObject2.h"
+#include "Eve/SpaceObject/Attachments/EveDamageOverlay.h"
 #include "Eve/SpaceObject/Attachments/EveSpaceObjectDecal.h"
 #include "Eve/SpaceObject/Attachments/IEveSpaceObjectDecalOwner.h"
 #include "Lights/Tr2Light.h"
@@ -93,7 +94,7 @@ public:
 	void AddTransformModifier( IEveChildTransformModifier * modifier ) override;
 	void RegisterWithQuadRenderer( Tr2QuadRenderer & quadRenderer ) override;
 	void AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer ) const override;
-
+	void SetOwner( IEveSpaceObject2 * owner ) override;
 
 	//////////////////////////////////////////////////////////////////////////////////////
 	// EveEntity
@@ -195,6 +196,15 @@ public:
 
 	bool IsMorphsBaked() const;
 	BluePy GetSofSourceLocator( uint32_t areaId ) const;
+
+	void CollectOwnedLocatorSets( const Matrix& parentTransform, std::vector<EveChildLocatorSetsSource>& out ) const override;
+	void CollectOwnedGeometry( const Matrix& parentTransform, std::vector<EveChildGeometry>& out ) const override;
+	void SetOwnedLocatorSets( const std::vector<EveLocatorSetsPtr>& sets );
+	void InvalidateOwnerMergedLocators( LocatorInvalidationReason reason );
+
+	EveDamageOverlayPtr GetDamageOverlay() const;
+	EveDamageOverlayPtr EnsureDamageOverlay();
+	bool GetDamageLocatorPositionLocal( int index, Vector3& out ) const;
 
 protected:
 	virtual void ReleaseResources( TriStorage s );
@@ -304,6 +314,14 @@ protected:
 		uint32_t m_bakedCount;
 		uint32_t m_allCount;
 	} m_morphAnimationOffsets;
+
+	void ReleaseBvhVisualization();
+	TriGeometryResPtr m_bvhVisualizationGeometry;
+
+	std::vector<EveLocatorSetsPtr> m_ownedLocatorSets;
+
+	// armor/hull damage owned by this part, renders whether or not it is attached to a ship
+	EveDamageOverlayPtr m_damageOverlay;
 };
 
 TYPEDEF_BLUECLASS( EveChildMesh );

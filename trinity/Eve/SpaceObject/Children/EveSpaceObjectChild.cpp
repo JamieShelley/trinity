@@ -126,6 +126,14 @@ EveSpaceObjectChild* EveSpaceObjectChild::GetParent() const
 	return m_parent;
 }
 
+void EveSpaceObjectChild::CollectOwnedLocatorSets( const Matrix& parentTransform, std::vector<EveChildLocatorSetsSource>& out ) const
+{
+}
+
+void EveSpaceObjectChild::CollectOwnedGeometry( const Matrix& parentTransform, std::vector<EveChildGeometry>& out ) const
+{
+}
+
 void EveSpaceObjectChild::RegisterChild( EveSpaceObjectChild* child )
 {
 	if( child )
