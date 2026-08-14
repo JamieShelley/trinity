@@ -278,6 +278,47 @@ void EveChildTurret::UpdateAsyncronous( const EveUpdateContext& updateContext, c
 		}
 	}
 }
+
+void EveChildTurret::UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod )
+{
+	EveChildMesh::UpdateVisibility( updateContext, parentTransform, parentLod );
+
+	if( m_display && m_firingEffect )
+	{
+		m_firingEffect->UpdateVisibility( updateContext );
+	}
+}
+
+void EveChildTurret::GetRenderables( std::vector<ITr2Renderable*>& renderables )
+{
+	EveChildMesh::GetRenderables( renderables );
+
+	if( m_display && m_firingEffect )
+	{
+		m_firingEffect->GetRenderables( renderables );
+	}
+}
+
+void EveChildTurret::RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer )
+{
+	EveChildMesh::RegisterWithQuadRenderer( quadRenderer );
+
+	if( m_firingEffect )
+	{
+		m_firingEffect->RegisterWithQuadRenderer( quadRenderer );
+	}
+}
+
+void EveChildTurret::AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer ) const
+{
+	EveChildMesh::AddQuadsToQuadRenderer( frustum, quadRenderer );
+
+	if( m_display && m_firingEffect )
+	{
+		m_firingEffect->AddQuadsToQuadRenderer( frustum, quadRenderer );
+	}
+}
+
 void EveChildTurret::UpdateCachedGeometryData()
 {
 	auto* geometryRes = GetGeometryRes();

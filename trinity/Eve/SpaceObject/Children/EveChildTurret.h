@@ -32,6 +32,10 @@ public:
 	// EveSpaceObjectChild
 	void UpdateSyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params ) override;
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params ) override;
+	void UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod ) override;
+	void GetRenderables( std::vector<ITr2Renderable*> & renderables ) override;
+	void RegisterWithQuadRenderer( Tr2QuadRenderer & quadRenderer ) override;
+	void AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer ) const override;
 
 	void UpdateCachedGeometryData();
 	void BuildCachedGeometryData( TriGeometryRes & geometryRes );
