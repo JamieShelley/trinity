@@ -15,6 +15,7 @@
 
 extern bool g_requestDeviceDebugLayer;
 extern bool g_requestDebugMarkers;
+extern bool g_requestDred;
 bool g_gatherPipelineStatistics = false;
 extern ICrashReporter* TrinityALCrashes;
 
@@ -36,7 +37,7 @@ CCP_STATS_DECLARE( dx12GpuMemoryBudgetLocal, "Trinity/AL/gpuMemory/budgetLocal",
 
 namespace
 {
-bool EnableDebugLayer()
+void EnableDred()
 {
 	CComPtr<ID3D12DeviceRemovedExtendedDataSettings1> pDredSettings;
 	if( SUCCEEDED( D3D12GetDebugInterface( IID_PPV_ARGS( &pDredSettings ) ) ) )
@@ -45,8 +46,10 @@ bool EnableDebugLayer()
 		pDredSettings->SetAutoBreadcrumbsEnablement( D3D12_DRED_ENABLEMENT_FORCED_ON );
 		pDredSettings->SetPageFaultEnablement( D3D12_DRED_ENABLEMENT_FORCED_ON );
 	}
+}
 
-
+bool EnableDebugLayer()
+{
 	CComPtr<ID3D12Debug> debugInterface;
 	CComPtr<ID3D12Debug1> debugInterface1;
 	if( SUCCEEDED( D3D12GetDebugInterface( IID_PPV_ARGS( &debugInterface ) ) ) )
@@ -297,6 +300,11 @@ ALResult Tr2PrimaryRenderContextAL::CreateDevice(
 	m_focusWindow = focusWindow;
 	m_adapter = adapter;
 
+	if( g_requestDred || g_requestDeviceDebugLayer )
+	{
+		EnableDred();
+	}
+
 	bool hasDebugLayer = false;
 	if( g_requestDeviceDebugLayer )
 	{
@@ -338,8 +346,10 @@ ALResult Tr2PrimaryRenderContextAL::CreateDevice(
 	{
 		m_gpuCrashTracker = nullptr;
 	}
-	else
+	else if( !hasDebugLayer )
 	{
+		// Aftermath device tracking is incompatible with the debug layer; the failed
+		// GFSDK_Aftermath_DX12_Initialize leaks a device reference that blocks device-lost recovery.
 		m_gpuCrashTracker->Initialize( device );
 	}
 
