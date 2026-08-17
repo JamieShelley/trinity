@@ -5,6 +5,7 @@
 #define EveChildTurret_H
 
 #include "EveChildMesh.h"
+#include "Eve/Turret/EveTurretAiming.h"
 #include "Eve/Turret/EveTurretTarget.h"
 #include "Include/ITr2PoseModifier.h"
 
@@ -69,42 +70,10 @@ public:
 	void ModifyPose( const cmf::Skeleton& skeleton, cmf::SkeletonPose& pose ) override;
 
 protected:
-	// system-controlled bones
-	enum SystemBones
-	{
-		SYSBONE_INVALID = 0,
-		SYSBONE_ROTATION,
-		SYSBONE_ROTATION01,
-		SYSBONE_ROTATION02,
-		SYSBONE_COUNTER_ROTATION,
-		SYSBONE_PITCH,
-		SYSBONE_PITCH1,
-		SYSBONE_PITCH2,
-		SYSBONE_SCALED_HEIGHT,
-		SYSBONE_SCALED_PITCH01,
-		SYSBONE_SCALED_PITCH02,
-		SYSBONE_SCALED_PITCH03,
-		SYSBONE_SCALED_PITCH04,
-		SYSBONE_SCALED_PITCH05,
-		SYSBONE_SCALED_PITCH06,
-		SYSBONE_MAX,
-	};
-
 	// setup the attached firing effect
 	void InitializeFiringEffect();
 
 	void InitializeAnimation() override;
-
-	// set transform for tracking
-	void ModifySystemBoneTransform( SystemBones bone, const Vector3* target, const Matrix* localTransform, Vector3& position, Quaternion& rotation ) const;
-
-	// Calculates the pitch for a bone based on the parameters
-	void CalcTransformForPitchBone( const Vector3* target, float minPitch, float maxPitch, unsigned int boneIndex, const Matrix* localTransform, Quaternion& rotation ) const;
-
-	// Returns the correct pitch factor for a specific bone index
-	float GetBonePitchFactor( unsigned int boneIndex ) const;
-	// Returns the correct pitch offset for a specific bone index
-	float GetBonePitchOffset( unsigned int boneIndex ) const;
 
 	Matrix GetTurretBoneTransform( uint32_t boneID ) const;
 
@@ -147,18 +116,8 @@ protected:
 
 	// system bones
 	unsigned int m_systemBoneID[SYSBONE_MAX];
-	// specific system bone values
-	float m_sysBoneHeight = 1.f;
-	float m_sysBonePitchOffset = 0.f;
-	float m_sysBonePitchFactor = 1.f;
-	float m_sysBonePitchMin = 0.f;
-	float m_sysBonePitchMax = 90.f;
-	float m_sysBonePitch01Offset = 0.f;
-	float m_sysBonePitch01Factor = 1.f;
-	float m_sysBonePitch02Offset = 0.f;
-	float m_sysBonePitch02Factor = 1.f;
-	float m_sysBonePitch03Offset = 0.f;
-	float m_sysBonePitch03Factor = 1.f;
+	// sysbone aiming math + tuning (shared with EveTurretSet)
+	EveTurretAiming m_aiming;
 
 	// state of turret set
 	State m_state = STATE_IDLE;

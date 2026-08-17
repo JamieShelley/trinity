@@ -688,6 +688,8 @@ set(_SOURCES
     Eve/SpaceObjectFactory/EveSOFDNA_Blue.cpp
     Eve/SpaceObjectFactory/EveSOFUtils.cpp
     Eve/SpaceObjectFactory/EveSOFUtils.h
+    Eve/Turret/EveTurretAiming.cpp
+    Eve/Turret/EveTurretAiming.h
     Eve/Turret/EveTurretFiringFX.cpp
     Eve/Turret/EveTurretFiringFX.h
     Eve/Turret/EveTurretFiringFX_Blue.cpp
