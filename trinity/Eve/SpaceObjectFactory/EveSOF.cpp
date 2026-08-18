@@ -306,7 +306,7 @@ IRootPtr EveSOF::BuildFromDNA( const char* dnaString )
 	return newObj->GetRawRoot();
 }
 
-bool EveSOF::BuildChild( EveSpaceObject2* newObj, const char* dnaString, uint32_t partTag, const Matrix& transform )
+bool EveSOF::BuildChild( EveSpaceObject2* newObj, const char* dnaString, uint32_t partTag, const Matrix& transform, uint32_t& nextPartTag )
 {
 	std::string s = "BuildChild ";
 	s += std::string( dnaString );
@@ -487,10 +487,15 @@ bool EveSOF::BuildChild( EveSpaceObject2* newObj, const char* dnaString, uint32_
 	}
 
 	//SetupCustomMask( newObj, dna );
+	if( !newObj->GetImpactOverlay() )
+	{
+		SetupImpactEffects( newObj, dna );
+	}
 	SetupLocatorSets( newObj, dna, placementOffsets, partTag );
 	// setup nested layout
-	int layoutPartTag = static_cast<int>( partTag );
+	int layoutPartTag = static_cast<int>( partTag ) + 1;
 	SetupLayout( newObj, placementContainer, sharedMeshes, dna, placementOffsets, layoutPartTag );
+	nextPartTag = static_cast<uint32_t>( layoutPartTag );
 	return true;
 }
 
@@ -3912,7 +3917,8 @@ void EveSOF::CreatePlacement(
 				placementOffsets.data(),
 				placementOffsets.size(),
 				m_editorMode ? BlueSharedString( parentDna->GetHullNames()[0].c_str() ) : BlueSharedString(),
-				m_editorMode ? placement.locatorSetName : BlueSharedString() );
+				m_editorMode ? placement.locatorSetName : BlueSharedString(),
+				static_cast<EveSpaceObjectChild::PartTag>( partTag++ ) );
 		}
 		else
 		{

@@ -528,12 +528,20 @@ void EveChildInstancedMeshes::AddMesh(
 
 void EveChildInstancedMeshes::RemoveInstancesByPartTag( EveSpaceObjectChild::PartTag partTag )
 {
+	RemoveInstancesByPartTag( partTag, partTag + 1 );
+}
+
+void EveChildInstancedMeshes::RemoveInstancesByPartTag( EveSpaceObjectChild::PartTag firstPartTag, EveSpaceObjectChild::PartTag endPartTag )
+{
+	auto inRange = [firstPartTag, endPartTag]( EveSpaceObjectChild::PartTag tag ) {
+		return tag >= firstPartTag && tag < endPartTag;
+	};
 	for( size_t i = 0; i < m_meshes.size(); ++i )
 	{
 		auto& mesh = m_meshes[i];
 
 		auto newEnd = std::remove_if( begin( mesh.instances ), end( mesh.instances ), [&]( const EveInstancedMeshManager::StaticPerInstanceData& instance ) {
-			return mesh.partTags[&instance - mesh.instances.data()] == partTag;
+			return inRange( mesh.partTags[&instance - mesh.instances.data()] );
 		} );
 		bool removed = newEnd != end( mesh.instances );
 		if( !removed )
@@ -565,7 +573,7 @@ void EveChildInstancedMeshes::RemoveInstancesByPartTag( EveSpaceObjectChild::Par
 		}
 		mesh.instances.erase( newEnd, end( mesh.instances ) );
 		auto newTagEnd = std::remove_if( begin( mesh.partTags ), end( mesh.partTags ), [&]( uint32_t tag ) {
-			return tag == partTag;
+			return inRange( tag );
 		} );
 		mesh.partTags.erase( newTagEnd, end( mesh.partTags ) );
 		if( removed )

@@ -4,6 +4,7 @@
 #include "EveChildPartData.h"
 #include "IEveEffectChildrenOwner.h"
 #include "../EveStation2.h"
+#include "../Attachments/EveImpactOverlay.h"
 #include "EveChildInstancedMeshes.h"
 #include "EveChildContainer.h"
 #include <cmf/transforms.h>
@@ -16,7 +17,7 @@ EveChildPartData::EveChildPartData( IRoot* )
 EveSpaceObjectChild::PartTag EveChildPartData::GetUnusedPartID() const
 {
 	return std::accumulate( m_parts.begin(), m_parts.end(), 1u, []( EveSpaceObjectChild::PartTag maxId, const PartData& part ) {
-		return std::max( maxId, part.partId + 1 );
+		return std::max( { maxId, part.partId + 1, part.partIdEnd } );
 	} );
 }
 
@@ -68,12 +69,35 @@ EveModularObjectModifier::~EveModularObjectModifier()
 	}
 }
 
-EveSpaceObjectChild::PartTag EveModularObjectModifier::AddHull( const char* hullName, const char* factionName, const char* raceName, const Vector3& position, const Quaternion& rotation, const Vector3& scale )
+void EveModularObjectModifier::UpdateImpactOverlayLocatorCount() const
+{
+	if( EveImpactOverlayPtr overlay = m_object->GetImpactOverlay() )
+	{
+		auto locators = m_object->GetLocatorsForSet( DAMAGE_LOCATOR_SET_NAME );
+		overlay->SetDamageLocatorCount( locators ? uint32_t( locators->size() ) : 0 );
+	}
+}
+
+EveSpaceObjectChild::PartTag EveModularObjectModifier::AllocatePartId() const
 {
 	auto id = m_data->GetUnusedPartID();
+	for( auto& child : m_object->GetEffectChildren() )
+	{
+		if( child->GetPartTag() != EveSpaceObjectChild::NO_PART_TAG )
+		{
+			id = std::max( id, child->GetPartTag() + 1 );
+		}
+	}
+	return id;
+}
+
+EveSpaceObjectChild::PartTag EveModularObjectModifier::AddHull( const char* hullName, const char* factionName, const char* raceName, const Vector3& position, const Quaternion& rotation, const Vector3& scale )
+{
+	auto id = AllocatePartId();
 	auto size = m_object->GetEffectChildren().size();
 	auto dna = std::string( hullName ) + ":" + ( factionName[0] ? factionName : m_data->m_faction.c_str() ) + ":" + ( raceName[0] ? raceName : m_data->m_race.c_str() );
-	if( !m_sof->BuildChild( m_object, dna.c_str(), id, TransformationMatrix( scale, rotation, position ) ) )
+	EveSpaceObjectChild::PartTag idEnd = id + 1;
+	if( !m_sof->BuildChild( m_object, dna.c_str(), id, TransformationMatrix( scale, rotation, position ), idEnd ) )
 	{
 		return INVALID_PART_TAG;
 	}
@@ -94,8 +118,10 @@ EveSpaceObjectChild::PartTag EveModularObjectModifier::AddHull( const char* hull
 	// Store the part bounding sphere and recalculate the bounding sphere of the modular object after adding all the parts
 	CcpMath::Sphere sphere{ m_object->GetBoundingSphereCenter(), m_object->GetBoundingSphereRadius() };
 
-	auto part = EveChildPartData::PartData{ id, position, rotation, scale, sphere };
+	auto part = EveChildPartData::PartData{ id, idEnd, position, rotation, scale, sphere };
 	m_data->m_parts.emplace_back( part );
+	m_object->InvalidateMergedLocators( LocatorInvalidationReason::StructureChanged );
+	UpdateImpactOverlayLocatorCount();
 	return id;
 }
 
@@ -105,9 +131,10 @@ EveSpaceObjectChild::PartTag EveModularObjectModifier::AddChild( const char* res
 	{
 		child->Setup( &scale, &rotation, &position, Tr2Lod::TR2_LOD_LOW );
 		m_object->AddToEffectChildrenList( child );
-		auto id = m_data->GetUnusedPartID();
+		auto id = AllocatePartId();
 		child->SetPartTag( id );
-		m_data->m_parts.emplace_back( EveChildPartData::PartData{ id, position, rotation, scale } );
+		m_data->m_parts.emplace_back( EveChildPartData::PartData{ id, id + 1, position, rotation, scale } );
+		m_object->InvalidateMergedLocators( LocatorInvalidationReason::StructureChanged );
 		return id;
 	}
 	return INVALID_PART_TAG;
@@ -123,10 +150,15 @@ BlueStdResult EveModularObjectModifier::Remove( EveSpaceObjectChild::PartTag par
 		return BlueStdResultType::BLUE_STD_RESULT_KEY_ERROR;
 	}
 
+	const auto tagEnd = std::max( found->partIdEnd, partId + 1 );
+	auto inPart = [partId, tagEnd]( EveSpaceObjectChild::PartTag tag ) {
+		return tag >= partId && tag < tagEnd;
+	};
+
 	for( size_t i = 0; i < m_object->GetEffectChildren().size(); )
 	{
 		auto child = m_object->GetEffectChildren()[i];
-		if( child->GetPartTag() == partId )
+		if( inPart( child->GetPartTag() ) )
 		{
 			m_object->RemoveFromEffectChildrenList( child );
 			continue;
@@ -137,17 +169,20 @@ BlueStdResult EveModularObjectModifier::Remove( EveSpaceObjectChild::PartTag par
 	for( auto& set : m_object->GetLocatorSets() )
 	{
 		auto& locators = *set->GetLocators();
-		auto removed = std::remove_if( locators.begin(), locators.end(), [partId]( const auto& locator ) {
-			return locator.partTag == partId;
+		auto removed = std::remove_if( locators.begin(), locators.end(), [&inPart]( const auto& locator ) {
+			return inPart( locator.partTag );
 		} );
 		locators.Resize( std::distance( locators.begin(), removed ) );
 	}
 
 	if( m_instancedMeshes )
 	{
-		m_instancedMeshes->RemoveInstancesByPartTag( partId );
+		m_instancedMeshes->RemoveInstancesByPartTag( partId, tagEnd );
 	}
 	m_data->m_parts.erase( found );
+	m_object->InvalidateMergedLocators( LocatorInvalidationReason::StructureChanged );
+	m_object->ClearImpactDamage();
+	UpdateImpactOverlayLocatorCount();
 	return BlueStdResultType::BLUE_STD_RESULT_OK;
 }
 
@@ -164,13 +199,14 @@ BlueStdResult EveModularObjectModifier::SetTransform( EveSpaceObjectChild::PartT
 	cmf::Transform oldTransform{ found->position, found->rotation, found->scale };
 	cmf::Transform newTransform{ position, rotation, scale };
 	auto invOldTransform = cmf::Inverse( oldTransform );
+	const auto tagEnd = std::max( found->partIdEnd, partId + 1 );
 
 	for( auto& set : m_object->GetLocatorSets() )
 	{
 		auto& locators = *set->GetLocators();
 		for( auto& locator : locators )
 		{
-			if( locator.partTag == partId )
+			if( locator.partTag >= partId && locator.partTag < tagEnd )
 			{
 				locator.scale.x = scale.x / found->scale.x;
 				locator.scale.y = scale.y / found->scale.y;
@@ -195,6 +231,7 @@ BlueStdResult EveModularObjectModifier::SetTransform( EveSpaceObjectChild::PartT
 			child->Setup( &scale, &rotation, &position, Tr2Lod::TR2_LOD_LOW );
 		}
 	}
+	m_object->InvalidateMergedLocators( LocatorInvalidationReason::PartMoved );
 	return BlueStdResultType::BLUE_STD_RESULT_OK;
 }
 

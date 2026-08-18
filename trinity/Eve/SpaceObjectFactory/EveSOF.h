@@ -45,7 +45,7 @@ public:
 	IRootPtr Build( const char* hullName, const char* factionName, const char* raceName );
 	// build a spaceship from a dns string and return a EveShip2 object
 	IRootPtr BuildFromDNA( const char* dnaString );
-	bool BuildChild( EveSpaceObject2* owner, const char* dnaString, uint32_t partTag, const Matrix& transform );
+	bool BuildChild( EveSpaceObject2* owner, const char* dnaString, uint32_t partTag, const Matrix& transform, uint32_t& nextPartTag );
 
 	// validate a dna string (slow!)
 	bool ValidateDNA( const char* dnaString );

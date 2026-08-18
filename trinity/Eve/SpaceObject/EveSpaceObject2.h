@@ -527,6 +527,7 @@ public:
 
 	// access to impacts
 	void SetImpactOverlay( EveImpactOverlayPtr overlay );
+	EveImpactOverlayPtr GetImpactOverlay() const;
 	void SetImpactDamageState( float shield, float armor, float hull, bool doCreateArmorImpacts );
 	void SetImpactAnimation( const std::string& name, bool enable, float duration );
 	void ClearImpactDamage();

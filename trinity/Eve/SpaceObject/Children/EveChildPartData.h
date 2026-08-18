@@ -22,6 +22,7 @@ public:
 	struct PartData
 	{
 		PartTag partId;
+		PartTag partIdEnd; // one past the last tag consumed by this part, including nested layout placements
 		Vector3 position;
 		Quaternion rotation;
 		Vector3 scale;
@@ -57,6 +58,8 @@ public:
 
 private:
 	EveChildPartData::PartData* FindPartData( EveSpaceObjectChild::PartTag partId ) const;
+	EveSpaceObjectChild::PartTag AllocatePartId() const;
+	void UpdateImpactOverlayLocatorCount() const;
 
 	BluePtr<SpaceObjectType> m_object;
 	EveChildPartDataPtr m_data;
