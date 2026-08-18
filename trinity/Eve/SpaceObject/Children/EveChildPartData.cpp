@@ -35,6 +35,11 @@ void EveModularObjectModifier::Create( SpaceObjectType* object, EveSOF* sof )
 			break;
 		}
 	}
+	if( !m_data )
+	{
+		m_data.CreateInstance();
+		object->AddToEffectChildrenList( m_data );
+	}
 	for( auto& child : object->GetEffectChildren() )
 	{
 		if( EveChildInstancedMeshesPtr instancedMeshes = BlueCastPtr( child ) )

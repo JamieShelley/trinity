@@ -34,4 +34,4 @@ const Be::ClassInfo* EveModularObjectModifier::ExposeToBlue()
 MAP_FUNCTION_AND_WRAP( "CreateModularObject", CreateModularObject, "" );
 MAP_FUNCTION_AND_WRAP( "ModifyModularObject", ModifyModularObject, "" );
 
-MAP_FUNCTION_AND_WRAP( "GetInvalidPartTag", GetInvalidPartTag, "Gets the NO_PART_TAG constant" );
+MAP_FUNCTION_AND_WRAP( "GetInvalidPartTag", GetInvalidPartTag, "Gets the INVALID_PART_TAG constant" );

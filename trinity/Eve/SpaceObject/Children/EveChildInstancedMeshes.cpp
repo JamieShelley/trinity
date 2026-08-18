@@ -443,7 +443,8 @@ void EveChildInstancedMeshes::AddMesh(
 		{
 			continue;
 		}
-		mesh.instances.reserve( mesh.instances.size() + count );
+		const size_t existingCount = mesh.instances.size();
+		mesh.instances.reserve( existingCount + count );
 		mesh.partTags.reserve( mesh.partTags.size() + count );
 		for( size_t i = 0; i < count; ++i )
 		{
@@ -452,7 +453,7 @@ void EveChildInstancedMeshes::AddMesh(
 			instanceData.worldTransform[0] = Vector4( mat._11, mat._21, mat._31, mat._41 );
 			instanceData.worldTransform[1] = Vector4( mat._12, mat._22, mat._32, mat._42 );
 			instanceData.worldTransform[2] = Vector4( mat._13, mat._23, mat._33, mat._43 );
-			instanceData.sphereIndex = static_cast<uint32_t>( i );
+			instanceData.sphereIndex = static_cast<uint32_t>( existingCount + i );
 			mesh.instances.push_back( instanceData );
 			mesh.partTags.push_back( partTag );
 		}
@@ -561,11 +562,12 @@ void EveChildInstancedMeshes::RemoveInstancesByPartTag( EveSpaceObjectChild::Par
 					area.meshGroupHandle.owner->RemoveMeshGroup( area.meshGroupHandle );
 				}
 			}
+			TriGeometryResPtr geometry = mesh.geometry;
 			std::swap( mesh, m_meshes.back() );
-			auto seenMesh = find_if( begin( m_meshes ), end( m_meshes ) - 1, [&]( const Mesh& m ) { return m.geometry == mesh.geometry; } );
-			if( seenMesh == end( m_meshes ) - 1 )
+			auto seenMesh = find_if( begin( m_meshes ), end( m_meshes ) - 1, [&]( const Mesh& m ) { return m.geometry == geometry; } );
+			if( geometry && seenMesh == end( m_meshes ) - 1 )
 			{
-				mesh.geometry->RemoveNotifyTarget( this );
+				geometry->RemoveNotifyTarget( this );
 			}
 			m_meshes.pop_back();
 			--i;
@@ -576,6 +578,10 @@ void EveChildInstancedMeshes::RemoveInstancesByPartTag( EveSpaceObjectChild::Par
 			return inRange( tag );
 		} );
 		mesh.partTags.erase( newTagEnd, end( mesh.partTags ) );
+		for( auto& instance : mesh.instances )
+		{
+			instance.sphereIndex = static_cast<uint32_t>( &instance - mesh.instances.data() );
+		}
 		if( removed )
 		{
 			m_allRegistered = false;

@@ -422,7 +422,7 @@ bool EveSOF::BuildChild( EveSpaceObject2* newObj, const char* dnaString, uint32_
 		for( auto type : types )
 		{
 			CTr2MeshAreaVector meshAreas;
-			// We are purpusely ignoring multi-hull logic assuming shared instanced meshes are single hull only
+			// We are purposely ignoring multi-hull logic assuming shared instanced meshes are single hull only
 			FillMeshAreaVector( &meshAreas, type, dna, 0, 0 );
 			for( auto area : meshAreas )
 			{
@@ -3898,7 +3898,7 @@ void EveSOF::CreatePlacement(
 			for( auto type : types )
 			{
 				CTr2MeshAreaVector meshAreas;
-				// We are purpusely ignoring multi-hull logic assuming shared instanced meshes are single hull only
+				// We are purposely ignoring multi-hull logic assuming shared instanced meshes are single hull only
 				FillMeshAreaVector( &meshAreas, type, extensionDna, 0, 0 );
 				for( auto area : meshAreas )
 				{
