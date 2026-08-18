@@ -1747,6 +1747,54 @@ void Tr2RenderContextAL::ResourceBarrierDx12( const D3D12_RESOURCE_BARRIER& barr
 
 namespace
 {
+const char* FormatResourceStates( char* buf, size_t size, D3D12_RESOURCE_STATES states )
+{
+	if( states == D3D12_RESOURCE_STATE_COMMON )
+	{
+		return "COMMON";
+	}
+	if( states == D3D12_RESOURCE_STATE_GENERIC_READ )
+	{
+		return "GENERIC_READ";
+	}
+	static const struct
+	{
+		D3D12_RESOURCE_STATES bit;
+		const char* name;
+	} s_stateNames[] = {
+		{ D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER, "VB_CB" },
+		{ D3D12_RESOURCE_STATE_INDEX_BUFFER, "IB" },
+		{ D3D12_RESOURCE_STATE_RENDER_TARGET, "RT" },
+		{ D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "UAV" },
+		{ D3D12_RESOURCE_STATE_DEPTH_WRITE, "DEPTH_W" },
+		{ D3D12_RESOURCE_STATE_DEPTH_READ, "DEPTH_R" },
+		{ D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, "SRV_NONPX" },
+		{ D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, "SRV_PX" },
+		{ D3D12_RESOURCE_STATE_STREAM_OUT, "STREAM_OUT" },
+		{ D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, "INDIRECT" },
+		{ D3D12_RESOURCE_STATE_COPY_DEST, "COPY_DST" },
+		{ D3D12_RESOURCE_STATE_COPY_SOURCE, "COPY_SRC" },
+		{ D3D12_RESOURCE_STATE_RESOLVE_DEST, "RESOLVE_DST" },
+		{ D3D12_RESOURCE_STATE_RESOLVE_SOURCE, "RESOLVE_SRC" },
+		{ D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, "RTAS" },
+	};
+	size_t pos = 0;
+	UINT remaining = UINT( states );
+	for( const auto& state : s_stateNames )
+	{
+		if( ( remaining & UINT( state.bit ) ) == UINT( state.bit ) )
+		{
+			pos += size_t( snprintf( buf + pos, size - pos, "%s%s", pos ? "|" : "", state.name ) );
+			remaining &= ~UINT( state.bit );
+		}
+	}
+	if( remaining )
+	{
+		snprintf( buf + pos, size - pos, "%s0x%x", pos ? "|" : "", remaining );
+	}
+	return buf;
+}
+
 // Recorded immediately before each ResourceBarrier so the DRED breadcrumb context
 // identifies which resources/states the otherwise anonymous RESOURCEBARRIER op contains
 void EmitBarrierBreadcrumb( ID3D12GraphicsCommandList* commandList, const D3D12_RESOURCE_BARRIER* barriers, size_t count )
@@ -1770,7 +1818,10 @@ void EmitBarrierBreadcrumb( ID3D12GraphicsCommandList* commandList, const D3D12_
 		name[nameSize] = 0;
 		if( barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION )
 		{
-			pos += size_t( snprintf( buf + pos, sizeof( buf ) - pos, " %s(0x%x->0x%x)", name, barrier.Transition.StateBefore, barrier.Transition.StateAfter ) );
+			char before[96], after[96];
+			pos += size_t( snprintf( buf + pos, sizeof( buf ) - pos, " %s(%s->%s)", name,
+				FormatResourceStates( before, sizeof( before ), barrier.Transition.StateBefore ),
+				FormatResourceStates( after, sizeof( after ), barrier.Transition.StateAfter ) ) );
 		}
 		else if( barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_UAV )
 		{
