@@ -1804,7 +1804,7 @@ void EmitBarrierBreadcrumb( ID3D12GraphicsCommandList* commandList, const D3D12_
 		return;
 	}
 	char buf[512];
-	size_t pos = size_t( snprintf( buf, sizeof( buf ), "Barriers:" ) );
+	size_t pos = size_t( snprintf( buf, sizeof( buf ), "[Barrier]" ) );
 	for( size_t i = 0; i < count && pos < sizeof( buf ) - 1; ++i )
 	{
 		const auto& barrier = barriers[i];

@@ -252,7 +252,8 @@ void TriDevice::HandleRenderTick( Be::Time realTime, Be::Time simTime )
 								contextString = it->second;
 							}
 
-							char const* opName = DredBreadcrumbOpName( breadcrumbOp );
+							// Markers with a context string are our own annotations, not GPU work
+							char const* opName = breadcrumbOp == D3D12_AUTO_BREADCRUMB_OP_SETMARKER && !contextString.empty() ? "[Trinity]" : DredBreadcrumbOpName( breadcrumbOp );
 							char const* status = op == lastCompletedOp ? " - IN FLIGHT" : ( op + 1 == lastCompletedOp ) ? " - Last completed" : "";
 							CCP_LOGERR( "\tOp: %d, %s %ls%s", op, opName, contextString.c_str(), status );
 						}
