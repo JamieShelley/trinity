@@ -5,7 +5,7 @@
 
 static_assert( sizeof( EveSpaceObjectChild::PartTag ) == sizeof( uint32_t ), "Size mismatch for PartTag: need to update LocatorStructureDef" );
 
-	// locator item definition
+// locator item definition
 static BlueStructureDefinition LocatorStructureDef[] = {
 	{ "position", Be::FLOAT32_3, 0 },
 	{ "direction", Be::FLOAT32_4, 12 },
