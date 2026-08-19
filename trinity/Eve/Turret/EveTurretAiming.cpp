@@ -62,7 +62,7 @@ void EveTurretAiming::ModifySystemBoneTransform( SystemBones bone, const Vector3
 	}
 	break;
 	case SYSBONE_COUNTER_ROTATION: {
-		// inverse(!!) rotation of turret 360 degress, alpha is between -pi and pi
+		// inverse(!!) rotation of turret 360 degrees, alpha is between -pi and pi
 		float alpha = -atan2( target->x, target->z );
 		// never forget do apply influence!
 		alpha *= trackingInfluence;
