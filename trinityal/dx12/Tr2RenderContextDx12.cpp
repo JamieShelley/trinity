@@ -1814,7 +1814,8 @@ void EmitBarrierBreadcrumb( ID3D12GraphicsCommandList* commandList, const D3D12_
 	for( size_t i = 0; i < count && pos < sizeof( buf ) - 1; ++i )
 	{
 		const auto& barrier = barriers[i];
-		ID3D12Resource* resource = barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_UAV ? barrier.UAV.pResource : barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_ALIASING ? barrier.Aliasing.pResourceAfter : barrier.Transition.pResource;
+		ID3D12Resource* resource = barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_UAV ? barrier.UAV.pResource : barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_ALIASING ? barrier.Aliasing.pResourceAfter :
+																																									barrier.Transition.pResource;
 		char name[128];
 		UINT nameSize = sizeof( name ) - 1;
 		if( !resource || FAILED( resource->GetPrivateData( WKPDID_D3DDebugObjectName, &nameSize, name ) ) || nameSize >= sizeof( name ) )
