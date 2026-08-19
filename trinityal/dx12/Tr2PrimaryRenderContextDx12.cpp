@@ -15,6 +15,7 @@
 
 extern bool g_requestDeviceDebugLayer;
 extern bool g_requestDebugMarkers;
+extern bool g_requestDred;
 extern bool g_dredBreadcrumbsEnabled;
 bool g_gatherPipelineStatistics = false;
 extern ICrashReporter* TrinityALCrashes;
@@ -37,7 +38,7 @@ CCP_STATS_DECLARE( dx12GpuMemoryBudgetLocal, "Trinity/AL/gpuMemory/budgetLocal",
 
 namespace
 {
-void EnableDredBreadcrumbs()
+bool EnableDred()
 {
 	CComPtr<ID3D12DeviceRemovedExtendedDataSettings1> pDredSettings;
 	if( SUCCEEDED( D3D12GetDebugInterface( IID_PPV_ARGS( &pDredSettings ) ) ) )
@@ -48,7 +49,9 @@ void EnableDredBreadcrumbs()
 		// Capture SetMarker/BeginEvent strings alongside the breadcrumb ops
 		pDredSettings->SetBreadcrumbContextEnablement( D3D12_DRED_ENABLEMENT_FORCED_ON );
 		g_dredBreadcrumbsEnabled = true;
+		return true;
 	}
+	return false;
 }
 
 bool EnableDebugLayer()
@@ -303,10 +306,15 @@ ALResult Tr2PrimaryRenderContextAL::CreateDevice(
 	m_focusWindow = focusWindow;
 	m_adapter = adapter;
 
+	bool dredEnabled = false;
+	if( g_requestDred || g_requestDeviceDebugLayer )
+	{
+		dredEnabled = EnableDred();
+	}
+
 	bool hasDebugLayer = false;
 	if( g_requestDeviceDebugLayer )
 	{
-		EnableDredBreadcrumbs();
 		hasDebugLayer = EnableDebugLayer();
 	}
 
@@ -314,7 +322,7 @@ ALResult Tr2PrimaryRenderContextAL::CreateDevice(
 	CComPtr<IDXGIAdapter1> dxgiAdapter;
 	CComPtr<IDXGIOutput> output;
 
-	if( !m_gpuCrashTracker )
+	if( !m_gpuCrashTracker && !dredEnabled )
 	{
 		m_gpuCrashTracker = new TrinityALImpl::GpuCrashTracker();
 	}
@@ -341,13 +349,19 @@ ALResult Tr2PrimaryRenderContextAL::CreateDevice(
 		CR_RETURN_HR( CreateDevice( dxgiAdapter, D3D_FEATURE_LEVEL_12_0, device ) );
 	}
 
-	if( !m_gpuCrashTracker->IsValid() )
+	if( m_gpuCrashTracker )
 	{
-		m_gpuCrashTracker = nullptr;
-	}
-	else
-	{
-		m_gpuCrashTracker->Initialize( device );
+		if( !m_gpuCrashTracker->IsValid() )
+		{
+			delete m_gpuCrashTracker;
+			m_gpuCrashTracker = nullptr;
+		}
+		else if( !hasDebugLayer )
+		{
+			// Aftermath device tracking is incompatible with the debug layer; the failed
+			// GFSDK_Aftermath_DX12_Initialize leaks a device reference that blocks device-lost recovery.
+			m_gpuCrashTracker->Initialize( device );
+		}
 	}
 
 	if( hasDebugLayer )
