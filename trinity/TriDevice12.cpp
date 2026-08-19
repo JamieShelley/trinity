@@ -220,11 +220,11 @@ void TriDevice::HandleRenderTick( Be::Time realTime, Be::Time simTime )
 					{
 						CCP_LOGERR( "[DRED] Commandlist completed %d of %d commands", lastCompletedOp, pNode->BreadcrumbCount );
 
-						UINT firstOp = std::max<UINT>( lastCompletedOp - 100, 0 );
+						UINT firstOp = lastCompletedOp > 100 ? lastCompletedOp - 100 : 0;
 						UINT lastOp = std::min<UINT>( lastCompletedOp + 20, UINT( pNode->BreadcrumbCount ) - 1 );
 
 						contextStrings.clear();
-						for( UINT breadcrumbContext = firstOp; breadcrumbContext < pNode->BreadcrumbContextsCount; ++breadcrumbContext )
+						for( UINT breadcrumbContext = 0; breadcrumbContext < pNode->BreadcrumbContextsCount; ++breadcrumbContext )
 						{
 							const D3D12_DRED_BREADCRUMB_CONTEXT& context = pNode->pBreadcrumbContexts[breadcrumbContext];
 							contextStrings[context.BreadcrumbIndex] = context.pContextString;
