@@ -1747,6 +1747,12 @@ void Tr2RenderContextAL::ResourceBarrierDx12( const D3D12_RESOURCE_BARRIER& barr
 
 namespace
 {
+// snprintf returns the untruncated length; clamp so pos never passes the terminator
+size_t AdvanceFormatPos( size_t pos, int written, size_t size )
+{
+	return written < 0 || pos + size_t( written ) >= size ? size - 1 : pos + size_t( written );
+}
+
 const char* FormatResourceStates( char* buf, size_t size, D3D12_RESOURCE_STATES states )
 {
 	if( states == D3D12_RESOURCE_STATE_COMMON )
@@ -1784,7 +1790,7 @@ const char* FormatResourceStates( char* buf, size_t size, D3D12_RESOURCE_STATES 
 	{
 		if( ( remaining & UINT( state.bit ) ) == UINT( state.bit ) )
 		{
-			pos += size_t( snprintf( buf + pos, size - pos, "%s%s", pos ? "|" : "", state.name ) );
+			pos = AdvanceFormatPos( pos, snprintf( buf + pos, size - pos, "%s%s", pos ? "|" : "", state.name ), size );
 			remaining &= ~UINT( state.bit );
 		}
 	}
@@ -1804,7 +1810,7 @@ void EmitBarrierBreadcrumb( ID3D12GraphicsCommandList* commandList, const D3D12_
 		return;
 	}
 	char buf[512];
-	size_t pos = size_t( snprintf( buf, sizeof( buf ), "[Barrier]" ) );
+	size_t pos = AdvanceFormatPos( 0, snprintf( buf, sizeof( buf ), "[Barrier]" ), sizeof( buf ) );
 	for( size_t i = 0; i < count && pos < sizeof( buf ) - 1; ++i )
 	{
 		const auto& barrier = barriers[i];
@@ -1819,17 +1825,17 @@ void EmitBarrierBreadcrumb( ID3D12GraphicsCommandList* commandList, const D3D12_
 		if( barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION )
 		{
 			char before[96], after[96];
-			pos += size_t( snprintf( buf + pos, sizeof( buf ) - pos, " %s(%s->%s)", name,
+			pos = AdvanceFormatPos( pos, snprintf( buf + pos, sizeof( buf ) - pos, " %s(%s->%s)", name,
 				FormatResourceStates( before, sizeof( before ), barrier.Transition.StateBefore ),
-				FormatResourceStates( after, sizeof( after ), barrier.Transition.StateAfter ) ) );
+				FormatResourceStates( after, sizeof( after ), barrier.Transition.StateAfter ) ), sizeof( buf ) );
 		}
 		else if( barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_UAV )
 		{
-			pos += size_t( snprintf( buf + pos, sizeof( buf ) - pos, " UAV(%s)", name ) );
+			pos = AdvanceFormatPos( pos, snprintf( buf + pos, sizeof( buf ) - pos, " UAV(%s)", name ), sizeof( buf ) );
 		}
 		else
 		{
-			pos += size_t( snprintf( buf + pos, sizeof( buf ) - pos, " Alias(%s)", name ) );
+			pos = AdvanceFormatPos( pos, snprintf( buf + pos, sizeof( buf ) - pos, " Alias(%s)", name ), sizeof( buf ) );
 		}
 	}
 	SetDredMarker( commandList, buf );
