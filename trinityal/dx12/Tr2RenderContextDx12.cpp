@@ -1578,9 +1578,9 @@ void SetDredMarker( ID3D12GraphicsCommandList* commandList, const char* text )
 {
 	constexpr UINT64 PIXEvent_SetMarker_NoArgs = 0x008;
 	UINT64 blob[64];
-	blob[0] = PIXEvent_SetMarker_NoArgs << 10;                  // timestamp 0, event type
-	blob[1] = 0xFF000000;                                       // ARGB color
-	blob[2] = ( UINT64( 8 ) << 55 ) | ( UINT64( 1 ) << 54 );    // string info: copy chunk 8, isANSI
+	blob[0] = PIXEvent_SetMarker_NoArgs << 10; // timestamp 0, event type
+	blob[1] = 0xFF000000; // ARGB color
+	blob[2] = ( UINT64( 8 ) << 55 ) | ( UINT64( 1 ) << 54 ); // string info: copy chunk 8, isANSI
 	size_t lenBytes = strlen( text ) + 1;
 	size_t qwords = std::min( ( lenBytes + 7 ) / 8, size_t( 60 ) );
 	memset( &blob[3], 0, qwords * 8 );

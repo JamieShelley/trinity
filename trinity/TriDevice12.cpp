@@ -223,10 +223,12 @@ void TriDevice::HandleRenderTick( Be::Time realTime, Be::Time simTime )
 					if( lastCompletedOp != pNode->BreadcrumbCount && lastCompletedOp != 0 )
 					{
 						CCP_LOGERR( "[DRED] Commandlist '%s' (%p) on queue '%s' completed %d of %d commands (%d contexts)",
-							pNode->pCommandListDebugNameA ? pNode->pCommandListDebugNameA : "<unnamed>",
-							pNode->pCommandList,
-							pNode->pCommandQueueDebugNameA ? pNode->pCommandQueueDebugNameA : "<unnamed>",
-							lastCompletedOp, pNode->BreadcrumbCount, pNode->BreadcrumbContextsCount );
+									pNode->pCommandListDebugNameA ? pNode->pCommandListDebugNameA : "<unnamed>",
+									pNode->pCommandList,
+									pNode->pCommandQueueDebugNameA ? pNode->pCommandQueueDebugNameA : "<unnamed>",
+									lastCompletedOp,
+									pNode->BreadcrumbCount,
+									pNode->BreadcrumbContextsCount );
 
 						UINT firstOp = lastCompletedOp > 100 ? lastCompletedOp - 100 : 0;
 						UINT lastOp = std::min<UINT>( lastCompletedOp + 20, UINT( pNode->BreadcrumbCount ) - 1 );
