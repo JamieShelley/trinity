@@ -1825,9 +1825,9 @@ void EmitBarrierBreadcrumb( ID3D12GraphicsCommandList* commandList, const D3D12_
 		if( barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION )
 		{
 			char before[96], after[96];
-			pos = AdvanceFormatPos( pos, snprintf( buf + pos, sizeof( buf ) - pos, " %s(%s->%s)", name,
-				FormatResourceStates( before, sizeof( before ), barrier.Transition.StateBefore ),
-				FormatResourceStates( after, sizeof( after ), barrier.Transition.StateAfter ) ), sizeof( buf ) );
+			const char* beforeStates = FormatResourceStates( before, sizeof( before ), barrier.Transition.StateBefore );
+			const char* afterStates = FormatResourceStates( after, sizeof( after ), barrier.Transition.StateAfter );
+			pos = AdvanceFormatPos( pos, snprintf( buf + pos, sizeof( buf ) - pos, " %s(%s->%s)", name, beforeStates, afterStates ), sizeof( buf ) );
 		}
 		else if( barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_UAV )
 		{
