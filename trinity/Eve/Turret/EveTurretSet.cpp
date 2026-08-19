@@ -26,25 +26,6 @@ using namespace Tr2RenderContextEnum;
 extern bool g_brokenMacOSNvidiaDrivers;
 
 
-// names of system bones like they are in the granny file
-static std::string s_systemBoneSkeletonNames[] = {
-	"invalid", // SYSBONE_INVALID
-	"Sys_Rotation_Arm", // SYSBONE_ROTATION
-	"Sys_Rotation_Arm01", // SYSBONE_ROTATION1
-	"Sys_Rotation_Arm02", // SYSBONE_ROTATION2
-	"Sys_CounterRotation", // SYSBONE_COUNTER_ROTATION
-	"Sys_Pitch_Barrel", // SYSBONE_PITCH
-	"Sys_Pitch_Barrel1", // SYSBONE_PITCH1
-	"Sys_Pitch_Barrel2", // SYSBONE_PITCH2
-	"Sys_Height", // SYSBONE_SCALED_HEIGHT
-	"Sys_Pitch_Arm01", // SYSBONE_SCALED_PITCH01
-	"Sys_Pitch_Arm02", // SYSBONE_SCALED_PITCH02
-	"Sys_Pitch_Arm03", // SYSBONE_SCALED_PITCH03
-	"Sys_Pitch_Arm04", // SYSBONE_SCALED_PITCH04
-	"Sys_Pitch_Arm05", // SYSBONE_SCALED_PITCH05
-	"Sys_Pitch_Arm06", // SYSBONE_SCALED_PITCH06
-};
-
 // invalids
 const unsigned int INVALID_BONE_INDEX = 0xffffffff;
 const unsigned int INVALID_TURRET_INDEX = 0xffffffff;
@@ -100,17 +81,6 @@ EveTurretSet::EveTurretSet( IRoot* lockobj ) :
 	m_maxCyclingFirePos( 1 ),
 	m_cyclingFireGroupCount( 1 ),
 	m_currentCyclingFiresPos( 0 ),
-	m_sysBoneHeight( 1.f ),
-	m_sysBonePitchOffset( 0.f ),
-	m_sysBonePitchFactor( 1.f ),
-	m_sysBonePitchMin( 0.f ),
-	m_sysBonePitchMax( 90.f ),
-	m_sysBonePitch01Offset( 0.f ),
-	m_sysBonePitch01Factor( 1.f ),
-	m_sysBonePitch02Offset( 0.f ),
-	m_sysBonePitch02Factor( 1.f ),
-	m_sysBonePitch03Offset( 0.f ),
-	m_sysBonePitch03Factor( 1.f ),
 	m_state( STATE_IDLE ),
 	m_activeTurret( INVALID_TURRET_INDEX ),
 	m_recheckTimeLeft( -1.f ),
@@ -1073,7 +1043,7 @@ void EveTurretSet::RebuildCachedData( BlueAsyncRes* p )
 				for( int i = 0; i < SYSBONE_MAX; ++i )
 				{
 					// in case we don't find system bone, ::FindJoint() returns 0xffffffff
-					m_systemBoneID[i] = skeletonData->FindJoint( s_systemBoneSkeletonNames[i].c_str() );
+					m_systemBoneID[i] = skeletonData->FindJoint( EveTurretAiming::GetSystemBoneName( i ) );
 				}
 
 				// try to link an existing firing effect to skeleton's bones
@@ -1346,7 +1316,7 @@ void EveTurretSet::UpdateSingleTurrets()
 								}
 								// modify this bone's transform data
 								cmf::Transform& boneTransform = turret.pose.boneTransforms[m_systemBoneID[bone]];
-								ModifySystemBoneTransform( (SystemBones)bone, &targetPosOS, localTransformPtr, boneTransform.position, boneTransform.rotation );
+								m_aiming.ModifySystemBoneTransform( (SystemBones)bone, &targetPosOS, localTransformPtr, m_trackingInfluence, boneTransform.position, boneTransform.rotation );
 							}
 						}
 					}
@@ -1398,7 +1368,7 @@ void EveTurretSet::UpdateSingleTurrets()
 								{
 									Vector3 position = Vector3( boneTransform->Position[0], boneTransform->Position[1], boneTransform->Position[2] );
 									Quaternion rotation = *reinterpret_cast<Quaternion*>( boneTransform->Orientation );
-									ModifySystemBoneTransform( (SystemBones)bone, &targetPosOS, localTransformPtr, position, rotation );
+									m_aiming.ModifySystemBoneTransform( (SystemBones)bone, &targetPosOS, localTransformPtr, m_trackingInfluence, position, rotation );
 									GrannySetTransform( boneTransform, &position.x, (float*)&rotation, (float*)boneTransform->ScaleShear );
 								}
 							}
@@ -1626,7 +1596,7 @@ Matrix EveTurretSet::GetTurretBoneTransform( uint32_t closestTurret, uint32_t bo
 		else
 		{
 			// if we don't have a valid pose, position is fine but orientation? depends on launcher settings...
-			if( m_sysBonePitchMin < 45.f )
+			if( m_aiming.m_sysBonePitchMin < 45.f )
 			{
 				// aiming directly at target, because target cone is large
 				Vector3 nrmToTarget = *m_target->GetTrackingPosition() - m.GetTranslation();
@@ -1682,7 +1652,7 @@ Matrix EveTurretSet::GetTurretBoneTransform( uint32_t closestTurret, uint32_t bo
 		else
 		{
 			// if we don't have a valid granny pose, position is fine but orientation? depends on launcher settings...
-			if( m_sysBonePitchMin < 45.f )
+			if( m_aiming.m_sysBonePitchMin < 45.f )
 			{
 				// aiming directly at target, because target cone is large
 				Vector3 nrmToTarget = *m_target->GetTrackingPosition() - m.GetTranslation();
@@ -3764,98 +3734,6 @@ void EveTurretSet::SetTargetObject( IRoot* target )
 ITriTargetablePtr EveTurretSet::GetTargetObject()
 {
 	return m_target->GetTargetable();
-}
-
-// --------------------------------------------------------------------------------
-// Description:
-//   Calculates the transform for a pitch bone
-// --------------------------------------------------------------------------------
-void EveTurretSet::CalcTransformForPitchBone( const Vector3* target, float minPitch, float maxPitch, unsigned int boneIndex, const Matrix* localTransform, Quaternion& rotation ) const
-{
-	float pitchOffset = GetBonePitchOffset( boneIndex );
-	float pitchFactor = GetBonePitchFactor( boneIndex );
-	// pitch of barrel 90 degrees
-	Vector3 bone_position( 0.f, 0.f, 0.f );
-
-	if( localTransform )
-	{
-		bone_position = localTransform->GetTranslation();
-	}
-
-	Vector3 relTarget = *target - bone_position;
-	Vector3 dirNrm = Normalize( relTarget );
-	float radians = asinf( dirNrm.y );
-
-	if( localTransform )
-	{
-		Vector3 bone_direction = Normalize( bone_position );
-		float d = Dot( bone_direction, *target );
-		if( d < Length( bone_position ) )
-		{
-			// Assuming up is enough for now to avoid cross products
-			radians = TriFloatSign( relTarget.y ) * XM_PI - radians;
-		}
-	}
-
-	float alpha = TriClamp( radians, minPitch, maxPitch );
-	// modify!
-	alpha = pitchFactor * alpha + XMConvertToRadians( pitchOffset );
-	// never forget do apply influence!
-	alpha *= m_trackingInfluence;
-	// 1st: make quaternion
-	Quaternion quat = RotationQuaternion( 0.f, -alpha, 0.f );
-	// 2nd: apply this quat after the original one
-	quat = rotation * quat;
-	// 2nd: make granny_transform from quat
-	rotation = quat;
-}
-
-// --------------------------------------------------------------------------------
-// Description:
-//   Returns the correct bone pitch factor based on the bone index
-//   If the bone index does not have a specific bone pitch factor, a default 1.0 is returned
-// --------------------------------------------------------------------------------
-float EveTurretSet::GetBonePitchFactor( unsigned int boneIndex ) const
-{
-	switch( boneIndex )
-	{
-	case SYSBONE_PITCH:
-	case SYSBONE_PITCH1:
-	case SYSBONE_PITCH2:
-		return m_sysBonePitchFactor;
-	case SYSBONE_SCALED_PITCH01:
-		return m_sysBonePitch01Factor;
-	case SYSBONE_SCALED_PITCH02:
-		return m_sysBonePitch02Factor;
-	case SYSBONE_SCALED_PITCH03:
-		return m_sysBonePitch03Factor;
-	default:
-		return 1.0f;
-	}
-}
-
-// --------------------------------------------------------------------------------
-// Description:
-//   Returns the correct bone pitch offset based on the bone index
-//   If the bone index does not have a specific bone pitch offset, a default 0.0 is returned
-// --------------------------------------------------------------------------------
-float EveTurretSet::GetBonePitchOffset( unsigned int boneIndex ) const
-{
-	switch( boneIndex )
-	{
-	case SYSBONE_PITCH:
-	case SYSBONE_PITCH1:
-	case SYSBONE_PITCH2:
-		return m_sysBonePitchOffset;
-	case SYSBONE_SCALED_PITCH01:
-		return m_sysBonePitch01Offset;
-	case SYSBONE_SCALED_PITCH02:
-		return m_sysBonePitch02Offset;
-	case SYSBONE_SCALED_PITCH03:
-		return m_sysBonePitch03Offset;
-	default:
-		return 0.0f;
-	}
 }
 
 // --------------------------------------------------------------------------------
