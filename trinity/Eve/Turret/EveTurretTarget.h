@@ -36,6 +36,7 @@ public:
 
 	// access locator
 	int GetLocator() const;
+	void SetFadeOnLocatorChange( bool fade );
 	void StartFireAtLocator( int l, float delay, float length, const Vector3* source );
 	void StopFireAtLocator();
 	const Vector3* GetTrackingPosition() const;
@@ -80,6 +81,7 @@ private:
 	Vector3 m_targetPosition;
 	Vector3 m_positionOld;
 	float m_positionOldInfluence;
+	bool m_fadeOnLocatorChange;
 
 	// hit/miss related data
 	Vector3 m_positionMiss;

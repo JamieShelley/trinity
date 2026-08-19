@@ -24,6 +24,7 @@ EveChildTurret::EveChildTurret( IRoot* lockobj ) :
 	}
 
 	m_target.CreateInstance();
+	m_target->SetFadeOnLocatorChange( true );
 
 	PrepareResources();
 }
