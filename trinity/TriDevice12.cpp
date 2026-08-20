@@ -265,13 +265,24 @@ void TriDevice::HandleRenderTick( Be::Time realTime, Be::Time simTime )
 			}
 			if( SUCCEEDED( pDred->GetPageFaultAllocationOutput1( &dredPageFaultOutput ) ) )
 			{
+				// Engine names are ANSI (WKPDID_D3DDebugObjectName), so DRED fills ObjectNameA; ObjectNameW only holds names set via SetName
+				auto logAllocationNode = []( const char* prefix, const D3D12_DRED_ALLOCATION_NODE1* node ) {
+					if( node->ObjectNameA )
+					{
+						CCP_LOGERR( "%s: %s (type %d)", prefix, node->ObjectNameA, node->AllocationType );
+					}
+					else
+					{
+						CCP_LOGERR( "%s: %ls (type %d)", prefix, node->ObjectNameW ? node->ObjectNameW : L"<unnamed>", node->AllocationType );
+					}
+				};
 				for( auto node = dredPageFaultOutput.pHeadExistingAllocationNode; node != nullptr; node = node->pNext )
 				{
-					CCP_LOGERR( "Page Fault Allocation on: %ls (type %d)", node->ObjectNameW ? node->ObjectNameW : L"<unnamed>", node->AllocationType );
+					logAllocationNode( "Page Fault Allocation on", node );
 				}
 				for( auto node = dredPageFaultOutput.pHeadRecentFreedAllocationNode; node != nullptr; node = node->pNext )
 				{
-					CCP_LOGERR( "Page Fault Free on: %ls (type %d)", node->ObjectNameW ? node->ObjectNameW : L"<unnamed>", node->AllocationType );
+					logAllocationNode( "Page Fault Free on", node );
 				}
 			}
 		}
