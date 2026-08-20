@@ -89,7 +89,7 @@ const Be::ClassInfo* EveChildTurret::ExposeToBlue()
 		MAP_METHOD_AND_WRAP(
 			"GetFiringBoneWorldTransform",
 			GetFiringBoneWorldTransform,
-			"Returns the world transform matrix of the specfified firing bone in the currently firing turret."
+			"Returns the world transform matrix of the specified firing bone in the currently firing turret."
 			"\n:param idx: index of the firing bone in the current model."
 			"\n:returns: The world transform matrix." )
 
