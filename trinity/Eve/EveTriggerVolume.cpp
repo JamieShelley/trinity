@@ -37,6 +37,7 @@ EveTriggerVolume::EveTriggerVolume( IRoot* lockobj ) :
 	m_translation( 0.0f, 0.0f, 0.0f ),
 	m_worldTransform( IdentityMatrix() ),
 	m_enterThreshold( 0.5f ),
+	m_forceTriggered( false ),
 	m_isInside( false ),
 	m_currentIntensity( 0.0f ),
 	m_display( true )
@@ -186,7 +187,12 @@ void EveTriggerVolume::UpdateTriggerState( const EveUpdateContext& updateContext
 	m_currentIntensity = 0.0f;
 
 	bool inside = false;
-	if( m_trackedPosition && m_volumes.size() > 0 )
+	if( m_forceTriggered )
+	{
+		m_currentIntensity = 1.0f;
+		inside = true;
+	}
+	else if( m_trackedPosition && m_volumes.size() > 0 )
 	{
 		Vector3 trackedPosition;
 		m_trackedPosition->Update( &trackedPosition, updateContext.GetTime() );
@@ -306,4 +312,45 @@ bool EveTriggerVolume::Initialize()
 	UpdateWorldTransform();
 	RebuildBoundingSphere();
 	return true;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////
+// ITr2DebugRenderable
+void EveTriggerVolume::GetDebugOptions( Tr2DebugRendererOptions& options )
+{
+	options.insert( "Trigger Volumes" );
+	options.insert( "Trigger Exclusion Volumes" );
+	options.insert( "Trigger Bounding Sphere" );
+}
+
+void EveTriggerVolume::RenderDebugInfo( ITr2DebugRenderer2& renderer )
+{
+	if( renderer.HasOption( GetRawRoot(), "Trigger Volumes" ) )
+	{
+		// green when the tracked position is inside, white otherwise
+		Color color = m_isInside ? 0xFF33FF33 : 0xFFFFFFFF;
+		for( auto volume = m_volumes.begin(); volume != m_volumes.end(); ++volume )
+		{
+			if( ( *volume )->IsEnabled() )
+			{
+				( *volume )->RenderDebugInfo( renderer, m_worldTransform, color );
+			}
+		}
+	}
+
+	if( renderer.HasOption( GetRawRoot(), "Trigger Exclusion Volumes" ) )
+	{
+		for( auto volume = m_exclusionVolumes.begin(); volume != m_exclusionVolumes.end(); ++volume )
+		{
+			if( ( *volume )->IsEnabled() )
+			{
+				( *volume )->RenderDebugInfo( renderer, m_worldTransform, 0xFFFF3333 );
+			}
+		}
+	}
+
+	if( renderer.HasOption( GetRawRoot(), "Trigger Bounding Sphere" ) )
+	{
+		renderer.DrawSphere( this, TranslationMatrix( m_boundingSphere.center ) * m_worldTransform, m_boundingSphere.radius, 10, Tr2DebugRenderer::Wireframe, 0xff333333 );
+	}
 }

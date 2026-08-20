@@ -11,6 +11,7 @@ const Be::ClassInfo* EveTriggerVolume::ExposeToBlue()
 		MAP_INTERFACE( IEveSpaceObject2 )
 		MAP_INTERFACE( IInitialize )
 		MAP_INTERFACE( IWorldPosition )
+		MAP_INTERFACE( ITr2DebugRenderable )
 
 		MAP_ATTRIBUTE(
 			"name",
@@ -52,6 +53,12 @@ const Be::ClassInfo* EveTriggerVolume::ExposeToBlue()
 			"trackedPositionCurve",
 			m_trackedPosition,
 			"Vector function slot for attaching a destiny ball as the tracked position",
+			Be::READWRITE )
+
+		MAP_ATTRIBUTE(
+			"forceTriggered",
+			m_forceTriggered,
+			"Debug: force the trigger into the entered state, e.g. for testing in Graphite",
 			Be::READWRITE )
 
 		MAP_ATTRIBUTE(

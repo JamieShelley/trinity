@@ -35,11 +35,14 @@ BLUE_DECLARE( EveTriggerVolume );
  * The tracked position (typically the player ship's destiny ball) is attached from Python via the
  * trackedPositionCurve slot. When the tracked position crosses the enterThreshold intensity boundary,
  * the registered callback is invoked as callback( name, entered ) at a safe point after update.
+ *
+ * For testing in Graphite without an attached ball, set the forceTriggered attribute to simulate entry/exit.
  */
 BLUE_CLASS( EveTriggerVolume ) :
 	public IWorldPosition,
 	public IEveSpaceObject2,
-	public IInitialize
+	public IInitialize,
+	public ITr2DebugRenderable
 {
 public:
 	EXPOSE_TO_BLUE();
@@ -91,6 +94,11 @@ public:
 	// IInitialize
 	bool Initialize() override;
 
+	/////////////////////////////////////////////////////////////////////////////////////
+	// ITr2DebugRenderable
+	void GetDebugOptions( Tr2DebugRendererOptions & options ) override;
+	void RenderDebugInfo( ITr2DebugRenderer2 & renderer ) override;
+
 	Quaternion m_rotation; ///< Local rotation of the trigger volume, editable in Graphite.
 	Vector3 m_translation; ///< Local translation of the trigger volume, editable in Graphite.
 
@@ -123,6 +131,7 @@ private:
 	Matrix m_worldTransform; ///< World transform built from the translation/rotation attributes.
 
 	float m_enterThreshold; ///< Volume intensity at which the tracked position counts as inside (0..1).
+	bool m_forceTriggered; ///< Debug: force the trigger into the entered state, e.g. for testing in Graphite.
 	bool m_isInside; ///< Current inside/outside state of the tracked position.
 	float m_currentIntensity; ///< Most recent evaluated intensity, for debugging.
 	bool m_display; ///< Not really used for trigger volumes, but here for consistency with the EveSpaceObject interface.
