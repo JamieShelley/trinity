@@ -15,6 +15,7 @@ const Be::ClassInfo* EveBoxVolume::ExposeToBlue()
 		MAP_INTERFACE( IInitialize )
 
 		MAP_ATTRIBUTE( "name", m_name, "", Be::READWRITE | Be::PERSIST )
+		MAP_ATTRIBUTE( "enabled", m_enabled, "Disabled volumes are ignored by their owner, e.g. to switch shapes via external parameters", Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "position", m_position, "", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 		MAP_ATTRIBUTE( "scaling", m_scaling, "", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
 		MAP_ATTRIBUTE( "innerScaling", m_innerScaling, "", Be::READWRITE | Be::PERSIST | Be::NOTIFY )
