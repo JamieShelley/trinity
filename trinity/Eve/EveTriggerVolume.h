@@ -113,6 +113,7 @@ private:
 
 	std::string m_name; ///< The name identifier, passed to the callback so one handler can serve many volumes.
 	PIEveVolumeVector m_volumes; ///< The volumes defining the trigger region.
+	PIEveVolumeVector m_exclusionVolumes; ///< Volumes subtracted from the trigger region.
 
 	CcpMath::Sphere m_boundingSphere; ///< Broad-phase bounding sphere around all volumes, in local space.
 

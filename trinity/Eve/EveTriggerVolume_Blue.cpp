@@ -37,6 +37,12 @@ const Be::ClassInfo* EveTriggerVolume::ExposeToBlue()
 			Be::READ | Be::PERSIST )
 
 		MAP_ATTRIBUTE(
+			"exclusionVolumes",
+			m_exclusionVolumes,
+			"Volumes subtracted from the trigger region",
+			Be::READ | Be::PERSIST )
+
+		MAP_ATTRIBUTE(
 			"enterThreshold",
 			m_enterThreshold,
 			"Volume intensity (0..1) at which the tracked position counts as inside",

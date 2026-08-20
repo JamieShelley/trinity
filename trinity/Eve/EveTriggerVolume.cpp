@@ -32,6 +32,7 @@ void TriggerExitCallback( void* context )
 
 EveTriggerVolume::EveTriggerVolume( IRoot* lockobj ) :
 	PARENTLOCK( m_volumes ),
+	PARENTLOCK( m_exclusionVolumes ),
 	m_rotation( 0.0f, 0.0f, 0.0f, 1.0f ),
 	m_translation( 0.0f, 0.0f, 0.0f ),
 	m_worldTransform( IdentityMatrix() ),
@@ -209,6 +210,26 @@ void EveTriggerVolume::UpdateTriggerState( const EveUpdateContext& updateContext
 					// early exit
 					break;
 				}
+			}
+
+			if( m_currentIntensity != 0.0f )
+			{
+				// check if the tracked position is within an exclusion volume
+				float negativeIntensity = 0.0f;
+				for( const auto& volume : m_exclusionVolumes )
+				{
+					if( !volume->IsEnabled() )
+					{
+						continue;
+					}
+					negativeIntensity = std::max( negativeIntensity, volume->GetIntensity( positionInObjectSpace ) );
+					if( negativeIntensity == 1.0f )
+					{
+						// early exit
+						break;
+					}
+				}
+				m_currentIntensity = std::max( 0.0f, m_currentIntensity - negativeIntensity );
 			}
 		}
 
