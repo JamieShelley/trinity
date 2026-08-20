@@ -1,4 +1,4 @@
-﻿// Copyright © 2026 Fenris Creations ehf.
+// Copyright © 2026 Fenris Creations ehf.
 
 #pragma once
 
