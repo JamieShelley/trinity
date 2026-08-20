@@ -265,6 +265,7 @@ void TriDevice::HandleRenderTick( Be::Time realTime, Be::Time simTime )
 			}
 			if( SUCCEEDED( pDred->GetPageFaultAllocationOutput1( &dredPageFaultOutput ) ) )
 			{
+				CCP_LOGERR( "[DRED] Page fault VA: 0x%016llX", dredPageFaultOutput.PageFaultVA );
 				// Engine names are ANSI (WKPDID_D3DDebugObjectName), so DRED fills ObjectNameA; ObjectNameW only holds names set via SetName
 				auto logAllocationNode = []( const char* prefix, const D3D12_DRED_ALLOCATION_NODE1* node ) {
 					if( node->ObjectNameA )
