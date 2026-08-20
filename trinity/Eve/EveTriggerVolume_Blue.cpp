@@ -50,6 +50,24 @@ const Be::ClassInfo* EveTriggerVolume::ExposeToBlue()
 			Be::READWRITE | Be::PERSIST )
 
 		MAP_ATTRIBUTE(
+			"externalParameters",
+			m_externalParameters,
+			"List of external parameters exposing per-placement values, e.g. for dungeon asset manipulations",
+			Be::READ | Be::PERSIST )
+
+		MAP_ATTRIBUTE(
+			"translationCurve",
+			m_ballPosition,
+			"Function for animated position updates, e.g. the object's own destiny ball in the client",
+			Be::READWRITE | Be::PERSIST )
+
+		MAP_ATTRIBUTE(
+			"rotationCurve",
+			m_ballRotation,
+			"Function for animated rotation updates, e.g. the object's own destiny ball in the client",
+			Be::READWRITE | Be::PERSIST )
+
+		MAP_ATTRIBUTE(
 			"trackedPositionCurve",
 			m_trackedPosition,
 			"Vector function slot for attaching a destiny ball as the tracked position",

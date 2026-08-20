@@ -24,6 +24,8 @@
 
 BLUE_DECLARE_INTERFACE( IEveVolume );
 BLUE_DECLARE_IVECTOR( IEveVolume );
+BLUE_DECLARE( Tr2ExternalParameter );
+BLUE_DECLARE_VECTOR( Tr2ExternalParameter );
 BLUE_DECLARE( EveTriggerVolume );
 
 /**
@@ -104,9 +106,10 @@ public:
 
 private:
 	/**
-	 * @brief Rebuilds the world transform from the translation/rotation attributes.
+	 * @brief Rebuilds the world transform from the position/rotation curves when attached
+	 * (e.g. a destiny ball in the client), otherwise from the translation/rotation attributes.
 	 */
-	void UpdateWorldTransform();
+	void UpdateWorldTransform( Be::Time time );
 
 	/**
 	 * @brief Evaluates whether the tracked position is inside the volumes and fires the callback on transitions.
@@ -119,16 +122,30 @@ private:
 	 */
 	void QueueCallback( bool entered );
 
+	/**
+	 * @brief Returns the name passed to the callback.
+	 *
+	 * Prefers the first non-empty volume name over the name attribute: external parameters
+	 * in a .red file cannot reference the root object, so per-placement names (e.g. dungeon
+	 * asset manipulations) are bound to the first volume, and the client overwrites the root
+	 * name attribute with the destiny ball ID when adding the object to the scene.
+	 */
+	const char* GetEffectiveName() const;
+
 	std::string m_name; ///< The name identifier, passed to the callback so one handler can serve many volumes.
 	PIEveVolumeVector m_volumes; ///< The volumes defining the trigger region.
 	PIEveVolumeVector m_exclusionVolumes; ///< Volumes subtracted from the trigger region.
+	PTr2ExternalParameterVector m_externalParameters; ///< External parameters exposing per-placement values, e.g. for dungeon asset manipulations.
 
 	CcpMath::Sphere m_boundingSphere; ///< Broad-phase bounding sphere around all volumes, in local space.
 
 	// TODO: derive the tracked position from the EveSpace scene instead of attaching it from Python.
 	ITriVectorFunctionPtr m_trackedPosition; ///< Vector function slot for attaching a destiny ball as the tracked position.
 
-	Matrix m_worldTransform; ///< World transform built from the translation/rotation attributes.
+	ITriVectorFunctionPtr m_ballPosition; ///< Position curve slot; the client attaches the object's own destiny ball here.
+	ITriQuaternionFunctionPtr m_ballRotation; ///< Rotation curve slot; the client attaches the object's own destiny ball here.
+
+	Matrix m_worldTransform; ///< World transform built from the position/rotation curves or the translation/rotation attributes.
 
 	float m_enterThreshold; ///< Volume intensity at which the tracked position counts as inside (0..1).
 	bool m_forceTriggered; ///< Debug: force the trigger into the entered state, e.g. for testing in Graphite.

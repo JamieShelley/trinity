@@ -33,6 +33,7 @@ void TriggerExitCallback( void* context )
 EveTriggerVolume::EveTriggerVolume( IRoot* lockobj ) :
 	PARENTLOCK( m_volumes ),
 	PARENTLOCK( m_exclusionVolumes ),
+	PARENTLOCK( m_externalParameters ),
 	m_rotation( 0.0f, 0.0f, 0.0f, 1.0f ),
 	m_translation( 0.0f, 0.0f, 0.0f ),
 	m_worldTransform( IdentityMatrix() ),
@@ -100,6 +101,25 @@ void EveTriggerVolume::RebuildBoundingSphere()
 	}
 }
 
+const char* EveTriggerVolume::GetEffectiveName() const
+{
+	// Prefer enabled volume names: per-placement names from dungeon asset manipulations are
+	// bound to the volumes, while the client overwrites the root name with the destiny ball ID.
+	for( auto volume = m_volumes.begin(); volume != m_volumes.end(); ++volume )
+	{
+		if( !( *volume )->IsEnabled() )
+		{
+			continue;
+		}
+		const char* volumeName = ( *volume )->GetName();
+		if( volumeName && volumeName[0] != '\0' )
+		{
+			return volumeName;
+		}
+	}
+	return m_name.c_str();
+}
+
 #if BLUE_WITH_PYTHON
 void EveTriggerVolume::SetCallback( PyObject* callable )
 {
@@ -123,7 +143,7 @@ void EveTriggerVolume::InvokeCallback( bool entered )
 		return;
 	}
 
-	PyObject* args = Py_BuildValue( "(sO)", m_name.c_str(), entered ? Py_True : Py_False );
+	PyObject* args = Py_BuildValue( "(sO)", GetEffectiveName(), entered ? Py_True : Py_False );
 	if( !args )
 	{
 		return;
@@ -162,9 +182,30 @@ void EveTriggerVolume::QueueCallback( bool entered )
 #endif
 }
 
-void EveTriggerVolume::UpdateWorldTransform()
+void EveTriggerVolume::UpdateWorldTransform( Be::Time time )
 {
-	m_worldTransform = RotationMatrix( m_rotation ) * TranslationMatrix( m_translation );
+	Quaternion rotation;
+	Vector3 translation;
+
+	if( m_ballPosition )
+	{
+		m_ballPosition->Update( &translation, time );
+	}
+	else
+	{
+		translation = m_translation;
+	}
+
+	if( m_ballRotation )
+	{
+		m_ballRotation->Update( &rotation, time );
+	}
+	else
+	{
+		rotation = m_rotation;
+	}
+
+	m_worldTransform = RotationMatrix( rotation ) * TranslationMatrix( translation );
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -173,7 +214,7 @@ void EveTriggerVolume::UpdateSyncronous( const EveUpdateContext& updateContext )
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
-	UpdateWorldTransform();
+	UpdateWorldTransform( updateContext.GetTime() );
 
 	RebuildBoundingSphere();
 
@@ -270,7 +311,7 @@ bool EveTriggerVolume::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery q
 
 void EveTriggerVolume::UpdateModelCenterWorldPosition( Vector3& position, Be::Time t )
 {
-	UpdateWorldTransform();
+	UpdateWorldTransform( t );
 	GetModelCenterWorldPosition( position );
 }
 
@@ -309,7 +350,7 @@ Quaternion EveTriggerVolume::GetWorldRotation()
 // IInitialize
 bool EveTriggerVolume::Initialize()
 {
-	UpdateWorldTransform();
+	UpdateWorldTransform( Be::Time( 0.0 ) );
 	RebuildBoundingSphere();
 	return true;
 }
