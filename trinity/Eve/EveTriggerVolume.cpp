@@ -5,6 +5,31 @@
 #include "TriDevice.h"
 #include "TriUtil.h"
 
+#if BLUE_WITH_PYTHON
+namespace
+{
+void InvokeTriggerCallback( void* context, bool entered )
+{
+	EveTriggerVolume* triggerVolume = reinterpret_cast<EveTriggerVolume*>( context );
+
+	triggerVolume->InvokeCallback( entered );
+
+	// A reference was added when the callback was queued - release it here.
+	triggerVolume->GetRawRoot()->Unlock();
+}
+
+void TriggerEnterCallback( void* context )
+{
+	InvokeTriggerCallback( context, true );
+}
+
+void TriggerExitCallback( void* context )
+{
+	InvokeTriggerCallback( context, false );
+}
+}
+#endif
+
 EveTriggerVolume::EveTriggerVolume( IRoot* lockobj ) :
 	PARENTLOCK( m_volumes ),
 	m_rotation( 0.0f, 0.0f, 0.0f, 1.0f ),
@@ -14,11 +39,18 @@ EveTriggerVolume::EveTriggerVolume( IRoot* lockobj ) :
 	m_isInside( false ),
 	m_currentIntensity( 0.0f ),
 	m_display( true )
+#if BLUE_WITH_PYTHON
+	,
+	m_callable( NULL )
+#endif
 {
 }
 
 EveTriggerVolume::~EveTriggerVolume()
 {
+#if BLUE_WITH_PYTHON
+	Py_XDECREF( m_callable );
+#endif
 }
 
 void EveTriggerVolume::RebuildBoundingSphere()
@@ -64,6 +96,68 @@ void EveTriggerVolume::RebuildBoundingSphere()
 		m_boundingSphere.center += 0.5f * ( 1.f + ( volumeSphere.radius - m_boundingSphere.radius ) / deltaLen ) * delta;
 		m_boundingSphere.radius = 0.5f * ( m_boundingSphere.radius + volumeSphere.radius + deltaLen );
 	}
+}
+
+#if BLUE_WITH_PYTHON
+void EveTriggerVolume::SetCallback( PyObject* callable )
+{
+	Py_XDECREF( m_callable );
+
+	if( callable == NULL || callable == Py_None )
+	{
+		m_callable = NULL;
+	}
+	else
+	{
+		m_callable = callable;
+		Py_XINCREF( m_callable );
+	}
+}
+
+void EveTriggerVolume::InvokeCallback( bool entered )
+{
+	if( !m_callable )
+	{
+		return;
+	}
+
+	PyObject* args = Py_BuildValue( "(sO)", m_name.c_str(), entered ? Py_True : Py_False );
+	if( !args )
+	{
+		return;
+	}
+
+	PyObject* result = PyObject_CallObject( m_callable, args );
+	Py_DECREF( args );
+	if( result )
+	{
+		Py_DECREF( result );
+	}
+	else
+	{
+		CCP_LOGWARN( "EveTriggerVolume: Callback raised an exception" );
+	}
+}
+#endif
+
+void EveTriggerVolume::QueueCallback( bool entered )
+{
+#if BLUE_WITH_PYTHON
+	if( !m_callable )
+	{
+		return;
+	}
+
+	if( !PyCallable_Check( m_callable ) )
+	{
+		CCP_LOGWARN( "EveTriggerVolume: Callback is not a callable object" );
+		return;
+	}
+
+	// Defer the actual Python call to a well defined point on the main thread.
+	GetRawRoot()->Lock();
+	gTriDev->AddPostUpdateCallback( entered ? TriggerEnterCallback : TriggerExitCallback, reinterpret_cast<void*>( this ) );
+#endif
 }
 
 void EveTriggerVolume::UpdateWorldTransform()
@@ -124,6 +218,7 @@ void EveTriggerVolume::UpdateTriggerState( const EveUpdateContext& updateContext
 	if( inside != m_isInside )
 	{
 		m_isInside = inside;
+		QueueCallback( inside );
 	}
 }
 

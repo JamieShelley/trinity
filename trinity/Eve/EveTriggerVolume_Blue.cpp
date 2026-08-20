@@ -15,7 +15,7 @@ const Be::ClassInfo* EveTriggerVolume::ExposeToBlue()
 		MAP_ATTRIBUTE(
 			"name",
 			m_name,
-			"Name identifier, so one handler can serve many trigger volumes",
+			"Name identifier, passed to the callback so one handler can serve many trigger volumes",
 			Be::READWRITE | Be::PERSIST )
 
 		MAP_ATTRIBUTE(
@@ -65,6 +65,16 @@ const Be::ClassInfo* EveTriggerVolume::ExposeToBlue()
 			m_display,
 			"Not really used for trigger volumes, but here for consistency with the EveSpaceObject interface",
 			Be::READWRITE )
+
+#if BLUE_WITH_PYTHON
+		MAP_METHOD_AND_WRAP(
+			"SetCallback",
+			SetCallback,
+			"Sets the Python callable invoked on enter/exit transitions.\n"
+			"The callable is invoked as callback( name, entered ) where entered is\n"
+			"True on entry and False on exit. Pass None to clear the callback.\n"
+			":param callable: callback callable or None" )
+#endif
 
 	EXPOSURE_END()
 }

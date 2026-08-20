@@ -28,13 +28,13 @@ BLUE_DECLARE( EveTriggerVolume );
 
 /**
  * @class EveTriggerVolume
- * @brief A standalone spatial trigger that tracks whether a tracked position is inside its volumes.
+ * @brief A standalone spatial trigger that fires a Python callback when a tracked position enters or exits its volumes.
  *
  * The trigger region is defined by a list of IEveVolume shapes (box/sphere/ellipsoid), placed relative
  * to the object's translation/rotation and editable in Graphite like any other top-level scene object.
  * The tracked position (typically the player ship's destiny ball) is attached from Python via the
- * trackedPositionCurve slot. The isInside attribute reflects whether it is past the
- * enterThreshold intensity boundary.
+ * trackedPositionCurve slot. When the tracked position crosses the enterThreshold intensity boundary,
+ * the registered callback is invoked as callback( name, entered ) at a safe point after update.
  */
 BLUE_CLASS( EveTriggerVolume ) :
 	public IWorldPosition,
@@ -51,6 +51,24 @@ public:
 	 * @brief Recomputes the broad-phase bounding sphere from the volume list.
 	 */
 	void RebuildBoundingSphere();
+
+#if BLUE_WITH_PYTHON
+	/**
+	 * @brief Sets the Python callable invoked on enter/exit transitions.
+	 *
+	 * The callable is invoked as callback( name, entered ) where entered is True on entry
+	 * and False on exit. Pass None to clear the callback.
+	 *
+	 * @param callable Python callable or None.
+	 */
+	void SetCallback( PyObject* callable );
+
+	/**
+	 * @brief Invokes the stored callback. Called from the post-update callback on the main thread.
+	 * @param entered True if the tracked position entered the volume, false if it exited.
+	 */
+	void InvokeCallback( bool entered );
+#endif
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	// IEveSpaceObject2
@@ -83,11 +101,17 @@ private:
 	void UpdateWorldTransform();
 
 	/**
-	 * @brief Evaluates whether the tracked position is inside the volumes.
+	 * @brief Evaluates whether the tracked position is inside the volumes and fires the callback on transitions.
 	 */
 	void UpdateTriggerState( const EveUpdateContext& updateContext );
 
-	std::string m_name; ///< The name identifier, so one handler can serve many trigger volumes.
+	/**
+	 * @brief Queues the callback for invocation at the post-update point on the main thread.
+	 * @param entered True if the tracked position entered the volume, false if it exited.
+	 */
+	void QueueCallback( bool entered );
+
+	std::string m_name; ///< The name identifier, passed to the callback so one handler can serve many volumes.
 	PIEveVolumeVector m_volumes; ///< The volumes defining the trigger region.
 
 	CcpMath::Sphere m_boundingSphere; ///< Broad-phase bounding sphere around all volumes, in local space.
@@ -101,6 +125,14 @@ private:
 	bool m_isInside; ///< Current inside/outside state of the tracked position.
 	float m_currentIntensity; ///< Most recent evaluated intensity, for debugging.
 	bool m_display; ///< Not really used for trigger volumes, but here for consistency with the EveSpaceObject interface.
+
+#if BLUE_WITH_PYTHON
+
+	// TODO: replace the raw PyObject callback with BLUESCRIPTCALLBACK.
+	PyObject* m_callable; ///< Python callable invoked on enter/exit transitions.
+
+	// TODO: bind controllers to the trigger volume for VFX.
+#endif
 };
 
 /**
