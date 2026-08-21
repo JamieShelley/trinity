@@ -103,6 +103,17 @@ public:
 
 	ALResult ResetResourceBindings() throw();
 
+	// batch token protocol: a caller that pushed a binding batch can store the id and
+	// skip re-pushing while the context still holds that exact batch
+	uint64_t GetResourceBindingBatchId() const throw()
+	{
+		return m_bindingBatchId;
+	}
+	bool TryReuseResourceBindings( uint64_t token ) const throw()
+	{
+		return token != 0 && token == m_bindingBatchId;
+	}
+
 	ALResult DrawIndexedPrimitive(
 		uint32_t numVertices,
 		uint32_t startIndex,
@@ -328,6 +339,7 @@ private:
 	bool m_bindingsCommitted;
 	bool m_bindingsSealed;
 	const TrinityALImpl::Tr2RootSignatureAL* m_committedRootSignature;
+	uint64_t m_bindingBatchId;
 
 protected:
 	bool GetRenderTargetHandles( D3D12_CPU_DESCRIPTOR_HANDLE* handles, uint32_t& count );

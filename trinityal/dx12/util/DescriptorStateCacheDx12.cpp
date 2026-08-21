@@ -80,12 +80,12 @@ void DescriptorStateCache::Dirty()
 }
 
 /** Set an array of ShaderResourceViews */
-void DescriptorStateCache::SetShaderResources( uint32_t startSlot, uint32_t numViews, std::shared_ptr<ShaderResourceViewDx12>* shaderResourceViews )
+void DescriptorStateCache::SetShaderResources( uint32_t startSlot, uint32_t numViews, const std::shared_ptr<ShaderResourceViewDx12>* shaderResourceViews )
 {
 	for( uint32_t slot = 0; slot < numViews; ++slot )
 	{
 		uint32_t writeSlot = startSlot + slot;
-		auto& srv = shaderResourceViews[slot] != nullptr ? shaderResourceViews[slot] : m_nullSrv;
+		const auto& srv = shaderResourceViews[slot] != nullptr ? shaderResourceViews[slot] : m_nullSrv;
 		if( m_srvUav[writeSlot] != srv )
 		{
 			m_srvUav[writeSlot] = srv;
@@ -95,13 +95,13 @@ void DescriptorStateCache::SetShaderResources( uint32_t startSlot, uint32_t numV
 }
 
 /** Set an array or UnorderedAccessViews */
-void DescriptorStateCache::SetUnorderedAccessViews( uint32_t startSlot, uint32_t numViews, std::shared_ptr<UnorderedAccessViewDx12>* unorderedAccessViews )
+void DescriptorStateCache::SetUnorderedAccessViews( uint32_t startSlot, uint32_t numViews, const std::shared_ptr<UnorderedAccessViewDx12>* unorderedAccessViews )
 {
 	for( uint32_t slot = 0; slot < numViews; ++slot )
 	{
 		uint32_t writeSlot = startSlot + slot;
 
-		auto& uav = unorderedAccessViews[slot] != nullptr ? unorderedAccessViews[slot] : m_nullUav;
+		const auto& uav = unorderedAccessViews[slot] != nullptr ? unorderedAccessViews[slot] : m_nullUav;
 		if( m_srvUav[writeSlot] != uav )
 		{
 			m_srvUav[writeSlot] = uav;
@@ -110,13 +110,13 @@ void DescriptorStateCache::SetUnorderedAccessViews( uint32_t startSlot, uint32_t
 	}
 }
 
-/** Set an array of SamplerStates */
-void DescriptorStateCache::SetSamplers( uint32_t startSlot, uint32_t numViews, std::shared_ptr<SamplerStateDx12>* samplers )
+/** Set an array of SamplerStates; null entries bind the null sampler */
+void DescriptorStateCache::SetSamplers( uint32_t startSlot, uint32_t numViews, const std::shared_ptr<SamplerStateDx12>* const* samplers )
 {
 	for( uint32_t slot = 0; slot < numViews; ++slot )
 	{
 		uint32_t writeSlot = startSlot + slot;
-		auto& sampler = samplers[slot] != nullptr ? samplers[slot] : m_nullSampler;
+		const auto& sampler = samplers[slot] != nullptr && *samplers[slot] != nullptr ? *samplers[slot] : m_nullSampler;
 		if( m_sampler[writeSlot] != sampler )
 		{
 			m_sampler[writeSlot] = sampler;

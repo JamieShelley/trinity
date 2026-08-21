@@ -652,6 +652,7 @@ void Tr2Effect::RebuildSamplerOverrides()
 				{
 					pp.m_compatibleWithGdr = false;
 					m_compatibleWithGdr = false;
+					pp.m_bindingToken = 0;
 				}
 			}
 		}

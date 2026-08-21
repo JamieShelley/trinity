@@ -144,6 +144,11 @@ public:
 	bool m_compatibleWithGdr;
 	bool m_usedTexturesDirty;
 
+	// batch token: identifies the render-context binding batch this pass last pushed,
+	// letting a re-apply skip the whole rebind when the context still holds it
+	uint64_t m_bindingToken = 0;
+	const void* m_bindingTokenContext = nullptr;
+
 	void AddUsedResource( ITr2EffectValuePtr resource ) override;
 	void AddReroutable( ITriReroutable* reroutable ) override;
 };

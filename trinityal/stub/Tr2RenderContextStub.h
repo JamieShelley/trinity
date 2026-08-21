@@ -121,6 +121,16 @@ public:
 
 	ALResult ResetResourceBindings() throw();
 
+	// batch token protocol: no reuse on this backend yet, callers always re-push
+	uint64_t GetResourceBindingBatchId() const throw()
+	{
+		return 0;
+	}
+	bool TryReuseResourceBindings( uint64_t ) const throw()
+	{
+		return false;
+	}
+
 	ALResult DrawIndexedPrimitive(
 		uint32_t numVertices,
 		uint32_t startIndex,

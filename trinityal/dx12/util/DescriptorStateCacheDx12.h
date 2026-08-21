@@ -32,10 +32,10 @@ public:
 	void Commit( ID3D12GraphicsCommandList* commandList, ID3D12DescriptorHeap* globalSrvUavHeap, ID3D12DescriptorHeap* globalSamplerHeap, const TrinityALImpl::Tr2RootSignatureAL* rootSignature );
 
 	/** Set an array of ShaderResourceViews */
-	void SetShaderResources( uint32_t startSlot, uint32_t numViews, std::shared_ptr<ShaderResourceViewDx12>* shaderResourceViews );
+	void SetShaderResources( uint32_t startSlot, uint32_t numViews, const std::shared_ptr<ShaderResourceViewDx12>* shaderResourceViews );
 
-	/** Set an array of SamplerStates */
-	void SetSamplers( uint32_t startSlot, uint32_t numViews, std::shared_ptr<SamplerStateDx12>* samplers );
+	/** Set an array of SamplerStates; null entries bind the null sampler */
+	void SetSamplers( uint32_t startSlot, uint32_t numViews, const std::shared_ptr<SamplerStateDx12>* const* samplers );
 
 	/** Set a constantbuffer */
 	void SetConstantBuffers( Tr2RenderContextEnum::ShaderType shaderStage, uint32_t slot, const TrinityALImpl::Tr2ConstantBufferAL& constantBuffer );
@@ -43,7 +43,7 @@ public:
 	D3D12_GPU_VIRTUAL_ADDRESS UploadConstants( const void* data, uint32_t size );
 
 	/** Set an array or UnorderedAccessViews */
-	void SetUnorderedAccessViews( uint32_t startSlot, uint32_t numViews, std::shared_ptr<UnorderedAccessViewDx12>* unorderedAccessViews );
+	void SetUnorderedAccessViews( uint32_t startSlot, uint32_t numViews, const std::shared_ptr<UnorderedAccessViewDx12>* unorderedAccessViews );
 
 	void SetHeaps( ID3D12GraphicsCommandList* commandList, ID3D12DescriptorHeap* globalSrvUavHeap, ID3D12DescriptorHeap* globalSamplerHeap );
 

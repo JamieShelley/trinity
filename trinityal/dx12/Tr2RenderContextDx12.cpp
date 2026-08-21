@@ -38,6 +38,10 @@ enum
 
 };
 
+// per-context high bits keep binding batch ids unique across context lifetimes,
+// so a stale token stored by a material can never match a different context's batch
+uint64_t s_bindingBatchIdSeed = 0;
+
 
 D3D12_PRIMITIVE_TOPOLOGY s_topologies[] = {
 	D3D_PRIMITIVE_TOPOLOGY_UNDEFINED,
@@ -100,7 +104,8 @@ Tr2RenderContextAL::Tr2RenderContextAL() throw() :
 	m_uavBarriersDisabledCounter( 0 ),
 	m_bindingsCommitted( false ),
 	m_bindingsSealed( false ),
-	m_committedRootSignature( nullptr )
+	m_committedRootSignature( nullptr ),
+	m_bindingBatchId( s_bindingBatchIdSeed += uint64_t( 1 ) << 32 )
 {
 	std::fill( std::begin( m_vertexBuffers ), std::end( m_vertexBuffers ), VB() );
 
@@ -517,6 +522,7 @@ void Tr2RenderContextAL::BeginResourceBindingBatch() throw()
 
 	m_bindingsSealed = false;
 	m_bindingsCommitted = false;
+	++m_bindingBatchId;
 
 	m_pendingSRVs.clear();
 	m_pendingUAVs.clear();
@@ -532,6 +538,7 @@ void Tr2RenderContextAL::BeginResourceBindingBatch() throw()
 
 void Tr2RenderContextAL::DiscardResourceBindings() throw()
 {
+	++m_bindingBatchId;
 	m_pendingSRVs.clear();
 	m_pendingUAVs.clear();
 	m_pendingSamplers.clear();
@@ -556,12 +563,12 @@ ALResult Tr2RenderContextAL::SetSrv( Tr2RenderContextEnum::ShaderType stage, uin
 	}
 	BeginResourceBindingBatch();
 
-	Resource resource;
+	m_pendingSRVs.emplace_back();
+	Resource& resource = m_pendingSRVs.back();
 	resource.stage = stage;
 	resource.registerIndex = registerIndex;
 	resource.type = Resource::BUFFER;
 	resource.buffer = buffer;
-	m_pendingSRVs.push_back( resource );
 
 	m_bindingsCommitted = false;
 	return S_OK;
@@ -575,13 +582,13 @@ ALResult Tr2RenderContextAL::SetSrv( Tr2RenderContextEnum::ShaderType stage, uin
 	}
 	BeginResourceBindingBatch();
 
-	Resource resource;
+	m_pendingSRVs.emplace_back();
+	Resource& resource = m_pendingSRVs.back();
 	resource.stage = stage;
 	resource.registerIndex = registerIndex;
 	resource.type = Resource::TEXTURE;
 	resource.texture = texture;
 	resource.colorSpace = colorSpace;
-	m_pendingSRVs.push_back( resource );
 
 	m_bindingsCommitted = false;
 	return S_OK;
@@ -595,12 +602,12 @@ ALResult Tr2RenderContextAL::SetUav( Tr2RenderContextEnum::ShaderType stage, uin
 	}
 	BeginResourceBindingBatch();
 
-	Resource resource;
+	m_pendingUAVs.emplace_back();
+	Resource& resource = m_pendingUAVs.back();
 	resource.stage = stage;
 	resource.registerIndex = registerIndex;
 	resource.type = Resource::BUFFER;
 	resource.buffer = buffer;
-	m_pendingUAVs.push_back( resource );
 
 	m_bindingsCommitted = false;
 	return S_OK;
@@ -614,13 +621,13 @@ ALResult Tr2RenderContextAL::SetUav( Tr2RenderContextEnum::ShaderType stage, uin
 	}
 	BeginResourceBindingBatch();
 
-	Resource resource;
+	m_pendingUAVs.emplace_back();
+	Resource& resource = m_pendingUAVs.back();
 	resource.stage = stage;
 	resource.registerIndex = registerIndex;
 	resource.type = Resource::TEXTURE;
 	resource.texture = texture;
 	resource.mip = mip;
-	m_pendingUAVs.push_back( resource );
 
 	m_bindingsCommitted = false;
 	return S_OK;
@@ -634,11 +641,11 @@ ALResult Tr2RenderContextAL::SetSrvHeapView( Tr2RenderContextEnum::ShaderType st
 	}
 	BeginResourceBindingBatch();
 
-	Resource resource;
+	m_pendingSRVs.emplace_back();
+	Resource& resource = m_pendingSRVs.back();
 	resource.stage = stage;
 	resource.registerIndex = registerIndex;
 	resource.type = Resource::HEAP_VIEW;
-	m_pendingSRVs.push_back( resource );
 
 	m_bindingsCommitted = false;
 	return S_OK;
@@ -652,11 +659,11 @@ ALResult Tr2RenderContextAL::SetUavHeapView( Tr2RenderContextEnum::ShaderType st
 	}
 	BeginResourceBindingBatch();
 
-	Resource resource;
+	m_pendingUAVs.emplace_back();
+	Resource& resource = m_pendingUAVs.back();
 	resource.stage = stage;
 	resource.registerIndex = registerIndex;
 	resource.type = Resource::HEAP_VIEW;
-	m_pendingUAVs.push_back( resource );
 
 	m_bindingsCommitted = false;
 	return S_OK;
@@ -670,12 +677,12 @@ ALResult Tr2RenderContextAL::SetSampler( Tr2RenderContextEnum::ShaderType stage,
 	}
 	BeginResourceBindingBatch();
 
-	Sampler entry;
+	m_pendingSamplers.emplace_back();
+	Sampler& entry = m_pendingSamplers.back();
 	entry.stage = stage;
 	entry.registerIndex = registerIndex;
 	entry.type = Sampler::SAMPLER;
 	entry.sampler = sampler;
-	m_pendingSamplers.push_back( entry );
 
 	m_bindingsCommitted = false;
 	return S_OK;
@@ -689,11 +696,11 @@ ALResult Tr2RenderContextAL::SetSamplerHeapView( Tr2RenderContextEnum::ShaderTyp
 	}
 	BeginResourceBindingBatch();
 
-	Sampler entry;
+	m_pendingSamplers.emplace_back();
+	Sampler& entry = m_pendingSamplers.back();
 	entry.stage = stage;
 	entry.registerIndex = registerIndex;
 	entry.type = Sampler::HEAP_VIEW;
-	m_pendingSamplers.push_back( entry );
 
 	m_bindingsCommitted = false;
 	return S_OK;
@@ -701,13 +708,12 @@ ALResult Tr2RenderContextAL::SetSamplerHeapView( Tr2RenderContextEnum::ShaderTyp
 
 ALResult Tr2RenderContextAL::ResetResourceBindings() throw()
 {
+	++m_bindingBatchId;
 	m_pendingSRVs.clear();
 	m_pendingUAVs.clear();
 	m_pendingSamplers.clear();
 
-	std::fill( std::begin( m_sortedSRVs ), std::end( m_sortedSRVs ), nullptr );
-	std::fill( std::begin( m_sortedUAVs ), std::end( m_sortedUAVs ), nullptr );
-	std::fill( std::begin( m_sortedSamplers ), std::end( m_sortedSamplers ), nullptr );
+	// m_sorted* are rebuilt from scratch at the top of UseResourceBindings, no need to clear here
 
 	if( !m_outTransitions.empty() )
 	{
@@ -1078,6 +1084,7 @@ ALResult Tr2RenderContextAL::UseResourceBindings( const TrinityALImpl::Tr2RootSi
 	};
 
 	uint32_t bufferIndex = GetPrimaryRenderContextPointer()->GetCurrentBackBufferIndex();
+	DescriptorStateCache* descriptorCache = m_descriptorCache[bufferIndex].get();
 
 	for( const auto& reg : rootSignature.m_srvRegisters )
 	{
@@ -1085,17 +1092,17 @@ ALResult Tr2RenderContextAL::UseResourceBindings( const TrinityALImpl::Tr2RootSi
 		const Resource* resource = mapIndex < Tr2RegisterMapAL::MAX_RESOURCES_IN_STAGE ? m_sortedSRVs[mapIndex] : nullptr;
 		auto stateFlag = reg.stage == Tr2RenderContextEnum::PIXEL_SHADER ? D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE : D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
-		std::shared_ptr<ShaderResourceViewDx12> srv;
+		const std::shared_ptr<ShaderResourceViewDx12>* srv = nullptr;
 		switch( resource ? resource->type : Resource::NONE )
 		{
 		case Resource::TEXTURE:
 			if( resource->texture.IsValid() && reg.registerType >= Tr2ShaderRegisterAL::SRV_TEXTURE1D )
 			{
-				srv = resource->texture.m_texture->m_view[resource->colorSpace];
+				srv = &resource->texture.m_texture->m_view[resource->colorSpace];
 			}
-			if( !srv )
+			if( !srv || !*srv )
 			{
-				srv = renderContext.GetNullSrvDx12( reg.registerType );
+				srv = &renderContext.GetNullSrvDx12( reg.registerType );
 			}
 			else
 			{
@@ -1105,11 +1112,11 @@ ALResult Tr2RenderContextAL::UseResourceBindings( const TrinityALImpl::Tr2RootSi
 		case Resource::BUFFER:
 			if( resource->buffer.IsValid() && reg.registerType <= Tr2ShaderRegisterAL::SRV_STRUCTURED_BUFFER )
 			{
-				srv = resource->buffer.m_buffer->m_srv;
+				srv = &resource->buffer.m_buffer->m_srv;
 			}
-			if( !srv )
+			if( !srv || !*srv )
 			{
-				srv = renderContext.GetNullSrvDx12( reg.registerType );
+				srv = &renderContext.GetNullSrvDx12( reg.registerType );
 			}
 			else
 			{
@@ -1117,16 +1124,16 @@ ALResult Tr2RenderContextAL::UseResourceBindings( const TrinityALImpl::Tr2RootSi
 			}
 			break;
 		case Resource::HEAP_VIEW:
-			srv = renderContext.GetSrvHeapView();
+			srv = &renderContext.GetSrvHeapView();
 			break;
 		default:
-			srv = renderContext.GetNullSrvDx12( reg.registerType );
+			srv = &renderContext.GetNullSrvDx12( reg.registerType );
 			break;
 		}
 
-		if( srv )
+		if( *srv )
 		{
-			m_descriptorCache[bufferIndex]->SetShaderResources( reg.parameter, 1, &srv );
+			descriptorCache->SetShaderResources( reg.parameter, 1, srv );
 		}
 	}
 
@@ -1135,7 +1142,7 @@ ALResult Tr2RenderContextAL::UseResourceBindings( const TrinityALImpl::Tr2RootSi
 		uint32_t mapIndex = registerMap.uavs[reg.stage][reg.index];
 		const Resource* resource = mapIndex < Tr2RegisterMapAL::MAX_RESOURCES_IN_STAGE ? m_sortedUAVs[mapIndex] : nullptr;
 
-		std::shared_ptr<UnorderedAccessViewDx12> uav;
+		const std::shared_ptr<UnorderedAccessViewDx12>* uav = nullptr;
 		switch( resource ? resource->type : Resource::NONE )
 		{
 		case Resource::TEXTURE:
@@ -1143,11 +1150,11 @@ ALResult Tr2RenderContextAL::UseResourceBindings( const TrinityALImpl::Tr2RootSi
 			{
 				if( reg.registerType >= Tr2ShaderRegisterAL::UAV_TEXTURE1D )
 				{
-					uav = resource->texture.m_texture->m_uav[resource->mip];
+					uav = &resource->texture.m_texture->m_uav[resource->mip];
 				}
-				if( !uav )
+				if( !uav || !*uav )
 				{
-					uav = renderContext.GetNullUavDx12( reg.registerType );
+					uav = &renderContext.GetNullUavDx12( reg.registerType );
 				}
 				else
 				{
@@ -1160,11 +1167,11 @@ ALResult Tr2RenderContextAL::UseResourceBindings( const TrinityALImpl::Tr2RootSi
 			{
 				if( reg.registerType <= Tr2ShaderRegisterAL::UAV_STRUCTURED_BUFFER )
 				{
-					uav = resource->buffer.m_buffer->m_uav;
+					uav = &resource->buffer.m_buffer->m_uav;
 				}
-				if( !uav )
+				if( !uav || !*uav )
 				{
-					uav = renderContext.GetNullUavDx12( reg.registerType );
+					uav = &renderContext.GetNullUavDx12( reg.registerType );
 				}
 				else
 				{
@@ -1173,21 +1180,21 @@ ALResult Tr2RenderContextAL::UseResourceBindings( const TrinityALImpl::Tr2RootSi
 			}
 			break;
 		case Resource::HEAP_VIEW:
-			uav = renderContext.GetUavHeapView();
+			uav = &renderContext.GetUavHeapView();
 			break;
 		default:
 			CCP_AL_LOGWARN( "Missing UAV resource binding for register %u, stage %u", reg.index, reg.stage );
-			uav = renderContext.GetNullUavDx12( reg.registerType );
+			uav = &renderContext.GetNullUavDx12( reg.registerType );
 			break;
 		}
 
-		if( uav )
+		if( uav && *uav )
 		{
-			m_descriptorCache[bufferIndex]->SetUnorderedAccessViews( reg.parameter, 1, &uav );
+			descriptorCache->SetUnorderedAccessViews( reg.parameter, 1, uav );
 		}
 	}
 
-	std::shared_ptr<SamplerStateDx12> samplers[Tr2RegisterMapAL::MAX_RESOURCES_IN_STAGE];
+	const std::shared_ptr<SamplerStateDx12>* samplers[Tr2RegisterMapAL::MAX_RESOURCES_IN_STAGE] = {};
 	uint32_t samplerCount = 0;
 
 	for( const auto& reg : rootSignature.m_samplerRegisters )
@@ -1198,19 +1205,19 @@ ALResult Tr2RenderContextAL::UseResourceBindings( const TrinityALImpl::Tr2RootSi
 		switch( sampler ? sampler->type : Sampler::NONE )
 		{
 		case Sampler::SAMPLER:
-			samplers[reg.parameter] = sampler->sampler.m_sampler->m_samplerState;
+			samplers[reg.parameter] = &sampler->sampler.m_sampler->m_samplerState;
 			break;
 		case Sampler::HEAP_VIEW:
-			samplers[reg.parameter] = renderContext.GetSamplerHeapView();
+			samplers[reg.parameter] = &renderContext.GetSamplerHeapView();
 			break;
 		default:
-			samplers[reg.parameter] = renderContext.GetNullSamplerDx12();
+			samplers[reg.parameter] = &renderContext.GetNullSamplerDx12();
 			break;
 		}
 		samplerCount = std::max( reg.parameter + 1, samplerCount );
 	}
 
-	m_descriptorCache[bufferIndex]->SetSamplers( 0, samplerCount, samplers );
+	descriptorCache->SetSamplers( 0, samplerCount, samplers );
 
 	if( inCount )
 	{
@@ -2026,6 +2033,11 @@ void Tr2RenderContextAL::ResetDescriptorCaches()
 	{
 		m_descriptorCache[idx]->Reset();
 	}
+
+	// the caches no longer hold the committed views, so nothing may reuse or early-out on them
+	++m_bindingBatchId;
+	m_bindingsCommitted = false;
+	m_committedRootSignature = nullptr;
 }
 
 /** Force the current descriptor cache to dirty if something has modified active heaps */

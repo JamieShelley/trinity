@@ -212,8 +212,15 @@ void Tr2Material::ApplyMaterialDataForPass( uint32_t techniqueIndex, unsigned in
 	unsigned mask = m_shader->GetShaderTypeMask( techniqueIndex );
 	auto& pp = *m_parametersForPasses[techniqueIndex].passes[passIndex];
 
-	renderContext.ResetResourceBindings();
-	pp.m_staticBindings.Apply( renderContext );
+	// the context still holds exactly the batch this pass pushed last time; constants
+	// are per-draw and always reapplied, but the whole rebind can be skipped
+	const bool reuseBindings = pp.m_bindingTokenContext == &renderContext && renderContext.TryReuseResourceBindings( pp.m_bindingToken );
+
+	if( !reuseBindings )
+	{
+		renderContext.ResetResourceBindings();
+		pp.m_staticBindings.Apply( renderContext );
+	}
 
 	for( unsigned i = 0; i != Tr2RenderContextEnum::SHADER_TYPE_COUNT && mask; ++i )
 	{
@@ -221,9 +228,18 @@ void Tr2Material::ApplyMaterialDataForPass( uint32_t techniqueIndex, unsigned in
 		{
 			auto& input = pp.m_stageInput[i];
 			ApplyConstants( Tr2RenderContextEnum::ShaderType( i ), input, !pp.m_reroutedParameters.empty(), renderContext );
-			SetResources( Tr2RenderContextEnum::ShaderType( i ), input, renderContext );
+			if( !reuseBindings )
+			{
+				SetResources( Tr2RenderContextEnum::ShaderType( i ), input, renderContext );
+			}
 			mask &= ~( 1 << i );
 		}
+	}
+
+	if( !reuseBindings )
+	{
+		pp.m_bindingToken = renderContext.GetResourceBindingBatchId();
+		pp.m_bindingTokenContext = &renderContext;
 	}
 }
 
@@ -326,6 +342,7 @@ void Tr2Material::ResourceChanged()
 		for( auto& pass : technique.passes )
 		{
 			pass->m_usedTexturesDirty = true;
+			pass->m_bindingToken = 0;
 		}
 		for( auto& pass : technique.libraries )
 		{

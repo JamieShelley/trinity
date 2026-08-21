@@ -1323,12 +1323,12 @@ ID3D12DescriptorHeap* Tr2PrimaryRenderContextAL::GetGlobalSrvUavHeap() const
 	return m_srvUavAllocator->GetGpuVisibleHeap();
 }
 
-std::shared_ptr<ShaderResourceViewDx12> Tr2PrimaryRenderContextAL::GetSrvHeapView() const
+const std::shared_ptr<ShaderResourceViewDx12>& Tr2PrimaryRenderContextAL::GetSrvHeapView() const
 {
 	return m_srvHeapStart;
 }
 
-std::shared_ptr<UnorderedAccessViewDx12> Tr2PrimaryRenderContextAL::GetUavHeapView() const
+const std::shared_ptr<UnorderedAccessViewDx12>& Tr2PrimaryRenderContextAL::GetUavHeapView() const
 {
 	return m_uavHeapStart;
 }
@@ -1338,7 +1338,7 @@ ID3D12DescriptorHeap* Tr2PrimaryRenderContextAL::GetGlobalSamplerHeap() const
 	return m_samplerAllocator->GetGpuVisibleHeap();
 }
 
-std::shared_ptr<SamplerStateDx12> Tr2PrimaryRenderContextAL::GetSamplerHeapView() const
+const std::shared_ptr<SamplerStateDx12>& Tr2PrimaryRenderContextAL::GetSamplerHeapView() const
 {
 	return m_samplerHeapStart;
 }
@@ -1465,17 +1465,17 @@ bool Tr2PrimaryRenderContextAL::FormatIsUAVCompatibleDx12( DXGI_FORMAT format ) 
 	}
 }
 
-std::shared_ptr<ShaderResourceViewDx12> Tr2PrimaryRenderContextAL::GetNullSrvDx12( Tr2ShaderRegisterAL::RegisterType type ) const
+const std::shared_ptr<ShaderResourceViewDx12>& Tr2PrimaryRenderContextAL::GetNullSrvDx12( Tr2ShaderRegisterAL::RegisterType type ) const
 {
 	return m_nullSrv[RegisterTypeIndex( type )];
 }
 
-std::shared_ptr<UnorderedAccessViewDx12> Tr2PrimaryRenderContextAL::GetNullUavDx12( Tr2ShaderRegisterAL::RegisterType type ) const
+const std::shared_ptr<UnorderedAccessViewDx12>& Tr2PrimaryRenderContextAL::GetNullUavDx12( Tr2ShaderRegisterAL::RegisterType type ) const
 {
 	return m_nullUav[RegisterTypeIndex( type )];
 }
 
-std::shared_ptr<SamplerStateDx12> Tr2PrimaryRenderContextAL::GetNullSamplerDx12() const
+const std::shared_ptr<SamplerStateDx12>& Tr2PrimaryRenderContextAL::GetNullSamplerDx12() const
 {
 	return m_samplerHeapStart;
 }
