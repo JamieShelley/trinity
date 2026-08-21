@@ -9,6 +9,17 @@
 namespace
 {
 
+struct EveBoosterVertex
+{
+	Vector3 position;
+	Vector2 texCoord;
+};
+
+struct EveChildBoosterVertex
+{
+	Vector3 position;
+};
+
 template <typename Vertex>
 ALResult GetBoxVB( Tr2SuballocatedBuffer::Allocation& vb, Tr2PrimaryRenderContext& renderContext )
 {
