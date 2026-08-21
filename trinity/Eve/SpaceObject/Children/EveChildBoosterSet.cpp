@@ -53,7 +53,7 @@ EveChildBoosterSet::EveChildBoosterSet( IRoot* lockobj ) :
 	m_lightFlickerFrequency( 0.f ),
 	m_lightColor( 0.f, 0.f, 0.f, 0.f ),
 	m_lightWarpColor( 0.f, 0.f, 0.f, 0.f ),
-	m_vertexBuffer( MakeBoosterBoxBuffer() ),
+	m_vertexBuffer( MakeChildBoosterBoxBuffer() ),
 	m_isVisible( false ),
 	m_boostersVisible( false ),
 	m_boosterHighLod( false ),
@@ -302,7 +302,6 @@ bool EveChildBoosterSet::OnPrepareResources()
 	{
 		Tr2VertexDefinition& vd = s_boosterInstancedVertex;
 		vd.Add( vd.FLOAT32_3, vd.POSITION );
-		vd.Add( vd.FLOAT32_2, vd.TEXCOORD, 0 );
 	}
 
 	// create vertex-declarartion
@@ -312,7 +311,7 @@ bool EveChildBoosterSet::OnPrepareResources()
 		return false;
 	}
 
-	m_vertexBuffer = MakeBoosterBoxBuffer();
+	m_vertexBuffer = MakeChildBoosterBoxBuffer();
 
 	return true;
 }

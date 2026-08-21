@@ -7,10 +7,11 @@
 namespace
 {
 
+template<typename Vertex>
 ALResult GetBoxVB( Tr2SuballocatedBuffer::Allocation& vb, Tr2PrimaryRenderContext& renderContext )
 {
 	const uint32_t vertexCount = 4 * 6;
-	EveBoosterVertex vertices[vertexCount];
+	Vertex vertices[vertexCount];
 	auto p = &vertices[0];
 	( p++ )->position = Vector3( -1.0f, -1.0f, 0.0f );
 	( p++ )->position = Vector3( 1.0f, -1.0f, 0.0f );
@@ -42,7 +43,7 @@ ALResult GetBoxVB( Tr2SuballocatedBuffer::Allocation& vb, Tr2PrimaryRenderContex
 	( p++ )->position = Vector3( 1.0f, 1.0f, -1.0f );
 	( p++ )->position = Vector3( -1.0f, 1.0f, -1.0f );
 
-	return g_sharedBuffer.Allocate( sizeof( EveBoosterVertex ), vertexCount, &vertices[0], renderContext, vb );
+	return g_sharedBuffer.Allocate( sizeof( Vertex ), vertexCount, &vertices[0], renderContext, vb );
 }
 
 ALResult GetStarVB( Tr2SuballocatedBuffer::Allocation& vb, Tr2PrimaryRenderContext& renderContext )
@@ -74,9 +75,14 @@ ALResult GetStarVB( Tr2SuballocatedBuffer::Allocation& vb, Tr2PrimaryRenderConte
 
 }
 
+Tr2ProceduralBuffer MakeChildBoosterBoxBuffer()
+{
+	return Tr2ProceduralBuffer( BlueSharedString( "ChildBoosterBoxVB" ), GetBoxVB<EveChildBoosterVertex> );
+}
+
 Tr2ProceduralBuffer MakeBoosterBoxBuffer()
 {
-	return Tr2ProceduralBuffer( BlueSharedString( "BoosterBoxVB" ), GetBoxVB );
+	return Tr2ProceduralBuffer( BlueSharedString( "BoosterBoxVB" ), GetBoxVB<EveBoosterVertex> );
 }
 
 Tr2ProceduralBuffer MakeBoosterStarBuffer()

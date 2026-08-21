@@ -12,6 +12,12 @@ struct EveBoosterVertex
 	Vector2 texCoord;
 };
 
+struct EveChildBoosterVertex
+{
+	Vector3 position;
+};
+
+Tr2ProceduralBuffer MakeChildBoosterBoxBuffer();
 Tr2ProceduralBuffer MakeBoosterBoxBuffer();
 Tr2ProceduralBuffer MakeBoosterStarBuffer();
 
