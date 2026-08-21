@@ -280,8 +280,6 @@ void EveTriggerVolume::GetLocalToWorldTransform( Matrix& transform ) const
 	transform = m_worldTransform;
 }
 
-/////////////////////////////////////////////////////////////////////////////////////
-// IWorldPosition
 Vector3 EveTriggerVolume::GetWorldPosition()
 {
 	return m_worldTransform.GetTranslation();
@@ -292,8 +290,6 @@ Quaternion EveTriggerVolume::GetWorldRotation()
 	return Normalize( RotationQuaternion( m_worldTransform ) );
 }
 
-/////////////////////////////////////////////////////////////////////////////////////
-// IInitialize
 bool EveTriggerVolume::Initialize()
 {
 	UpdateWorldTransform( Be::Time( 0.0 ) );
@@ -301,8 +297,6 @@ bool EveTriggerVolume::Initialize()
 	return true;
 }
 
-/////////////////////////////////////////////////////////////////////////////////////
-// ITr2DebugRenderable
 void EveTriggerVolume::GetDebugOptions( Tr2DebugRendererOptions& options )
 {
 	options.insert( "Trigger Volumes" );
