@@ -38,7 +38,7 @@ public:
 	struct VertexShaderData
 	{
 		// vs per object data
-		Matrix shipMatrix;
+		Matrix worldMatrix;
 
 		// additional data
 		float padding0;
@@ -116,6 +116,7 @@ public:
 
 private:
 	bool OnPrepareResources() override;
+	struct EveBoosterFlareParams GetFlareParams() const;
 
 public:
 	// timing
@@ -168,9 +169,6 @@ private:
 		float wavePhase;
 	};
 	std::vector<SingleBoosterData> m_singleBoosters;
-
-	// function to create the flares from boosterdata
-	void CreateFlares( SingleBoosterData& boosterData );
 
 	// toggle display
 	bool m_display;

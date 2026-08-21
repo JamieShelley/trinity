@@ -17,13 +17,6 @@
 
 using namespace Tr2RenderContextEnum;
 
-namespace
-{
-// constants
-const unsigned g_lightNoiseSize = 128;
-float g_lightNoise[g_lightNoiseSize];
-bool g_lightNoiseInitialized = false;
-}
 
 // --------------------------------------------------------------------------------
 // Description:
@@ -62,15 +55,6 @@ EveChildBoosterSet::EveChildBoosterSet( IRoot* lockobj ) :
 	Tr2Renderer::ReserveQuadListIndexBuffer( 6 );
 
 	BoundingSphereInitialize( m_boosterBoundingSphere );
-
-	if( !g_lightNoiseInitialized )
-	{
-		g_lightNoiseInitialized = true;
-		for( unsigned i = 0; i < g_lightNoiseSize; ++i )
-		{
-			g_lightNoise[i] = float( rand() ) / float( RAND_MAX );
-		}
-	}
 }
 
 // --------------------------------------------------------------------------------
@@ -101,7 +85,7 @@ bool EveChildBoosterSet::OnModified( Be::Var* value )
 			m_glows->Clear();
 			for( auto it = m_singleBoosters.begin(); it != m_singleBoosters.end(); ++it )
 			{
-				CreateFlares( *it );
+				CreateBoosterFlares( *m_glows, it->transform, GetFlareParams() );
 			}
 			m_glows->Rebuild();
 		}
@@ -138,6 +122,11 @@ void EveChildBoosterSet::UpdateAsyncronous( const EveUpdateContext& updateContex
 	m_parentTransform = params.localToWorldTransform;
 }
 
+EveBoosterFlareParams EveChildBoosterSet::GetFlareParams() const
+{
+	return { m_warpGlowColor, m_glowScale, m_glowColor, m_haloScaleX, m_haloScaleY, m_symHaloScale, m_haloColor, m_warpHaloColor };
+}
+
 // --------------------------------------------------------------------------------
 // Description:
 //   Clear all the individual boosters this set was holding so far.
@@ -167,7 +156,7 @@ void EveChildBoosterSet::Add( const Matrix* localMatrix, uint32_t atlasIndex0, u
 	Vector3 lightOffset( 0.f, 0.f, -m_lightOffset );
 	sbd.lightPosition = TransformCoord( lightOffset, *localMatrix );
 	sbd.lightRadius = std::max( Length( localMatrix->GetX() ), Length( localMatrix->GetY() ) ) * lightScale;
-	sbd.lightPhase = float( g_lightNoiseSize ) * float( rand() ) / float( RAND_MAX );
+	sbd.lightPhase = GenerateBoosterLightPhase();
 	sbd.atlasIndex0 = atlasIndex0;
 	sbd.atlasIndex1 = atlasIndex1;
 	sbd.wavePhase = (float)rand() / (float)RAND_MAX;
@@ -178,12 +167,12 @@ void EveChildBoosterSet::Add( const Matrix* localMatrix, uint32_t atlasIndex0, u
 
 	if( m_glows )
 	{
-		CreateFlares( sbd );
+		CreateBoosterFlares( *m_glows, sbd.transform, GetFlareParams() );
 	}
 
 	// add to bounding sphere (WARNING: this builds an exact bounding sphere, only
 	// containing the points of the boosters, NOT their size! This will be handled
-	// in ::GetRenderables()
+	// in ::GetBoundingSphere()
 	BoundingSphereUpdate( pos, m_boosterBoundingSphere );
 
 	// keep the biggset one around for comparison in the shaer etc.
@@ -191,32 +180,6 @@ void EveChildBoosterSet::Add( const Matrix* localMatrix, uint32_t atlasIndex0, u
 	{
 		m_maxSize = scale;
 	}
-}
-
-void EveChildBoosterSet::CreateFlares( SingleBoosterData& boosterData )
-{
-	auto localMatrix = boosterData.transform;
-	// grab pos/dir/scale from the local transform matrix
-	Vector3 pos( localMatrix._41, localMatrix._42, localMatrix._43 );
-	Vector3 dir( localMatrix._31, localMatrix._32, localMatrix._33 );
-	float scale = std::max( Length( localMatrix.GetX() ), Length( localMatrix.GetY() ) );
-
-	dir = Normalize( dir );
-	if( scale < 3.f )
-	{
-		dir *= scale / 3.f;
-	}
-
-	float seed = float( rand() ) / float( RAND_MAX ) * 0.7f;
-
-	Vector3 spritePos = pos - 2.5f * dir;
-	m_glows->Add( spritePos, seed, seed, scale * m_glowScale, scale * m_glowScale, 0.0f, m_glowColor, m_warpGlowColor );
-
-	spritePos = pos - 3.0f * dir;
-	m_glows->Add( spritePos, seed, 1.0f + seed, scale * m_symHaloScale, scale * m_symHaloScale, 0.0f, m_haloColor, m_warpHaloColor );
-
-	spritePos = pos - 3.01f * dir;
-	m_glows->Add( spritePos, seed, 1.0f + seed, scale * m_haloScaleX, scale * m_haloScaleY, 0.0f, m_haloColor, m_warpHaloColor );
 }
 
 // --------------------------------------------------------------------------------
@@ -347,9 +310,7 @@ void EveChildBoosterSet::UpdateVisibility( const EveUpdateContext& updateContext
 // Description:
 //   Standard way of rendering in Trinity. Put this object on the list, since it
 //   is an ITr2Renderable.
-//   Also get the renderables from the fire effects, if we are firing.
 // Arguments:
-//   frustum - the current view frustum of the current frame
 //   renderables - a vector for all the renderable we want to render
 // SeeAlso:
 //   ITr2Renderable
@@ -415,17 +376,8 @@ void EveChildBoosterSet::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 bool EveChildBoosterSet::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query ) const
 {
 	BoundingSphereInitialize( sphere );
-	
-	Vector4 boundingSphere;
-	// move bounding sphere back to catch all the glowy exhaust
-	boundingSphere = m_boosterBoundingSphere + Vector4( 0.f, 0.f, -0.5f * m_boosterBoundingSphere.w, 0.f );
-	// transform center into worldspace
-	boundingSphere.GetXYZ() = TransformCoord( boundingSphere.GetXYZ(), m_parentTransform );
-	// blow up radius so we contain all the glowy stuff coming out of a booster
-	boundingSphere.w = 2.f * m_boosterBoundingSphere.w;
-
+	Vector4 boundingSphere = PadBoosterBoundingSphere( m_boosterBoundingSphere, m_parentTransform );
 	BoundingSphereUpdate( boundingSphere, sphere );
-
 	return true;
 }
 
@@ -490,23 +442,8 @@ void EveChildBoosterSet::GetLights( Tr2LightManager& lightManager ) const
 		return;
 	}
 
-	float warpIntensity = std::min( std::max( m_warpIntensity, 0.f ), 1.f );
-	float radiusFactor = m_lightRadius * ( 1.f - warpIntensity ) + m_lightWarpRadius * warpIntensity;
-	radiusFactor *= m_thrust;
-	Color color = m_lightColor * ( 1.f - warpIntensity ) + m_lightWarpColor * warpIntensity;
-	XMMATRIX transform = m_parentTransform;
-	for( auto it = std::begin( m_singleBoosters ); it != std::end( m_singleBoosters ); ++it )
-	{
-		float phase = ( it->lightPhase + Tr2Renderer::GetAnimationTime() ) * m_lightFlickerFrequency;
-		float p0 = g_lightNoise[int( phase ) % g_lightNoiseSize];
-		float p1 = g_lightNoise[( int( phase ) + 1 ) % g_lightNoiseSize];
-		float t = phase - std::floor( phase );
-		float flicker = 1 + m_lightFlickerAmplitude * 2.0f * ( p0 * ( 1.0f - t ) + p1 * t ) - m_lightFlickerAmplitude;
-		lightManager.AddPointLight(
-			Vector3( XMVector3TransformCoord( it->lightPosition, transform ) ),
-			it->lightRadius * radiusFactor,
-			color * flicker );
-	}
+	EveBoosterLightParams params { m_lightWarpRadius, m_lightWarpColor, m_lightRadius, m_lightColor, m_lightFlickerAmplitude, m_lightFlickerFrequency };
+	AddBoosterLights( lightManager, m_singleBoosters, m_parentTransform, m_thrust, m_warpIntensity, params );
 }
 
 void EveChildBoosterSet::SetControllerVariable( const char* name, float value )
@@ -606,7 +543,7 @@ Tr2PerObjectData* EveChildBoosterSet::GetPerObjectData( ITriRenderBatchAccumulat
 	}
 
 	// column_major for shaders
-	perObjectData->m_vsData.shipMatrix = Transpose( m_parentTransform );
+	perObjectData->m_vsData.worldMatrix = Transpose( m_parentTransform );
 
 	// vs data
 	perObjectData->m_vsData.padding0 = 0.f;
