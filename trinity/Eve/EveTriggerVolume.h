@@ -103,6 +103,13 @@ private:
 	void UpdateWorldTransform( Be::Time time );
 
 	/**
+	 * @brief Returns the highest intensity any enabled volume in the list gives the position.
+	 * @param volumes The volumes to evaluate.
+	 * @param position The position to evaluate, in object space.
+	 */
+	static float GetMaxIntensity( const PIEveVolumeVector& volumes, const Vector3& position );
+
+	/**
 	 * @brief Evaluates whether the tracked position is inside the volumes and fires the callback on transitions.
 	 */
 	void UpdateTriggerState( const EveUpdateContext& updateContext );

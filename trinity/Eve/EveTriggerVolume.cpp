@@ -12,8 +12,6 @@ void InvokeTriggerCallback( void* context, bool entered )
 	EveTriggerVolume* triggerVolume = reinterpret_cast<EveTriggerVolume*>( context );
 
 	triggerVolume->InvokeCallback( entered );
-
-	// A reference was added when the callback was queued - release it here.
 	triggerVolume->GetRawRoot()->Unlock();
 }
 
@@ -51,39 +49,33 @@ void EveTriggerVolume::RebuildBoundingSphere()
 {
 	CCP_STATS_ZONE( __FUNCTION__ );
 
-	// Reset to the uninitialized sentinel (radius -1); a zero-radius reset reads as
-	// initialized, making the first merge below blend in a phantom sphere at the origin.
-	// Not CcpMath::Sphere::IncludeSphere, which fails to grow when the included sphere
-	// fully contains the current one.
 	m_boundingSphere = CcpMath::Sphere();
 
-	for( auto volume = m_volumes.begin(); volume != m_volumes.end(); ++volume )
+	for( const auto& volume : m_volumes )
 	{
-		if( !( *volume )->IsEnabled() )
+		if( !volume->IsEnabled() )
 		{
 			continue;
 		}
 
-		auto volumeSphere = ( *volume )->GetBoundingSphere();
+		auto volumeSphere = volume->GetBoundingSphere();
 
 		if( !volumeSphere.IsInitialized() )
 		{
 			continue;
 		}
-		// if sphere is not initialized, just copy it
-		// also if the sphere we are including in this sphere, then also copy it
+
 		if( !m_boundingSphere.IsInitialized() || volumeSphere.IsSphereInside( m_boundingSphere ) )
 		{
 			m_boundingSphere = volumeSphere;
 			continue;
 		}
-		// do not update if is inside
+
 		if( m_boundingSphere.IsSphereInside( volumeSphere ) )
 		{
 			continue;
 		}
 
-		// extend sphere
 		Vector3 delta = volumeSphere.center - m_boundingSphere.center;
 		float deltaLen = Length( delta );
 
@@ -94,15 +86,13 @@ void EveTriggerVolume::RebuildBoundingSphere()
 
 const char* EveTriggerVolume::GetEffectiveName() const
 {
-	// Prefer enabled volume names: per-placement names from dungeon asset manipulations are
-	// bound to the volumes, while the client overwrites the root name with the destiny ball ID.
-	for( auto volume = m_volumes.begin(); volume != m_volumes.end(); ++volume )
+	for( const auto& volume : m_volumes )
 	{
-		if( !( *volume )->IsEnabled() )
+		if( !volume->IsEnabled() )
 		{
 			continue;
 		}
-		const char* volumeName = ( *volume )->GetName();
+		const char* volumeName = volume->GetName();
 		if( volumeName && volumeName[0] != '\0' )
 		{
 			return volumeName;
@@ -118,8 +108,13 @@ void EveTriggerVolume::SetCallback( const BlueScriptCallback& callback )
 
 void EveTriggerVolume::InvokeCallback( bool entered )
 {
-	// The status object logs the traceback of an escaping exception as it goes out of scope.
-	m_callback.CallVoid( GetEffectiveName(), entered ).ReportException();
+	BlueScriptCallback callback = m_callback;
+	if( !callback )
+	{
+		return;
+	}
+
+	callback.CallVoid( GetEffectiveName(), entered ).ReportException();
 }
 
 void EveTriggerVolume::QueueCallback( bool entered )
@@ -128,11 +123,17 @@ void EveTriggerVolume::QueueCallback( bool entered )
 	{
 		return;
 	}
-
-	// Defer the actual script call to a well defined point on the main thread: the handler
-	// runs game script that may add to or remove from the scene, including this object.
+	// Keeps the object alive until the queued callback runs.
 	GetRawRoot()->Lock();
-	gTriDev->AddPostUpdateCallback( entered ? TriggerEnterCallback : TriggerExitCallback, reinterpret_cast<void*>( this ) );
+
+	if( entered )
+	{
+		gTriDev->AddPostUpdateCallback( TriggerEnterCallback, reinterpret_cast<void*>( this ) );
+	}
+	else
+	{
+		gTriDev->AddPostUpdateCallback( TriggerExitCallback, reinterpret_cast<void*>( this ) );
+	}
 }
 
 void EveTriggerVolume::UpdateWorldTransform( Be::Time time )
@@ -161,7 +162,6 @@ void EveTriggerVolume::UpdateWorldTransform( Be::Time time )
 	m_worldTransform = RotationMatrix( rotation ) * TranslationMatrix( translation );
 }
 
-/////////////////////////////////////////////////////////////////////////////////////
 // IEveSpaceObject2
 void EveTriggerVolume::UpdateSyncronous( const EveUpdateContext& updateContext )
 {
@@ -171,9 +171,26 @@ void EveTriggerVolume::UpdateSyncronous( const EveUpdateContext& updateContext )
 
 	RebuildBoundingSphere();
 
-	// The tracked position function may thunk into Python, so it must be evaluated on the
-	// synchronous update path rather than in UpdateAsyncronous.
 	UpdateTriggerState( updateContext );
+}
+
+float EveTriggerVolume::GetMaxIntensity( const PIEveVolumeVector& volumes, const Vector3& position )
+{
+	float intensity = 0.0f;
+	for( const auto& volume : volumes )
+	{
+		if( !volume->IsEnabled() )
+		{
+			continue;
+		}
+		intensity = std::max( intensity, volume->GetIntensity( position ) );
+		if( intensity == 1.0f )
+		{
+			// early exit
+			break;
+		}
+	}
+	return intensity;
 }
 
 void EveTriggerVolume::UpdateTriggerState( const EveUpdateContext& updateContext )
@@ -186,7 +203,7 @@ void EveTriggerVolume::UpdateTriggerState( const EveUpdateContext& updateContext
 		m_currentIntensity = 1.0f;
 		inside = true;
 	}
-	else if( m_trackedPosition && m_volumes.size() > 0 )
+	else if( m_trackedPosition && !m_volumes.empty() )
 	{
 		Vector3 trackedPosition;
 		m_trackedPosition->Update( &trackedPosition, updateContext.GetTime() );
@@ -197,38 +214,12 @@ void EveTriggerVolume::UpdateTriggerState( const EveUpdateContext& updateContext
 		// check first if the tracked position is within the bounding sphere
 		if( m_boundingSphere.IsPointInside( positionInObjectSpace ) )
 		{
-			// Now find the intensity within the volumes
-			for( const auto& volume : m_volumes )
-			{
-				if( !volume->IsEnabled() )
-				{
-					continue;
-				}
-				m_currentIntensity = std::max( m_currentIntensity, volume->GetIntensity( positionInObjectSpace ) );
-				if( m_currentIntensity == 1.0f )
-				{
-					// early exit
-					break;
-				}
-			}
+			m_currentIntensity = GetMaxIntensity( m_volumes, positionInObjectSpace );
 
 			if( m_currentIntensity != 0.0f )
 			{
 				// check if the tracked position is within an exclusion volume
-				float negativeIntensity = 0.0f;
-				for( const auto& volume : m_exclusionVolumes )
-				{
-					if( !volume->IsEnabled() )
-					{
-						continue;
-					}
-					negativeIntensity = std::max( negativeIntensity, volume->GetIntensity( positionInObjectSpace ) );
-					if( negativeIntensity == 1.0f )
-					{
-						// early exit
-						break;
-					}
-				}
+				float negativeIntensity = GetMaxIntensity( m_exclusionVolumes, positionInObjectSpace );
 				m_currentIntensity = std::max( 0.0f, m_currentIntensity - negativeIntensity );
 			}
 		}
@@ -277,8 +268,10 @@ bool EveTriggerVolume::GetLocalBoundingBox( Vector3& min, Vector3& max )
 {
 	// Fall back to a unit box when no volumes are set up yet, so the object stays pickable in Graphite.
 	float radius = std::max( m_boundingSphere.radius, 1.0f );
-	min = m_boundingSphere.center - Vector3( radius, radius, radius );
-	max = m_boundingSphere.center + Vector3( radius, radius, radius );
+	Vector3 extent( radius, radius, radius );
+
+	min = m_boundingSphere.center - extent;
+	max = m_boundingSphere.center + extent;
 	return true;
 }
 
@@ -322,23 +315,28 @@ void EveTriggerVolume::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 	if( renderer.HasOption( GetRawRoot(), "Trigger Volumes" ) )
 	{
 		// green when the tracked position is inside, white otherwise
-		Color color = m_isInside ? 0xFF33FF33 : 0xFFFFFFFF;
-		for( auto volume = m_volumes.begin(); volume != m_volumes.end(); ++volume )
+		Color color = 0xFFFFFFFF;
+		if( m_isInside )
 		{
-			if( ( *volume )->IsEnabled() )
+			color = 0xFF33FF33;
+		}
+
+		for( const auto& volume : m_volumes )
+		{
+			if( volume->IsEnabled() )
 			{
-				( *volume )->RenderDebugInfo( renderer, m_worldTransform, color );
+				volume->RenderDebugInfo( renderer, m_worldTransform, color );
 			}
 		}
 	}
 
 	if( renderer.HasOption( GetRawRoot(), "Trigger Exclusion Volumes" ) )
 	{
-		for( auto volume = m_exclusionVolumes.begin(); volume != m_exclusionVolumes.end(); ++volume )
+		for( const auto& volume : m_exclusionVolumes )
 		{
-			if( ( *volume )->IsEnabled() )
+			if( volume->IsEnabled() )
 			{
-				( *volume )->RenderDebugInfo( renderer, m_worldTransform, 0xFFFF3333 );
+				volume->RenderDebugInfo( renderer, m_worldTransform, 0xFFFF3333 );
 			}
 		}
 	}
