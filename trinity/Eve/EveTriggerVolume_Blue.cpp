@@ -97,15 +97,13 @@ const Be::ClassInfo* EveTriggerVolume::ExposeToBlue()
 			"Not really used for trigger volumes, but here for consistency with the EveSpaceObject interface",
 			Be::READWRITE )
 
-#if BLUE_WITH_PYTHON
 		MAP_METHOD_AND_WRAP(
 			"SetCallback",
 			SetCallback,
-			"Sets the Python callable invoked on enter/exit transitions.\n"
+			"Sets the callable invoked on enter/exit transitions.\n"
 			"The callable is invoked as callback( name, entered ) where entered is\n"
 			"True on entry and False on exit. Pass None to clear the callback.\n"
-			":param callable: callback callable or None" )
-#endif
+			":param callback: callable or None" )
 
 	EXPOSURE_END()
 }

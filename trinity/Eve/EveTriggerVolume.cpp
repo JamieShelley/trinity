@@ -5,7 +5,6 @@
 #include "TriDevice.h"
 #include "TriUtil.h"
 
-#if BLUE_WITH_PYTHON
 namespace
 {
 void InvokeTriggerCallback( void* context, bool entered )
@@ -28,7 +27,6 @@ void TriggerExitCallback( void* context )
 	InvokeTriggerCallback( context, false );
 }
 }
-#endif
 
 EveTriggerVolume::EveTriggerVolume( IRoot* lockobj ) :
 	PARENTLOCK( m_volumes ),
@@ -42,18 +40,11 @@ EveTriggerVolume::EveTriggerVolume( IRoot* lockobj ) :
 	m_isInside( false ),
 	m_currentIntensity( 0.0f ),
 	m_display( true )
-#if BLUE_WITH_PYTHON
-	,
-	m_callable( NULL )
-#endif
 {
 }
 
 EveTriggerVolume::~EveTriggerVolume()
 {
-#if BLUE_WITH_PYTHON
-	Py_XDECREF( m_callable );
-#endif
 }
 
 void EveTriggerVolume::RebuildBoundingSphere()
@@ -120,66 +111,28 @@ const char* EveTriggerVolume::GetEffectiveName() const
 	return m_name.c_str();
 }
 
-#if BLUE_WITH_PYTHON
-void EveTriggerVolume::SetCallback( PyObject* callable )
+void EveTriggerVolume::SetCallback( const BlueScriptCallback& callback )
 {
-	Py_XDECREF( m_callable );
-
-	if( callable == NULL || callable == Py_None )
-	{
-		m_callable = NULL;
-	}
-	else
-	{
-		m_callable = callable;
-		Py_XINCREF( m_callable );
-	}
+	m_callback = callback;
 }
 
 void EveTriggerVolume::InvokeCallback( bool entered )
 {
-	if( !m_callable )
-	{
-		return;
-	}
-
-	PyObject* args = Py_BuildValue( "(sO)", GetEffectiveName(), entered ? Py_True : Py_False );
-	if( !args )
-	{
-		return;
-	}
-
-	PyObject* result = PyObject_CallObject( m_callable, args );
-	Py_DECREF( args );
-	if( result )
-	{
-		Py_DECREF( result );
-	}
-	else
-	{
-		CCP_LOGWARN( "EveTriggerVolume: Callback raised an exception" );
-	}
+	// The status object logs the traceback of an escaping exception as it goes out of scope.
+	m_callback.CallVoid( GetEffectiveName(), entered ).ReportException();
 }
-#endif
 
 void EveTriggerVolume::QueueCallback( bool entered )
 {
-#if BLUE_WITH_PYTHON
-	if( !m_callable )
+	if( !m_callback )
 	{
 		return;
 	}
 
-	if( !PyCallable_Check( m_callable ) )
-	{
-		CCP_LOGWARN( "EveTriggerVolume: Callback is not a callable object" );
-		return;
-	}
-
-	// Defer the actual Python call to a well defined point on the main thread.
+	// Defer the actual script call to a well defined point on the main thread: the handler
+	// runs game script that may add to or remove from the scene, including this object.
 	GetRawRoot()->Lock();
 	gTriDev->AddPostUpdateCallback( entered ? TriggerEnterCallback : TriggerExitCallback, reinterpret_cast<void*>( this ) );
-#endif
 }
 
 void EveTriggerVolume::UpdateWorldTransform( Be::Time time )
