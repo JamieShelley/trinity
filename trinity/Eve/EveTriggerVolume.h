@@ -9,7 +9,6 @@
 #include "IEveSpaceObject2.h"
 #include "Tr2DebugRenderer.h"
 #include "Eve/Volume/IEveVolume.h"
-#include "Utilities/BoundingSphere.h"
 
 #ifdef BLUE_USE_LOCAL_ITr2DebugRenderer2
 // This is only needed for py2 as the file now belongs in blue.
@@ -53,9 +52,6 @@ public:
 	/**
 	 * @brief Sets the callable invoked on enter/exit transitions.
 	 *
-	 * The callable is invoked as callback( name, entered ) where entered is True on entry
-	 * and False on exit. Pass None to clear the callback.
-	 *
 	 * @param callback Callable or None.
 	 */
 	void SetCallback( const BlueScriptCallback& callback );
@@ -98,7 +94,7 @@ public:
 private:
 	/**
 	 * @brief Rebuilds the world transform from the position/rotation curves when attached
-	 * (e.g. a destiny ball in the client), otherwise from the translation/rotation attributes.
+	 * otherwise from the translation/rotation attributes.
 	 */
 	void UpdateWorldTransform( Be::Time time );
 
@@ -137,7 +133,6 @@ private:
 
 	CcpMath::Sphere m_boundingSphere; ///< Broad-phase bounding sphere around all volumes, in local space.
 
-	// TODO: derive the tracked position from the EveSpace scene instead of attaching it from Python.
 	ITriVectorFunctionPtr m_trackedPosition; ///< Vector function slot for attaching a destiny ball as the tracked position.
 
 	ITriVectorFunctionPtr m_ballPosition; ///< Position curve slot; the client attaches the object's own destiny ball here.
@@ -149,7 +144,6 @@ private:
 	bool m_forceTriggered; ///< Debug: force the trigger into the entered state, e.g. for testing in Graphite.
 	bool m_isInside; ///< Current inside/outside state of the tracked position.
 	float m_currentIntensity; ///< Most recent evaluated intensity, for debugging.
-	bool m_display; ///< Not really used for trigger volumes, but here for consistency with the EveSpaceObject interface.
 
 	BlueScriptCallback m_callback; ///< Script callable invoked on enter/exit transitions.
 

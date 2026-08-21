@@ -3,7 +3,6 @@
 #include "StdAfx.h"
 #include "EveTriggerVolume.h"
 #include "TriDevice.h"
-#include "TriUtil.h"
 
 namespace
 {
@@ -36,8 +35,7 @@ EveTriggerVolume::EveTriggerVolume( IRoot* lockobj ) :
 	m_enterThreshold( 0.5f ),
 	m_forceTriggered( false ),
 	m_isInside( false ),
-	m_currentIntensity( 0.0f ),
-	m_display( true )
+	m_currentIntensity( 0.0f )
 {
 }
 

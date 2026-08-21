@@ -91,12 +91,6 @@ const Be::ClassInfo* EveTriggerVolume::ExposeToBlue()
 			"Most recent evaluated volume intensity of the tracked position",
 			Be::READ )
 
-		MAP_ATTRIBUTE(
-			"display",
-			m_display,
-			"Not really used for trigger volumes, but here for consistency with the EveSpaceObject interface",
-			Be::READWRITE )
-
 #if BLUE_WITH_PYTHON
 		MAP_METHOD_AND_WRAP(
 			"SetCallback",
