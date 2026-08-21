@@ -24,7 +24,8 @@ const Be::ClassInfo* EveChildBoosterSet::ExposeToBlue()
 			"",
 			Be::READWRITE | Be::PERSIST )
 		MAP_ATTRIBUTE( "maxSize", m_maxSize, "The biggest booster size of this set.", Be::READ )
-		MAP_ATTRIBUTE( "warpIntensity", m_warpIntensity, "The warp factor of the ship", Be::READWRITE )
+		MAP_ATTRIBUTE( "warpIntensity", m_warpIntensity, "The warp factor of the ship.", Be::READWRITE )
+		MAP_ATTRIBUTE( "thrust", m_thrust, "The thrust of the ship.", Be::READWRITE )
 #if BLUE_WITH_PYTHON
 		MAPFLOATARRAYSIZE( "boosterBoundingSphereCenter", m_boosterBoundingSphere, BlueDefaultIID, "The center of the minimum bounding sphere of the boosters", Be::READ, 3 )
 #endif
@@ -92,7 +93,7 @@ const Be::ClassInfo* EveChildBoosterSet::ExposeToBlue()
 		MAP_ATTRIBUTE(
 			"driveName",
 			m_driveName,
-			"Controller name the booster observers for thrust value.\n",
+			"Controller name the booster observes for thrust value.\n",
 			Be::READWRITE | Be::PERSIST )
 
 		MAP_ATTRIBUTE( "flareLodEnabled", m_flareLodEnabled, ":jessica-group: Fakery", Be::READWRITE | Be::NOTIFY )

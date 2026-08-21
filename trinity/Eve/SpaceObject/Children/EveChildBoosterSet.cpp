@@ -8,18 +8,14 @@
 #include "Shader/Tr2Effect.h"
 #include "TriRenderBatch.h"
 #include "TriFrustum.h"
-#include "TriSettingsRegistrar.h"
 #include "Include/TriMath.h"
 #include "Resources/TriGeometryRes.h"
 #include "Eve/SpaceObject/Utils/EveBoosterUtilities.h"
 #include "Eve/SpaceObject/Attachments/Sets/EveSpriteSet.h"
 #include "Tr2LightManager.h"
-
-BLUE_DECLARE_VECTOR( EveSpriteSet );
+#include "Tr2Renderer.h"
 
 using namespace Tr2RenderContextEnum;
-
-CCP_STATS_DECLARED_ELSEWHERE( primitiveCount );
 
 namespace
 {
@@ -144,7 +140,7 @@ void EveChildBoosterSet::UpdateAsyncronous( const EveUpdateContext& updateContex
 
 // --------------------------------------------------------------------------------
 // Description:
-//   Clear all the individual boosters & trails this set was holding so far.
+//   Clear all the individual boosters this set was holding so far.
 // --------------------------------------------------------------------------------
 void EveChildBoosterSet::Clear()
 {
@@ -357,7 +353,7 @@ void EveChildBoosterSet::UpdateVisibility( const EveUpdateContext& updateContext
 //   frustum - the current view frustum of the current frame
 //   renderables - a vector for all the renderable we want to render
 // SeeAlso:
-//   ITr2Renderable, EveStretch
+//   ITr2Renderable
 // --------------------------------------------------------------------------------
 void EveChildBoosterSet::GetRenderables( std::vector<ITr2Renderable*>& renderables )
 {
@@ -388,7 +384,7 @@ float EveChildBoosterSet::GetBoosterIntensity() const
 
 // --------------------------------------------------------------------------------
 // Description:
-//   Render debug info of this turret set: bounding sphere
+//   Render debug info of this booster set
 // --------------------------------------------------------------------------------
 void EveChildBoosterSet::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 {
@@ -614,12 +610,12 @@ Tr2PerObjectData* EveChildBoosterSet::GetPerObjectData( ITriRenderBatchAccumulat
 	perObjectData->m_vsData.shipMatrix = Transpose( m_parentTransform );
 
 	// vs data
-	perObjectData->m_vsData.boosterIntensity = m_thrust;
+	perObjectData->m_vsData.padding0 = 0.f;
 	perObjectData->m_vsData.padding1 = 0.f;
 	perObjectData->m_vsData.maxBoosterSize = m_maxSize;
 	perObjectData->m_vsData.instanceOffset = m_ringBufferOffsets.GetCurrentFrameOffset();
 	// ps data
-	perObjectData->m_psData.boosterIntensity = m_thrust;
+	perObjectData->m_psData.padding0 = 0.f;
 	perObjectData->m_psData.padding1 = 0.f;
 	perObjectData->m_psData.warpIntensity = m_warpIntensity;
 	perObjectData->m_psData.padding2 = 0.f;

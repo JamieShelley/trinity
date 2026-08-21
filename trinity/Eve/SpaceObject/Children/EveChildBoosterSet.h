@@ -20,17 +20,11 @@
 
 // forwards
 class ITriRenderBatchAccumulator;
-class Tr2PerObjectData;
 class TriFrustum;
-struct ViewDistanceInfo;
 class Tr2QuadRenderer;
 class Tr2LightManager;
 BLUE_DECLARE( Tr2Effect );
 BLUE_DECLARE( EveSpriteSet );
-BLUE_DECLARE( TriColor );
-BLUE_DECLARE_INTERFACE( ITriVectorFunction );
-BLUE_DECLARE_INTERFACE( ITriQuaternionFunction );
-BLUE_DECLARE( Tr2DebugRenderer );
 
 // --------------------------------------------------------------------------------
 // Description:
@@ -46,15 +40,15 @@ public:
 		// vs per object data
 		Matrix shipMatrix;
 
-		// additional data used for lighting, effects, etc.
-		float boosterIntensity;
+		// additional data
+		float padding0;
 		float padding1;
 		float maxBoosterSize;
 		uint32_t instanceOffset;
 	};
 	struct PixelShaderData
 	{
-		float boosterIntensity;
+		float padding0;
 		float padding1;
 		float warpIntensity;
 		float padding2;
@@ -72,14 +66,12 @@ BLUE_DECLARE( EveChildBoosterSet );
 
 // --------------------------------------------------------------------------------
 // Description:
-//   This class is for rendering all of one ship's boosters. This includes the
+//   This class is for rendering child boosters. This includes the
 //   booster, the bunch of lensflares (=spriteset) at the booster exhaust point.
 //   Lensflares use the EveSpriteSet class which renders them with instancing.
-//   The booster itself is also rendered with instancing and generated star-shaped
-//   geometry, all done in this class.
-//   The object is part of EveShip2
+//   The booster itself is also rendered with instancing, all done in this class.
 // SeeAlso:
-//   EveShip2, EveSpriteSet
+//   EveSpriteSet
 // --------------------------------------------------------------------------------
 BLUE_CLASS_IMPL( EveChildBoosterSet )
 class EveChildBoosterSet : public EveSpaceObjectChild,
@@ -192,9 +184,9 @@ private:
 	Tr2EffectPtr m_effect;
 	Tr2EffectPtr m_effectFar;
 
-	// need special vertex declaration for multi-stream rendering
+	// need special vertex declaration for stream rendering
 	unsigned int m_vertexDeclHandle;
-	// vertex buffers for multi-stream rendering
+	// vertex buffers for stream rendering
 	Tr2ProceduralBuffer m_vertexBuffer;
 
 	// holds all the lensflares of this booster
@@ -202,7 +194,6 @@ private:
 	bool m_flareLodEnabled;
 	mutable bool m_glowsVisible;
 
-	// booster gain
 	float m_warpIntensity;
 
 	// data of the booster
