@@ -109,12 +109,6 @@ private:
 	 */
 	void QueueCallback( bool entered );
 
-	/**
-	 * @brief Returns the name passed to the callback.
-	 *
-	 */
-	const char* GetEffectiveName() const;
-
 	Quaternion m_rotation;
 	Vector3 m_translation;
 

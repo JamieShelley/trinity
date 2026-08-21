@@ -50,11 +50,6 @@ void EveTriggerVolume::RebuildBoundingSphere()
 
 	for( const auto& volume : m_volumes )
 	{
-		if( !volume->IsEnabled() )
-		{
-			continue;
-		}
-
 		auto volumeSphere = volume->GetBoundingSphere();
 
 		if( !volumeSphere.IsInitialized() )
@@ -81,23 +76,6 @@ void EveTriggerVolume::RebuildBoundingSphere()
 	}
 }
 
-const char* EveTriggerVolume::GetEffectiveName() const
-{
-	for( const auto& volume : m_volumes )
-	{
-		if( !volume->IsEnabled() )
-		{
-			continue;
-		}
-		const char* volumeName = volume->GetName();
-		if( volumeName && volumeName[0] != '\0' )
-		{
-			return volumeName;
-		}
-	}
-	return m_name.c_str();
-}
-
 void EveTriggerVolume::SetCallback( const BlueScriptCallback& callback )
 {
 	m_callback = callback;
@@ -111,7 +89,7 @@ void EveTriggerVolume::InvokeCallback( bool entered )
 		return;
 	}
 
-	callback.CallVoid( GetEffectiveName(), entered ).ReportException();
+	callback.CallVoid( m_name.c_str(), entered ).ReportException();
 }
 
 void EveTriggerVolume::QueueCallback( bool entered )
@@ -166,10 +144,6 @@ float EveTriggerVolume::GetMaxIntensity( const PIEveVolumeVector& volumes, const
 	float intensity = 0.0f;
 	for( const auto& volume : volumes )
 	{
-		if( !volume->IsEnabled() )
-		{
-			continue;
-		}
 		intensity = std::max( intensity, volume->GetIntensity( position ) );
 		if( intensity == 1.0f )
 		{
@@ -299,10 +273,7 @@ void EveTriggerVolume::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 
 		for( const auto& volume : m_volumes )
 		{
-			if( volume->IsEnabled() )
-			{
-				volume->RenderDebugInfo( renderer, m_worldTransform, color );
-			}
+			volume->RenderDebugInfo( renderer, m_worldTransform, color );
 		}
 	}
 
@@ -310,10 +281,7 @@ void EveTriggerVolume::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 	{
 		for( const auto& volume : m_exclusionVolumes )
 		{
-			if( volume->IsEnabled() )
-			{
-				volume->RenderDebugInfo( renderer, m_worldTransform, 0xFFFF3333 );
-			}
+			volume->RenderDebugInfo( renderer, m_worldTransform, 0xFFFF3333 );
 		}
 	}
 
