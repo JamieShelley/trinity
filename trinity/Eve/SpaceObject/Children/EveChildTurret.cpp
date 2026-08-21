@@ -148,13 +148,11 @@ void EveChildTurret::UpdateSyncronous( const EveUpdateContext& updateContext, co
 				{
 					Vector3 source = m_worldTransform.GetTranslation();
 					Vector3 position = source;
-					if( int closestLocator = m_target->FindClosestLocator( &source, &position ) )
+					int closestLocator = m_target->FindClosestLocator( &source, &position );
+					if( closestLocator >= 0 && closestLocator != m_target->GetLocator() )
 					{
-						if( closestLocator != m_target->GetLocator() )
-						{
-							// Set up the firing states correctly
-							SetupFiringState();
-						}
+						// Set up the firing states correctly
+						SetupFiringState();
 					}
 					// recheck every 2 seconds
 					m_recheckTimeLeft = 2.f;
