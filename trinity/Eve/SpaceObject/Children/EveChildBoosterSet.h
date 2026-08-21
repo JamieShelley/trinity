@@ -1,4 +1,4 @@
-// Copyright © 2023 CCP ehf.
+// Copyright © 2026 CCP ehf.
 
 #pragma once
 #ifndef EveChildBoosterSet_H
@@ -126,13 +126,6 @@ private:
 	bool OnPrepareResources() override;
 
 public:
-	// vertex data from stream0: booster geometry
-	struct BoosterVertex
-	{
-		Vector3 position;
-		Vector2 texCoord;
-	};
-	
 	// timing
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params ) override;
 	// manage individual exhaust points

@@ -646,6 +646,8 @@ set(_SOURCES
     Eve/SpaceObject/Utils/fxAttributes/EveSpaceObjectFxAttributes.h
     Eve/SpaceObject/Utils/fxAttributes/EveSpaceObjectFxAttributes_Blue.cpp
     Eve/SpaceObject/Utils/fxAttributes/IEveFxAttribute.h
+    Eve/SpaceObject/Utils/EveBoosterUtilities.cpp
+    Eve/SpaceObject/Utils/EveBoosterUtilities.h
     Eve/SpaceObject/Utils/EveCustomMask.cpp
     Eve/SpaceObject/Utils/EveCustomMask.h
     Eve/SpaceObject/Utils/EveCustomMask_Blue.cpp

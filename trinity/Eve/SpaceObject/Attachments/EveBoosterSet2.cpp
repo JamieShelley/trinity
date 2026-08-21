@@ -11,7 +11,7 @@
 #include "TriSettingsRegistrar.h"
 #include "Include/TriMath.h"
 #include "Resources/TriGeometryRes.h"
-
+#include "Eve/SpaceObject/Utils/EveBoosterUtilities.h"
 #include "Eve/SpaceObject/Attachments/Sets/EveSpriteSet.h"
 #include "EveTrailsSet.h"
 #include "Tr2LightManager.h"
@@ -584,75 +584,6 @@ void EveBoosterSet2Renderable::CalculateSplineData( float deltaT )
 	}
 }
 
-
-namespace
-{
-ALResult GetBoxVB( Tr2SuballocatedBuffer::Allocation& vb, Tr2PrimaryRenderContext& renderContext )
-{
-	const uint32_t vertexCount = 4 * 6;
-	EveBoosterSet2::BoosterVertex vertices[vertexCount];
-	auto p = &vertices[0];
-	( p++ )->position = Vector3( -1.0f, -1.0f, 0.0f );
-	( p++ )->position = Vector3( 1.0f, -1.0f, 0.0f );
-	( p++ )->position = Vector3( 1.0f, 1.0f, 0.0f );
-	( p++ )->position = Vector3( -1.0f, 1.0f, 0.0f );
-
-	( p++ )->position = Vector3( -1.0f, -1.0f, -1.0f );
-	( p++ )->position = Vector3( -1.0f, 1.0f, -1.0f );
-	( p++ )->position = Vector3( 1.0f, 1.0f, -1.0f );
-	( p++ )->position = Vector3( 1.0f, -1.0f, -1.0f );
-
-	( p++ )->position = Vector3( -1.0f, -1.0f, 0.0f );
-	( p++ )->position = Vector3( -1.0f, 1.0f, 0.0f );
-	( p++ )->position = Vector3( -1.0f, 1.0f, -1.0f );
-	( p++ )->position = Vector3( -1.0f, -1.0f, -1.0f );
-
-	( p++ )->position = Vector3( 1.0f, -1.0f, 0.0f );
-	( p++ )->position = Vector3( 1.0f, -1.0f, -1.0f );
-	( p++ )->position = Vector3( 1.0f, 1.0f, -1.0f );
-	( p++ )->position = Vector3( 1.0f, 1.0f, 0.0f );
-
-	( p++ )->position = Vector3( -1.0f, -1.0f, 0.0f );
-	( p++ )->position = Vector3( -1.0f, -1.0f, -1.0f );
-	( p++ )->position = Vector3( 1.0f, -1.0f, -1.0f );
-	( p++ )->position = Vector3( 1.0f, -1.0f, 0.0f );
-
-	( p++ )->position = Vector3( -1.0f, 1.0f, 0.0f );
-	( p++ )->position = Vector3( 1.0f, 1.0f, 0.0f );
-	( p++ )->position = Vector3( 1.0f, 1.0f, -1.0f );
-	( p++ )->position = Vector3( -1.0f, 1.0f, -1.0f );
-
-	return g_sharedBuffer.Allocate( sizeof( EveBoosterSet2::BoosterVertex ), vertexCount, &vertices[0], renderContext, vb );
-}
-
-ALResult GetStarVB( Tr2SuballocatedBuffer::Allocation& vb, Tr2PrimaryRenderContext& renderContext )
-{
-	const uint32_t vertexCount = 4 * 4;
-	EveBoosterSet2::BoosterVertex vertices[vertexCount];
-	auto p = &vertices[0];
-	for( unsigned int i = 0; i < vertexCount; i += 4 )
-	{
-		float t = (float)i * XM_PI / 4.f / 4.f;
-		float x = cos( t ) * 0.5f;
-		float y = sin( t ) * 0.5f;
-		p->position = Vector3( -x, -y, 0.f );
-		p->texCoord = Vector2( 1.f, 1.f );
-		++p;
-		p->position = Vector3( -x, -y, -1.f );
-		p->texCoord = Vector2( 1.f, 0.f );
-		++p;
-		p->position = Vector3( x, y, -1.f );
-		p->texCoord = Vector2( 0.f, 0.f );
-		++p;
-		p->position = Vector3( x, y, 0.0f );
-		p->texCoord = Vector2( 0.f, 1.f );
-		++p;
-	}
-
-	return g_sharedBuffer.Allocate( sizeof( EveBoosterSet2::BoosterVertex ), vertexCount, &vertices[0], renderContext, vb );
-}
-}
-
 // --------------------------------------------------------------------------------
 // Description:
 //   Initialize data members, build the tree-shape geometry we will use for
@@ -688,7 +619,7 @@ EveBoosterSet2::EveBoosterSet2( IRoot* lockobj ) :
 	m_lightFlickerFrequency( 0.f ),
 	m_lightColor( 0.f, 0.f, 0.f, 0.f ),
 	m_lightWarpColor( 0.f, 0.f, 0.f, 0.f ),
-	m_vertexBuffer( BlueSharedString( "BoosterBoxVB" ), GetBoxVB )
+	m_vertexBuffer( MakeBoosterBoxBuffer() )
 {
 	BoundingSphereInitialize( m_boosterBoundingSphere );
 
@@ -1037,11 +968,11 @@ bool EveBoosterSet2::OnPrepareResources()
 	// create star-shape geometry as "indexed" geometry
 	if( Tr2Renderer::GetShaderModel() >= TR2SM_3_0_HI )
 	{
-		m_vertexBuffer = Tr2ProceduralBuffer( BlueSharedString( "BoosterBoxVB" ), GetBoxVB );
+		m_vertexBuffer = MakeBoosterBoxBuffer();
 	}
 	else
 	{
-		m_vertexBuffer = Tr2ProceduralBuffer( BlueSharedString( "BoosterStarVB" ), GetStarVB );
+		m_vertexBuffer = MakeBoosterStarBuffer();
 	}
 
 	// now build the "instance" buffer, which depends on the actual number of booster, this set currently holds

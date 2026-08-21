@@ -1,4 +1,4 @@
-// Copyright © 2023 CCP ehf.
+// Copyright © 2026 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveChildBoosterSet.h"
@@ -11,7 +11,7 @@
 #include "TriSettingsRegistrar.h"
 #include "Include/TriMath.h"
 #include "Resources/TriGeometryRes.h"
-
+#include "Eve/SpaceObject/Utils/EveBoosterUtilities.h"
 #include "Eve/SpaceObject/Attachments/Sets/EveSpriteSet.h"
 #include "Tr2LightManager.h"
 
@@ -27,45 +27,6 @@ namespace
 const unsigned g_lightNoiseSize = 128;
 float g_lightNoise[g_lightNoiseSize];
 bool g_lightNoiseInitialized = false;
-
-// TODO: intern, remove code duplication
-ALResult GetBoxVB( Tr2SuballocatedBuffer::Allocation& vb, Tr2PrimaryRenderContext& renderContext )
-{
-	const uint32_t vertexCount = 4 * 6;
-	EveChildBoosterSet::BoosterVertex vertices[vertexCount];
-	auto p = &vertices[0];
-	( p++ )->position = Vector3( -1.0f, -1.0f, 0.0f );
-	( p++ )->position = Vector3( 1.0f, -1.0f, 0.0f );
-	( p++ )->position = Vector3( 1.0f, 1.0f, 0.0f );
-	( p++ )->position = Vector3( -1.0f, 1.0f, 0.0f );
-
-	( p++ )->position = Vector3( -1.0f, -1.0f, -1.0f );
-	( p++ )->position = Vector3( -1.0f, 1.0f, -1.0f );
-	( p++ )->position = Vector3( 1.0f, 1.0f, -1.0f );
-	( p++ )->position = Vector3( 1.0f, -1.0f, -1.0f );
-
-	( p++ )->position = Vector3( -1.0f, -1.0f, 0.0f );
-	( p++ )->position = Vector3( -1.0f, 1.0f, 0.0f );
-	( p++ )->position = Vector3( -1.0f, 1.0f, -1.0f );
-	( p++ )->position = Vector3( -1.0f, -1.0f, -1.0f );
-
-	( p++ )->position = Vector3( 1.0f, -1.0f, 0.0f );
-	( p++ )->position = Vector3( 1.0f, -1.0f, -1.0f );
-	( p++ )->position = Vector3( 1.0f, 1.0f, -1.0f );
-	( p++ )->position = Vector3( 1.0f, 1.0f, 0.0f );
-
-	( p++ )->position = Vector3( -1.0f, -1.0f, 0.0f );
-	( p++ )->position = Vector3( -1.0f, -1.0f, -1.0f );
-	( p++ )->position = Vector3( 1.0f, -1.0f, -1.0f );
-	( p++ )->position = Vector3( 1.0f, -1.0f, 0.0f );
-
-	( p++ )->position = Vector3( -1.0f, 1.0f, 0.0f );
-	( p++ )->position = Vector3( 1.0f, 1.0f, 0.0f );
-	( p++ )->position = Vector3( 1.0f, 1.0f, -1.0f );
-	( p++ )->position = Vector3( -1.0f, 1.0f, -1.0f );
-
-	return g_sharedBuffer.Allocate( sizeof( EveChildBoosterSet::BoosterVertex ), vertexCount, &vertices[0], renderContext, vb );
-}
 }
 
 // --------------------------------------------------------------------------------
@@ -96,7 +57,7 @@ EveChildBoosterSet::EveChildBoosterSet( IRoot* lockobj ) :
 	m_lightFlickerFrequency( 0.f ),
 	m_lightColor( 0.f, 0.f, 0.f, 0.f ),
 	m_lightWarpColor( 0.f, 0.f, 0.f, 0.f ),
-	m_vertexBuffer( BlueSharedString( "BoosterBoxVB" ), GetBoxVB ),
+	m_vertexBuffer( MakeBoosterBoxBuffer() ),
 	m_isVisible( false ),
 	m_boostersVisible( false ),
 	m_boosterHighLod( false ),
@@ -355,7 +316,7 @@ bool EveChildBoosterSet::OnPrepareResources()
 		return false;
 	}
 
-	m_vertexBuffer = Tr2ProceduralBuffer( BlueSharedString( "BoosterBoxVB" ), GetBoxVB );
+	m_vertexBuffer = MakeBoosterBoxBuffer();
 
 	return true;
 }

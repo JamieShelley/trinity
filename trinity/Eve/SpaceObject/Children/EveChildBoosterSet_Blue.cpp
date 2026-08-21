@@ -1,4 +1,4 @@
-// Copyright © 2023 CCP ehf.
+// Copyright © 2026 CCP ehf.
 
 #include "StdAfx.h"
 #include "EveChildBoosterSet.h"

@@ -216,12 +216,6 @@ private:
 	bool OnPrepareResources();
 
 public:
-	// vertex data from stream0: booster geometry
-	struct BoosterVertex
-	{
-		Vector3 position;
-		Vector2 texCoord;
-	};
 	// vertex data for stream1: transform and random wave-phase
 	struct InstanceVertex
 	{
