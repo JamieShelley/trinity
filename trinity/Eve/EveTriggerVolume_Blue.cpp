@@ -62,21 +62,9 @@ const Be::ClassInfo* EveTriggerVolume::ExposeToBlue()
 			Be::READWRITE | Be::PERSIST )
 
 		MAP_ATTRIBUTE(
-			"rotationCurve",
-			m_ballRotation,
-			"Function for animated rotation updates, e.g. the object's own destiny ball in the client",
-			Be::READWRITE | Be::PERSIST )
-
-		MAP_ATTRIBUTE(
 			"trackedPositionCurve",
 			m_trackedPosition,
 			"Vector function slot for attaching a destiny ball as the tracked position",
-			Be::READWRITE )
-
-		MAP_ATTRIBUTE(
-			"forceTriggered",
-			m_forceTriggered,
-			"Debug: force the trigger into the entered state, e.g. for testing in Graphite",
 			Be::READWRITE )
 
 		MAP_ATTRIBUTE(

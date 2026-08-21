@@ -33,7 +33,6 @@ EveTriggerVolume::EveTriggerVolume( IRoot* lockobj ) :
 	m_translation( 0.0f, 0.0f, 0.0f ),
 	m_worldTransform( IdentityMatrix() ),
 	m_enterThreshold( 0.5f ),
-	m_forceTriggered( false ),
 	m_isInside( false ),
 	m_currentIntensity( 0.0f )
 {
@@ -136,7 +135,6 @@ void EveTriggerVolume::QueueCallback( bool entered )
 
 void EveTriggerVolume::UpdateWorldTransform( Be::Time time )
 {
-	Quaternion rotation;
 	Vector3 translation;
 
 	if( m_ballPosition )
@@ -148,16 +146,7 @@ void EveTriggerVolume::UpdateWorldTransform( Be::Time time )
 		translation = m_translation;
 	}
 
-	if( m_ballRotation )
-	{
-		m_ballRotation->Update( &rotation, time );
-	}
-	else
-	{
-		rotation = m_rotation;
-	}
-
-	m_worldTransform = RotationMatrix( rotation ) * TranslationMatrix( translation );
+	m_worldTransform = RotationMatrix( m_rotation ) * TranslationMatrix( translation );
 }
 
 // IEveSpaceObject2
@@ -196,12 +185,7 @@ void EveTriggerVolume::UpdateTriggerState( const EveUpdateContext& updateContext
 	m_currentIntensity = 0.0f;
 
 	bool inside = false;
-	if( m_forceTriggered )
-	{
-		m_currentIntensity = 1.0f;
-		inside = true;
-	}
-	else if( m_trackedPosition && !m_volumes.empty() )
+	if( m_trackedPosition && !m_volumes.empty() )
 	{
 		Vector3 trackedPosition;
 		m_trackedPosition->Update( &trackedPosition, updateContext.GetTime() );

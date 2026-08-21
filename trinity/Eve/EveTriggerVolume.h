@@ -45,11 +45,6 @@ public:
 	~EveTriggerVolume();
 
 	/**
-	 * @brief Recomputes the broad-phase bounding sphere from the volume list.
-	 */
-	void RebuildBoundingSphere();
-
-	/**
 	 * @brief Sets the callable invoked on enter/exit transitions.
 	 *
 	 * @param callback Callable or None.
@@ -62,7 +57,6 @@ public:
 	 */
 	void InvokeCallback( bool entered );
 
-	/////////////////////////////////////////////////////////////////////////////////////
 	// IEveSpaceObject2
 	void UpdateSyncronous( const EveUpdateContext& updateContext ) override;
 	void UpdateAsyncronous( const EveUpdateContext& updateContext ) override;
@@ -74,27 +68,26 @@ public:
 	bool GetLocalBoundingBox( Vector3 & min, Vector3 & max ) override;
 	void GetLocalToWorldTransform( Matrix & transform ) const override;
 
-	/////////////////////////////////////////////////////////////////////////////////////
 	// IWorldPosition
 	Vector3 GetWorldPosition() override;
 	Quaternion GetWorldRotation() override;
 
-	/////////////////////////////////////////////////////////////////////////////////////
 	// IInitialize
 	bool Initialize() override;
 
-	/////////////////////////////////////////////////////////////////////////////////////
 	// ITr2DebugRenderable
 	void GetDebugOptions( Tr2DebugRendererOptions & options ) override;
 	void RenderDebugInfo( ITr2DebugRenderer2 & renderer ) override;
 
-	Quaternion m_rotation; ///< Local rotation of the trigger volume, editable in Graphite.
-	Vector3 m_translation; ///< Local translation of the trigger volume, editable in Graphite.
-
 private:
 	/**
-	 * @brief Rebuilds the world transform from the position/rotation curves when attached
-	 * otherwise from the translation/rotation attributes.
+	 * @brief Recomputes the broad-phase bounding sphere from the volume list.
+	 */
+	void RebuildBoundingSphere();
+
+	/**
+	 * @brief Rebuilds the world transform from the position curve when attached,
+	 * otherwise from the translation attribute.
 	 */
 	void UpdateWorldTransform( Be::Time time );
 
@@ -119,40 +112,32 @@ private:
 	/**
 	 * @brief Returns the name passed to the callback.
 	 *
-	 * Prefers the first non-empty volume name over the name attribute: external parameters
-	 * in a .red file cannot reference the root object, so per-placement names (e.g. dungeon
-	 * asset manipulations) are bound to the first volume, and the client overwrites the root
-	 * name attribute with the destiny ball ID when adding the object to the scene.
 	 */
 	const char* GetEffectiveName() const;
 
-	std::string m_name; ///< The name identifier, passed to the callback so one handler can serve many volumes.
-	PIEveVolumeVector m_volumes; ///< The volumes defining the trigger region.
-	PIEveVolumeVector m_exclusionVolumes; ///< Volumes subtracted from the trigger region.
-	PTr2ExternalParameterVector m_externalParameters; ///< External parameters exposing per-placement values, e.g. for dungeon asset manipulations.
+	Quaternion m_rotation;
+	Vector3 m_translation;
 
-	CcpMath::Sphere m_boundingSphere; ///< Broad-phase bounding sphere around all volumes, in local space.
+	std::string m_name;
+	PIEveVolumeVector m_volumes;
+	PIEveVolumeVector m_exclusionVolumes;
+	PTr2ExternalParameterVector m_externalParameters;
 
-	ITriVectorFunctionPtr m_trackedPosition; ///< Vector function slot for attaching a destiny ball as the tracked position.
+	CcpMath::Sphere m_boundingSphere;
 
-	ITriVectorFunctionPtr m_ballPosition; ///< Position curve slot; the client attaches the object's own destiny ball here.
-	ITriQuaternionFunctionPtr m_ballRotation; ///< Rotation curve slot; the client attaches the object's own destiny ball here.
+	ITriVectorFunctionPtr m_trackedPosition;
 
-	Matrix m_worldTransform; ///< World transform built from the position/rotation curves or the translation/rotation attributes.
+	ITriVectorFunctionPtr m_ballPosition;
 
-	float m_enterThreshold; ///< Volume intensity at which the tracked position counts as inside (0..1).
-	bool m_forceTriggered; ///< Debug: force the trigger into the entered state, e.g. for testing in Graphite.
-	bool m_isInside; ///< Current inside/outside state of the tracked position.
-	float m_currentIntensity; ///< Most recent evaluated intensity, for debugging.
+	Matrix m_worldTransform;
 
-	BlueScriptCallback m_callback; ///< Script callable invoked on enter/exit transitions.
+	float m_enterThreshold;
+	bool m_isInside;
+	float m_currentIntensity;
 
-	// TODO: bind controllers to the trigger volume for VFX.
+	BlueScriptCallback m_callback;
 };
 
-/**
- * @brief Macro that creates container typedefs for EveTriggerVolume.
- */
 TYPEDEF_BLUECLASS( EveTriggerVolume );
 
 #endif
