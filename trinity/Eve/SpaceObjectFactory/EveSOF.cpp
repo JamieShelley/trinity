@@ -127,6 +127,7 @@ EveSOF::EveSOF( IRoot* lockobj ) :
 	Tr2Variable var2( "DepthMapMsaa", (ITr2TextureProvider*)nullptr );
 	GlobalStore().RegisterVariable( "BoneTransforms", &Tr2RingBuffer::GetInstance<Float4x3>() );
 	GlobalStore().RegisterVariable( "MorphTargetAnimations", &Tr2RingBuffer::GetInstance<Tr2MorphTargetAnimationData>() );
+	GlobalStore().RegisterVariable( "ChildBoosterSetInstances", &Tr2RingBuffer::GetInstance<Tr2ChildBoosterInstanceData>() );
 
 	BlueSharedString gradientMap( "GradientMap" );
 

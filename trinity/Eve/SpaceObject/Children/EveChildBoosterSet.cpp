@@ -1,0 +1,683 @@
+// Copyright © 2023 CCP ehf.
+
+#include "StdAfx.h"
+#include "EveChildBoosterSet.h"
+
+#include "Utilities/BoundingSphere.h"
+#include "Utilities/BoundingBox.h"
+#include "Shader/Tr2Effect.h"
+#include "TriRenderBatch.h"
+#include "TriFrustum.h"
+#include "TriSettingsRegistrar.h"
+#include "Include/TriMath.h"
+#include "Resources/TriGeometryRes.h"
+
+#include "Eve/SpaceObject/Attachments/Sets/EveSpriteSet.h"
+#include "Tr2LightManager.h"
+
+BLUE_DECLARE_VECTOR( EveSpriteSet );
+
+using namespace Tr2RenderContextEnum;
+
+CCP_STATS_DECLARED_ELSEWHERE( primitiveCount );
+
+namespace
+{
+// constants
+const unsigned g_lightNoiseSize = 128;
+float g_lightNoise[g_lightNoiseSize];
+bool g_lightNoiseInitialized = false;
+
+// TODO: intern, remove code duplication
+ALResult GetBoxVB( Tr2SuballocatedBuffer::Allocation& vb, Tr2PrimaryRenderContext& renderContext )
+{
+	const uint32_t vertexCount = 4 * 6;
+	EveChildBoosterSet::BoosterVertex vertices[vertexCount];
+	auto p = &vertices[0];
+	( p++ )->position = Vector3( -1.0f, -1.0f, 0.0f );
+	( p++ )->position = Vector3( 1.0f, -1.0f, 0.0f );
+	( p++ )->position = Vector3( 1.0f, 1.0f, 0.0f );
+	( p++ )->position = Vector3( -1.0f, 1.0f, 0.0f );
+
+	( p++ )->position = Vector3( -1.0f, -1.0f, -1.0f );
+	( p++ )->position = Vector3( -1.0f, 1.0f, -1.0f );
+	( p++ )->position = Vector3( 1.0f, 1.0f, -1.0f );
+	( p++ )->position = Vector3( 1.0f, -1.0f, -1.0f );
+
+	( p++ )->position = Vector3( -1.0f, -1.0f, 0.0f );
+	( p++ )->position = Vector3( -1.0f, 1.0f, 0.0f );
+	( p++ )->position = Vector3( -1.0f, 1.0f, -1.0f );
+	( p++ )->position = Vector3( -1.0f, -1.0f, -1.0f );
+
+	( p++ )->position = Vector3( 1.0f, -1.0f, 0.0f );
+	( p++ )->position = Vector3( 1.0f, -1.0f, -1.0f );
+	( p++ )->position = Vector3( 1.0f, 1.0f, -1.0f );
+	( p++ )->position = Vector3( 1.0f, 1.0f, 0.0f );
+
+	( p++ )->position = Vector3( -1.0f, -1.0f, 0.0f );
+	( p++ )->position = Vector3( -1.0f, -1.0f, -1.0f );
+	( p++ )->position = Vector3( 1.0f, -1.0f, -1.0f );
+	( p++ )->position = Vector3( 1.0f, -1.0f, 0.0f );
+
+	( p++ )->position = Vector3( -1.0f, 1.0f, 0.0f );
+	( p++ )->position = Vector3( 1.0f, 1.0f, 0.0f );
+	( p++ )->position = Vector3( 1.0f, 1.0f, -1.0f );
+	( p++ )->position = Vector3( -1.0f, 1.0f, -1.0f );
+
+	return g_sharedBuffer.Allocate( sizeof( EveChildBoosterSet::BoosterVertex ), vertexCount, &vertices[0], renderContext, vb );
+}
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Initialize data members, build the tree-shape geometry we will use for
+//   rendering the boosters
+// --------------------------------------------------------------------------------
+EveChildBoosterSet::EveChildBoosterSet( IRoot* lockobj ) :
+	m_glowColor( 0.0f, 0.0f, 0.0f, 0.0f ),
+	m_haloColor( 0.0f, 0.0f, 0.0f, 0.0f ),
+	m_warpGlowColor( 0.0f, 0.0f, 0.0f, 0.0f ),
+	m_warpHaloColor( 0.0f, 0.0f, 0.0f, 0.0f ),
+	m_display( true ),
+	m_thrust( 0.f ),
+	m_vertexDeclHandle( Tr2EffectStateManager::UNINITIALIZED_DECLARATION ),
+	m_warpIntensity( 0.f ),
+	m_maxSize( 0.f ),
+	m_glowScale( 1.f ),
+	m_symHaloScale( 1.f ),
+	m_haloScaleX( 1.f ),
+	m_haloScaleY( 1.f ),
+	m_flareLodEnabled( true ),
+	m_glowsVisible( true ),
+	m_lightOffset( 0.f ),
+	m_lightRadius( 0.f ),
+	m_lightWarpRadius( 0.f ),
+	m_lightFlickerAmplitude( 0.f ),
+	m_lightFlickerFrequency( 0.f ),
+	m_lightColor( 0.f, 0.f, 0.f, 0.f ),
+	m_lightWarpColor( 0.f, 0.f, 0.f, 0.f ),
+	m_vertexBuffer( BlueSharedString( "BoosterBoxVB" ), GetBoxVB ),
+	m_isVisible( false ),
+	m_boostersVisible( false ),
+	m_boosterHighLod( false ),
+	m_parentTransform( IdentityMatrix() )
+{
+	Tr2Renderer::ReserveQuadListIndexBuffer( 6 );
+
+	BoundingSphereInitialize( m_boosterBoundingSphere );
+
+	if( !g_lightNoiseInitialized )
+	{
+		g_lightNoiseInitialized = true;
+		for( unsigned i = 0; i < g_lightNoiseSize; ++i )
+		{
+			g_lightNoise[i] = float( rand() ) / float( RAND_MAX );
+		}
+	}
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Cleanup
+// --------------------------------------------------------------------------------
+EveChildBoosterSet::~EveChildBoosterSet()
+{
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   If loading from a .red file, we now can start creating resources
+// --------------------------------------------------------------------------------
+bool EveChildBoosterSet::Initialize()
+{
+	PrepareResources();
+	return true;
+}
+
+bool EveChildBoosterSet::OnModified( Be::Var* value )
+{
+	if( m_glows )
+	{
+		if( IsMatch( value, m_glowScale ) || IsMatch( value, m_haloScaleX ) || IsMatch( value, m_haloScaleY ) || IsMatch( value, m_symHaloScale ) ||
+			IsMatch( value, m_glowColor ) || IsMatch( value, m_warpGlowColor ) || IsMatch( value, m_haloColor ) || IsMatch( value, m_warpHaloColor ) )
+		{
+			m_glows->Clear();
+			for( auto it = m_singleBoosters.begin(); it != m_singleBoosters.end(); ++it )
+			{
+				CreateFlares( *it );
+			}
+			m_glows->Rebuild();
+		}
+	}
+	return true;
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   
+// Arguments:
+//   updateContext - 
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )
+{
+	m_ringBufferOffsets.AdvanceFrame();
+
+	if( params.isVisible )
+	{
+		m_ringBufferData.clear();
+		for( const auto& booster : m_singleBoosters )
+		{
+			Tr2ChildBoosterInstanceData data;
+			data.atlasIndex0 = booster.atlasIndex0;
+			data.atlasIndex1 = booster.atlasIndex1;
+			data.intensity = m_thrust;
+			data.transform = Float4x3( booster.transform );
+			data.wavePhase = booster.wavePhase;
+			m_ringBufferData.push_back( data );
+		}
+		m_ringBufferOffsets.UploadTransforms( Tr2RingBuffer::GetInstance<Tr2ChildBoosterInstanceData>(), m_ringBufferData.data(), uint32_t( m_ringBufferData.size() ) );
+	}
+
+	m_parentTransform = params.localToWorldTransform;
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Clear all the individual boosters & trails this set was holding so far.
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::Clear()
+{
+	// clear everything
+	m_singleBoosters.clear();
+	if( m_glows )
+	{
+		m_glows->Clear();
+	}
+
+	// no bounding sphere
+	BoundingSphereInitialize( m_boosterBoundingSphere );
+
+	// also release the resources
+	ReleaseResources( TRISTORAGE_ALL );
+}
+
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::Add( const Matrix* localMatrix, uint32_t atlasIndex0, uint32_t atlasIndex1, float lightScale )
+{
+	// keep it in our list of boosters
+	SingleBoosterData sbd;
+	sbd.transform = *localMatrix;
+	Vector3 lightOffset( 0.f, 0.f, -m_lightOffset );
+	sbd.lightPosition = TransformCoord( lightOffset, *localMatrix );
+	sbd.lightRadius = std::max( Length( localMatrix->GetX() ), Length( localMatrix->GetY() ) ) * lightScale;
+	sbd.lightPhase = float( g_lightNoiseSize ) * float( rand() ) / float( RAND_MAX );
+	sbd.atlasIndex0 = atlasIndex0;
+	sbd.atlasIndex1 = atlasIndex1;
+	sbd.wavePhase = (float)rand() / (float)RAND_MAX;
+	m_singleBoosters.push_back( sbd );
+
+	Vector3 pos( localMatrix->_41, localMatrix->_42, localMatrix->_43 );
+	float scale = std::max( Length( localMatrix->GetX() ), Length( localMatrix->GetY() ) );
+
+	if( m_glows )
+	{
+		CreateFlares( sbd );
+	}
+
+	// add to bounding sphere (WARNING: this builds an exact bounding sphere, only
+	// containing the points of the boosters, NOT their size! This will be handled
+	// in ::GetRenderables()
+	BoundingSphereUpdate( pos, m_boosterBoundingSphere );
+
+	// keep the biggset one around for comparison in the shaer etc.
+	if( scale > m_maxSize )
+	{
+		m_maxSize = scale;
+	}
+}
+
+void EveChildBoosterSet::CreateFlares( SingleBoosterData& boosterData )
+{
+	auto localMatrix = boosterData.transform;
+	// grab pos/dir/scale from the local transform matrix
+	Vector3 pos( localMatrix._41, localMatrix._42, localMatrix._43 );
+	Vector3 dir( localMatrix._31, localMatrix._32, localMatrix._33 );
+	float scale = std::max( Length( localMatrix.GetX() ), Length( localMatrix.GetY() ) );
+
+	dir = Normalize( dir );
+	if( scale < 3.f )
+	{
+		dir *= scale / 3.f;
+	}
+
+	float seed = float( rand() ) / float( RAND_MAX ) * 0.7f;
+
+	Vector3 spritePos = pos - 2.5f * dir;
+	m_glows->Add( spritePos, seed, seed, scale * m_glowScale, scale * m_glowScale, 0.0f, m_glowColor, m_warpGlowColor );
+
+	spritePos = pos - 3.0f * dir;
+	m_glows->Add( spritePos, seed, 1.0f + seed, scale * m_symHaloScale, scale * m_symHaloScale, 0.0f, m_haloColor, m_warpHaloColor );
+
+	spritePos = pos - 3.01f * dir;
+	m_glows->Add( spritePos, seed, 1.0f + seed, scale * m_haloScaleX, scale * m_haloScaleY, 0.0f, m_haloColor, m_warpHaloColor );
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Set all internal data of this set
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::SetData(
+	float glowScale,
+	const Color* glowColor,
+	const Color* warpGlowColor,
+	float symHaloScale,
+	float haloScaleX,
+	float haloScaleY,
+	const Color* haloColor,
+	const Color* warpHaloColor )
+{
+	m_glowScale = glowScale;
+	m_glowColor = *glowColor;
+	m_warpGlowColor = *warpGlowColor;
+	m_symHaloScale = symHaloScale;
+	m_haloScaleX = haloScaleX;
+	m_haloScaleY = haloScaleY;
+	m_haloColor = *haloColor;
+	m_warpHaloColor = *warpHaloColor;
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Assigns dynamic lighting parameters
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::SetLightData( float offset, float flickerAmplitude, float flickerFrequency, float radius, const Color& color, float warpRadius, const Color& warpColor )
+{
+	m_lightOffset = offset;
+	m_lightFlickerAmplitude = flickerAmplitude;
+	m_lightFlickerFrequency = flickerFrequency;
+	m_lightRadius = radius;
+	m_lightColor = color;
+	m_lightWarpRadius = warpRadius;
+	m_lightWarpColor = warpColor;
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Set the main effect of this set from the outside
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::SetEffect( Tr2Effect* effect, Tr2Effect* effectFar )
+{
+	m_effect = effect;
+	m_effectFar = effectFar;
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Set the glow (spriteset) of this set from the outside
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::SetGlow( EveSpriteSetPtr glow )
+{
+	m_glows = glow;
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   We have to free all device stuff, so release vertex declaration and free
+//   all the vertex buffer
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::ReleaseResources( TriStorage s )
+{
+//	g_sharedBuffer.Free( m_instanceBuffer );
+	m_vertexDeclHandle = Tr2EffectStateManager::UNINITIALIZED_DECLARATION;
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   (Re)-allocate all device stuff: create a vertex declaration for the instanced
+//   rendering and create and fill the vertex buffers
+// --------------------------------------------------------------------------------
+bool EveChildBoosterSet::OnPrepareResources()
+{
+	USE_MAIN_THREAD_RENDER_CONTEXT();
+
+	static Tr2VertexDefinition s_boosterInstancedVertex;
+	if( s_boosterInstancedVertex.empty() )
+	{
+		Tr2VertexDefinition& vd = s_boosterInstancedVertex;
+		vd.Add( vd.FLOAT32_3, vd.POSITION );
+		vd.Add( vd.FLOAT32_2, vd.TEXCOORD, 0 );
+	}
+
+	// create vertex-declarartion
+	m_vertexDeclHandle = Tr2EffectStateManager::GetVertexDeclarationHandle( s_boosterInstancedVertex );
+	if( m_vertexDeclHandle == Tr2EffectStateManager::UNINITIALIZED_DECLARATION )
+	{
+		return false;
+	}
+
+	m_vertexBuffer = Tr2ProceduralBuffer( BlueSharedString( "BoosterBoxVB" ), GetBoxVB );
+
+	return true;
+}
+
+void EveChildBoosterSet::UpdateVisibility( const EveUpdateContext& updateContext, const Matrix& parentTransform, Tr2Lod parentLod )
+{
+	m_glowsVisible = false;
+	if( m_display )
+	{
+		Vector4 transformedBoundingSphere;
+		GetBoundingSphere( transformedBoundingSphere, BoundingSphereQuery::EVE_BOUNDS_NORMAL );
+
+		auto& frustum = updateContext.GetFrustum();
+
+		// LOD for boosters: use the bounding sphere
+		float boosterLOD = 2.f * frustum.GetPixelSizeAccross( &transformedBoundingSphere );
+		m_boosterHighLod = boosterLOD > updateContext.GetMediumDetailThreshold() * 1.5f;
+		m_boostersVisible = boosterLOD > updateContext.GetLowDetailThreshold();
+
+		m_isVisible = frustum.IsSphereVisible( &transformedBoundingSphere );
+
+		if( m_glows )
+		{
+			if( m_glows->UpdateVisibility( updateContext, m_parentTransform, nullptr, 0 ) )
+			{
+				m_glowsVisible = true;
+			}
+		}
+	}
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Standard way of rendering in Trinity. Put this object on the list, since it
+//   is an ITr2Renderable.
+//   Also get the renderables from the fire effects, if we are firing.
+// Arguments:
+//   frustum - the current view frustum of the current frame
+//   renderables - a vector for all the renderable we want to render
+// SeeAlso:
+//   ITr2Renderable, EveStretch
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::GetRenderables( std::vector<ITr2Renderable*>& renderables )
+{
+	// display?
+	if( !m_display )
+	{
+		return;
+	}
+
+	// add this object (which is a renderable), if it is visible
+	if( m_effect && m_isVisible )
+	{
+		renderables.push_back( this );
+	}
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Return the average overall intensity of this booster set. Has been calculated
+//   in ::Update()
+// Return value:
+//   The intensity
+// --------------------------------------------------------------------------------
+float EveChildBoosterSet::GetBoosterIntensity() const
+{
+	return m_thrust;
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Render debug info of this turret set: bounding sphere
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::RenderDebugInfo( ITr2DebugRenderer2& renderer )
+{
+	for( uint32_t j = 0; j < m_singleBoosters.size(); ++j )
+	{
+		Matrix transform = m_singleBoosters[j].transform * m_parentTransform;
+		renderer.DrawCylinder(
+			Tr2DebugObjectReference( this, j ),
+			transform,
+			Vector3( 0, 0, 0 ),
+			Vector3( 0, 0, -1 ),
+			1.0f,
+			8,
+			ITr2DebugRenderer2::Lit,
+			Tr2DebugColor( 0x88ffff00, 0x22ffff00 ) );
+	}
+
+	if( m_glows )
+	{
+		m_glows->RenderDebugInfo( renderer, m_parentTransform, nullptr, 0 );
+	}	
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Transform and modify the saved bounding sphere, so it can be used for
+//   culling etc.
+// --------------------------------------------------------------------------------
+bool EveChildBoosterSet::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query ) const
+{
+	BoundingSphereInitialize( sphere );
+	
+	Vector4 boundingSphere;
+	// move bounding sphere back to catch all the glowy exhaust
+	boundingSphere = m_boosterBoundingSphere + Vector4( 0.f, 0.f, -0.5f * m_boosterBoundingSphere.w, 0.f );
+	// transform center into worldspace
+	boundingSphere.GetXYZ() = TransformCoord( boundingSphere.GetXYZ(), m_parentTransform );
+	// blow up radius so we contain all the glowy stuff coming out of a booster
+	boundingSphere.w = 2.f * m_boosterBoundingSphere.w;
+
+	BoundingSphereUpdate( boundingSphere, sphere );
+
+	return true;
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Registers glow sprites with quad renderer.
+// Arguments:
+//   quadRenderer - quad renderer
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::RegisterWithQuadRenderer( Tr2QuadRenderer& quadRenderer )
+{
+	if( m_glows )
+	{
+		m_glows->RegisterWithQuadRenderer( quadRenderer );
+	}
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Adds glow sprites to quad renderer.
+// Arguments:
+//   quadRenderer - quad renderer
+//   world - parent local to world transform
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer ) const
+{
+	if( !m_glows || !m_glowsVisible || !m_display )
+	{
+		return;
+	}
+
+	if( m_boostersVisible || !m_flareLodEnabled )
+	{
+		m_glows->AddBoosterGlowToQuadRenderer( quadRenderer, m_parentTransform, m_thrust, m_warpIntensity );
+	}
+}
+
+void EveChildBoosterSet::RegisterComponents()
+{
+	auto registry = this->GetComponentRegistry();
+	if( registry )
+	{
+		registry->RegisterComponent<ITr2LightOwner>( this );
+	}
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Adds lights from boosters to light manager
+// Arguments:
+//   lightManager - light manager
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::GetLights( Tr2LightManager& lightManager ) const
+{
+	if( ( m_lightRadius <= 0.f && m_lightWarpRadius <= 0.f ) )
+	{
+		return;
+	}
+
+	if( m_thrust <= 0 )
+	{
+		return;
+	}
+
+	float warpIntensity = std::min( std::max( m_warpIntensity, 0.f ), 1.f );
+	float radiusFactor = m_lightRadius * ( 1.f - warpIntensity ) + m_lightWarpRadius * warpIntensity;
+	radiusFactor *= m_thrust;
+	Color color = m_lightColor * ( 1.f - warpIntensity ) + m_lightWarpColor * warpIntensity;
+	XMMATRIX transform = m_parentTransform;
+	for( auto it = std::begin( m_singleBoosters ); it != std::end( m_singleBoosters ); ++it )
+	{
+		float phase = ( it->lightPhase + Tr2Renderer::GetAnimationTime() ) * m_lightFlickerFrequency;
+		float p0 = g_lightNoise[int( phase ) % g_lightNoiseSize];
+		float p1 = g_lightNoise[( int( phase ) + 1 ) % g_lightNoiseSize];
+		float t = phase - std::floor( phase );
+		float flicker = 1 + m_lightFlickerAmplitude * 2.0f * ( p0 * ( 1.0f - t ) + p1 * t ) - m_lightFlickerAmplitude;
+		lightManager.AddPointLight(
+			Vector3( XMVector3TransformCoord( it->lightPosition, transform ) ),
+			it->lightRadius * radiusFactor,
+			color * flicker );
+	}
+}
+
+void EveChildBoosterSet::SetControllerVariable( const char* name, float value )
+{
+	if( name == m_driveName )
+	{
+		this->m_thrust = value;
+	}
+	else if( strcmp( name, "WarpState" ) == 0 )
+	{
+		this->m_warpIntensity = value;
+	}
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   No transparency.
+// --------------------------------------------------------------------------------
+bool EveChildBoosterSet::HasTransparentBatches()
+{
+	return false;
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Only have additive batches via a geometry provider, since we are using
+//   instanced rendering.
+// --------------------------------------------------------------------------------
+void EveChildBoosterSet::GetBatches( ITriRenderBatchAccumulator* batches, TriBatchType batchType, const Tr2PerObjectData* perObjectData, Tr2RenderReason reason )
+{
+	if( batchType != TRIBATCHTYPE_ADDITIVE )
+	{
+		return;
+	}
+	if( !m_display )
+	{
+		return;
+	}
+	if( m_ringBufferOffsets.GetCurrentFrameOffset() == Tr2RingBufferOffsets::INVALID_OFFSET )
+	{
+		return;
+	}
+	if( m_vertexDeclHandle == Tr2EffectStateManager::UNINITIALIZED_DECLARATION )
+	{
+		return;
+	}
+
+	// boosters visible based on LOD?
+	if( m_boostersVisible )
+	{
+		auto& indexBuffer = Tr2Renderer::GetQuadListIndexBuffer();
+		if( !indexBuffer.IsValid() )
+		{
+			return;
+		}
+
+		Tr2RenderBatch batch;
+		batch.SetMaterial( ( m_boosterHighLod || !m_effectFar ) ? m_effect : m_effectFar );
+		batch.SetPerObjectData( perObjectData );
+		batch.SetVertexDeclaration( m_vertexDeclHandle );
+		auto& vb = m_vertexBuffer.GetSharedResource();
+		batch.SetStreamSource( 0, vb.GetBuffer(), vb.GetStride() );
+		batch.SetInidices( indexBuffer );
+
+		batch.SetDrawIndexedInstanced(
+			3 * 2 * 6,
+			uint32_t( m_singleBoosters.size() ),
+			indexBuffer.GetStartIndex(),
+			vb.GetOffset() / vb.GetStride(),
+			0 );
+		batches->Commit( batch );
+	}
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   No sorting. Everything is NonSorted
+// --------------------------------------------------------------------------------
+float EveChildBoosterSet::GetSortValue()
+{
+	return 1.f;
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Fill the per-object data. First the world matrix of the parent-ship.
+// SeeAlso:
+//   EveChildBoosterSetPerObjectData, TriRenderBatchAccumulator
+// --------------------------------------------------------------------------------
+Tr2PerObjectData* EveChildBoosterSet::GetPerObjectData( ITriRenderBatchAccumulator* accumulator )
+{
+	// allocate only once
+	auto perObjectData = accumulator->Allocate<EveChildBoosterSetPerObjectData>();
+	if( !perObjectData )
+	{
+		return NULL;
+	}
+
+	// column_major for shaders
+	perObjectData->m_vsData.shipMatrix = Transpose( m_parentTransform );
+
+	// vs data
+	perObjectData->m_vsData.boosterIntensity = m_thrust;
+	perObjectData->m_vsData.padding1 = 0.f;
+	perObjectData->m_vsData.maxBoosterSize = m_maxSize;
+	perObjectData->m_vsData.instanceOffset = m_ringBufferOffsets.GetCurrentFrameOffset();
+	// ps data
+	perObjectData->m_psData.boosterIntensity = m_thrust;
+	perObjectData->m_psData.padding1 = 0.f;
+	perObjectData->m_psData.warpIntensity = m_warpIntensity;
+	perObjectData->m_psData.padding2 = 0.f;
+
+	return perObjectData;
+}
+
+// --------------------------------------------------------------------------------
+// Description:
+//   Copy all the matrices to HW
+// --------------------------------------------------------------------------------
+void EveChildBoosterSetPerObjectData::SetPerObjectDataToDevice( Tr2ConstantBufferAL** buffers, unsigned constantTypeMask, Tr2RenderContext& renderContext ) const
+{
+	FillAndSetConstants( *buffers[VERTEX_SHADER], m_vsData, VERTEX_SHADER, Tr2Renderer::GetPerObjectVSStartRegister(), renderContext );
+	FillAndSetConstants( *buffers[PIXEL_SHADER], m_psData, PIXEL_SHADER, Tr2Renderer::GetPerObjectPSStartRegister(), renderContext );
+}
+
+void EveChildBoosterSetPerObjectData::ApplyConstantBuffers( Tr2IndirectDrawBufferWriter& writer, Tr2RenderContext& renderContext ) const
+{
+	writer.SetPerObjectData( VERTEX_SHADER, &m_vsData, sizeof( m_vsData ) );
+	writer.SetPerObjectData( PIXEL_SHADER, &m_psData, sizeof( m_psData ) );
+}

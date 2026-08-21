@@ -501,6 +501,9 @@ set(_SOURCES
     Eve/SpaceObject/Children/EveChildBehaviorSystem.cpp
     Eve/SpaceObject/Children/EveChildBehaviorSystem.h
     Eve/SpaceObject/Children/EveChildBehaviorSystem_Blue.cpp
+    Eve/SpaceObject/Children/EveChildBoosterSet.cpp
+    Eve/SpaceObject/Children/EveChildBoosterSet.h
+    Eve/SpaceObject/Children/EveChildBoosterSet_Blue.cpp
     Eve/SpaceObject/Children/EveChildBulletStorm.cpp
     Eve/SpaceObject/Children/EveChildBulletStorm.h
     Eve/SpaceObject/Children/EveChildBulletStorm_Blue.cpp
