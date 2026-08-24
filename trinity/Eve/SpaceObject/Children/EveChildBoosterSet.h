@@ -88,8 +88,8 @@ public:
 	using IInitialize::Lock;
 	using IInitialize::Unlock;
 
-	static constexpr const char* DEFAULT_DRIVE_NAME = "Thrust_Main";
-	static constexpr const char* WARP_DRIVE_NAME = "Warp_State";
+	static constexpr const char* DEFAULT_DRIVE_NAME = "ThrustMain";
+	static constexpr const char* WARP_DRIVE_NAME = "WarpState";
 	static constexpr const char* DEFAULT_EFFECT_PATH = "res:/Graphics/Effect/Managed/Space/Booster/ChildBoosterVolumetric.fx";
 
 	EveChildBoosterSet( IRoot* lockobj = NULL );
@@ -196,7 +196,7 @@ private:
 	// holds all the lensflares of this booster
 	EveSpriteSetPtr m_glows;
 	bool m_flareLodEnabled;
-	mutable bool m_glowsVisible;
+	bool m_glowsVisible;
 
 	float m_warpIntensity;
 

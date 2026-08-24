@@ -4,12 +4,10 @@
 #include "EveChildBoosterSet.h"
 
 #include "Utilities/BoundingSphere.h"
-#include "Utilities/BoundingBox.h"
 #include "Shader/Tr2Effect.h"
 #include "TriRenderBatch.h"
 #include "TriFrustum.h"
 #include "Include/TriMath.h"
-#include "Resources/TriGeometryRes.h"
 #include "Eve/SpaceObject/Utils/EveBoosterUtilities.h"
 #include "Eve/SpaceObject/Attachments/Sets/EveSpriteSet.h"
 #include "Tr2LightManager.h"
@@ -150,20 +148,20 @@ void EveChildBoosterSet::Clear()
 // --------------------------------------------------------------------------------
 void EveChildBoosterSet::Add( const Matrix* localMatrix, uint32_t atlasIndex0, uint32_t atlasIndex1, float lightScale )
 {
+	Vector3 pos( localMatrix->_41, localMatrix->_42, localMatrix->_43 );
+	float scale = std::max( Length( localMatrix->GetX() ), Length( localMatrix->GetY() ) );
+
 	// keep it in our list of boosters
 	SingleBoosterData sbd;
 	sbd.transform = *localMatrix;
 	Vector3 lightOffset( 0.f, 0.f, -m_lightOffset );
 	sbd.lightPosition = TransformCoord( lightOffset, *localMatrix );
-	sbd.lightRadius = std::max( Length( localMatrix->GetX() ), Length( localMatrix->GetY() ) ) * lightScale;
+	sbd.lightRadius = scale * lightScale;
 	sbd.lightPhase = GenerateBoosterLightPhase();
 	sbd.atlasIndex0 = atlasIndex0;
 	sbd.atlasIndex1 = atlasIndex1;
 	sbd.wavePhase = (float)rand() / (float)RAND_MAX;
 	m_singleBoosters.push_back( sbd );
-
-	Vector3 pos( localMatrix->_41, localMatrix->_42, localMatrix->_43 );
-	float scale = std::max( Length( localMatrix->GetX() ), Length( localMatrix->GetY() ) );
 
 	if( m_glows )
 	{
@@ -175,7 +173,7 @@ void EveChildBoosterSet::Add( const Matrix* localMatrix, uint32_t atlasIndex0, u
 	// in ::GetBoundingSphere()
 	BoundingSphereUpdate( pos, m_boosterBoundingSphere );
 
-	// keep the biggset one around for comparison in the shaer etc.
+	// keep the biggest one around for comparison in the shear etc.
 	if( scale > m_maxSize )
 	{
 		m_maxSize = scale;
@@ -247,7 +245,6 @@ void EveChildBoosterSet::SetGlow( EveSpriteSetPtr glow )
 // --------------------------------------------------------------------------------
 void EveChildBoosterSet::ReleaseResources( TriStorage s )
 {
-//	g_sharedBuffer.Free( m_instanceBuffer );
 	m_vertexDeclHandle = Tr2EffectStateManager::UNINITIALIZED_DECLARATION;
 }
 
@@ -375,9 +372,7 @@ void EveChildBoosterSet::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 // --------------------------------------------------------------------------------
 bool EveChildBoosterSet::GetBoundingSphere( Vector4& sphere, BoundingSphereQuery query ) const
 {
-	BoundingSphereInitialize( sphere );
-	Vector4 boundingSphere = PadBoosterBoundingSphere( m_boosterBoundingSphere, m_parentTransform );
-	BoundingSphereUpdate( boundingSphere, sphere );
+	sphere = PadBoosterBoundingSphere( m_boosterBoundingSphere, m_parentTransform );
 	return true;
 }
 
@@ -437,7 +432,7 @@ void EveChildBoosterSet::RegisterComponents()
 // --------------------------------------------------------------------------------
 void EveChildBoosterSet::GetLights( Tr2LightManager& lightManager ) const
 {
-	if( ( m_lightRadius <= 0.f && m_lightWarpRadius <= 0.f ) )
+	if( m_lightRadius <= 0.f && m_lightWarpRadius <= 0.f )
 	{
 		return;
 	}
@@ -455,11 +450,11 @@ void EveChildBoosterSet::SetControllerVariable( const char* name, float value )
 {
 	if( name == m_driveName )
 	{
-		this->m_thrust = value;
+		m_thrust = value;
 	}
 	else if( strcmp( name, EveChildBoosterSet::WARP_DRIVE_NAME ) == 0 )
 	{
-		this->m_warpIntensity = value;
+		m_warpIntensity = value;
 	}
 }
 
