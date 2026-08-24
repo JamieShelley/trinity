@@ -178,7 +178,6 @@ private:
 
 	// toggle display
 	bool m_display;
-	
 	float m_thrust;
 
 	// bounding info (is setup dynamically)

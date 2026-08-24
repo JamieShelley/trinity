@@ -93,9 +93,9 @@ bool EveChildBoosterSet::OnModified( Be::Var* value )
 
 // --------------------------------------------------------------------------------
 // Description:
-//   
+//
 // Arguments:
-//   updateContext - 
+//   updateContext -
 // --------------------------------------------------------------------------------
 void EveChildBoosterSet::UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params )
 {
@@ -361,7 +361,7 @@ void EveChildBoosterSet::RenderDebugInfo( ITr2DebugRenderer2& renderer )
 	if( m_glows )
 	{
 		m_glows->RenderDebugInfo( renderer, m_parentTransform, nullptr, 0 );
-	}	
+	}
 }
 
 // --------------------------------------------------------------------------------
@@ -441,7 +441,7 @@ void EveChildBoosterSet::GetLights( Tr2LightManager& lightManager ) const
 		return;
 	}
 
-	EveBoosterLightParams params { m_lightWarpRadius, m_lightWarpColor, m_lightRadius, m_lightColor, m_lightFlickerAmplitude, m_lightFlickerFrequency };
+	EveBoosterLightParams params{ m_lightWarpRadius, m_lightWarpColor, m_lightRadius, m_lightColor, m_lightFlickerAmplitude, m_lightFlickerFrequency };
 	AddBoosterLights( lightManager, m_singleBoosters, m_parentTransform, m_thrust, m_warpIntensity, params );
 }
 

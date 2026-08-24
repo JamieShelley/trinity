@@ -3019,7 +3019,6 @@ void EveSOF::SetupChildBoosters( EveChildContainerPtr child, const EveSOFDNAPtr 
 	const EveSOFDataMgr::RaceBoosterData* rdata = dna->GetRaceBoosterData();
 	// cycle over all hulls in the multi-hull list
 	Vector3 hullOffset( 0.f, 0.f, 0.f );
-	
 	const EveSOFDataMgr::HullBoosterData* hdata0 = dna->GetHullBoosterData( 0 );
 
 	std::string driveName = hdata0->driveName.empty() ? EveChildBoosterSet::DEFAULT_DRIVE_NAME : hdata0->driveName.c_str();
