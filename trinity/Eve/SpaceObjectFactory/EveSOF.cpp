@@ -2847,6 +2847,29 @@ Tr2EffectPtr EveSOF::CreateBoosterEffect( const EveSOFDataMgr::RaceBoosterData* 
 	return effect;
 }
 
+namespace
+{
+
+EveSpriteSetPtr CreateGlow()
+{
+	// create and setup glows
+	EveSpriteSetPtr glow;
+	glow.CreateInstance();
+
+	Tr2EffectPtr glowEffect;
+	glowEffect.CreateInstance();
+	glowEffect->StartUpdate();
+	glowEffect->SetEffectPathName( "res:/Graphics/Effect/Managed/Space/Booster/BoosterGlowAnimated.fx" );
+	glowEffect->AddResourceTexture2D( BlueSharedString( "NoiseMap" ), "res:/Texture/global/noise.dds" );
+	glowEffect->AddResourceTexture2D( BlueSharedString( "DiffuseMap" ), "res:/Texture/Particle/whitesharp.dds" );
+	// finish effect and set it
+	glowEffect->EndUpdate();
+	glow->SetEffect( glowEffect );
+
+	return glow;
+}
+
+}
 
 // --------------------------------------------------------------------------------
 // Description:
@@ -2896,18 +2919,7 @@ void EveSOF::SetupBoosters( EveShip2Ptr ship, const EveSOFDNAPtr dna ) const
 		set->SetEffect( effect, effectFar );
 
 		// create and setup glows
-		EveSpriteSetPtr glow;
-		glow.CreateInstance();
-
-		Tr2EffectPtr glowEffect;
-		glowEffect.CreateInstance();
-		glowEffect->StartUpdate();
-		glowEffect->SetEffectPathName( "res:/Graphics/Effect/Managed/Space/Booster/BoosterGlowAnimated.fx" );
-		glowEffect->AddResourceTexture2D( BlueSharedString( "NoiseMap" ), "res:/Texture/global/noise.dds" );
-		glowEffect->AddResourceTexture2D( BlueSharedString( "DiffuseMap" ), "res:/Texture/Particle/whitesharp.dds" );
-		// finish effect and set it
-		glowEffect->EndUpdate();
-		glow->SetEffect( glowEffect );
+		auto glow = CreateGlow();
 		set->SetGlow( glow );
 
 		if( hdata->hasTrails )
@@ -3007,57 +3019,48 @@ void EveSOF::SetupChildBoosters( EveChildContainerPtr child, const EveSOFDNAPtr 
 	const EveSOFDataMgr::RaceBoosterData* rdata = dna->GetRaceBoosterData();
 	// cycle over all hulls in the multi-hull list
 	Vector3 hullOffset( 0.f, 0.f, 0.f );
+	
+	const EveSOFDataMgr::HullBoosterData* hdata0 = dna->GetHullBoosterData( 0 );
+
+	std::string driveName = hdata0->driveName.empty() ? "Thrust_Main" : hdata0->driveName.c_str();
+	set->SetDriveName( driveName );
+
+	// set the booster set's internal data
+	set->SetData(
+		rdata->glowScale,
+		&rdata->glowColor,
+		&rdata->warpGlowColor,
+		rdata->symHaloScale,
+		rdata->haloScaleX,
+		rdata->haloScaleY,
+		&rdata->haloColor,
+		&rdata->warpHaloColor );
+	set->SetLightData( rdata->lightOffset, rdata->lightFlickerAmplitude, rdata->lightFlickerFrequency, rdata->lightRadius, rdata->lightColor, rdata->lightWarpRadius, rdata->lightWarpColor );
+
+	std::string effectPath = hdata0->effectPath.empty() ? "res:/Graphics/Effect/Managed/Space/Booster/ChildBoosterVolumetric.fx" : hdata0->effectPath.c_str();
+	Tr2EffectPtr effect = CreateBoosterEffect( rdata, BlueSharedString( "BOOSTER_LOD_HIGH" ), effectPath );
+	Tr2EffectPtr effectFar = CreateBoosterEffect( rdata, BlueSharedString( "BOOSTER_LOD_LOW" ), effectPath );
+
+	for( const auto& parameter : hdata0->parameters )
+	{
+		effect->SetParameter( parameter.first, parameter.second );
+		effectFar->SetParameter( parameter.first, parameter.second );
+	}
+	for( const auto& texture : hdata0->textures )
+	{
+		effect->SetResourceTexture2D( texture.first, texture.second.resFilePath.c_str() );
+		effectFar->SetResourceTexture2D( texture.first, texture.second.resFilePath.c_str() );
+	}
+
+	set->SetEffect( effect, effectFar );
+
+	auto glow = CreateGlow();
+	set->SetGlow( glow );
+
 	for( size_t hullIdx = 0; hullIdx < dna->GetMultiHullCount(); ++hullIdx )
 	{
 		// per-hull data
 		const EveSOFDataMgr::HullBoosterData* hdata = dna->GetHullBoosterData( hullIdx );
-
-		std::string driveName = hdata->driveName.empty() ? "Thrust_Main" : hdata->driveName.c_str();
-		set->SetDriveName( driveName );
-
-		// set the booster set's internal data
-		set->SetData(
-			rdata->glowScale,
-			&rdata->glowColor,
-			&rdata->warpGlowColor,
-			rdata->symHaloScale,
-			rdata->haloScaleX,
-			rdata->haloScaleY,
-			&rdata->haloColor,
-			&rdata->warpHaloColor );
-		set->SetLightData( rdata->lightOffset, rdata->lightFlickerAmplitude, rdata->lightFlickerFrequency, rdata->lightRadius, rdata->lightColor, rdata->lightWarpRadius, rdata->lightWarpColor );
-
-		std::string effectPath = hdata->effectPath.empty() ? "res:/Graphics/Effect/Managed/Space/Booster/ChildBoosterVolumetric.fx" : hdata->effectPath.c_str();
-		Tr2EffectPtr effect = CreateBoosterEffect( rdata, BlueSharedString( "BOOSTER_LOD_HIGH" ), effectPath );
-		Tr2EffectPtr effectFar = CreateBoosterEffect( rdata, BlueSharedString( "BOOSTER_LOD_LOW" ), effectPath );
-
-		for( const auto& parameter : hdata->parameters )
-		{
-			effect->SetParameter( parameter.first, parameter.second );
-			effectFar->SetParameter( parameter.first, parameter.second );
-		}
-		for( const auto& texture : hdata->textures )
-		{
-			effect->SetResourceTexture2D( texture.first, texture.second.resFilePath.c_str() );
-			effectFar->SetResourceTexture2D( texture.first, texture.second.resFilePath.c_str() );
-		}
-
-		set->SetEffect( effect, effectFar );
-
-		// create and setup glows
-		EveSpriteSetPtr glow;
-		glow.CreateInstance();
-
-		Tr2EffectPtr glowEffect;
-		glowEffect.CreateInstance();
-		glowEffect->StartUpdate();
-		glowEffect->SetEffectPathName( "res:/Graphics/Effect/Managed/Space/Booster/BoosterGlowAnimated.fx" );
-		glowEffect->AddResourceTexture2D( BlueSharedString( "NoiseMap" ), "res:/Texture/global/noise.dds" );
-		glowEffect->AddResourceTexture2D( BlueSharedString( "DiffuseMap" ), "res:/Texture/Particle/whitesharp.dds" );
-		// finish effect and set it
-		glowEffect->EndUpdate();
-		glow->SetEffect( glowEffect );
-		set->SetGlow( glow );
 
 		// add all the indiviual items
 		for( auto biit = hdata->items.begin(); biit != hdata->items.end(); ++biit )
@@ -3066,7 +3069,6 @@ void EveSOF::SetupChildBoosters( EveChildContainerPtr child, const EveSOFDNAPtr 
 			TriMatrixTranslate( &m, &biit->transform, &hullOffset );
 			set->Add( &m, biit->atlasIndex0, biit->atlasIndex1, biit->lightScale );
 		}
-		glow->Rebuild();
 
 		// next hull needs offset update from hull's locator
 		const Vector3* nextSubsystemOffset = dna->GetHullNextSubsystemOffset( hullIdx );
@@ -3075,7 +3077,10 @@ void EveSOF::SetupChildBoosters( EveChildContainerPtr child, const EveSOFDNAPtr 
 			hullOffset += *nextSubsystemOffset;
 		}
 	}
-	// add it to ship
+
+	glow->Rebuild();
+
+	// add it to child
 	set->PrepareResources();
 	child->AddToEffectChildrenList( set );
 }
