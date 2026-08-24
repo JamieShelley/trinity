@@ -415,6 +415,11 @@ void EveChildBoosterSet::AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2Q
 	}
 }
 
+void EveChildBoosterSet::SetDriveName( const std::string& driveName )
+{
+	m_driveName = driveName;
+}
+
 void EveChildBoosterSet::RegisterComponents()
 {
 	auto registry = this->GetComponentRegistry();

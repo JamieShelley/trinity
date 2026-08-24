@@ -1056,6 +1056,10 @@ public:
 
 	// per-hull data of a booster
 	bool m_alwaysOn, m_hasTrails;
+	BlueSharedString m_driveName;
+	BlueSharedString m_effectPath;
+	PEveSOFDataTextureVector m_textures;
+	PEveSOFDataParameterVector m_parameters;
 	PEveSOFDataHullBoosterItemVector m_items;
 };
 TYPEDEF_BLUECLASS( EveSOFDataHullBooster );

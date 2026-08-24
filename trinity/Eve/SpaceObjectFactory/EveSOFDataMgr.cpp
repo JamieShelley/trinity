@@ -695,6 +695,18 @@ void EveSOFDataMgr::GenerateHullData( HullData& hd, EveSOFDataHullPtr srcData ) 
 		HullBoosterData hbd;
 		hbd.alwaysOn = boosterData->m_alwaysOn;
 		hbd.hasTrails = boosterData->m_hasTrails;
+		hbd.driveName = boosterData->m_driveName;
+		hbd.effectPath = boosterData->m_effectPath;
+		for( const auto& parameter : boosterData->m_parameters )
+		{
+			hbd.parameters[parameter->m_name] = parameter->m_value;
+		}
+		for( const auto& texture : boosterData->m_textures )
+		{
+			TextureData td;
+			td.resFilePath = texture->m_resFilePath;
+			hbd.textures[texture->m_name] = td;
+		}
 
 		// booster items
 		for( auto biit = boosterData->m_items.begin(); biit != boosterData->m_items.end(); ++biit )

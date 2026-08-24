@@ -1021,6 +1021,8 @@ EveSOFDataFactionPlaneSet::EveSOFDataFactionPlaneSet( IRoot* lockobj ) :
 
 EveSOFDataHullBooster::EveSOFDataHullBooster( IRoot* lockobj ) :
 	PARENTLOCK( m_items ),
+	PARENTLOCK( m_parameters ),
+	PARENTLOCK( m_textures ),
 	m_alwaysOn( false ),
 	m_hasTrails( true )
 {

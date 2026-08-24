@@ -150,6 +150,8 @@ public:
 	void RegisterWithQuadRenderer( Tr2QuadRenderer& pool ) override;
 	void AddQuadsToQuadRenderer( const TriFrustum& frustum, Tr2QuadRenderer& quadRenderer ) const override;
 
+	void SetDriveName( const std::string& driveName );
+
 	//////////////////////////////////////////////////////////////////////////////////////
 	// ITr2LightOwner
 	void GetLights( Tr2LightManager& lightManager ) const override;
