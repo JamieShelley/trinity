@@ -457,7 +457,7 @@ void EveChildBoosterSet::SetControllerVariable( const char* name, float value )
 	{
 		this->m_thrust = value;
 	}
-	else if( strcmp( name, "WarpState" ) == 0 )
+	else if( strcmp( name, EveChildBoosterSet::WARP_DRIVE_NAME ) == 0 )
 	{
 		this->m_warpIntensity = value;
 	}

@@ -3022,7 +3022,7 @@ void EveSOF::SetupChildBoosters( EveChildContainerPtr child, const EveSOFDNAPtr 
 	
 	const EveSOFDataMgr::HullBoosterData* hdata0 = dna->GetHullBoosterData( 0 );
 
-	std::string driveName = hdata0->driveName.empty() ? "Thrust_Main" : hdata0->driveName.c_str();
+	std::string driveName = hdata0->driveName.empty() ? EveChildBoosterSet::DEFAULT_DRIVE_NAME : hdata0->driveName.c_str();
 	set->SetDriveName( driveName );
 
 	// set the booster set's internal data
@@ -3037,7 +3037,7 @@ void EveSOF::SetupChildBoosters( EveChildContainerPtr child, const EveSOFDNAPtr 
 		&rdata->warpHaloColor );
 	set->SetLightData( rdata->lightOffset, rdata->lightFlickerAmplitude, rdata->lightFlickerFrequency, rdata->lightRadius, rdata->lightColor, rdata->lightWarpRadius, rdata->lightWarpColor );
 
-	std::string effectPath = hdata0->effectPath.empty() ? "res:/Graphics/Effect/Managed/Space/Booster/ChildBoosterVolumetric.fx" : hdata0->effectPath.c_str();
+	std::string effectPath = hdata0->effectPath.empty() ? EveChildBoosterSet::DEFAULT_EFFECT_PATH : hdata0->effectPath.c_str();
 	Tr2EffectPtr effect = CreateBoosterEffect( rdata, BlueSharedString( "BOOSTER_LOD_HIGH" ), effectPath );
 	Tr2EffectPtr effectFar = CreateBoosterEffect( rdata, BlueSharedString( "BOOSTER_LOD_LOW" ), effectPath );
 
