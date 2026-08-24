@@ -173,7 +173,7 @@ void EveChildBoosterSet::Add( const Matrix* localMatrix, uint32_t atlasIndex0, u
 	// in ::GetBoundingSphere()
 	BoundingSphereUpdate( pos, m_boosterBoundingSphere );
 
-	// keep the biggest one around for comparison in the shear etc.
+	// keep the biggest one around for comparison in the shader etc.
 	if( scale > m_maxSize )
 	{
 		m_maxSize = scale;
