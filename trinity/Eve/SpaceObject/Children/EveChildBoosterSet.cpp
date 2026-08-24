@@ -240,8 +240,7 @@ void EveChildBoosterSet::SetGlow( EveSpriteSetPtr glow )
 
 // --------------------------------------------------------------------------------
 // Description:
-//   We have to free all device stuff, so release vertex declaration and free
-//   all the vertex buffer
+//   We have to free all device stuff, so release vertex declaration
 // --------------------------------------------------------------------------------
 void EveChildBoosterSet::ReleaseResources( TriStorage s )
 {
