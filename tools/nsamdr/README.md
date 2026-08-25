@@ -1,18 +1,106 @@
 # NSAMDR production workflow
 
-NSAMDR is a learned 4x reconstruction pipeline for authored EVE material
-textures. This document describes the current production contract. Historical
-experiments and patch notes belong in Git history, not in the runtime workflow.
+**NSAMDR** stands for **Neural Structure-Aware Material Detail Reconstruction**.
+It is a learned 4x reconstruction system for authored EVE ship textures. The
+project is not intended to be a generic image upscaler: it reconstructs physical
+texture maps while explicitly modelling the manufactured structure that created
+them.
 
-## 1. What NSAMDR does
+This document describes the cleaned production contract. Historical capability
+probes, generalisation experiments, patch-specific launchers, and obsolete
+renderer modes belong in Git history, not in the runtime workflow.
+
+## 1. Why NSAMDR exists
+
+A conventional super-resolution network sees a low-resolution image and tries
+to predict a sharper image. That is not sufficient for EVE material assets.
+One ship material can contain several aligned authored signals with different
+physical meanings:
+
+- albedo colour and paint detail;
+- tangent-space normal relief;
+- material identity and transitions;
+- emissive information;
+- roughness information;
+- thin panel seams, circles, hatches, rings, corners, junctions, scratches, and
+  small manufactured fittings.
+
+Those features are correlated. A panel boundary that is reconstructed in
+albedo but not in the normal or material map is physically inconsistent. A
+sharpening filter can also make a blurred seam look stronger without recovering
+its true subpixel position, width, continuity, or material transition.
+
+NSAMDR therefore treats 4x reconstruction as three linked problems:
+
+1. **recover structure** - infer the continuous manufactured geometry that was
+   damaged by downsampling;
+2. **recover boundary and seam profiles** - reconstruct the physical transition
+   across that geometry with one shared spatial authority;
+3. **recover authored appearance detail** - restore high-frequency texture and
+   relief that cannot be represented by analytic geometry alone.
+
+The final candidate is then passed through learned confidence, regret, and
+benefit selection so the production model can retain the authored baseline
+where reconstruction is not supported.
+
+The intended visible result is not merely a sharper bicubic texture. The target
+is continuous seams, cleaner subpixel contours, reconstructed manufactured
+features, coherent fine normal relief, material-detail recovery, and genuine
+2x/4x microdetail while keeping all physical maps aligned.
+
+## 2. Production data flow
 
 NSAMDR consumes low-resolution authored material inputs:
 
 - albedo RGB;
 - tangent-space normal XY;
 - material, emissive, and roughness semantics;
-- deterministic degradation and geometry guidance channels assembled by the
+- deterministic degradation and geometry-guidance channels assembled by the
   production input builder.
+
+The current production graph is conceptually:
+
+```text
+          authored LR physical maps + guidance
+                        |
+                   GeometryNet
+                        |
+        continuous parametric geometry / SDF
+                        |
+              deterministic boundary redraw
+                        |
+              BoundaryProfileSpecialist
+                        |
+                 PhaseAwareSeamSR
+                        |
+            geometry-conditioned DetailNet
+                        |
+              explicit 2x -> 4x decoder
+                        |
+         +--------------+---------------+
+         |              |               |
+     AlbedoHead      NormalHead     MaterialHead
+         |              |               |
+         +--------------+---------------+
+                        |
+             confidence + regret
+                        |
+                 BenefitSelector
+                        |
+             final aligned 4x maps
+```
+
+The structural path and appearance path deliberately have different jobs.
+Geometry owns contour placement. The deterministic boundary renderer converts
+that geometry into a physical transition. The profile and seam specialists
+refine shared boundary/seam behaviour. `DetailNet` then restores non-parametric
+high-frequency appearance without being allowed to move the accepted contour.
+
+The current structural implementation uses a learned compact parametric
+primitive classifier/regressor followed by exact analytic SDF rendering. The
+architecture audit retains the generic label `Spline/SDF` for the continuous
+structure slot, but the active production implementation is the parametric
+primitive field in `GeometryNet`.
 
 One production model reconstructs aligned high-resolution albedo, normal,
 material, emissive, and roughness maps. Geometry, boundary profiles, seam
@@ -22,11 +110,20 @@ renderer never substitutes a second network or repairs the candidate after the
 checkpoint output is baked.
 
 The canonical model class is `FidelityResidualNetV9`. Its schema is the
-`MODEL_SCHEMA` exported by
-`tools/nsamdr/neural/v9/model.py`; checkpoints with any other schema are
-rejected.
+`MODEL_SCHEMA` exported by `tools/nsamdr/neural/v9/model.py`; checkpoints with
+any other schema are rejected.
 
-## 2. Architecture diagram
+The only deployable model call is:
+
+```python
+outputs = model(inputs)
+```
+
+Training-only teacher signals are isolated behind the private training entry
+point. Production callers cannot replace SDF geometry, gates, hardness, seam
+authority, cached intermediate state, or any other model authority.
+
+## 3. Architecture diagram
 
 [![NSAMDR production architecture](./NSAMDR_FULL_SYSTEM_ARCHITECTURE.png)](./NSAMDR_FULL_SYSTEM_ARCHITECTURE.png)
 
@@ -35,12 +132,12 @@ machine-readable evidence for an experiment is
 `architecture_participation.json`, produced by instrumenting the real forward
 graph before and after training.
 
-## 3. Major modules
+## 4. Major modules
 
 | Component | Production responsibility | Evidence required |
 | --- | --- | --- |
 | `GeometryNet` | Encodes the complete LR input and produces the geometry features used by reconstruction. | Forward call, parameter count, training state, gradient/update evidence. |
-| Continuous structure | Produces the SDF/topology and the active parametric or spline-equivalent representation. Its output is owned by the model, not an external fitter. | Forward reachability, structural losses, final-forward output. |
+| Continuous structure | Produces the SDF/topology and active parametric representation. Its output is owned by the model, not an external fitter. | Forward reachability, structural losses, final-forward output. |
 | Boundary renderer/profile | Reconstructs two physical sides of a boundary and refines their shared coverage profile. The renderer is deterministic; the profile specialist is learned. | Shared use by albedo, normal, and material plus profile loss/update evidence. |
 | `PhaseAwareSeamSR` | Reconstructs phase-sensitive 2x/4x seam information from authored LR maps. | Forward call and seam-stage gradient/update evidence. |
 | Seam authority | Limits seam reconstruction to supported locations and controls how the phase proposal enters the physical candidate. | Forward call, authority loss/metric, non-bypassed final output. |
@@ -54,7 +151,7 @@ forward hooks on these production modules, consumes the trainer's per-stage
 gradient/update evidence, strict-loads the immutable checkpoint, and performs a
 fresh direct `model(input)` qualification.
 
-## 4. Raven Quick versus Full Training
+## 5. Raven Quick versus Full Training
 
 `Raven Quick` and `Full Training` instantiate the same model class, schema,
 module graph, loss definitions, inference mode, and final qualification.
@@ -77,7 +174,7 @@ transitions. It is not a top-detail or easiest-crop ranking.
 There is no Raven-only network, head, candidate generator, checkpoint schema, or
 inference branch.
 
-## 5. Training stages
+## 6. Training stages
 
 Training may freeze qualified modules, but every stage operates on the same
 complete checkpoint topology:
@@ -99,7 +196,7 @@ of that frozen production module. The cache contract records a numerical
 cached-versus-uncached comparison. Qualification always clears the cache and
 runs the full graph.
 
-## 6. Qualification gates
+## 7. Qualification gates
 
 An experiment is not previewable until all applicable gates pass:
 
@@ -120,7 +217,7 @@ An experiment is not previewable until all applicable gates pass:
 Failure leaves the experiment diagnostic-only. It cannot generate or launch a
 `B NSAMDR FINAL` preview.
 
-## 7. Checkpoint and provenance contract
+## 8. Checkpoint and provenance contract
 
 There is one final checkpoint for an experiment:
 
@@ -140,9 +237,9 @@ The workflow:
 
 Any missing, stale, intermediate, unqualified, mutated, or mismatched artifact
 fails closed before the renderer process starts. Prefix hashes and labels such
-as “best”, “representative”, or “looks final” are not provenance.
+as "best", "representative", or "looks final" are not provenance.
 
-## 8. Renderer behavior
+## 9. Renderer behavior
 
 The native preview contains exactly two panes:
 
@@ -159,7 +256,7 @@ Real EVE material compatibility remains deliberate. In particular,
 `ShaderFamily::LegacyPgs` parsing and its authored channel/roughness semantics
 are source-format compatibility, not an obsolete NSAMDR baseline mode.
 
-## 9. Exact commands
+## 10. Exact commands
 
 Run commands from the repository root.
 
@@ -193,10 +290,16 @@ Preview a completed qualified experiment:
 scripts\build\nsamdr.bat preview EXP_####
 ```
 
+Validate the canonical layout and contract before starting a new test cycle:
+
+```bat
+scripts\build\nsamdr.bat validate
+```
+
 The native OBJ launcher is an internal bridge used by the preview command; it is
 not a separate training or checkpoint-selection surface.
 
-## 10. Output directory layout
+## 11. Output directory layout
 
 ```text
 artifacts/nsamdr/experiments/EXP_####/
@@ -225,7 +328,7 @@ checksum metadata, source/candidate provenance, and renderer launch record.
 Capability-first, generalization, recovery, and temporary experiment trees are
 not production outputs.
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 **Architecture preflight fails**
 
@@ -267,7 +370,7 @@ second viewer project.
 Verify shader-family parsing and authored semantic channels before changing
 NSAMDR. `LegacyPgs` is intentionally retained for real source compatibility.
 
-## 12. Non-negotiable invariant
+## 13. Non-negotiable invariant
 
 > Raven Quick uses the complete production NSAMDR model.
 > It changes dataset/work budget only and never substitutes an alternate
