@@ -80,9 +80,9 @@ bool EveChildBoosterSet::OnModified( Be::Var* value )
 			IsMatch( value, m_glowColor ) || IsMatch( value, m_warpGlowColor ) || IsMatch( value, m_haloColor ) || IsMatch( value, m_warpHaloColor ) )
 		{
 			m_glows->Clear();
-			for( auto it = m_singleBoosters.begin(); it != m_singleBoosters.end(); ++it )
+			for( const auto& booster : m_singleBoosters )
 			{
-				CreateBoosterFlares( *m_glows, it->transform, GetFlareParams() );
+				CreateBoosterFlares( *m_glows, booster.transform, GetFlareParams() );
 			}
 			m_glows->Rebuild();
 		}

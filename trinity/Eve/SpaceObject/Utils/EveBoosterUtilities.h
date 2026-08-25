@@ -56,12 +56,12 @@ void AddBoosterLights( Tr2LightManager& lightManager,
 	radiusFactor *= intensity;
 	Color color = params.lightColor * ( 1.f - warpIntensity ) + params.lightWarpColor * warpIntensity;
 	XMMATRIX transformXM = transform;
-	for( auto it = std::begin( items ); it != std::end( items ); ++it )
+	for( const auto& item : items )
 	{
-		float flicker = ComputeBoosterLightFlicker( it->lightPhase, params.lightFlickerAmplitude, params.lightFlickerFrequency );
+		float flicker = ComputeBoosterLightFlicker( item.lightPhase, params.lightFlickerAmplitude, params.lightFlickerFrequency );
 		lightManager.AddPointLight(
-			Vector3( XMVector3TransformCoord( it->lightPosition, transformXM ) ),
-			it->lightRadius * radiusFactor,
+			Vector3( XMVector3TransformCoord( item.lightPosition, transformXM ) ),
+			item.lightRadius * radiusFactor,
 			color * flicker );
 	}
 }
