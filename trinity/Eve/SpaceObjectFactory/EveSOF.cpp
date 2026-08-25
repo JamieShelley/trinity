@@ -2805,7 +2805,7 @@ void EveSOF::SetupLights( ITr2LightOwnerPtr spaceObject, const EveSOFDNAPtr dna,
 }
 
 
-Tr2EffectPtr EveSOF::CreateBoosterEffect( const EveSOFDataMgr::RaceBoosterData* rdata, const BlueSharedString& lodOption, const std::string& effectPath ) const
+Tr2EffectPtr EveSOF::CreateBoosterEffect( const EveSOFDataMgr::RaceBoosterData* rdata, const BlueSharedString& lodOption, const std::string& effectPath, const std::map<BlueSharedString, Vector4>& parameters ) const
 {
 	Tr2EffectPtr effect;
 	effect.CreateInstance();
@@ -2813,6 +2813,12 @@ Tr2EffectPtr EveSOF::CreateBoosterEffect( const EveSOFDataMgr::RaceBoosterData* 
 
 	effect->SetEffectPathName( effectPath.c_str() );
 	effect->SetOption( BlueSharedString( "BOOSTER_LOD" ), lodOption );
+
+	for( const auto& parameter : parameters )
+	{
+		effect->AddParameterVector4( parameter.first, &parameter.second );
+	}
+
 	effect->AddParameterFloat( BlueSharedString( "NoiseSpeed0" ), rdata->shape0.noiseSpeed );
 	effect->AddParameterVector4( BlueSharedString( "NoiseAmplitudeStart0" ), &rdata->shape0.noiseAmplitureStart );
 	effect->AddParameterVector4( BlueSharedString( "NoiseAmplitudeEnd0" ), &rdata->shape0.noiseAmplitureEnd );
@@ -3037,14 +3043,9 @@ void EveSOF::SetupChildBoosters( EveChildContainerPtr child, const EveSOFDNAPtr 
 	set->SetLightData( rdata->lightOffset, rdata->lightFlickerAmplitude, rdata->lightFlickerFrequency, rdata->lightRadius, rdata->lightColor, rdata->lightWarpRadius, rdata->lightWarpColor );
 
 	std::string effectPath = hdata0->effectPath.empty() ? EveChildBoosterSet::DEFAULT_EFFECT_PATH : hdata0->effectPath.c_str();
-	Tr2EffectPtr effect = CreateBoosterEffect( rdata, BlueSharedString( "BOOSTER_LOD_HIGH" ), effectPath );
-	Tr2EffectPtr effectFar = CreateBoosterEffect( rdata, BlueSharedString( "BOOSTER_LOD_LOW" ), effectPath );
+	Tr2EffectPtr effect = CreateBoosterEffect( rdata, BlueSharedString( "BOOSTER_LOD_HIGH" ), effectPath, hdata0->parameters );
+	Tr2EffectPtr effectFar = CreateBoosterEffect( rdata, BlueSharedString( "BOOSTER_LOD_LOW" ), effectPath, hdata0->parameters );
 
-	for( const auto& parameter : hdata0->parameters )
-	{
-		effect->SetParameter( parameter.first, parameter.second );
-		effectFar->SetParameter( parameter.first, parameter.second );
-	}
 	for( const auto& texture : hdata0->textures )
 	{
 		effect->SetResourceTexture2D( texture.first, texture.second.resFilePath.c_str() );
