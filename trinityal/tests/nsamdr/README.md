@@ -1,4 +1,4 @@
-# NSAMDR V9.8.3 Operator guide
+# NSAMDR V9.8.4 Operator guide
 
 NSAMDR uses one supported command surface:
 
@@ -63,7 +63,7 @@ The GUI uses this same dispatcher route:
 call scripts\build\nsamdr.bat gui
 ```
 
-Expected title: `NSAMDR V9 Workflow Controller 4.9.3`.
+Expected title: `NSAMDR V9 Workflow Controller 4.9.4`.
 
 ### `tune` versus `train preview`
 
@@ -179,7 +179,7 @@ different config is supplied.
 
 Current invariants:
 
-- schema: `NSAMDR_SIGN_GAUGE_METRIC_SDF_RENDERER_4X_V9_8_3`
+- schema: `NSAMDR_LOCAL_METRICIZED_SIGN_GAUGE_SDF_RENDERER_4X_V9_8_4`
 - upscale factor: 4
 - model input channels: 16
 - production parameter count: 7,915,282

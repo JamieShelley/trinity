@@ -15,7 +15,7 @@ def main()->int:
     if not checkpoint.is_file() or not metadata.is_file(): raise SystemExit(f'missing V9 checkpoint or metadata under {checkpoint.parent}')
     model,loaded,payload=load_trained_model(checkpoint,'cpu')
     if payload.get('schema')!=MODEL_SCHEMA: raise SystemExit('V9 schema mismatch')
-    x=torch.zeros(1,16,32,32)
+    x=torch.zeros(1,17,32,32)
     with torch.no_grad(): y=model(x)
     if tuple(y['albedo'].shape[-2:])!=(128,128): raise SystemExit('V9 checkpoint does not perform 4x reconstruction')
     meta=json.loads(metadata.read_text(encoding='utf-8'))

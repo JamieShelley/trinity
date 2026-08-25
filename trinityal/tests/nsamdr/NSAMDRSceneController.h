@@ -1,13 +1,13 @@
 #pragma once
 
-#include "NSAMDRStrategyModes.h"
+#include "NSAMDRInputController.h"
 
 namespace nsamdr
 {
 class SceneController final
 {
 public:
-    SceneController(InputController& inputController, StrategyModes& strategyModes);
+    explicit SceneController(InputController& inputController);
     XMFLOAT3 GetWorldSpaceBoundsCenter(const PreviewState& state, const ObjMesh& mesh);
     void FrameShip(PreviewState& state, const ObjMesh& mesh);
     void ResetView(PreviewState& state, const ObjMesh& mesh);
@@ -17,6 +17,5 @@ public:
 
 private:
     InputController& m_inputController;
-    StrategyModes& m_strategyModes;
 };
 } // namespace nsamdr

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch the real Raven Navy Issue Mode 1/2/3 preview for one experiment."""
+"""Generate, verify, then render one qualified immutable NSAMDR final."""
 from __future__ import annotations
 
 import argparse
@@ -9,246 +9,356 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import shutil
-import zipfile
+from typing import Any
 
 HERE = Path(__file__).resolve().parent
-if str(HERE) not in sys.path:
-    sys.path.insert(0, str(HERE))
+NSAMDR_ROOT = HERE.parent
+for import_root in (HERE, NSAMDR_ROOT):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
 
-from v9.experiments import experiment_dir, load_experiment_manifest
+import eve_asset_test as eve  # type: ignore
+from v9.experiments import (
+    experiment_dir,
+    load_experiment_manifest,
+    load_final_manifest,
+    sha256_file,
+    write_final_manifest,
+)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Preview a completed NSAMDR V9 tuning experiment")
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _path_within(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _verified_file(path_value: object, sha_value: object, *, label: str) -> tuple[Path, str]:
+    path = Path(str(path_value or "")).expanduser().resolve()
+    expected = str(sha_value or "").strip().lower()
+    if not path.is_file():
+        raise RuntimeError(f"{label} is missing: {path}")
+    actual = sha256_file(path)
+    if len(expected) != 64 or actual != expected:
+        raise RuntimeError(
+            f"{label} SHA-256 mismatch: expected={expected or '<missing>'} actual={actual} path={path}"
+        )
+    return path, actual
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Preview a qualified NSAMDR EXP_#### final")
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument("--experiment", required=True)
     parser.add_argument("--shared-cache", default=r"C:\CCP\EVE")
     parser.add_argument("--target-size", type=int, default=4096)
     parser.add_argument("--device", choices=("cuda", "cpu", "auto"), default="cuda")
-    parser.add_argument("--force-candidate", action="store_true")
-    parser.add_argument("--geometry-audit", dest="geometry_audit", action="store_true", default=True)
-    parser.add_argument("--no-geometry-audit", dest="geometry_audit", action="store_false")
-    parser.add_argument("--geometry-critic", choices=("off", "auto", "required"), default="auto")
-    parser.add_argument("--geometry-audit-policy", choices=("report", "strict"), default="report")
-    parser.add_argument("--geometry-evidence-regions", type=int, default=12)
-    parser.add_argument("--critic-checkpoint", type=Path)
-    args = parser.parse_args()
+    return parser
 
+
+def _generate_candidate(
+    *,
+    root: Path,
+    directory: Path,
+    checkpoint: Path,
+    checkpoint_sha: str,
+    args: argparse.Namespace,
+    obj_path: Path,
+    material_manifest: Path,
+    asset_manifest: Path,
+) -> tuple[dict[str, Any], Path]:
+    candidate_root = directory / "previews" / "candidate"
+    candidate_root.mkdir(parents=True, exist_ok=True)
+    report_path = candidate_root / "candidate_manifest.json"
+    final_manifest = directory / "final_manifest.json"
+    generator = root / "tools/nsamdr/generate_strategy_candidates.py"
+    command = [
+        sys.executable,
+        "-u",
+        str(generator),
+        "--obj",
+        str(obj_path),
+        "--materials",
+        str(material_manifest),
+        "--asset-manifest",
+        str(asset_manifest),
+        "--output-root",
+        str(candidate_root),
+        "--target-size",
+        str(args.target_size),
+        "--checkpoint",
+        str(checkpoint),
+        "--checkpoint-sha256",
+        checkpoint_sha,
+        "--final-manifest",
+        str(final_manifest),
+        "--inference-device",
+        args.device,
+    ]
+    print("[preview] Generating candidate from the immutable final checkpoint...", flush=True)
+    result = subprocess.run(command, cwd=root, check=False)
+    if result.returncode != 0 or not report_path.is_file():
+        raise RuntimeError(f"candidate generation failed with exit code {result.returncode}")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if not isinstance(report, dict):
+        raise RuntimeError(f"candidate generator wrote an invalid report: {report_path}")
+    report["reportPath"] = str(report_path)
+    return report, report_path
+
+
+def _verify_candidate(
+    report: dict[str, Any],
+    *,
+    directory: Path,
+    checkpoint: Path,
+    checkpoint_sha: str,
+) -> dict[str, Any]:
+    reported_checkpoint = Path(str(report.get("checkpoint") or "")).expanduser().resolve()
+    if reported_checkpoint != checkpoint.resolve():
+        raise RuntimeError(
+            f"candidate used a different checkpoint: expected={checkpoint} actual={reported_checkpoint}"
+        )
+    reported_sha = str(report.get("checkpointSha256") or "").strip().lower()
+    if reported_sha != checkpoint_sha:
+        raise RuntimeError(
+            f"candidate checkpoint SHA-256 mismatch: expected={checkpoint_sha} actual={reported_sha}"
+        )
+    candidate_selection = str(report.get("selectionKind") or "").strip()
+    if candidate_selection != "production-final":
+        raise RuntimeError(
+            "candidate checkpoint authority mismatch: expected='production-final' "
+            f"actual={candidate_selection!r}"
+        )
+
+    provenance = report.get("controlProvenance")
+    if not isinstance(provenance, dict) or provenance.get("verified") is not True:
+        raise RuntimeError("candidate raw-source provenance is missing or failed")
+    primary = provenance.get("primaryAlbedo")
+    if not isinstance(primary, dict):
+        raise RuntimeError("candidate provenance has no primary albedo binding")
+    source_path, source_sha = _verified_file(
+        primary.get("sourcePath"),
+        primary.get("sourceSha256After"),
+        label="raw source",
+    )
+    candidate_path, candidate_sha = _verified_file(
+        primary.get("candidatePath"),
+        primary.get("candidateSha256"),
+        label="NSAMDR candidate",
+    )
+    if not _path_within(candidate_path, directory / "previews"):
+        raise RuntimeError(f"candidate output escaped the experiment preview directory: {candidate_path}")
+    required = (
+        "candidateObj",
+        "candidateMaterials",
+        "candidateAnalysis",
+        "candidateValidation",
+    )
+    missing = [name for name in required if not Path(str(report.get(name) or "")).is_file()]
+    if missing:
+        raise RuntimeError("candidate report is incomplete: " + ", ".join(missing))
+
+    candidate_root = (directory / "previews" / "candidate").resolve()
+    for name in required:
+        output = Path(str(report[name])).resolve()
+        if not _path_within(output, candidate_root):
+            raise RuntimeError(f"{name} escaped the canonical candidate directory: {output}")
+
+    for record_kind, records, expected_parent in (
+        ("candidate", report.get("candidateFiles"), candidate_root),
+        ("source", report.get("sourceFiles"), None),
+    ):
+        if not isinstance(records, list) or not records:
+            raise RuntimeError(f"candidate report has no {record_kind} file records")
+        for index, record in enumerate(records):
+            if not isinstance(record, dict):
+                raise RuntimeError(f"invalid {record_kind} file record at index {index}")
+            record_path, _record_sha = _verified_file(
+                record.get("path"),
+                record.get("sha256"),
+                label=f"{record_kind} file {index}",
+            )
+            if expected_parent is not None and not _path_within(record_path, expected_parent):
+                raise RuntimeError(
+                    f"candidate file escaped the canonical candidate directory: {record_path}"
+                )
+    return {
+        "candidatePath": str(candidate_path),
+        "candidateSha256": candidate_sha,
+        "source": {"sourcePath": str(source_path), "sourceSha256": source_sha},
+        "provenanceVerified": True,
+        "provenancePath": str(report.get("controlProvenancePath") or ""),
+        "reportPath": str(report.get("reportPath") or ""),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
     root = args.repo_root.resolve()
     experiment_id = args.experiment.strip().upper()
     directory = experiment_dir(root, experiment_id)
-    checkpoint = directory / "nsamdr_v9_fidelity.pt"
-    capabilities_path = directory / "capabilities.json"
-    if not checkpoint.is_file() or not capabilities_path.is_file():
-        raise RuntimeError(f"experiment is not completed/previewable: {experiment_id}")
-    capabilities = json.loads(capabilities_path.read_text(encoding="utf-8"))
-    experiment_manifest = load_experiment_manifest(root, experiment_id)
-    training_mode = str(experiment_manifest.get("trainingMode") or "full").lower()
-    training_safety_pass = bool(experiment_manifest.get("trainingSafetyPass", experiment_manifest.get("acceptancePass")))
-    acceptance_pass = bool(experiment_manifest.get("reconstructionAcceptancePass", False))
-    acceptance_regression = experiment_manifest.get("acceptanceRegressionFraction")
-    metadata_path = directory / "nsamdr_v9_fidelity.json"
-    if metadata_path.is_file():
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        training_safety_pass = bool(metadata.get("trainingSafetyPass", metadata.get("acceptancePass")))
-        acceptance_pass = bool(metadata.get("reconstructionAcceptancePass", False))
-        acceptance_regression = metadata.get("acceptanceRegressionFraction")
-    assets = capabilities.get("supportedAssets", [])
-    if not assets:
-        raise RuntimeError(f"experiment has no supported preview asset: {experiment_id}")
-    asset = assets[0]
-    query = str(asset.get("query") or "")
+    experiment = load_experiment_manifest(root, experiment_id)
+    if str(experiment.get("status") or "").lower() != "completed" or experiment.get("qualified") is not True:
+        raise RuntimeError(
+            f"preview requires a completed qualified experiment, got status={experiment.get('status')!r}"
+        )
+    final = load_final_manifest(root, experiment_id, require_qualified=True)
+    checkpoint = Path(final["_checkpointPath"])
+    checkpoint_sha = str(final["checkpoint"]["sha256"]).lower()
+    source_selection_kind = str(
+        final["checkpoint"].get("sourceSelectionKind")
+        or final["checkpoint"].get("selectionKind")
+        or ""
+    )
+    # Re-read immediately before generation so a post-qualification mutation
+    # cannot be hidden by the earlier manifest verification.
+    if sha256_file(checkpoint) != checkpoint_sha:
+        raise RuntimeError("immutable final checkpoint changed before candidate generation")
+
+    asset = experiment.get("asset")
+    if not isinstance(asset, dict) or not str(asset.get("query") or "").strip():
+        raise RuntimeError(f"experiment has no canonical asset identity: {experiment_id}")
+    query = str(asset["query"])
     selection_key = str(asset.get("selectionKey") or "")
+    (
+        obj_path,
+        albedo,
+        normal,
+        pgs,
+        environment,
+        environments,
+        material_manifest,
+        asset_manifest,
+        catalog,
+        cache_root,
+    ) = eve.prepare_asset(root, args.shared_cache, query, selection_key)
+    if material_manifest is None or not material_manifest.is_file():
+        raise RuntimeError("prepared Raven asset has no physical-map material manifest")
+
+    report, report_path = _generate_candidate(
+        root=root,
+        directory=directory,
+        checkpoint=checkpoint,
+        checkpoint_sha=checkpoint_sha,
+        args=args,
+        obj_path=obj_path,
+        material_manifest=material_manifest,
+        asset_manifest=asset_manifest,
+    )
+    candidate = _verify_candidate(
+        report,
+        directory=directory,
+        checkpoint=checkpoint,
+        checkpoint_sha=checkpoint_sha,
+    )
+    if sha256_file(checkpoint) != checkpoint_sha:
+        raise RuntimeError("immutable final checkpoint changed during candidate generation")
 
     previews = directory / "previews"
-    previews.mkdir(parents=True, exist_ok=True)
-    candidate_pointer = previews / "last_candidate_result.json"
-    candidate_pointer.unlink(missing_ok=True)
-    critic_checkpoint = (args.critic_checkpoint or (root / "artifacts/nsamdr/geometry_critic/geometry_pair_critic.pt")).resolve()
-
-    env = os.environ.copy()
-    env.update(
-        {
-            "NSAMDR_V9_PREVIEW_STRENGTH": "1.0",
-            "NSAMDR_NEURAL_ARCHITECTURE": "V9",
-            "NSAMDR_NEURAL_CHECKPOINT_DIR": str(directory),
-            "NSAMDR_INFERENCE_DEVICE": args.device,
-            "NSAMDR_MODE3_TARGET_SIZE": str(args.target_size),
-            "NSAMDR_MODE3_CANDIDATE_TAG": experiment_id.lower(),
-            "NSAMDR_GEOMETRY_AUDIT": "1" if args.geometry_audit else "0",
-            "NSAMDR_GEOMETRY_CRITIC": args.geometry_critic,
-            "NSAMDR_GEOMETRY_AUDIT_POLICY": args.geometry_audit_policy,
-            "NSAMDR_GEOMETRY_AUDIT_EVIDENCE": str(max(0, args.geometry_evidence_regions)),
-            "NSAMDR_GEOMETRY_CRITIC_CHECKPOINT": str(critic_checkpoint),
-            "NSAMDR_GEOMETRY_CRITIC_DEVICE": args.device,
-            "NSAMDR_CANDIDATE_RESULT_FILE": str(candidate_pointer),
-        }
-    )
-    if args.force_candidate:
-        env["NSAMDR_FORCE_CANDIDATE"] = "1"
-
-    preview_record = {
-        "schema": "NSAMDR_V9_EXPERIMENT_PREVIEW_V1",
+    preview_manifest_path = previews / "preview_manifest.json"
+    preview_record: dict[str, Any] = {
+        "schema": "NSAMDR_PRODUCTION_PREVIEW_V1",
         "experiment": experiment_id,
-        "createdUtc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "status": "candidate-verified",
+        "createdUtc": _utc_now(),
         "checkpoint": str(checkpoint),
+        "checkpointSha256": checkpoint_sha,
+        "selectionKind": "production-final",
+        "sourceSelectionKind": source_selection_kind,
+        "candidate": candidate,
+        "source": candidate["source"],
+        "controlProvenance": report["controlProvenance"],
+        "candidateFiles": report["candidateFiles"],
+        "sourceFiles": report["sourceFiles"],
         "asset": asset,
         "targetSize": args.target_size,
         "device": args.device,
-        "candidateTag": experiment_id.lower(),
-        "evaluation": {
-            "policy": "native-source-4x",
-            "targetSize": args.target_size,
-            "expectedModelInputSize": args.target_size // 4,
-        },
-        "qualityGate": {
-            "trainingMode": training_mode,
-            "trainingSafetyPass": training_safety_pass,
-            "reconstructionAcceptancePass": acceptance_pass,
-            "acceptanceRegressionFraction": acceptance_regression,
-        },
-        "geometryAuditConfiguration": {
-            "enabled": args.geometry_audit,
-            "critic": args.geometry_critic,
-            "policy": args.geometry_audit_policy,
-            "evidenceRegions": args.geometry_evidence_regions,
-            "criticCheckpoint": str(critic_checkpoint),
-        },
+        "candidateReport": str(report_path),
+        "provenanceVerifiedBeforeRenderer": True,
     }
+    preview_manifest_path.write_text(
+        json.dumps(preview_record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
-    helper = root / "tools/nsamdr/eve_asset_test.py"
-    launcher = root / "scripts/build/run_nsamdr_obj_preview_dx11.bat"
-    command = [
+    final.pop("_checkpointPath", None)
+    final["candidate"] = candidate
+    final["renderer"] = {"status": "candidate-verified", "verifiedUtc": _utc_now()}
+    write_final_manifest(directory / "final_manifest.json", final)
+
+    # The contract consumes the generated manifest but runs before the native
+    # process. A mismatch therefore cannot reach the A/B renderer.
+    preview_contract = directory / "evidence" / "preview_preflight.json"
+    contract_command = [
         sys.executable,
-        str(helper),
-        "prepare-run",
+        "-u",
+        str(root / "tools/nsamdr/neural/raven_architecture_contract.py"),
+        "preview",
         "--repo-root",
         str(root),
-        "--shared-cache",
-        args.shared_cache,
-        "--query",
-        query,
-        "--selection-key",
-        selection_key,
-        "--neural-checkpoint-dir",
+        "--experiment-dir",
         str(directory),
-        "--launcher",
-        str(launcher),
+        "--output",
+        str(preview_contract),
     ]
-    print(f"[preview] Experiment: {experiment_id}", flush=True)
-    print(f"[preview] Asset: {asset.get('displayName')} ({selection_key})", flush=True)
-    print(f"[preview] Checkpoint: {checkpoint}", flush=True)
-    return_code = subprocess.run(command, cwd=root, env=env, check=False).returncode
-    if return_code == 0:
-        preview_record["status"] = "completed"
-        preview_record["completedUtc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-        real_audit: dict[str, object] = {}
-        if candidate_pointer.is_file():
-            candidate_result = json.loads(candidate_pointer.read_text(encoding="utf-8"))
-            real_audit = candidate_result.get("geometryAudit", {}) if isinstance(candidate_result, dict) else {}
-            if isinstance(real_audit, dict) and real_audit.get("jsonPath"):
-                source_audit_dir = Path(str(real_audit["jsonPath"])).resolve().parent
-                local_audit_dir = previews / "real_geometry_audit"
-                if local_audit_dir.exists():
-                    shutil.rmtree(local_audit_dir)
-                if source_audit_dir.is_dir():
-                    shutil.copytree(source_audit_dir, local_audit_dir)
-                    local_json = local_audit_dir / "geometry_audit.json"
-                    if local_json.is_file():
-                        real_audit = json.loads(local_json.read_text(encoding="utf-8"))
-                        real_audit["localPath"] = str(local_json)
-            preview_record["candidateResult"] = candidate_result
-            provenance = candidate_result.get("controlProvenance", {}) if isinstance(candidate_result, dict) else {}
-            provenance_path = Path(str(candidate_result.get("controlProvenancePath", ""))) if isinstance(candidate_result, dict) else Path()
-            if provenance_path.is_file():
-                local_provenance = previews / "preview_control_provenance.json"
-                shutil.copy2(provenance_path, local_provenance)
-                preview_record["controlProvenancePath"] = str(local_provenance)
-                preview_record["controlProvenance"] = provenance
-        preview_record["realGeometryAudit"] = real_audit
-
-        synthetic_path = previews / "synthetic_geometry_audit" / "synthetic_geometry_audit.json"
-        synthetic_audit: dict[str, object] = {}
-        if synthetic_path.is_file():
-            synthetic_audit = json.loads(synthetic_path.read_text(encoding="utf-8"))
-        preview_record["syntheticGeometryAudit"] = synthetic_audit
-        audit_verdicts = [
-            str(payload.get("verdict")) for payload in (synthetic_audit, real_audit)
-            if isinstance(payload, dict) and payload.get("verdict")
-        ]
-        staged_failures = ("RENDERER_FAIL", "SDF_FAIL", "GATE_FAIL", "TOPOLOGY_FAIL", "FUZZ_FAIL", "HALO_FAIL", "DOUBLE_EDGE_FAIL", "PBR_ALIGNMENT_FAIL")
-        combined_verdict = (
-            "FAIL" if "FAIL" in audit_verdicts else
-            next((v for v in staged_failures if v in audit_verdicts), None)
-            or ("PASS" if audit_verdicts and all(v == "PASS" for v in audit_verdicts) else
-                "NEUTRAL_BOUNDARY_INACTIVE"
-                if any(v == "NEUTRAL_BOUNDARY_INACTIVE" for v in audit_verdicts) else
-                "NEUTRAL_NO_NET_GAIN")
+    contract_result = subprocess.run(contract_command, cwd=root, check=False)
+    if contract_result.returncode != 0:
+        raise RuntimeError(
+            f"preview provenance contract failed with exit code {contract_result.returncode}"
         )
-        preview_record["combinedGeometryAuditVerdict"] = combined_verdict
-        reconstruction_pass = combined_verdict == "PASS"
-        preview_record["qualityGate"]["reconstructionAcceptancePass"] = reconstruction_pass
-        manifest_file = directory / "experiment.json"
-        if manifest_file.is_file():
-            manifest_payload = json.loads(manifest_file.read_text(encoding="utf-8"))
-            manifest_payload["trainingSafetyPass"] = training_safety_pass
-            manifest_payload["reconstructionAcceptancePass"] = reconstruction_pass
-            manifest_payload["combinedGeometryAuditVerdict"] = combined_verdict
-            manifest_file.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-        feedback_bundle = previews / f"{experiment_id}_geometry_feedback.zip"
-        preview_record["feedbackBundle"] = str(feedback_bundle)
-        manifest_path = previews / "preview_manifest.json"
-        manifest_path.write_text(
-            json.dumps(preview_record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
-        with zipfile.ZipFile(feedback_bundle, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
-            for source in (
-                manifest_path, directory / "experiment.json", directory / "resolved_config.json",
-                directory / "metrics.json", directory / "training_log.csv", candidate_pointer,
-                previews / "preview_control_provenance.json",
-            ):
-                if source.is_file():
-                    archive.write(source, arcname=source.name)
-            for folder_name in ("synthetic_geometry_audit", "real_geometry_audit"):
-                folder = previews / folder_name
-                if folder.is_dir():
-                    for source in sorted(folder.rglob("*")):
-                        if source.is_file():
-                            archive.write(source, arcname=str(Path(folder_name) / source.relative_to(folder)))
-        provenance_summary = preview_record.get("controlProvenance", {})
-        print(
-            f"[preview] Control provenance: "
-            f"{'VERIFIED' if isinstance(provenance_summary, dict) and provenance_summary.get('verified') else 'MISSING/FAILED'}",
-            flush=True,
-        )
-        print(f"[preview] Geometry audit verdict: {combined_verdict}", flush=True)
-        if synthetic_audit:
-            renderer = synthetic_audit.get("rendererProof", {}) if isinstance(synthetic_audit, dict) else {}
-            sdf_proof = synthetic_audit.get("sdfProof", {}) if isinstance(synthetic_audit, dict) else {}
-            gate_proof = synthetic_audit.get("gateProof", {}) if isinstance(synthetic_audit, dict) else {}
-            print(
-                f"[preview] Staged analytic proof: {synthetic_audit.get('verdict')} | "
-                f"renderer={float(renderer.get('chamferImprovementMean', 0.0)):+.2%} "
-                f"sdf={float(sdf_proof.get('chamferImprovementMean', 0.0)):+.2%} "
-                f"final={float(gate_proof.get('chamferImprovementMean', 0.0)):+.2%}",
-                flush=True,
-            )
-        if real_audit:
-            print(f"[preview] Real Raven texture audit: {real_audit.get('verdict')} | proxy={float(real_audit.get('proxyGeometryImprovementMean', 0.0)):+.4f}", flush=True)
-        print(f"[preview] Feedback bundle: {feedback_bundle}", flush=True)
-
-        if training_mode == "full" and reconstruction_pass:
-            print(f"[preview] Full proof preview + reconstruction acceptance PASS: {manifest_path}", flush=True)
-        elif training_mode == "full":
-            print("[preview] Renderer completed, but reconstruction acceptance FAILED; promotion remains locked.", flush=True)
-        else:
-            print("[preview] Quick renderer preview completed; promotion remains locked by design.", flush=True)
-    else:
-        print(f"[preview] Preview failed with exit code {return_code}; promotion remains locked.", flush=True)
-    return return_code
+    os.environ.update(
+        {
+            "NSAMDR_PREVIEW_EXPERIMENT": experiment_id,
+            "NSAMDR_PREVIEW_CHECKPOINT": str(checkpoint),
+            "NSAMDR_PREVIEW_CHECKPOINT_SHA256": checkpoint_sha,
+            "NSAMDR_PREVIEW_AUTHORITY": "production-final",
+            "NSAMDR_FINAL_MANIFEST": str(directory / "final_manifest.json"),
+        }
+    )
+    selected_query = str(
+        json.loads(asset_manifest.read_text(encoding="utf-8")).get("model", {}).get("logical")
+        or query
+    )
+    selected_catalog_key = selection_key or selected_query
+    launcher = root / "scripts/build/run_nsamdr_obj_preview_dx11.bat"
+    return_code = eve.launch_preview(
+        root,
+        launcher,
+        obj_path,
+        albedo,
+        normal,
+        pgs,
+        environment,
+        environments,
+        material_manifest,
+        asset_manifest,
+        catalog,
+        cache_root,
+        selected_catalog_key,
+        report,
+    )
+    preview_record["status"] = "launched" if return_code == 0 else "renderer-failed"
+    preview_record["rendererReturnCode"] = return_code
+    preview_record["completedUtc"] = _utc_now()
+    preview_manifest_path.write_text(
+        json.dumps(preview_record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    final["renderer"] = {
+        "status": "launched" if return_code == 0 else "failed",
+        "returnCode": return_code,
+        "completedUtc": _utc_now(),
+    }
+    write_final_manifest(directory / "final_manifest.json", final)
+    if return_code != 0:
+        raise RuntimeError(f"native renderer failed with exit code {return_code}")
+    print(f"[preview] Renderer launched from immutable checkpoint SHA-256 {checkpoint_sha}", flush=True)
+    return 0
 
 
 if __name__ == "__main__":

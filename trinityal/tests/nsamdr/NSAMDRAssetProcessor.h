@@ -47,8 +47,6 @@ private:
     bool ParseIntValue(const std::string& text, int& value);
     bool LoadAreaMaterialSources(const std::string& path, std::vector<AreaMaterialSource>& materials, std::string& error);
     bool LoadWicTexture( ID3D11Device* device, ID3D11DeviceContext* context, const std::string& path, bool srgb, ComPtr<ID3D11ShaderResourceView>& view, uint32_t& outputWidth, uint32_t& outputHeight, const char* label);
-    bool CreateCandidateMeshBuffers( ID3D11Device* device, const ObjMesh& mesh, CandidateAssetGpu& candidate, std::string& error);
-
     PreviewShaderLibrary& m_shaderLibrary;
     MeshProcessor& m_meshProcessor;
 };

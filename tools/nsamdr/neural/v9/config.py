@@ -1,4 +1,4 @@
-"""Configuration for NSAMDR V9.8.3 sign-gauge metric-SDF convergence."""
+"""Configuration for NSAMDR V10.7.9 deterministic geometry-redraw proofs."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -19,11 +19,15 @@ class V9Config:
     validation_fraction: float = 0.10
     require_complete_pbr_family: bool = False
 
-    # Five conservative phases. The high-frequency 512 branch is frozen until
-    # detail reconstruction has been reached.
-    identity_epochs: int = 2
-    residual_epochs: int = 6
-    boundary_epochs: int = 4
+    # V10.7.9 isolates the deterministic structural problem before any full-detail training.
+    # B1 geometry -> B2 renderer/profile -> B3 forced-authority seam reconstruction
+    # -> B4 learned seam authority. The legacy boundary/detail phases remain after
+    # those proofs, but quick Raven testing stops at B4.
+    identity_epochs: int = 1
+    residual_epochs: int = 3
+    seam_proof_epochs: int = 1
+    seam_authority_epochs: int = 1
+    boundary_epochs: int = 1
     detail_epochs: int = 4
     physical_finetune_epochs: int = 4
     tiles_per_epoch: int = 2048
@@ -45,7 +49,7 @@ class V9Config:
     boundary_candidate_count: int = 8
     boundary_sampling_probability: float = 0.62
 
-    input_channels: int = 16
+    input_channels: int = 17
     material_classes: int = 4
     widths: tuple[int, int, int, int] = (80, 128, 192, 256)
     blocks_per_level: tuple[int, int, int, int] = (3, 4, 6, 6)
@@ -64,8 +68,91 @@ class V9Config:
     material_delta: float = 0.025
     auxiliary_delta: float = 0.025
     initial_gate_bias: float = -2.25
-    appearance_enabled: bool = False
-    appearance_edge_suppression: float = 0.80
+    appearance_enabled: bool = True  # V10.6 enables full learned physical-map output authority
+    appearance_edge_suppression: float = 0.80  # legacy parse-only
+
+    # V10.6 full physical-detail reconstruction. This is a true 4x decoder,
+    # conditioned on the accepted spline SDF/profile field. Residual authority is
+    # bounded per physical map; the later selector may revert exactly to baseline.
+    detail_reconstruction_enabled: bool = True
+    detail_feature_channels: int = 48
+    detail_mid_channels: int = 40
+    detail_hr_channels: int = 32
+    detail_albedo_max_delta: float = 0.20
+    detail_normal_max_delta: float = 0.15
+    detail_material_max_delta: float = 0.18
+    detail_confidence_initial_bias: float = -0.50
+    detail_regret_initial_bias: float = 0.00
+    detail_contrast_weight: float = 0.60
+    detail_cross_map_weight: float = 0.35
+    detail_confidence_weight: float = 0.20
+    detail_regret_classifier_weight: float = 0.40
+    detail_recovery_required: float = 0.12
+    detail_gradient_recovery_required: float = 0.08
+    detail_normal_recovery_required: float = 0.00
+    detail_win_fraction_required: float = 0.55
+    detail_regression_fraction_max: float = 0.35
+
+    # V10.8.0 Raven full-pipeline preview contract. Structural B1/B2 remains
+    # promotion-gated, but the diagnostic Raven tuning action proceeds into the
+    # real downstream appearance modules so the current checkpoint can be judged
+    # visually rather than only through synthetic geometry proofs.
+    raven_full_pipeline_preview_enabled: bool = True
+    # V10.8.8 Raven-only representative-preview mode. This development mode
+    # trains every learned appearance stage only on the fixed Raven dataset and
+    # previews the actual final full-pipeline checkpoint even when promotion
+    # gates are not yet satisfied. Gates remain telemetry/promotion authority.
+    raven_representative_preview_enabled: bool = False
+    raven_train_only_enabled: bool = False
+    preview_allow_unqualified_downstream: bool = False
+    raven_downstream_tiles_per_epoch: int = 24
+
+    # V10.7.1 directional/vector seam restoration. Long manufactured panel seams
+    # receive a RAISR/BLADE-like anisotropic cleanup after deterministic SDF
+    # rendering. The branch shares one structure tensor across albedo/normal/
+    # material and cannot move spline topology.
+    seam_directional_enabled: bool = True
+    seam_directional_channels: int = 24
+    seam_directional_angle_bins: int = 12
+    seam_directional_kernel_size: int = 7
+    seam_directional_kernel_residual_scale: float = 0.10
+    seam_phase_sr_channels: int = 32
+    seam_phase_sr_max_delta: float = 0.40
+    seam_phase_only_reconstruction: bool = False
+    seam_phase_residual_weight: float = 36.0
+    seam_microproof_enabled: bool = True
+    seam_microproof_steps: int = 80
+    seam_microproof_recovery_required: float = 0.80
+    seam_structure_tensor_radius: int = 2
+    seam_structure_strength_gain: float = 4.0
+    seam_coherence_floor: float = 0.45
+    seam_tangent_sample_pixels: float = 1.35
+    seam_normal_sample_pixels: float = 0.90
+    seam_max_normal_sharpen: float = 1.35
+    seam_max_authority: float = 0.90
+    seam_geometry_band_pixels: float = 4.0
+    seam_directional_weight: float = 22.0
+    seam_lr_multiplier: float = 2.0
+    seam_tangent_smoothness_weight: float = 16.0
+    seam_normal_profile_weight: float = 18.0
+    seam_authority_regularization_weight: float = 0.20
+    seam_projected_view_weight: float = 6.0
+    seam_authority_teacher_weight: float = 18.0
+    seam_reconstruction_weight: float = 28.0
+    seam_forced_recovery_required: float = 0.70
+    seam_authority_iou_required: float = 0.55
+    seam_ridge_weight: float = 0.65
+    seam_missing_detail_scale: float = 8.0
+    seam_teacher_dilation_pixels: int = 2
+    structural_stale_patience: int = 3
+
+    # DDS-aware degradation. Authored crop metadata carries the original DDS
+    # format; training reproduces block-aligned BC1/BC3/BC5-like endpoint/palette
+    # quantisation instead of the old generic 4x block blur.
+    dds_codec_degradation_enabled: bool = True
+    dds_codec_probability: float = 0.90
+    dds_codec_blend_min: float = 0.45
+    dds_codec_blend_max: float = 1.00
 
     # V9.4 source-grid geometric transport. Flow is predicted in SOURCE pixels,
     # then smoothly upsampled and converted to output-pixel units.
@@ -90,7 +177,7 @@ class V9Config:
     boundary_renderer_far_sample_multiplier: float = 1.70
     boundary_renderer_far_sample_weight: float = 0.22
     boundary_gate_initial_bias: float = -1.40
-    implicit_sdf_hidden_channels: int = 48
+    implicit_sdf_hidden_channels: int = 64
     implicit_sdf_coordinate_scale: float = 1.0
     implicit_sdf_residual_pixels: float = 2.0
     coarse_sdf_surface_weight: float = 6.0
@@ -123,10 +210,18 @@ class V9Config:
     boundary_gate_exact_floor: float = 0.35
     sdf_surface_weight: float = 8.00
     sdf_sign_weight: float = 2.00
+    # V9.9.3 protects connectivity explicitly. A mean sign loss can hide a
+    # one-pixel cut through a long thin material feature, so the worst confident
+    # sign violations near the target contour receive separate authority.
+    sdf_topology_weight: float = 8.00
+    sdf_topology_margin_pixels: float = 0.35
+    sdf_topology_core_pixels: float = 0.75
+    sdf_topology_band_pixels: float = 6.00
+    sdf_topology_worst_fraction: float = 0.005
     sdf_eikonal_weight: float = 8.00
     sdf_gradient_alignment_weight: float = 2.00
     sdf_metric_gradient_weight: float = 6.00
-    # V9.8.3 treats SDF polarity as a gauge choice: +SDF and -SDF describe the
+    # V9.9.3 retains SDF polarity as a gauge choice: +SDF and -SDF describe the
     # same physical contour when the two material sides are swapped together.
     sdf_sign_gauge_invariant: bool = True
     sdf_metric_band_pixels: float = 12.0
@@ -136,6 +231,241 @@ class V9Config:
     sdf_bootstrap_residual_pixels: float = 0.0
     sdf_proof_residual_pixels: float = 1.0
     sdf_proof_renderer_weight: float = 2.50
+
+    # V9.9.3 decomposes LR->HR contour correction into continuous arbitrary-
+    # coordinate 2-D transport plus scalar dilation and a tightly bounded metric
+    # residual. Transport moves both sides of thin features coherently; dilation
+    # handles width restoration without raster phase heads.
+    contour_transport_max_pixels: float = 8.0
+    contour_dilation_max_pixels: float = 2.5
+    contour_transport_min_jacobian: float = 0.35
+    contour_transport_weight: float = 12.0
+    contour_dilation_weight: float = 10.0
+    contour_transport_smoothness_weight: float = 2.0
+    contour_dilation_smoothness_weight: float = 1.5
+    contour_transport_fold_weight: float = 10.0
+    contour_soft_coverage_weight: float = 24.0
+    contour_normal_offset_weight: float = 0.75
+    contour_normal_offset_tangent_weight: float = 0.0
+    contour_normal_offset_normal_weight: float = 0.0
+
+    # Deprecated V9.8.11/V9.8.12 scalar actuator fields remain parseable only so
+    # old resolved configs fail explicitly on schema rather than unknown keys.
+    contour_normal_offset_max_pixels: float = 8.0
+    contour_phase_refine_max_pixels: float = 0.75
+    contour_projected_offset_weight: float = 8.0
+    contour_phase_refine_weight: float = 5.0
+    sdf_teacher_render_weight: float = 30.0
+    sdf_teacher_gradient_weight: float = 18.0
+    sdf_teacher_profile_weight: float = 18.0
+    sdf_teacher_recovery_required: float = 0.70
+
+    # V10.2 topology-anchored shared zero-crossing field.
+    topology_field_feature_channels: int = 64
+    topology_field_hidden_channels: int = 96
+    topology_field_control_scale: int = 1
+    topology_field_max_log_magnitude_delta: float = 8.0
+    topology_field_magnitude_floor_pixels: float = 0.01
+    topology_field_edit_band_pixels: float = 12.0
+    topology_field_sdf_weight: float = 64.0
+    topology_field_control_weight: float = 56.0
+    topology_field_crossing_weight: float = 96.0
+    topology_field_gradient_weight: float = 36.0
+    topology_field_eikonal_weight: float = 8.0
+    topology_field_curvature_weight: float = 8.0
+    topology_field_render_weight: float = 32.0
+    topology_field_render_gradient_weight: float = 20.0
+    topology_field_render_profile_weight: float = 20.0
+
+
+    # V10.4 topology-safe branch-smooth spline graph. Topology edits are confined
+    # to the observable LR ambiguity band, then frozen while a separately refined
+    # geometry branch fits smooth shared contour nodes and Hermite tangents.
+    spline_graph_feature_channels: int = 64
+    spline_graph_hidden_channels: int = 96
+    spline_graph_control_scale: int = 2
+    spline_graph_max_topology_delta_pixels: float = 8.0
+    spline_graph_topology_edit_band_pixels: float = 4.0
+    spline_graph_max_displacement_pixels: float = 4.0
+    spline_graph_max_tangent_residual: float = 0.75
+    spline_graph_edit_band_pixels: float = 12.0
+    spline_graph_neighbour_radius: int = 2
+    spline_graph_samples_per_span: int = 4
+    spline_ordered_branch_enabled: bool = True
+    spline_branch_smoothing_passes: int = 3
+    spline_branch_smoothing_strength: float = 0.82
+    spline_branch_smoothing_window: int = 51
+    spline_branch_corner_cosine: float = 0.58
+    spline_branch_corner_window: int = 5
+    spline_graph_lr_multiplier: float = 4.0
+
+    # V10.7.9 finite-width seam/ridge geometry. One medial centreline plus one
+    # width owns both stroke sides; the legacy spline SDF remains the material-
+    # boundary/topology fallback and B1a safety path.
+    stroke_centerline_hidden_channels: int = 96
+    stroke_centerline_max_delta_lr: float = 1.0
+    stroke_centerline_max_tangent_residual: float = 0.75
+    stroke_centerline_max_width_delta_pixels: float = 3.0
+    stroke_centerline_ridge_min_depth_pixels: float = 0.45
+    stroke_centerline_neighbourhood_radius_lr: int = 4
+    stroke_centerline_segment_half_length_lr: float = 1.10
+    stroke_centerline_initial_width_scale: float = 0.35
+    stroke_centerline_center_weight: float = 12.0
+    stroke_centerline_width_weight: float = 6.0
+    stroke_centerline_tangent_weight: float = 0.75
+    stroke_centerline_render_weight: float = 2.5
+
+    # V10.7.9 staged synthetic structural authority: compact primitive classification
+    # and bounded global parameter regression. Dense medial supervision is kept
+    # only for old-checkpoint/source compatibility and has zero B1b authority.
+    parametric_primitive_hidden_channels: int = 80
+    parametric_primitive_class_weight: float = 8.0
+    parametric_primitive_param_weight: float = 48.0
+    parametric_primitive_render_weight: float = 4.0
+    parametric_primitive_class_accuracy_required: float = 0.95
+    parametric_primitive_param_mae_required: float = 0.040
+    parametric_primitive_train_tiles_per_epoch: int = 448
+    parametric_primitive_batch_size: int = 14
+    parametric_primitive_lr_multiplier: float = 10.0
+    # V10.7.9 stage budgets are maxima/guardrails only. B1b never advances
+    # because an epoch number was reached; it advances only on held-out pass.
+    parametric_primitive_classifier_epochs: int = 10
+    parametric_primitive_parameter_epochs: int = 16
+    parametric_primitive_integration_epochs: int = 6
+    parametric_primitive_fit_steps: int = 128
+    parametric_primitive_fit_learning_rate: float = 0.03
+
+    # Legacy ordered-spline fixed-bank size retained for B1a/material-boundary
+    # compatibility. V10.7.9 finite-width B1b uses the dedicated parametric
+    # primitive bank above; the permanent 29-case audit ladder is separate.
+    spline_geometry_fixed_bank_tiles: int = 128
+    spline_graph_topology_control_weight: float = 96.0
+    spline_graph_topology_sign_weight: float = 24.0
+    spline_graph_point_weight: float = 10.0
+    spline_graph_tangent_weight: float = 2.0
+    spline_graph_sdf_weight: float = 48.0
+    spline_graph_gradient_weight: float = 24.0
+    spline_graph_eikonal_weight: float = 4.0
+    spline_graph_curvature_weight: float = 10.0
+    spline_graph_span_smoothness_weight: float = 28.0
+    spline_graph_span_tangent_weight: float = 12.0
+    spline_graph_span_separation_weight: float = 18.0
+    # V10.6 makes ordered contour branches the geometry authority.  Metric
+    # calibration stays disabled until the branch geometry itself satisfies the
+    # anti-staircase structural proof.
+    spline_graph_render_weight: float = 96.0
+    spline_graph_render_gradient_weight: float = 48.0
+    spline_graph_render_profile_weight: float = 64.0
+    spline_metric_calibration_enabled: bool = False
+    spline_metric_calibration_scale_delta: float = 0.25
+    spline_metric_calibration_bias_pixels: float = 0.35
+    spline_metric_calibration_band_pixels: float = 3.0
+    spline_metric_offset_weight: float = 72.0
+    spline_metric_eikonal_near_weight: float = 28.0
+    spline_metric_scale_regularization_weight: float = 0.20
+    spline_metric_bias_regularization_weight: float = 0.35
+    sdf_oracle_render_band_mae_required: float = 0.025
+    sdf_oracle_gradient_mae_required: float = 0.080
+    # V10.7.9.1 adds a direct same-renderer pixel-equivalence gate. The legacy
+    # cross-section profile bundle remains a strict alternate proof, but may not
+    # reject an otherwise near-identical Panel 3 because of one unstable local
+    # width/halo statistic. These limits are measured on the full P3/P2 images.
+    sdf_oracle_global_mae_required: float = 0.0025
+    sdf_oracle_global_mae_case_max_required: float = 0.0075
+    sdf_oracle_render_band_mae_preview_required: float = 0.035
+    sdf_oracle_profile_width_error_required: float = 0.10
+    sdf_oracle_profile_correlation_required: float = 0.95
+    sdf_oracle_core_halo_delta_required_8bit: float = 1.0
+
+    # V10.2 shared-edge marching-squares field. The network predicts only
+    # zero-crossing fractions on source-crossed LR edges; deterministic geometry
+    # reconstructs the continuous SDF.
+    edge_crossing_feature_channels: int = 64
+    edge_crossing_hidden_channels: int = 96
+    edge_crossing_max_logit_delta: float = 6.0
+    edge_crossing_edit_band_pixels: float = 12.0
+    edge_crossing_neighbour_radius: int = 1
+    edge_crossing_lr_multiplier: float = 4.0
+    edge_crossing_fraction_weight: float = 180.0
+    edge_crossing_sdf_weight: float = 40.0
+    edge_crossing_gradient_weight: float = 20.0
+    edge_crossing_eikonal_weight: float = 4.0
+    edge_crossing_curvature_weight: float = 8.0
+    edge_crossing_render_weight: float = 40.0
+    edge_crossing_render_gradient_weight: float = 24.0
+    edge_crossing_render_profile_weight: float = 24.0
+
+    # Legacy V10.0 oracle-patch fields retained for old resolved-config parsing only.
+    oracle_patch_feature_channels: int = 64
+    oracle_patch_hidden_channels: int = 96
+    oracle_patch_footprint_lr: int = 3
+    oracle_patch_max_delta_pixels: float = 8.0
+    oracle_patch_max_coverage_logit_delta: float = 10.0
+    oracle_patch_edit_band_pixels: float = 8.0
+    oracle_patch_sdf_weight: float = 48.0
+    oracle_patch_sign_weight: float = 16.0
+    oracle_patch_coverage_weight: float = 48.0
+    oracle_patch_coverage_bce_weight: float = 16.0
+    oracle_patch_consistency_weight: float = 14.0
+    oracle_patch_gradient_weight: float = 24.0
+    oracle_patch_aggregate_coverage_weight: float = 36.0
+    oracle_patch_render_weight: float = 30.0
+    oracle_patch_render_gradient_weight: float = 18.0
+    oracle_patch_render_profile_weight: float = 18.0
+
+    # V9.9.3 local parametric boundary + direct coverage-profile specialist.
+    implicit_boundary_feature_channels: int = 48
+    implicit_boundary_residual_max_pixels: float = 0.75  # deprecated parse-only
+    implicit_boundary_supersample_grid: int = 3
+    # V9.9.3 local analytic line/arc primitive geometry.
+    parametric_boundary_control_scale: int = 1
+    parametric_boundary_max_offset_pixels: float = 6.0
+    parametric_boundary_max_normal_correction: float = 1.5
+    parametric_boundary_max_curvature_per_pixel: float = 0.35
+    parametric_boundary_max_ribbon_half_width_pixels: float = 6.0
+    parametric_boundary_anchor_weight: float = 24.0
+    parametric_boundary_normal_weight: float = 14.0
+    parametric_boundary_curvature_weight: float = 8.0
+    parametric_boundary_offset_smoothness_weight: float = 10.0
+    boundary_specialist_channels: int = 48
+    boundary_specialist_band_pixels: float = 5.0
+    boundary_specialist_logit_delta_max: float = 16.0
+    boundary_specialist_coverage_weight: float = 48.0
+    boundary_specialist_coverage_bce_weight: float = 18.0
+    boundary_specialist_coverage_gradient_weight: float = 42.0
+    boundary_specialist_profile_moment_weight: float = 48.0
+    boundary_specialist_gradient_weight: float = 28.0
+    boundary_specialist_profile_weight: float = 36.0
+    boundary_specialist_recovery_required: float = 0.70
+    # Deprecated V9.9.0 additive-coverage limit: parse only.
+    boundary_specialist_max_coverage_delta: float = 0.35
+    benefit_selector_channels: int = 24
+    benefit_selector_weight: float = 8.0
+    structural_line_jitter_required_pixels: float = 0.35
+    structural_curve_roughness_required_pixels: float = 0.45
+    structural_line_staircase_recovery_required: float = 0.90
+
+    # Deprecated V9.8.7-V9.8.10 delta-SDF fields remain parseable so old JSON
+    # produces an explicit schema mismatch rather than a config parse failure.
+    sdf_delta_max_pixels: float = 12.0
+    sdf_delta_surface_weight: float = 10.0
+    # Deprecated V9.8.10 dense-delta regularisation controls. They remain
+    # parseable for old resolved configs but do not provide V9.9.3 geometry
+    # authority; active geometry authority lives in the local parametric decoder instead.
+    sdf_delta_tangent_weight: float = 3.00
+    sdf_delta_laplacian_weight: float = 1.50
+    sdf_improvement_regret_weight: float = 6.0
+    sdf_improvement_margin_pixels: float = 0.05
+    geometry_need_floor: float = 0.12
+    geometry_need_sdf_scale_pixels: float = 4.0
+
+    # Stage-B is primarily relative to the LR baseline. Absolute thresholds are
+    # retained only as catastrophic safety rails.
+    sdf_relative_gain_required: float = 0.25
+    sdf_relative_win_fraction: float = 0.65
+    sdf_relative_regression_fraction: float = 0.20
+    sdf_catastrophic_chamfer_pixels: float = 48.0
+    sdf_missing_contour_tolerance: float = 0.00
 
     # V9.4.3 flow-supervision fields are retained only so old JSONs produce a
     # clear schema mismatch rather than failing config parsing.
@@ -244,13 +574,19 @@ class V9Config:
     reactive_vram_burst_reserve_fraction: float = 0.35
     reactive_vram_stability_samples: int = 3
     reactive_vram_stability_interval_seconds: float = 0.20
-    reactive_vram_dynamic_allocator_ceiling: bool = True
+    # Legacy compatibility switch. Hard PyTorch per-process ceilings are no
+    # longer applied because allocator-reserved cache counts against the cap and
+    # can trigger false OOM while device-wide VRAM is still available.
+    reactive_vram_dynamic_allocator_ceiling: bool = False
     reactive_vram_start_in_offload: bool = True
 
-    # Host-memory safety for CPU-saved autograd activations. Offload is not
-    # allowed to turn GPU pressure into Windows paging pressure.
-    reactive_host_pause_free_fraction: float = 0.20
-    reactive_host_resume_free_fraction: float = 0.25
+    # Host-memory safety for CPU-saved autograd activations. The old 20/25%
+    # free-RAM guard deadlocked on Windows because the process working set may
+    # retain already-freed offload pages. Keep only a modest bootstrap guard;
+    # after one successful offload step the runtime uses a small absolute
+    # critical floor and reuses the established working set.
+    reactive_host_pause_free_fraction: float = 0.05
+    reactive_host_resume_free_fraction: float = 0.08
 
     channels_last: bool = False
     amp_dtype: str = "auto"
@@ -263,8 +599,9 @@ class V9Config:
     @property
     def total_epochs(self) -> int:
         return (
-            self.identity_epochs + self.residual_epochs + self.boundary_epochs
-            + self.detail_epochs + self.physical_finetune_epochs
+            self.identity_epochs + self.residual_epochs + self.seam_proof_epochs
+            + self.seam_authority_epochs + self.boundary_epochs + self.detail_epochs
+            + self.physical_finetune_epochs
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -286,6 +623,12 @@ class V9Config:
                 "minAuxiliaryDimension": "min_auxiliary_dimension", "validationFraction": "validation_fraction",
                 "requireCompletePbrFamily": "require_complete_pbr_family",
                 "identityEpochs": "identity_epochs", "residualEpochs": "residual_epochs",
+                "seamProofEpochs": "seam_proof_epochs", "seamAuthorityEpochs": "seam_authority_epochs",
+                "seamPhaseOnlyReconstruction": "seam_phase_only_reconstruction",
+                "seamPhaseResidualWeight": "seam_phase_residual_weight",
+                "seamMicroproofEnabled": "seam_microproof_enabled",
+                "seamMicroproofSteps": "seam_microproof_steps",
+                "seamMicroproofRecoveryRequired": "seam_microproof_recovery_required",
                 "boundaryEpochs": "boundary_epochs", "detailEpochs": "detail_epochs",
                 "physicalFinetuneEpochs": "physical_finetune_epochs", "tilesPerEpoch": "tiles_per_epoch",
                 "validationTiles": "validation_tiles", "batchSize": "batch_size",
@@ -308,6 +651,57 @@ class V9Config:
                 "initialGateBias": "initial_gate_bias",
                 "appearanceEnabled": "appearance_enabled",
                 "appearanceEdgeSuppression": "appearance_edge_suppression",
+                "detailReconstructionEnabled": "detail_reconstruction_enabled",
+                "detailFeatureChannels": "detail_feature_channels",
+                "detailMidChannels": "detail_mid_channels",
+                "detailHrChannels": "detail_hr_channels",
+                "detailAlbedoMaxDelta": "detail_albedo_max_delta",
+                "detailNormalMaxDelta": "detail_normal_max_delta",
+                "detailMaterialMaxDelta": "detail_material_max_delta",
+                "detailConfidenceInitialBias": "detail_confidence_initial_bias",
+                "detailRegretInitialBias": "detail_regret_initial_bias",
+                "seamDirectionalEnabled": "seam_directional_enabled",
+                "seamDirectionalChannels": "seam_directional_channels",
+                "seamDirectionalAngleBins": "seam_directional_angle_bins",
+                "seamDirectionalKernelSize": "seam_directional_kernel_size",
+                "seamDirectionalKernelResidualScale": "seam_directional_kernel_residual_scale",
+                "seamPhaseSrChannels": "seam_phase_sr_channels",
+                "seamPhaseSrMaxDelta": "seam_phase_sr_max_delta",
+                "seamStructureTensorRadius": "seam_structure_tensor_radius",
+                "seamStructureStrengthGain": "seam_structure_strength_gain",
+                "seamCoherenceFloor": "seam_coherence_floor",
+                "seamTangentSamplePixels": "seam_tangent_sample_pixels",
+                "seamNormalSamplePixels": "seam_normal_sample_pixels",
+                "seamMaxNormalSharpen": "seam_max_normal_sharpen",
+                "seamMaxAuthority": "seam_max_authority",
+                "seamGeometryBandPixels": "seam_geometry_band_pixels",
+                "seamDirectionalWeight": "seam_directional_weight",
+                "seamLrMultiplier": "seam_lr_multiplier",
+                "seamTangentSmoothnessWeight": "seam_tangent_smoothness_weight",
+                "seamNormalProfileWeight": "seam_normal_profile_weight",
+                "seamAuthorityRegularizationWeight": "seam_authority_regularization_weight",
+                "seamAuthorityTeacherWeight": "seam_authority_teacher_weight",
+                "seamReconstructionWeight": "seam_reconstruction_weight",
+                "seamForcedRecoveryRequired": "seam_forced_recovery_required",
+                "seamAuthorityIouRequired": "seam_authority_iou_required",
+                "seamRidgeWeight": "seam_ridge_weight",
+                "seamMissingDetailScale": "seam_missing_detail_scale",
+                "seamTeacherDilationPixels": "seam_teacher_dilation_pixels",
+                "structuralStalePatience": "structural_stale_patience",
+                "seamProjectedViewWeight": "seam_projected_view_weight",
+                "ddsCodecDegradationEnabled": "dds_codec_degradation_enabled",
+                "ddsCodecProbability": "dds_codec_probability",
+                "ddsCodecBlendMin": "dds_codec_blend_min",
+                "ddsCodecBlendMax": "dds_codec_blend_max",
+                "detailContrastWeight": "detail_contrast_weight",
+                "detailCrossMapWeight": "detail_cross_map_weight",
+                "detailConfidenceWeight": "detail_confidence_weight",
+                "detailRegretClassifierWeight": "detail_regret_classifier_weight",
+                "detailRecoveryRequired": "detail_recovery_required",
+                "detailGradientRecoveryRequired": "detail_gradient_recovery_required",
+                "detailNormalRecoveryRequired": "detail_normal_recovery_required",
+                "detailWinFractionRequired": "detail_win_fraction_required",
+                "detailRegressionFractionMax": "detail_regression_fraction_max",
                 "geometryDisplacementSourcePixels": "geometry_displacement_source_pixels",
                 "geometryEdgeSupportRadius": "geometry_edge_support_radius",
                 "geometryDisplacementPixels": "geometry_displacement_pixels",
@@ -353,6 +747,11 @@ class V9Config:
                 "boundaryGateExactFloor": "boundary_gate_exact_floor",
                 "sdfSurfaceWeight": "sdf_surface_weight",
                 "sdfSignWeight": "sdf_sign_weight",
+                "sdfTopologyWeight": "sdf_topology_weight",
+                "sdfTopologyMarginPixels": "sdf_topology_margin_pixels",
+                "sdfTopologyCorePixels": "sdf_topology_core_pixels",
+                "sdfTopologyBandPixels": "sdf_topology_band_pixels",
+                "sdfTopologyWorstFraction": "sdf_topology_worst_fraction",
                 "sdfEikonalWeight": "sdf_eikonal_weight",
                 "sdfGradientAlignmentWeight": "sdf_gradient_alignment_weight",
                 "sdfMetricGradientWeight": "sdf_metric_gradient_weight",
@@ -364,6 +763,137 @@ class V9Config:
                 "sdfBootstrapResidualPixels": "sdf_bootstrap_residual_pixels",
                 "sdfProofResidualPixels": "sdf_proof_residual_pixels",
                 "sdfProofRendererWeight": "sdf_proof_renderer_weight",
+                "contourTransportMaxPixels": "contour_transport_max_pixels",
+                "contourDilationMaxPixels": "contour_dilation_max_pixels",
+                "contourTransportMinJacobian": "contour_transport_min_jacobian",
+                "contourTransportWeight": "contour_transport_weight",
+                "contourDilationWeight": "contour_dilation_weight",
+                "contourTransportSmoothnessWeight": "contour_transport_smoothness_weight",
+                "contourDilationSmoothnessWeight": "contour_dilation_smoothness_weight",
+                "contourTransportFoldWeight": "contour_transport_fold_weight",
+                "contourNormalOffsetMaxPixels": "contour_normal_offset_max_pixels",
+                "contourPhaseRefineMaxPixels": "contour_phase_refine_max_pixels",
+                "contourProjectedOffsetWeight": "contour_projected_offset_weight",
+                "contourPhaseRefineWeight": "contour_phase_refine_weight",
+                "contourSoftCoverageWeight": "contour_soft_coverage_weight",
+                "contourNormalOffsetWeight": "contour_normal_offset_weight",
+                "contourNormalOffsetTangentWeight": "contour_normal_offset_tangent_weight",
+                "contourNormalOffsetNormalWeight": "contour_normal_offset_normal_weight",
+                "sdfTeacherRenderWeight": "sdf_teacher_render_weight",
+                "sdfTeacherGradientWeight": "sdf_teacher_gradient_weight",
+                "sdfTeacherProfileWeight": "sdf_teacher_profile_weight",
+                "sdfTeacherRecoveryRequired": "sdf_teacher_recovery_required",
+                "implicitBoundaryFeatureChannels": "implicit_boundary_feature_channels",
+                "implicitBoundaryResidualMaxPixels": "implicit_boundary_residual_max_pixels",
+                "implicitBoundarySupersampleGrid": "implicit_boundary_supersample_grid",
+                "topologyFieldFeatureChannels": "topology_field_feature_channels",
+                "topologyFieldHiddenChannels": "topology_field_hidden_channels",
+                "topologyFieldControlScale": "topology_field_control_scale",
+                "topologyFieldMaxLogMagnitudeDelta": "topology_field_max_log_magnitude_delta",
+                "topologyFieldMagnitudeFloorPixels": "topology_field_magnitude_floor_pixels",
+                "topologyFieldEditBandPixels": "topology_field_edit_band_pixels",
+                "topologyFieldSdfWeight": "topology_field_sdf_weight",
+                "topologyFieldControlWeight": "topology_field_control_weight",
+                "topologyFieldCrossingWeight": "topology_field_crossing_weight",
+                "topologyFieldGradientWeight": "topology_field_gradient_weight",
+                "topologyFieldEikonalWeight": "topology_field_eikonal_weight",
+                "topologyFieldCurvatureWeight": "topology_field_curvature_weight",
+                "topologyFieldRenderWeight": "topology_field_render_weight",
+                "topologyFieldRenderGradientWeight": "topology_field_render_gradient_weight",
+                "topologyFieldRenderProfileWeight": "topology_field_render_profile_weight",
+                "splineGraphRenderWeight": "spline_graph_render_weight",
+                "splineGraphRenderGradientWeight": "spline_graph_render_gradient_weight",
+                "splineGraphRenderProfileWeight": "spline_graph_render_profile_weight",
+                "splineOrderedBranchEnabled": "spline_ordered_branch_enabled",
+                "splineBranchSmoothingPasses": "spline_branch_smoothing_passes",
+                "splineBranchSmoothingStrength": "spline_branch_smoothing_strength",
+                "splineBranchSmoothingWindow": "spline_branch_smoothing_window",
+                "splineBranchCornerCosine": "spline_branch_corner_cosine",
+                "splineBranchCornerWindow": "spline_branch_corner_window",
+                "strokeCenterlineHiddenChannels": "stroke_centerline_hidden_channels",
+                "strokeCenterlineMaxDeltaLr": "stroke_centerline_max_delta_lr",
+                "strokeCenterlineMaxTangentResidual": "stroke_centerline_max_tangent_residual",
+                "strokeCenterlineMaxWidthDeltaPixels": "stroke_centerline_max_width_delta_pixels",
+                "strokeCenterlineRidgeMinDepthPixels": "stroke_centerline_ridge_min_depth_pixels",
+                "strokeCenterlineNeighbourhoodRadiusLr": "stroke_centerline_neighbourhood_radius_lr",
+                "strokeCenterlineSegmentHalfLengthLr": "stroke_centerline_segment_half_length_lr",
+                "strokeCenterlineInitialWidthScale": "stroke_centerline_initial_width_scale",
+                "strokeCenterlineCenterWeight": "stroke_centerline_center_weight",
+                "strokeCenterlineWidthWeight": "stroke_centerline_width_weight",
+                "strokeCenterlineTangentWeight": "stroke_centerline_tangent_weight",
+                "strokeCenterlineRenderWeight": "stroke_centerline_render_weight",
+                "parametricPrimitiveHiddenChannels": "parametric_primitive_hidden_channels",
+                "parametricPrimitiveClassWeight": "parametric_primitive_class_weight",
+                "parametricPrimitiveParamWeight": "parametric_primitive_param_weight",
+                "parametricPrimitiveRenderWeight": "parametric_primitive_render_weight",
+                "parametricPrimitiveClassAccuracyRequired": "parametric_primitive_class_accuracy_required",
+                "parametricPrimitiveParamMaeRequired": "parametric_primitive_param_mae_required",
+                "parametricPrimitiveTrainTilesPerEpoch": "parametric_primitive_train_tiles_per_epoch",
+                "parametricPrimitiveBatchSize": "parametric_primitive_batch_size",
+                "parametricPrimitiveLrMultiplier": "parametric_primitive_lr_multiplier",
+                "parametricPrimitiveClassifierEpochs": "parametric_primitive_classifier_epochs",
+                "parametricPrimitiveParameterEpochs": "parametric_primitive_parameter_epochs",
+                "parametricPrimitiveIntegrationEpochs": "parametric_primitive_integration_epochs",
+                "parametricPrimitiveFitSteps": "parametric_primitive_fit_steps",
+                "parametricPrimitiveFitLearningRate": "parametric_primitive_fit_learning_rate",
+                "splineGeometryFixedBankTiles": "spline_geometry_fixed_bank_tiles",
+                "splineMetricCalibrationEnabled": "spline_metric_calibration_enabled",
+                "splineMetricCalibrationScaleDelta": "spline_metric_calibration_scale_delta",
+                "splineMetricCalibrationBiasPixels": "spline_metric_calibration_bias_pixels",
+                "splineMetricCalibrationBandPixels": "spline_metric_calibration_band_pixels",
+                "splineMetricOffsetWeight": "spline_metric_offset_weight",
+                "splineMetricEikonalNearWeight": "spline_metric_eikonal_near_weight",
+                "splineMetricScaleRegularizationWeight": "spline_metric_scale_regularization_weight",
+                "splineMetricBiasRegularizationWeight": "spline_metric_bias_regularization_weight",
+                "sdfOracleRenderBandMaeRequired": "sdf_oracle_render_band_mae_required",
+                "sdfOracleGradientMaeRequired": "sdf_oracle_gradient_mae_required",
+                "sdfOracleGlobalMaeRequired": "sdf_oracle_global_mae_required",
+                "sdfOracleGlobalMaeCaseMaxRequired": "sdf_oracle_global_mae_case_max_required",
+                "sdfOracleRenderBandMaePreviewRequired": "sdf_oracle_render_band_mae_preview_required",
+                "sdfOracleProfileWidthErrorRequired": "sdf_oracle_profile_width_error_required",
+                "sdfOracleProfileCorrelationRequired": "sdf_oracle_profile_correlation_required",
+                "sdfOracleCoreHaloDeltaRequired8bit": "sdf_oracle_core_halo_delta_required_8bit",
+                "oraclePatchFeatureChannels": "oracle_patch_feature_channels",
+                "oraclePatchHiddenChannels": "oracle_patch_hidden_channels",
+                "oraclePatchFootprintLR": "oracle_patch_footprint_lr",
+                "oraclePatchMaxDeltaPixels": "oracle_patch_max_delta_pixels",
+                "oraclePatchMaxCoverageLogitDelta": "oracle_patch_max_coverage_logit_delta",
+                "oraclePatchEditBandPixels": "oracle_patch_edit_band_pixels",
+                "oraclePatchSdfWeight": "oracle_patch_sdf_weight",
+                "oraclePatchSignWeight": "oracle_patch_sign_weight",
+                "oraclePatchCoverageWeight": "oracle_patch_coverage_weight",
+                "oraclePatchCoverageBceWeight": "oracle_patch_coverage_bce_weight",
+                "oraclePatchConsistencyWeight": "oracle_patch_consistency_weight",
+                "oraclePatchGradientWeight": "oracle_patch_gradient_weight",
+                "oraclePatchAggregateCoverageWeight": "oracle_patch_aggregate_coverage_weight",
+                "oraclePatchRenderWeight": "oracle_patch_render_weight",
+                "oraclePatchRenderGradientWeight": "oracle_patch_render_gradient_weight",
+                "oraclePatchRenderProfileWeight": "oracle_patch_render_profile_weight",
+                "parametricBoundaryControlScale": "parametric_boundary_control_scale",
+                "parametricBoundaryMaxOffsetPixels": "parametric_boundary_max_offset_pixels",
+                "parametricBoundaryMaxNormalCorrection": "parametric_boundary_max_normal_correction",
+                "parametricBoundaryMaxCurvaturePerPixel": "parametric_boundary_max_curvature_per_pixel",
+                "parametricBoundaryMaxRibbonHalfWidthPixels": "parametric_boundary_max_ribbon_half_width_pixels",
+                "parametricBoundaryAnchorWeight": "parametric_boundary_anchor_weight",
+                "parametricBoundaryNormalWeight": "parametric_boundary_normal_weight",
+                "parametricBoundaryCurvatureWeight": "parametric_boundary_curvature_weight",
+                "parametricBoundaryOffsetSmoothnessWeight": "parametric_boundary_offset_smoothness_weight",
+                "boundarySpecialistChannels": "boundary_specialist_channels",
+                "boundarySpecialistBandPixels": "boundary_specialist_band_pixels",
+                "boundarySpecialistMaxCoverageDelta": "boundary_specialist_max_coverage_delta",
+                "boundarySpecialistLogitDeltaMax": "boundary_specialist_logit_delta_max",
+                "boundarySpecialistCoverageWeight": "boundary_specialist_coverage_weight",
+                "boundarySpecialistCoverageBceWeight": "boundary_specialist_coverage_bce_weight",
+                "boundarySpecialistCoverageGradientWeight": "boundary_specialist_coverage_gradient_weight",
+                "boundarySpecialistProfileMomentWeight": "boundary_specialist_profile_moment_weight",
+                "boundarySpecialistGradientWeight": "boundary_specialist_gradient_weight",
+                "boundarySpecialistProfileWeight": "boundary_specialist_profile_weight",
+                "boundarySpecialistRecoveryRequired": "boundary_specialist_recovery_required",
+                "benefitSelectorChannels": "benefit_selector_channels",
+                "benefitSelectorWeight": "benefit_selector_weight",
+                "structuralLineJitterRequiredPixels": "structural_line_jitter_required_pixels",
+                "structuralCurveRoughnessRequiredPixels": "structural_curve_roughness_required_pixels",
+                "structuralLineStaircaseRecoveryRequired": "structural_line_staircase_recovery_required",
                 "directFlowWeight": "direct_flow_weight",
                 "bootstrapDirectFlowWeight": "bootstrap_direct_flow_weight",
                 "flowActivityThresholdSourcePixels": "flow_activity_threshold_source_pixels",
@@ -448,8 +978,10 @@ class V9Config:
         self.min_source_dimension = max(512, int(self.min_source_dimension))
         self.min_auxiliary_dimension = max(32, min(int(self.min_auxiliary_dimension), self.min_source_dimension))
         self.validation_fraction = float(min(max(self.validation_fraction, 0.02), 0.40))
-        for name in ("identity_epochs", "residual_epochs", "boundary_epochs", "detail_epochs"):
+        for name in ("identity_epochs", "residual_epochs", "detail_epochs"):
             setattr(self, name, max(1, min(int(getattr(self, name)), 100)))
+        for name in ("seam_proof_epochs", "seam_authority_epochs", "boundary_epochs"):
+            setattr(self, name, max(0, min(int(getattr(self, name)), 100)))
         self.physical_finetune_epochs = max(1, min(int(self.physical_finetune_epochs), 100))
         self.tiles_per_epoch = max(4, min(int(self.tiles_per_epoch), 1_000_000))
         self.validation_tiles = max(2, min(int(self.validation_tiles), 8192))
@@ -467,7 +999,7 @@ class V9Config:
             raise ValueError("schedulerName must be phase or cosine-phase")
         self.scheduler_min_lr_ratio = float(min(max(self.scheduler_min_lr_ratio, 0.01), 1.0))
         self.tile_size = max(32, min(int(self.tile_size), 256)); self.tile_size -= self.tile_size % 16
-        self.target_scale = 4; self.input_channels = 16
+        self.target_scale = 4; self.input_channels = 17
         self.material_classes = max(2, min(int(self.material_classes), 16))
         if len(self.widths) != 4 or len(self.blocks_per_level) != 4 or len(self.decoder_blocks) != 3:
             raise ValueError("V9 widths/blocks must describe four encoder and three decoder levels")
@@ -485,6 +1017,60 @@ class V9Config:
         self.initial_gate_bias = float(min(max(self.initial_gate_bias, -12.0), -1.0))
         self.appearance_enabled = bool(self.appearance_enabled)
         self.appearance_edge_suppression = float(min(max(self.appearance_edge_suppression, 0.0), 1.0))
+        self.detail_reconstruction_enabled = bool(self.detail_reconstruction_enabled)
+        self.detail_feature_channels = max(24, min(int(self.detail_feature_channels), 96))
+        self.detail_mid_channels = max(20, min(int(self.detail_mid_channels), 80))
+        self.detail_hr_channels = max(16, min(int(self.detail_hr_channels), 64))
+        self.detail_albedo_max_delta = float(min(max(self.detail_albedo_max_delta, 0.01), 0.50))
+        self.detail_normal_max_delta = float(min(max(self.detail_normal_max_delta, 0.01), 0.40))
+        self.detail_material_max_delta = float(min(max(self.detail_material_max_delta, 0.01), 0.50))
+        self.detail_confidence_initial_bias = float(min(max(self.detail_confidence_initial_bias, -6.0), 2.0))
+        self.detail_regret_initial_bias = float(min(max(self.detail_regret_initial_bias, -4.0), 4.0))
+        for name in ("detail_contrast_weight", "detail_cross_map_weight", "detail_confidence_weight", "detail_regret_classifier_weight"):
+            setattr(self, name, float(min(max(getattr(self, name), 0.0), 10.0)))
+        self.detail_recovery_required = float(min(max(self.detail_recovery_required, 0.0), 0.95))
+        self.detail_gradient_recovery_required = float(min(max(self.detail_gradient_recovery_required, 0.0), 0.95))
+        self.detail_normal_recovery_required = float(min(max(self.detail_normal_recovery_required, -0.25), 0.95))
+        self.detail_win_fraction_required = float(min(max(self.detail_win_fraction_required, 0.0), 1.0))
+        self.detail_regression_fraction_max = float(min(max(self.detail_regression_fraction_max, 0.0), 1.0))
+        self.raven_full_pipeline_preview_enabled = bool(self.raven_full_pipeline_preview_enabled)
+        self.raven_representative_preview_enabled = bool(self.raven_representative_preview_enabled)
+        self.raven_train_only_enabled = bool(self.raven_train_only_enabled)
+        self.preview_allow_unqualified_downstream = bool(self.preview_allow_unqualified_downstream)
+        self.raven_downstream_tiles_per_epoch = int(min(max(self.raven_downstream_tiles_per_epoch, 4), 512))
+        self.seam_directional_enabled = bool(self.seam_directional_enabled)
+        self.seam_directional_channels = max(8, min(int(self.seam_directional_channels), 64))
+        self.seam_directional_angle_bins = max(4, min(int(self.seam_directional_angle_bins), 24))
+        self.seam_directional_kernel_size = max(3, min(int(self.seam_directional_kernel_size) | 1, 11))
+        self.seam_directional_kernel_residual_scale = float(min(max(self.seam_directional_kernel_residual_scale, 0.0), 0.30))
+        self.seam_forced_recovery_required = float(min(max(self.seam_forced_recovery_required, 0.0), 1.0))
+        self.seam_authority_iou_required = float(min(max(self.seam_authority_iou_required, 0.0), 1.0))
+        self.seam_ridge_weight = float(min(max(self.seam_ridge_weight, 0.0), 2.0))
+        self.seam_missing_detail_scale = float(min(max(self.seam_missing_detail_scale, 0.1), 64.0))
+        self.seam_teacher_dilation_pixels = max(0, min(int(self.seam_teacher_dilation_pixels), 8))
+        self.structural_stale_patience = max(1, min(int(self.structural_stale_patience), 20))
+        self.seam_phase_sr_channels = max(16, min(int(self.seam_phase_sr_channels), 64))
+        self.seam_phase_sr_max_delta = float(min(max(self.seam_phase_sr_max_delta, 0.0), 0.6))
+        self.seam_phase_only_reconstruction = bool(self.seam_phase_only_reconstruction)
+        self.seam_phase_residual_weight = float(min(max(self.seam_phase_residual_weight, 0.0), 256.0))
+        self.seam_microproof_enabled = bool(self.seam_microproof_enabled)
+        self.seam_microproof_steps = max(16, min(int(self.seam_microproof_steps), 256))
+        self.seam_microproof_recovery_required = float(min(max(self.seam_microproof_recovery_required, 0.0), 0.99))
+        self.seam_structure_tensor_radius = max(1, min(int(self.seam_structure_tensor_radius), 5))
+        self.seam_structure_strength_gain = float(min(max(self.seam_structure_strength_gain, 0.5), 12.0))
+        self.seam_coherence_floor = float(min(max(self.seam_coherence_floor, 0.0), 0.95))
+        self.seam_tangent_sample_pixels = float(min(max(self.seam_tangent_sample_pixels, 0.25), 3.0))
+        self.seam_normal_sample_pixels = float(min(max(self.seam_normal_sample_pixels, 0.25), 2.0))
+        self.seam_max_normal_sharpen = float(min(max(self.seam_max_normal_sharpen, 0.0), 3.0))
+        self.seam_max_authority = float(min(max(self.seam_max_authority, 0.0), 1.0))
+        self.seam_geometry_band_pixels = float(min(max(self.seam_geometry_band_pixels, 0.5), 12.0))
+        for name in ("seam_directional_weight", "seam_tangent_smoothness_weight", "seam_normal_profile_weight", "seam_authority_regularization_weight", "seam_projected_view_weight", "seam_authority_teacher_weight", "seam_reconstruction_weight"):
+            setattr(self, name, float(min(max(getattr(self, name), 0.0), 128.0)))
+        self.seam_lr_multiplier = float(min(max(self.seam_lr_multiplier, 0.25), 8.0))
+        self.dds_codec_degradation_enabled = bool(self.dds_codec_degradation_enabled)
+        self.dds_codec_probability = float(min(max(self.dds_codec_probability, 0.0), 1.0))
+        self.dds_codec_blend_min = float(min(max(self.dds_codec_blend_min, 0.0), 1.0))
+        self.dds_codec_blend_max = float(min(max(self.dds_codec_blend_max, self.dds_codec_blend_min), 1.0))
         self.geometry_displacement_source_pixels = float(min(max(self.geometry_displacement_source_pixels, 0.0), 2.0))
         self.geometry_edge_support_radius = max(0, min(int(self.geometry_edge_support_radius), 6))
         self.geometry_displacement_pixels = float(min(max(self.geometry_displacement_pixels, 0.0), 8.0))
@@ -499,7 +1085,7 @@ class V9Config:
         self.boundary_renderer_far_sample_multiplier = float(min(max(self.boundary_renderer_far_sample_multiplier, 1.0), 3.0))
         self.boundary_renderer_far_sample_weight = float(min(max(self.boundary_renderer_far_sample_weight, 0.0), 0.75))
         self.boundary_gate_initial_bias = float(min(max(self.boundary_gate_initial_bias, -8.0), 2.0))
-        self.implicit_sdf_hidden_channels = max(16, min(int(self.implicit_sdf_hidden_channels), 128))
+        self.implicit_sdf_hidden_channels = max(64, min(int(self.implicit_sdf_hidden_channels), 128))
         self.implicit_sdf_coordinate_scale = float(min(max(self.implicit_sdf_coordinate_scale, 0.1), 4.0))
         self.implicit_sdf_residual_pixels = float(min(max(self.implicit_sdf_residual_pixels, 0.25), 6.0))
         self.sdf_sign_gauge_invariant = bool(self.sdf_sign_gauge_invariant)
@@ -509,6 +1095,129 @@ class V9Config:
         self.sdf_zero_band_pixels = float(min(max(self.sdf_zero_band_pixels, 0.10), 1.50))
         self.sdf_bootstrap_residual_pixels = float(min(max(self.sdf_bootstrap_residual_pixels, 0.0), self.implicit_sdf_residual_pixels))
         self.sdf_proof_residual_pixels = float(min(max(self.sdf_proof_residual_pixels, self.sdf_bootstrap_residual_pixels), self.implicit_sdf_residual_pixels))
+        self.sdf_topology_margin_pixels = float(min(max(self.sdf_topology_margin_pixels, 0.05), 1.5))
+        self.sdf_topology_core_pixels = float(min(max(self.sdf_topology_core_pixels, self.sdf_topology_margin_pixels + 0.05), 4.0))
+        self.sdf_topology_band_pixels = float(min(max(self.sdf_topology_band_pixels, self.sdf_topology_core_pixels + 0.25), self.sdf_metric_band_pixels))
+        self.sdf_topology_worst_fraction = float(min(max(self.sdf_topology_worst_fraction, 1.0e-4), 0.10))
+        self.contour_transport_max_pixels = float(min(max(self.contour_transport_max_pixels, 0.5), self.contour_sdf_max_distance_pixels))
+        self.contour_dilation_max_pixels = float(min(max(self.contour_dilation_max_pixels, 0.25), 6.0))
+        self.contour_transport_min_jacobian = float(min(max(self.contour_transport_min_jacobian, 0.05), 0.95))
+        self.contour_normal_offset_max_pixels = float(min(max(self.contour_normal_offset_max_pixels, 0.5), self.contour_sdf_max_distance_pixels))
+        self.contour_phase_refine_max_pixels = float(min(max(self.contour_phase_refine_max_pixels, 0.0), 1.25))
+        self.sdf_teacher_recovery_required = float(min(max(self.sdf_teacher_recovery_required, 0.0), 1.0))
+        self.implicit_boundary_feature_channels = max(16, min(int(self.implicit_boundary_feature_channels), 128))
+        self.implicit_boundary_residual_max_pixels = float(min(max(self.implicit_boundary_residual_max_pixels, 0.0), 2.0))
+        self.implicit_boundary_supersample_grid = max(1, min(int(self.implicit_boundary_supersample_grid), 5))
+        self.topology_field_feature_channels = max(24, min(int(self.topology_field_feature_channels), 128))
+        self.topology_field_hidden_channels = max(32, min(int(self.topology_field_hidden_channels), 192))
+        self.topology_field_control_scale = int(self.topology_field_control_scale)
+        if self.topology_field_control_scale not in (1, 2, 4):
+            raise ValueError("topology_field_control_scale must be 1, 2 or 4")
+        if 4 % self.topology_field_control_scale != 0:
+            raise ValueError("topology_field_control_scale must divide the 4x target scale")
+        self.topology_field_max_log_magnitude_delta = float(min(max(self.topology_field_max_log_magnitude_delta, 0.5), 12.0))
+        self.topology_field_magnitude_floor_pixels = float(min(max(self.topology_field_magnitude_floor_pixels, 0.005), 0.25))
+        self.topology_field_edit_band_pixels = float(min(max(self.topology_field_edit_band_pixels, 4.0), 24.0))
+        self.spline_graph_feature_channels = max(24, min(int(self.spline_graph_feature_channels), 128))
+        self.spline_graph_hidden_channels = max(32, min(int(self.spline_graph_hidden_channels), 192))
+        self.spline_graph_control_scale = int(min(max(int(self.spline_graph_control_scale), 1), 2))
+        self.spline_graph_max_topology_delta_pixels = float(min(max(self.spline_graph_max_topology_delta_pixels, 1.0), 16.0))
+        self.spline_graph_topology_edit_band_pixels = float(min(max(self.spline_graph_topology_edit_band_pixels, 1.0), 8.0))
+        self.spline_graph_max_displacement_pixels = float(min(max(self.spline_graph_max_displacement_pixels, 0.5), 16.0))
+        self.spline_graph_max_tangent_residual = float(min(max(self.spline_graph_max_tangent_residual, 0.05), 2.0))
+        self.spline_graph_edit_band_pixels = float(min(max(self.spline_graph_edit_band_pixels, 4.0), 24.0))
+        self.spline_graph_neighbour_radius = int(min(max(self.spline_graph_neighbour_radius, 1), 3))
+        self.spline_graph_samples_per_span = int(min(max(self.spline_graph_samples_per_span, 2), 8))
+        self.spline_ordered_branch_enabled = bool(self.spline_ordered_branch_enabled)
+        self.spline_branch_smoothing_passes = int(min(max(self.spline_branch_smoothing_passes, 1), 8))
+        self.spline_branch_smoothing_strength = float(min(max(self.spline_branch_smoothing_strength, 0.0), 1.0))
+        self.spline_branch_smoothing_window = int(min(max(self.spline_branch_smoothing_window, 5), 127))
+        if self.spline_branch_smoothing_window % 2 == 0:
+            self.spline_branch_smoothing_window += 1
+        self.spline_branch_corner_cosine = float(min(max(self.spline_branch_corner_cosine, -1.0), 1.0))
+        self.spline_branch_corner_window = int(min(max(self.spline_branch_corner_window, 2), 8))
+        self.spline_graph_lr_multiplier = float(min(max(self.spline_graph_lr_multiplier, 1.0), 10.0))
+        self.stroke_centerline_hidden_channels = int(min(max(self.stroke_centerline_hidden_channels, 32), 192))
+        self.stroke_centerline_max_delta_lr = float(min(max(self.stroke_centerline_max_delta_lr, 0.10), 2.0))
+        self.stroke_centerline_max_tangent_residual = float(min(max(self.stroke_centerline_max_tangent_residual, 0.0), 2.0))
+        self.stroke_centerline_max_width_delta_pixels = float(min(max(self.stroke_centerline_max_width_delta_pixels, 0.25), 8.0))
+        self.stroke_centerline_ridge_min_depth_pixels = float(min(max(self.stroke_centerline_ridge_min_depth_pixels, 0.10), 4.0))
+        self.stroke_centerline_neighbourhood_radius_lr = int(min(max(self.stroke_centerline_neighbourhood_radius_lr, 2), 5))
+        self.stroke_centerline_segment_half_length_lr = float(min(max(self.stroke_centerline_segment_half_length_lr, 0.55), 2.0))
+        self.stroke_centerline_initial_width_scale = float(min(max(self.stroke_centerline_initial_width_scale, 0.15), 0.75))
+        for name in (
+            "stroke_centerline_center_weight", "stroke_centerline_width_weight",
+            "stroke_centerline_tangent_weight", "stroke_centerline_render_weight",
+        ):
+            setattr(self, name, float(min(max(getattr(self, name), 0.0), 128.0)))
+        self.parametric_primitive_hidden_channels = int(min(max(self.parametric_primitive_hidden_channels, 48), 192))
+        for name in ("parametric_primitive_class_weight", "parametric_primitive_param_weight", "parametric_primitive_render_weight"):
+            setattr(self, name, float(min(max(getattr(self, name), 0.0), 256.0)))
+        self.parametric_primitive_class_accuracy_required = float(min(max(self.parametric_primitive_class_accuracy_required, 0.50), 1.0))
+        self.parametric_primitive_param_mae_required = float(min(max(self.parametric_primitive_param_mae_required, 0.001), 0.25))
+        self.parametric_primitive_train_tiles_per_epoch = int(min(max(self.parametric_primitive_train_tiles_per_epoch, self.parametric_primitive_batch_size), 8192))
+        self.parametric_primitive_batch_size = int(min(max(self.parametric_primitive_batch_size, 1), 32))
+        self.parametric_primitive_lr_multiplier = float(min(max(self.parametric_primitive_lr_multiplier, 1.0), 64.0))
+        self.parametric_primitive_classifier_epochs = int(min(max(self.parametric_primitive_classifier_epochs, 1), 64))
+        self.parametric_primitive_parameter_epochs = int(min(max(self.parametric_primitive_parameter_epochs, 1), 128))
+        self.parametric_primitive_integration_epochs = int(min(max(self.parametric_primitive_integration_epochs, 1), 64))
+        self.parametric_primitive_fit_steps = int(min(max(self.parametric_primitive_fit_steps, 8), 256))
+        self.parametric_primitive_fit_learning_rate = float(min(max(self.parametric_primitive_fit_learning_rate, 1.0e-4), 0.25))
+        self.spline_geometry_fixed_bank_tiles = int(min(max(self.spline_geometry_fixed_bank_tiles, 32), 4096))
+        self.spline_metric_calibration_enabled = bool(self.spline_metric_calibration_enabled)
+        self.spline_metric_calibration_scale_delta = float(min(max(self.spline_metric_calibration_scale_delta, 0.0), 0.50))
+        self.spline_metric_calibration_bias_pixels = float(min(max(self.spline_metric_calibration_bias_pixels, 0.0), 0.75))
+        self.spline_metric_calibration_band_pixels = float(min(max(self.spline_metric_calibration_band_pixels, 1.0), 6.0))
+        for name in (
+            "spline_metric_offset_weight", "spline_metric_eikonal_near_weight",
+            "spline_metric_scale_regularization_weight", "spline_metric_bias_regularization_weight",
+        ):
+            setattr(self, name, float(min(max(getattr(self, name), 0.0), 256.0)))
+        self.sdf_oracle_render_band_mae_required = float(min(max(self.sdf_oracle_render_band_mae_required, 0.001), 0.25))
+        self.sdf_oracle_gradient_mae_required = float(min(max(self.sdf_oracle_gradient_mae_required, 0.005), 0.50))
+        self.sdf_oracle_profile_width_error_required = float(min(max(self.sdf_oracle_profile_width_error_required, 0.01), 0.50))
+        self.sdf_oracle_profile_correlation_required = float(min(max(self.sdf_oracle_profile_correlation_required, 0.50), 0.9999))
+        self.sdf_oracle_global_mae_required = float(min(max(self.sdf_oracle_global_mae_required, 0.0), 0.10))
+        self.sdf_oracle_global_mae_case_max_required = float(min(max(self.sdf_oracle_global_mae_case_max_required, 0.0), 0.25))
+        self.sdf_oracle_render_band_mae_preview_required = float(min(max(self.sdf_oracle_render_band_mae_preview_required, 0.0), 0.25))
+        self.sdf_oracle_core_halo_delta_required_8bit = float(min(max(self.sdf_oracle_core_halo_delta_required_8bit, 0.0), 16.0))
+        self.edge_crossing_feature_channels = max(24, min(int(self.edge_crossing_feature_channels), 128))
+        self.edge_crossing_hidden_channels = max(32, min(int(self.edge_crossing_hidden_channels), 192))
+        self.edge_crossing_max_logit_delta = float(min(max(self.edge_crossing_max_logit_delta, 1.0), 10.0))
+        self.edge_crossing_edit_band_pixels = float(min(max(self.edge_crossing_edit_band_pixels, 4.0), 24.0))
+        self.edge_crossing_neighbour_radius = int(min(max(self.edge_crossing_neighbour_radius, 0), 2))
+        self.edge_crossing_lr_multiplier = float(min(max(self.edge_crossing_lr_multiplier, 1.0), 10.0))
+        self.oracle_patch_feature_channels = max(24, min(int(self.oracle_patch_feature_channels), 128))
+        self.oracle_patch_hidden_channels = max(32, min(int(self.oracle_patch_hidden_channels), 192))
+        self.oracle_patch_footprint_lr = int(self.oracle_patch_footprint_lr)
+        if self.oracle_patch_footprint_lr not in (3, 5):
+            raise ValueError("oracle_patch_footprint_lr must be 3 or 5")
+        self.oracle_patch_max_delta_pixels = float(min(max(self.oracle_patch_max_delta_pixels, 1.0), self.contour_sdf_max_distance_pixels))
+        self.oracle_patch_max_coverage_logit_delta = float(min(max(self.oracle_patch_max_coverage_logit_delta, 2.0), 20.0))
+        self.oracle_patch_edit_band_pixels = float(min(max(self.oracle_patch_edit_band_pixels, 2.0), self.contour_sdf_max_distance_pixels))
+        self.parametric_boundary_control_scale = max(1, min(int(self.parametric_boundary_control_scale), 4))
+        self.parametric_boundary_max_offset_pixels = float(min(max(self.parametric_boundary_max_offset_pixels, 0.5), 12.0))
+        self.parametric_boundary_max_normal_correction = float(min(max(self.parametric_boundary_max_normal_correction, 0.1), 3.0))
+        self.parametric_boundary_max_curvature_per_pixel = float(min(max(self.parametric_boundary_max_curvature_per_pixel, 0.02), 1.0))
+        self.parametric_boundary_max_ribbon_half_width_pixels = float(min(max(self.parametric_boundary_max_ribbon_half_width_pixels, 0.5), 12.0))
+        self.boundary_specialist_channels = max(16, min(int(self.boundary_specialist_channels), 96))
+        self.boundary_specialist_band_pixels = float(min(max(self.boundary_specialist_band_pixels, 1.0), 8.0))
+        self.boundary_specialist_max_coverage_delta = float(min(max(self.boundary_specialist_max_coverage_delta, 0.05), 0.5))
+        self.boundary_specialist_logit_delta_max = float(min(max(self.boundary_specialist_logit_delta_max, 2.0), 24.0))
+        self.boundary_specialist_recovery_required = float(min(max(self.boundary_specialist_recovery_required, 0.0), 1.0))
+        self.benefit_selector_channels = max(12, min(int(self.benefit_selector_channels), 64))
+        self.structural_line_jitter_required_pixels = float(min(max(self.structural_line_jitter_required_pixels, 0.05), 2.0))
+        self.structural_curve_roughness_required_pixels = float(min(max(self.structural_curve_roughness_required_pixels, 0.05), 2.0))
+        self.structural_line_staircase_recovery_required = float(min(max(self.structural_line_staircase_recovery_required, 0.0), 1.0))
+        self.sdf_delta_max_pixels = float(min(max(self.sdf_delta_max_pixels, 1.0), self.contour_sdf_max_distance_pixels))
+        self.sdf_improvement_margin_pixels = float(min(max(self.sdf_improvement_margin_pixels, 0.0), 2.0))
+        self.geometry_need_floor = float(min(max(self.geometry_need_floor, 0.0), 1.0))
+        self.geometry_need_sdf_scale_pixels = float(min(max(self.geometry_need_sdf_scale_pixels, 0.25), 24.0))
+        self.sdf_relative_gain_required = float(min(max(self.sdf_relative_gain_required, 0.0), 0.95))
+        self.sdf_relative_win_fraction = float(min(max(self.sdf_relative_win_fraction, 0.0), 1.0))
+        self.sdf_relative_regression_fraction = float(min(max(self.sdf_relative_regression_fraction, 0.0), 1.0))
+        self.sdf_catastrophic_chamfer_pixels = float(min(max(self.sdf_catastrophic_chamfer_pixels, 4.0), 256.0))
+        self.sdf_missing_contour_tolerance = float(min(max(self.sdf_missing_contour_tolerance, 0.0), 1.0))
         self.boundary_renderer_plateau_samples = max(3, min(int(self.boundary_renderer_plateau_samples), 9))
         self.boundary_renderer_plateau_max_multiplier = float(min(max(self.boundary_renderer_plateau_max_multiplier, 1.25), 4.0))
         self.boundary_renderer_plateau_stability_scale = float(min(max(self.boundary_renderer_plateau_stability_scale, 1.0), 80.0))
@@ -531,18 +1240,54 @@ class V9Config:
             "boundary_off_contour_weight", "boundary_regret_weight",
             "boundary_sdf_zero_weight", "boundary_edge_sdf_consistency_weight",
             "boundary_pixel_regret_weight",
-            "sdf_surface_weight", "sdf_sign_weight", "sdf_eikonal_weight",
+            "sdf_surface_weight", "sdf_sign_weight", "sdf_topology_weight", "sdf_eikonal_weight",
             "sdf_gradient_alignment_weight", "sdf_metric_gradient_weight", "sdf_proof_renderer_weight",
             "coarse_sdf_surface_weight", "sdf_residual_l1_weight",
+            "contour_transport_weight", "contour_dilation_weight",
+            "contour_transport_smoothness_weight", "contour_dilation_smoothness_weight",
+            "contour_transport_fold_weight",
+            "contour_projected_offset_weight", "contour_phase_refine_weight",
+            "contour_soft_coverage_weight", "contour_normal_offset_weight",
+            "contour_normal_offset_tangent_weight", "contour_normal_offset_normal_weight",
+            "sdf_teacher_render_weight",
+            "sdf_teacher_gradient_weight", "sdf_teacher_profile_weight",
+            "topology_field_sdf_weight", "topology_field_control_weight", "topology_field_crossing_weight",
+            "topology_field_gradient_weight", "topology_field_eikonal_weight",
+            "topology_field_curvature_weight", "topology_field_render_weight",
+            "topology_field_render_gradient_weight", "topology_field_render_profile_weight",
+            "spline_graph_topology_control_weight", "spline_graph_topology_sign_weight",
+            "spline_graph_point_weight", "spline_graph_tangent_weight",
+            "spline_graph_sdf_weight", "spline_graph_gradient_weight",
+            "spline_graph_eikonal_weight", "spline_graph_curvature_weight",
+            "spline_graph_span_smoothness_weight", "spline_graph_span_tangent_weight",
+            "spline_graph_span_separation_weight",
+            "spline_graph_render_weight", "spline_graph_render_gradient_weight",
+            "spline_graph_render_profile_weight",
+            "edge_crossing_fraction_weight", "edge_crossing_sdf_weight",
+            "edge_crossing_gradient_weight", "edge_crossing_eikonal_weight",
+            "edge_crossing_curvature_weight", "edge_crossing_render_weight",
+            "edge_crossing_render_gradient_weight", "edge_crossing_render_profile_weight",
+            "oracle_patch_sdf_weight", "oracle_patch_sign_weight",
+            "oracle_patch_coverage_weight", "oracle_patch_coverage_bce_weight",
+            "oracle_patch_consistency_weight", "oracle_patch_gradient_weight",
+            "oracle_patch_aggregate_coverage_weight", "oracle_patch_render_weight",
+            "oracle_patch_render_gradient_weight", "oracle_patch_render_profile_weight",
+            "parametric_boundary_anchor_weight", "parametric_boundary_normal_weight", "parametric_boundary_curvature_weight",
+            "parametric_boundary_offset_smoothness_weight",
+            "boundary_specialist_coverage_weight", "boundary_specialist_coverage_bce_weight",
+            "boundary_specialist_coverage_gradient_weight", "boundary_specialist_profile_moment_weight",
+            "boundary_specialist_gradient_weight", "boundary_specialist_profile_weight", "benefit_selector_weight",
+            "sdf_delta_surface_weight", "sdf_delta_tangent_weight",
+            "sdf_delta_laplacian_weight", "sdf_improvement_regret_weight",
             "direct_flow_weight", "bootstrap_direct_flow_weight",
         ):
-            setattr(self, name, float(min(max(getattr(self, name), 0.0), 20.0)))
+            setattr(self, name, float(min(max(getattr(self, name), 0.0), 60.0)))
         self.boundary_gate_need_scale = float(min(max(self.boundary_gate_need_scale, 1.0e-3), 1.0))
         self.boundary_gate_exact_floor = float(min(max(self.boundary_gate_exact_floor, 0.0), 1.0))
         self.tangent_variation_margin = float(min(max(self.tangent_variation_margin, 0.0), 0.5))
         self.curvature_variation_margin = float(min(max(self.curvature_variation_margin, 0.0), 0.5))
         self.flow_activity_threshold_source_pixels = float(min(max(self.flow_activity_threshold_source_pixels, 0.001), 0.50))
-        self.synthetic_geometry_probability = float(min(max(self.synthetic_geometry_probability, 0.0), 0.95))
+        self.synthetic_geometry_probability = float(min(max(self.synthetic_geometry_probability, 0.0), 1.0))
         self.local_regret_patch = max(2, min(int(self.local_regret_patch), 64))
         self.gate_error_scale = float(min(max(self.gate_error_scale, 1e-3), 1.0))
         self.gate_edge_bonus = float(min(max(self.gate_edge_bonus, 0.0), 1.0))

@@ -8,14 +8,12 @@ namespace nsamdr
 PreviewApplication::PreviewApplication(PreviewHost host)
     : m_host(std::move(host)),
       m_inputController(m_cameraController),
-      m_strategyModes(m_inputController),
-      m_pipeline(m_strategyModes),
       m_assetProcessor(m_shaderLibrary, m_meshProcessor),
-      m_sceneController(m_inputController, m_strategyModes),
-      m_renderPipeline(m_cameraController, m_strategyModes),
+      m_sceneController(m_inputController),
+      m_renderPipeline(m_cameraController),
       m_renderer(m_assetProcessor, m_renderPipeline),
-      m_processing(m_renderer, m_assetProcessor, m_strategyModes, m_pipeline, m_sceneController),
-      m_panel(m_strategyModes, m_pipeline, m_trainingController, m_sceneController)
+      m_processing(m_renderer, m_assetProcessor, m_sceneController),
+      m_panel(m_sceneController)
 {
 }
 
@@ -69,8 +67,13 @@ void PreviewApplication::Run()
         materialManifestPath,
         resources));
 
-    StrategyCandidateSet candidates;
-    ASSERT_TRUE(m_processing.LoadCandidates(m_host.device, m_host.context, candidates));
+    FinalCandidateSet candidates;
+    ASSERT_TRUE(m_processing.LoadCandidates(
+        m_host.device,
+        m_host.context,
+        resources,
+        albedoPath,
+        candidates));
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -86,13 +89,6 @@ void PreviewApplication::Run()
         m_host.context,
         resources,
         mesh));
-    m_trainingController.InitializeFromEnvironment(state.neuralTraining);
-    if (m_pipeline.IsConfigured(candidates) && m_pipeline.IsReady(candidates))
-    {
-        state.neuralTraining.status =
-            "Mode 3 candidate loaded. Its analysis records the trained V9 fidelity-first checkpoint, FP16 CUDA 4x multi-head reconstruction backend, inference time, confidence telemetry and model hash.";
-    }
-
     ShipCatalog shipCatalog;
     LoadShipCatalog(
         GetEnvironmentString("NSAMDR_EVE_CATALOG"),
@@ -196,7 +192,7 @@ void PreviewApplication::Run()
         if (state.requestScreenshot)
         {
             state.requestScreenshot = false;
-            const std::string screenshotPath = m_panel.BuildScreenshotPath(state);
+            const std::string screenshotPath = m_panel.BuildScreenshotPath();
             m_host.screenshot(screenshotPath);
             std::printf("Saved NSAMDR screenshot: %s\n", screenshotPath.c_str());
         }

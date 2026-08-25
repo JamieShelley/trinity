@@ -1,16 +1,15 @@
 {
-  "name": "nsamdr-eve-asset-converter",
-  "version": "5.36.0",
+  "name": "@carbonenginejs/core-math",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
-  "engines": {
-    "node": ">=18"
+  "exports": {
+    "./mesh": "./mesh.js",
+    "./num": "./num.js",
+    "./tangent": "./tangent.js",
+    "./vec3": "./vec3.js"
   },
   "dependencies": {
-    "@carbonenginejs/core-math": "file:vendor/core-math-compat",
-    "@carbonenginejs/format-gr2": "https://github.com/carbonenginejs/format-gr2/archive/refs/heads/main.tar.gz",
-    "@carbonenginejs/runtime-resource": "https://github.com/carbonenginejs/runtime-resource/archive/refs/heads/main.tar.gz",
-    "@carbonenginejs/runtime-utils": "https://github.com/carbonenginejs/runtime-utils/archive/refs/heads/main.tar.gz",
-    "black-reader": "https://github.com/rawrafox/black-reader-js/archive/refs/heads/master.tar.gz"
+    "@carbonenginejs/runtime-utils": "*"
   }
 }

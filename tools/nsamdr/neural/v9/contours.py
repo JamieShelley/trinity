@@ -163,6 +163,194 @@ def contour_targets(
     return sdf, np.ascontiguousarray(orientation), edge[..., None]
 
 
+
+
+def lr_contour_prior(
+    albedo: np.ndarray,
+    normal_xy: np.ndarray,
+    material: np.ndarray,
+    material_valid: float,
+    max_distance: float = 6.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    """Build a robust observable LR contour prior from the physical-map stack.
+
+    V9.8.7 used ``contour_targets`` for the LR prior.  That routine is useful for
+    authored HR supervision, but its permissive multi-scale ridge detector also
+    turns normal-map noise and compression blocks into hundreds of zero-set seeds
+    after strong LR degradation.  EXP_0004 therefore started from a source contour
+    that was already badly wrong before GeometryNet made any correction.
+
+    The LR prior is now a *segmentation-derived* signed distance.  We denoise the
+    observable albedo/normal/material channels, find several deterministic
+    low-dimensional projections, and choose the binary partition whose boundary
+    best explains the full physical-map change.  The sign is merely a gauge; the
+    important contract is that sign changes can occur only at the selected
+    material partition boundary rather than at arbitrary noisy pixels.
+
+    The returned confidence is a continuous observability score used only for
+    training weights.  Inference never receives HR information.
+    """
+    import cv2
+
+    albedo = np.asarray(albedo, dtype=np.float32)
+    normal_xy = np.asarray(normal_xy, dtype=np.float32)
+    material = np.asarray(material, dtype=np.float32)
+    h, w = albedo.shape[:2]
+
+    features: list[np.ndarray] = []
+    for channel in range(min(3, albedo.shape[-1])):
+        features.append(cv2.GaussianBlur(albedo[..., channel], (0, 0), 0.70))
+    for channel in range(min(2, normal_xy.shape[-1])):
+        # Normal maps receive explicit degradation noise.  Slightly stronger
+        # smoothing and lower scale stop that noise becoming the dominant PCA
+        # direction while preserving actual normal discontinuities.
+        features.append(
+            cv2.GaussianBlur(normal_xy[..., channel], (0, 0), 1.00) * 0.70
+        )
+    if material_valid > 0.5:
+        for channel in range(min(3, material.shape[-1])):
+            features.append(
+                cv2.GaussianBlur(material[..., channel], (0, 0), 0.70) * 0.80
+            )
+
+    if not features:
+        sdf = np.ones((h, w, 1), dtype=np.float32)
+        orientation = np.zeros((h, w, 2), dtype=np.float32)
+        edge = np.zeros((h, w, 1), dtype=np.float32)
+        return sdf, orientation, edge, 0.0
+
+    feature_image = np.stack(features, axis=-1).astype(np.float32)
+    flat = feature_image.reshape(-1, feature_image.shape[-1])
+    centred = flat - flat.mean(axis=0, keepdims=True)
+    covariance = centred.T @ centred / max(int(flat.shape[0]) - 1, 1)
+    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+
+    # Candidate projections include the leading physical-map PCA directions and
+    # the highest-variance raw channels.  This catches low-luma material changes
+    # without allowing a noisy companion map to define the contour by itself.
+    candidate_scalars: list[np.ndarray] = []
+    candidate_count = min(4, feature_image.shape[-1])
+    for offset in range(1, candidate_count + 1):
+        candidate_scalars.append(
+            (centred @ eigenvectors[:, -offset]).reshape(h, w).astype(np.float32)
+        )
+    channel_variance = flat.var(axis=0)
+    for channel in np.argsort(channel_variance)[::-1][:candidate_count]:
+        candidate_scalars.append(feature_image[..., int(channel)])
+
+    # Fused gradient energy is used only to rank candidate partitions.  It does
+    # not itself seed a contour, so random high-frequency map noise cannot create
+    # extra zero sets.
+    gradient_energy = np.zeros((h, w), dtype=np.float32)
+    for channel in range(feature_image.shape[-1]):
+        gx = cv2.Sobel(
+            feature_image[..., channel], cv2.CV_32F, 1, 0, ksize=3, scale=0.125
+        )
+        gy = cv2.Sobel(
+            feature_image[..., channel], cv2.CV_32F, 0, 1, ksize=3, scale=0.125
+        )
+        gradient_energy += np.sqrt(gx * gx + gy * gy)
+    gradient_mean = float(gradient_energy.mean()) + 1.0e-6
+
+    best: tuple[float, np.ndarray, float, float] | None = None
+    for scalar in candidate_scalars:
+        low, high = np.percentile(scalar, (1.0, 99.0))
+        if float(high - low) <= 1.0e-6:
+            continue
+        encoded = np.uint8(
+            np.round(np.clip((scalar - low) / (high - low), 0.0, 1.0) * 255.0)
+        )
+        _threshold, binary = cv2.threshold(
+            encoded, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+        mask = (binary > 0).astype(np.uint8)
+        minor_fraction = min(float(mask.mean()), 1.0 - float(mask.mean()))
+        if minor_fraction < 0.001:
+            continue
+
+        # Remove isolated compression/noise islands only.  Long one-pixel lines
+        # survive because the operation is component-area based, not erosion.
+        for phase_value in (0, 1):
+            phase = (mask == phase_value).astype(np.uint8)
+            count, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+                phase, 8
+            )
+            for component in range(1, count):
+                if int(stats[component, cv2.CC_STAT_AREA]) < 3:
+                    mask[labels == component] = 1 - phase_value
+
+        flat_mask = mask.reshape(-1)
+        zero = flat_mask == 0
+        one = ~zero
+        if int(zero.sum()) < 2 or int(one.sum()) < 2:
+            continue
+        mean_zero = flat[zero].mean(axis=0)
+        mean_one = flat[one].mean(axis=0)
+        between = float(np.linalg.norm(mean_zero - mean_one))
+        within = 0.5 * (
+            float(np.sqrt(np.mean(np.var(flat[zero], axis=0))))
+            + float(np.sqrt(np.mean(np.var(flat[one], axis=0))))
+        ) + 1.0e-6
+        fisher = between / within
+
+        boundary = np.zeros((h, w), dtype=np.uint8)
+        boundary[:, 1:] |= mask[:, 1:] != mask[:, :-1]
+        boundary[1:, :] |= mask[1:, :] != mask[:-1, :]
+        if not boundary.any():
+            continue
+        alignment = float(gradient_energy[boundary > 0].mean() / gradient_mean)
+        component_count = max(cv2.connectedComponents(boundary, 8)[0] - 1, 1)
+        boundary_length = max(float(boundary.sum()), 1.0)
+        fragmentation = 1.0 / (
+            1.0 + max(component_count - 4, 0) * 8.0 / boundary_length
+        )
+        score = (
+            fisher
+            * (0.5 + 0.5 * min(alignment / 3.0, 2.0))
+            * fragmentation
+        )
+        if best is None or score > best[0]:
+            best = (score, mask.copy(), fisher, alignment)
+
+    if best is None:
+        sdf = np.ones((h, w, 1), dtype=np.float32)
+        orientation = np.zeros((h, w, 2), dtype=np.float32)
+        edge = np.zeros((h, w, 1), dtype=np.float32)
+        return sdf, orientation, edge, 0.0
+
+    _score, mask, fisher, alignment = best
+    inside_distance = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
+    outside_distance = cv2.distanceTransform(1 - mask, cv2.DIST_L2, 5)
+    signed_pixels = outside_distance - inside_distance
+    sdf = np.clip(
+        signed_pixels / max(float(max_distance), 1.0), -1.0, 1.0
+    ).astype(np.float32)
+
+    gy, gx = np.gradient(signed_pixels.astype(np.float32))
+    normal_length = np.sqrt(gx * gx + gy * gy + 1.0e-8)
+    tangent = np.stack((-gy / normal_length, gx / normal_length), axis=-1)
+    orientation_decay = np.exp(
+        -np.minimum(np.abs(signed_pixels), max(float(max_distance), 1.0))
+        / max(float(max_distance), 1.0)
+        * 4.0
+    ).astype(np.float32)
+    orientation = (tangent * orientation_decay[..., None]).astype(np.float32)
+    edge = np.exp(-0.5 * (signed_pixels / 0.85) ** 2).astype(np.float32)
+
+    # Continuous confidence: strong feature separation and edge-aligned
+    # partitioning receive full weight; ambiguous LR evidence is down-weighted
+    # rather than rejected by another arbitrary geometric threshold.
+    separation_confidence = np.clip((fisher - 1.0) / 8.0, 0.0, 1.0)
+    alignment_confidence = np.clip(alignment / 3.0, 0.0, 1.0)
+    confidence = float(np.sqrt(separation_confidence * alignment_confidence))
+    return (
+        np.ascontiguousarray(sdf[..., None]),
+        np.ascontiguousarray(orientation),
+        np.ascontiguousarray(edge[..., None]),
+        confidence,
+    )
+
+
 def analytic_contour_targets(
     signed_distance_pixels: np.ndarray,
     *,

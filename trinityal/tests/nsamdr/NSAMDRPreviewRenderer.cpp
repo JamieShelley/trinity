@@ -71,7 +71,7 @@ bool PreviewRenderer::UpdateSceneConstants(
 void PreviewRenderer::Render(
     ID3D11DeviceContext* context,
     const PreviewResources& resources,
-    const StrategyCandidateSet& candidates,
+    const FinalCandidateSet& candidates,
     const PreviewState& state,
     const SceneConstants& constants)
 {

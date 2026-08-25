@@ -6,18 +6,20 @@ set "BUILD_DIR=%ROOT%\.cmake-build-x64-windows-trinitydev-nsamdr-obj-dx11"
 set "PROJECT_INCLUDE=%~dp0nsamdr\NSAMDROBJProjectInclude.cmake"
 set "VCPKG_DIR=%ROOT%\vendor\github.com\microsoft\vcpkg"
 set "REGISTRY_DIR=%ROOT%\vendor\github.com\carbonengine\vcpkg-registry"
-set "SOURCE_CONTEXT=viewer=NSAMDROriginalVsCleanup-v5.32;config=TrinityDev;dx11=ON;dx12=OFF;tests=ON;shader=OFF;granny=OFF"
 set "PREVIEW_EXE="
 set "BUILD_ONLY=0"
 if /I "%NSAMDR_BUILD_ONLY%"=="1" set "BUILD_ONLY=1"
+set "REUSE_EXISTING_VIEWER=0"
+set "STALE_VIEWER=0"
+if /I "%NSAMDR_PREVIEW_REUSE_EXISTING_VIEWER%"=="1" set "REUSE_EXISTING_VIEWER=1"
 
 if not exist "%ROOT%\CMakeLists.txt" (
     echo ERROR: This script must be under scripts\build in the Carbon Trinity repository.
     exit /b 2
 )
-if not exist "%ROOT%\trinityal\tests\nsamdr\NSAMDRShipPreview.cpp" (
-    echo ERROR: Missing Granny-free OBJ preview source:
-    echo   "%ROOT%\trinityal\tests\nsamdr\NSAMDRShipPreview.cpp"
+if not exist "%ROOT%\trinityal\tests\nsamdr\standalone\NSAMDRStandalonePreview.cpp" (
+    echo ERROR: Missing standalone Granny-free DX11 preview host:
+    echo   "%ROOT%\trinityal\tests\nsamdr\standalone\NSAMDRStandalonePreview.cpp"
     exit /b 3
 )
 if not exist "%PROJECT_INCLUDE%" (
@@ -25,6 +27,9 @@ if not exist "%PROJECT_INCLUDE%" (
     echo   "%PROJECT_INCLUDE%"
     exit /b 4
 )
+
+rem The standalone viewer does not repair, build or link TrinityAL.
+rem It is intentionally isolated from the unrelated Nsight Aftermath dependency.
 
 if not exist "%VCPKG_DIR%\scripts\buildsystems\vcpkg.cmake" (
     echo ERROR: The repository vcpkg checkout is missing:
@@ -67,12 +72,28 @@ if errorlevel 1 exit /b !ERRORLEVEL!
 
 set "IMPORT_PATH=%BUILD_DIR%\vcpkg_installed\x64-windows-trinitydev"
 
+rem Diagnostic previews should not be held hostage by an unrelated CMake
+rem reconfigure when a previously built viewer executable already exists.
+if "%BUILD_ONLY%"=="0" call :locate_preview_exe
+if "%BUILD_ONLY%"=="0" if "%REUSE_EXISTING_VIEWER%"=="1" if defined PREVIEW_EXE (
+    call :viewer_binary_matches_sources
+    if errorlevel 1 (
+        set "STALE_VIEWER=1"
+        echo Existing DX11 viewer is older than the NSAMDR preview sources.
+        echo It will NOT be reused; rebuilding the standalone viewer.
+    ) else (
+        echo Reusing source-current DX11 preview executable without CMake configure/build:
+        echo   !PREVIEW_EXE!
+        goto :launch_preview
+    )
+)
+
 echo ============================================================
 echo NSAMDR REAL OBJ SHIP PREVIEW - GRANNY FREE DX11
 echo ============================================================
 echo Repository : %ROOT%
 echo Build dir  : %BUILD_DIR%
-echo Target     : TrinityALTest_dx11
+echo Target     : NSAMDRPreview_dx11
 echo Granny     : OFF
 if "%BUILD_ONLY%"=="0" echo Model      : !NSAMDR_OBJ!
 if "%BUILD_ONLY%"=="0" if defined NSAMDR_ALBEDO echo Albedo     : !NSAMDR_ALBEDO!
@@ -82,7 +103,7 @@ if "%BUILD_ONLY%"=="0" if defined NSAMDR_PGS echo PGS map    : !NSAMDR_PGS!
 if "%BUILD_ONLY%"=="0" if defined NSAMDR_ENVIRONMENT echo Environment: !NSAMDR_ENVIRONMENT!
 if "%BUILD_ONLY%"=="0" if not defined NSAMDR_ENVIRONMENT echo Environment: procedural fallback
 if "%BUILD_ONLY%"=="0" if defined NSAMDR_MATERIALS echo Materials  : !NSAMDR_MATERIALS!
-if "%BUILD_ONLY%"=="0" if not defined NSAMDR_MATERIALS echo Materials  : legacy global fallback
+if "%BUILD_ONLY%"=="0" if not defined NSAMDR_MATERIALS echo Materials  : global texture fallback
 if "%BUILD_ONLY%"=="1" echo Action     : build only
 echo ============================================================
 
@@ -114,14 +135,31 @@ if not "!CONFIGURE_RESULT!"=="0" (
 )
 if not "!CONFIGURE_RESULT!"=="0" (
     call :report_failed_cmake_identity
-    echo ERROR: CMake configuration failed after a clean metadata retry.
+    if "%BUILD_ONLY%"=="0" (
+        call :locate_preview_exe
+        if defined PREVIEW_EXE if "!STALE_VIEWER!"=="0" (
+            echo WARNING: CMake configuration failed after a clean metadata retry.
+            echo WARNING: Reusing the source-current previously built DX11 viewer for diagnostic preview:
+            echo   !PREVIEW_EXE!
+            popd
+            goto :launch_preview
+        )
+        if "!STALE_VIEWER!"=="1" (
+            echo ERROR: CMake configuration failed and the only existing viewer is stale.
+            echo ERROR: Refusing to show an old TrinityAL-hosted viewer as the current result.
+        )
+    )
+    echo ERROR: CMake configuration failed after a clean metadata retry and no reusable preview executable exists.
     popd
     exit /b 20
 )
 
+rem Build only the standalone NSAMDR viewer.
+rem It consumes raw D3D11 interfaces and deliberately does not build/link
+rem TrinityAL_dx11, keeping Nsight Aftermath out of this preview path.
 cmake --build "%BUILD_DIR%" ^
     --config TrinityDev ^
-    --target TrinityALTest_dx11 ^
+    --target NSAMDRPreview_dx11 ^
     --parallel
 set "BUILD_RESULT=!ERRORLEVEL!"
 popd
@@ -136,36 +174,32 @@ if "%BUILD_ONLY%"=="1" (
     exit /b 0
 )
 
-rem The Carbon output is normally placed below carbon\autobuild rather than
-rem directly in BUILD_DIR. FOR /R with a literal filename can yield a candidate
-rem path even when that file does not exist, so only accept verified files.
-set "EXPECTED_PREVIEW_EXE=%BUILD_DIR%\carbon\autobuild\TrinityALTest\Windows\x64\v141\TrinityALTest_dx11_trinitydev.exe"
-if exist "!EXPECTED_PREVIEW_EXE!" set "PREVIEW_EXE=!EXPECTED_PREVIEW_EXE!"
-
+rem Locate the freshly built viewer (or an existing viewer if the build did not move it).
+call :locate_preview_exe
 if not defined PREVIEW_EXE (
-    for /f "usebackq delims=" %%F in (`where.exe /r "%BUILD_DIR%" TrinityALTest_dx11_trinitydev.exe 2^>nul`) do (
-        if not defined PREVIEW_EXE if exist "%%~fF" set "PREVIEW_EXE=%%~fF"
-    )
-)
-if not defined PREVIEW_EXE (
-    for /f "usebackq delims=" %%F in (`where.exe /r "%BUILD_DIR%" TrinityALTest_dx11.exe 2^>nul`) do (
-        if not defined PREVIEW_EXE if exist "%%~fF" set "PREVIEW_EXE=%%~fF"
-    )
-)
-if not defined PREVIEW_EXE (
-    echo ERROR: TrinityALTest_dx11 executable was not found under:
+    echo ERROR: NSAMDRPreview_dx11 executable was not found under:
     echo   "%BUILD_DIR%"
     echo Expected the normal Carbon output at:
-    echo   "!EXPECTED_PREVIEW_EXE!"
+    echo   "%BUILD_DIR%\nsamdr-preview\NSAMDRPreview_dx11.exe"
     exit /b 30
 )
 
+:launch_preview
+if not defined PREVIEW_EXE call :locate_preview_exe
+if not defined PREVIEW_EXE (
+    echo ERROR: No reusable or freshly built standalone NSAMDR DX11 preview executable was found.
+    exit /b 30
+)
 echo Launching: !PREVIEW_EXE!
 pushd "%ROOT%" || exit /b 31
 if /I "!NSAMDR_PREVIEW_VISIBLE_LAUNCH!"=="1" (
-    echo Launch mode: visible foreground child
-    start "" /wait "!PREVIEW_EXE!" --gtest_filter=NSAMDRRendering.RealObjShipPreview --interactive --gtest_color=yes
+    rem Interactive diagnostic viewer: launch visibly and detach.
+    rem The workflow stage is complete when Windows accepts the launch; the
+    rem operator can then inspect/close the comparison window independently.
+    echo Launch mode: visible detached diagnostic viewer
+    start "" "!PREVIEW_EXE!" --gtest_filter=NSAMDRRendering.RealObjShipPreview --interactive --gtest_color=yes
     set "RUN_RESULT=!ERRORLEVEL!"
+    if "!RUN_RESULT!"=="0" echo Viewer process launched successfully.
 ) else (
     "!PREVIEW_EXE!" --gtest_filter=NSAMDRRendering.RealObjShipPreview --interactive --gtest_color=yes
     set "RUN_RESULT=!ERRORLEVEL!"
@@ -173,13 +207,36 @@ if /I "!NSAMDR_PREVIEW_VISIBLE_LAUNCH!"=="1" (
 popd
 exit /b !RUN_RESULT!
 
+
+:locate_preview_exe
+set "PREVIEW_EXE="
+set "EXPECTED_PREVIEW_EXE=%BUILD_DIR%\nsamdr-preview\NSAMDRPreview_dx11.exe"
+if exist "!EXPECTED_PREVIEW_EXE!" set "PREVIEW_EXE=!EXPECTED_PREVIEW_EXE!"
+if not defined PREVIEW_EXE (
+    for /f "usebackq delims=" %%F in (`where.exe /r "%BUILD_DIR%" NSAMDRPreview_dx11.exe 2^>nul`) do (
+        if not defined PREVIEW_EXE if exist "%%~fF" set "PREVIEW_EXE=%%~fF"
+    )
+)
+exit /b 0
+
+
+:viewer_binary_matches_sources
+if not defined PREVIEW_EXE exit /b 1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$exe=(Get-Item -LiteralPath '!PREVIEW_EXE!').LastWriteTimeUtc; " ^
+  "$src=@(); " ^
+  "$src += Get-ChildItem -LiteralPath '%ROOT%\trinityal\tests\nsamdr' -File -Recurse -Include '*.cpp','*.h','*.hlsl','*.ico'; " ^
+  "$src += Get-Item -LiteralPath '%PROJECT_INCLUDE%'; " ^
+  "if($src | Where-Object { $_.LastWriteTimeUtc -gt $exe }) { exit 1 } else { exit 0 }"
+exit /b !ERRORLEVEL!
+
 :configure_preview
 cmake --preset x64-windows-trinitydev ^
     -S "%ROOT%" ^
     -B "%BUILD_DIR%" ^
     -DBUILD_DX11=ON ^
     -DBUILD_DX12=OFF ^
-    -DBUILD_TESTING=ON ^
+    -DBUILD_TESTING=OFF ^
     -DBUILD_SHADER_COMPILER=OFF ^
     -DWITH_GRANNY=OFF ^
     -DVCPKG_MANIFEST_INSTALL=OFF ^

@@ -24,8 +24,6 @@ from v9.model import (
 from v9.training import train_v9
 
 TrainingConfig = V9Config
-MaterialTileContextNet = FidelityResidualNetV9
-CachePBRNetV9 = FidelityResidualNetV9
 
 
 def _semantic_maps_from_rgb(rgb: np.ndarray) -> np.ndarray:

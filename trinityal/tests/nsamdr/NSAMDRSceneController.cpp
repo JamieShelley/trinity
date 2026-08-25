@@ -4,9 +4,8 @@
 
 namespace nsamdr
 {
-SceneController::SceneController(InputController& inputController, StrategyModes& strategyModes)
-    : m_inputController(inputController),
-      m_strategyModes(strategyModes)
+SceneController::SceneController(InputController& inputController)
+    : m_inputController(inputController)
 {
 }
 
@@ -111,11 +110,6 @@ void SceneController::ProcessHotkeys(PreviewState& state, HWND hwnd, const ObjMe
     ImGuiIO& io = ImGui::GetIO();
     if (!io.WantCaptureKeyboard)
     {
-        m_strategyModes.ProcessNumberHotkeys(state);
-        if (m_inputController.KeyPressed(VK_SPACE) && state.mode != static_cast<int>(StrategyMode::OriginalBaseline))
-        {
-            state.splitCompare = !state.splitCompare;
-        }
         if (m_inputController.KeyPressed('R')) ResetView(state, mesh);
         if (m_inputController.KeyPressed(VK_HOME) || m_inputController.KeyPressed('F')) FrameShip(state, mesh);
         if (m_inputController.KeyPressed('V')) state.flipV = !state.flipV;

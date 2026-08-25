@@ -4,9 +4,8 @@
 
 namespace nsamdr
 {
-RenderPipeline::RenderPipeline(CameraController& cameraController, StrategyModes& strategyModes)
-    : m_cameraController(cameraController),
-      m_strategyModes(strategyModes)
+RenderPipeline::RenderPipeline(CameraController& cameraController)
+    : m_cameraController(cameraController)
 {
 }
 
@@ -52,8 +51,6 @@ bool RenderPipeline::UpdateSceneConstants(
     DirectX::XMStoreFloat4x4(&constants.world, world);
     DirectX::XMStoreFloat4x4(&constants.viewProjection, view * projection);
     constants.cameraTime = XMFLOAT4(eye.x, eye.y, eye.z, elapsedSeconds);
-    const int effectiveMode = state.mode;
-    constants.controls = XMFLOAT4(static_cast<float>(effectiveMode), state.strength, state.damageLow, state.damageHigh);
     constants.keyLight = XMFLOAT4(key.x, key.y, key.z, state.keyIntensity);
     constants.fillLight = XMFLOAT4(fill.x, fill.y, fill.z, state.fillIntensity);
     constants.rimLight = XMFLOAT4(rim.x, rim.y, rim.z, state.rimIntensity);
@@ -63,14 +60,14 @@ bool RenderPipeline::UpdateSceneConstants(
         state.exposure,
         state.ambient);
     constants.surface = XMFLOAT4(
-        state.microNormalStrength,
+        0.0f,
         state.normalMapStrength,
         state.specularStrength,
         state.roughnessBias);
     constants.options = XMFLOAT4(
         state.useNormalMap && resources.hasNormalMap ? 1.0f : 0.0f,
         state.usePgsMap && resources.hasPgsMap ? 1.0f : 0.0f,
-        state.forceRepairMask ? 1.0f : 0.0f,
+        0.0f,
         0.0f);
 
     XMFLOAT3 cameraRight, cameraUp, cameraForward;
@@ -86,16 +83,6 @@ bool RenderPipeline::UpdateSceneConstants(
         state.environmentIntensity,
         state.backgroundIntensity,
         state.reflectionStrength);
-    constants.diagnostics = XMFLOAT4(
-        state.diagnosticCheckerScale,
-        0.0f,
-        static_cast<float>(std::max(resources.textureWidth, 1U)),
-        static_cast<float>(std::max(resources.textureHeight, 1U)));
-    constants.structure = XMFLOAT4(
-        state.structureSharpness,
-        state.structureScale,
-        state.preserveClean,
-        state.differenceScale);
     constants.areaTint = XMFLOAT4(0.045f, 0.105f, 0.145f, 0.0f);
     constants.areaSurface = XMFLOAT4(0.62f, 0.72f, 1.0f, 0.0f);
     constants.areaTextures = XMFLOAT4(
@@ -115,23 +102,7 @@ bool RenderPipeline::UpdateSceneConstants(
     constants.auxTextures = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
     constants.semanticChannels = XMFLOAT4(0.0f, 1.0f, 0.0f, 0.0f);
     constants.semanticChannels2 = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
-    constants.debug = XMFLOAT4(static_cast<float>(state.diagnosticView), 0.0f, resources.baselineComplete ? 1.0f : 0.0f, 0.0f);
-    constants.repair = XMFLOAT4(static_cast<float>(state.repairMethod), (state.mode == 1 || state.repairMethod == 0) ? state.samplingLodBias : state.uvRecoveryScale, state.projectionStrength, state.transferStrength);
-    constants.cleanup = XMFLOAT4(
-        static_cast<float>(state.textureDetailReconstructionQuality),
-        state.cleanupMasterStrength,
-        state.cleanupFlatDenoiseStrength,
-        state.cleanupDarkSeparationStrength);
-    constants.cleanup2 = XMFLOAT4(
-        state.cleanupHighlightStrength,
-        state.cleanupDetailSharpenStrength,
-        static_cast<float>(state.cleanupDebugView),
-        0.0f);
-    constants.cleanup3 = XMFLOAT4(
-        state.cleanupDirectionalDeblockStrength,
-        state.cleanupContourReconstructionStrength,
-        state.cleanupThinLineStrength,
-        state.cleanupEdgeOvershootLimit);
+    constants.debug = XMFLOAT4(0.0f, 0.0f, resources.baselineComplete ? 1.0f : 0.0f, 0.0f);
 
     outputConstants = constants;
     return UploadSceneConstants(context, constantBuffer, constants);
@@ -140,8 +111,7 @@ SceneConstants RenderPipeline::BuildViewportSceneConstants(
     const PreviewState& state,
     const SceneConstants& baseConstants,
     uint32_t viewportWidth,
-    uint32_t viewportHeight,
-    int mode)
+    uint32_t viewportHeight)
 {
     SceneConstants constants = baseConstants;
     XMMATRIX world, view, projection;
@@ -160,8 +130,6 @@ SceneConstants RenderPipeline::BuildViewportSceneConstants(
     constants.cameraTime.x = eye.x;
     constants.cameraTime.y = eye.y;
     constants.cameraTime.z = eye.z;
-    constants.controls.x = static_cast<float>(mode);
-
     XMFLOAT3 cameraRight, cameraUp, cameraForward;
     m_cameraController.GetCameraBasis(state, cameraRight, cameraUp, cameraForward);
     const float aspect = viewportHeight == 0U ? 1.0f :
@@ -176,7 +144,7 @@ SceneConstants RenderPipeline::BuildViewportSceneConstants(
 void RenderPipeline::RenderShip(
     ID3D11DeviceContext* context,
     const PreviewResources& resources,
-    const StrategyCandidateSet& candidates,
+    const FinalCandidateSet& candidates,
     const PreviewState& state,
     const SceneConstants& baseConstants)
 {
@@ -193,22 +161,15 @@ void RenderPipeline::RenderShip(
 
     ID3D11Buffer* constantBuffer = resources.constantBuffer.Get();
     ID3D11SamplerState* textureSampler = resources.textureSampler.Get();
-    ID3D11SamplerState* baselineTextureSampler = resources.baselineTextureSampler.Get() != nullptr
-        ? resources.baselineTextureSampler.Get()
-        : textureSampler;
     const EnvironmentGpu* selectedEnvironment = SelectedEnvironment(resources, state);
     ID3D11ShaderResourceView* environmentView = selectedEnvironment ? selectedEnvironment->view.Get() : nullptr;
 
     const uint32_t sceneX = std::min(state.sceneViewportX, resources.width > 1U ? resources.width - 1U : 0U);
     const uint32_t sceneWidth = std::max(1U, resources.width - sceneX);
     const uint32_t sceneHeight = std::max(1U, resources.height);
-    // Scientific Mode 3 comparison renders three simultaneous panes:
-    // A) untouched source with the SAME high-quality sampler as the candidate,
-    // B) the same untouched source through the labelled legacy sampler emulation,
-    // C) the NSAMDR candidate with the high-quality sampler.
-    const bool splitActive = state.mode != static_cast<int>(StrategyMode::OriginalBaseline) && state.splitCompare;
-    const bool scientificTriple =
-        splitActive && state.mode == static_cast<int>(StrategyMode::NeuralReconstruction);
+    // Scientific comparison is deliberately only two panes:
+    // A) untouched source, and B) the NSAMDR candidate. Both use the exact
+    // same high-quality sampler, camera, lighting, geometry and material shader.
 
     struct PaneRect
     {
@@ -225,6 +186,7 @@ void RenderPipeline::RenderShip(
         uint32_t indexCount = 0U;
         const std::vector<AreaMaterialGpu>* areaMaterials = nullptr;
         bool useBaselineGlobals = false;
+        bool requireSourceDrawRange = false;
         bool valid = true;
     };
 
@@ -234,89 +196,44 @@ void RenderPipeline::RenderShip(
         resources.indexCount,
         &resources.areaMaterials,
         true,
+        false,
         true,
     };
 
-    auto assetForMode = [&](int mode) -> AssetBinding
-    {
-        const CandidateAssetGpu* candidate = m_strategyModes.CandidateForMode(candidates, mode);
-        if (candidate && candidate->available)
-        {
-            // The comparison is texture/material cleanup only. Reuse the exact
-            // source geometry and index order on both sides, and swap only the
-            // Mode 3 material resources/neural output.
-            return AssetBinding{
-                baselineAsset.vertexBuffer,
-                baselineAsset.indexBuffer,
-                baselineAsset.indexCount,
-                &candidate->areaMaterials,
-                false,
-                true,
-            };
+    const CandidateAssetGpu& finalCandidate = candidates.candidate;
+    const AssetBinding finalAsset = finalCandidate.available
+        ? AssetBinding{
+            baselineAsset.vertexBuffer,
+            baselineAsset.indexBuffer,
+            baselineAsset.indexCount,
+            &finalCandidate.areaMaterials,
+            false,
+            true,
+            true,
         }
-        if (mode == static_cast<int>(StrategyMode::NeuralReconstruction))
-        {
-            // Never display Mode 1 resources under a Mode 3 label. A missing
-            // candidate is rendered as an explicit unavailable pane instead.
-            return AssetBinding{nullptr, nullptr, 0U, nullptr, false, false};
-        }
-        return baselineAsset;
-    };
+        : AssetBinding{nullptr, nullptr, 0U, nullptr, false, false, false};
 
     PaneRect firstPane{sceneX, 0U, sceneWidth, sceneHeight};
     PaneRect secondPane = firstPane;
-    PaneRect thirdPane = firstPane;
-    if (scientificTriple)
+    if (state.splitVertical)
     {
-        if (state.splitVertical)
-        {
-            const uint32_t firstWidth = std::max(1U, sceneWidth / 3U);
-            const uint32_t secondWidth = std::max(1U, (sceneWidth - firstWidth) / 2U);
-            const uint32_t thirdWidth = std::max(1U, sceneWidth - firstWidth - secondWidth);
-            firstPane = PaneRect{sceneX, 0U, firstWidth, sceneHeight};
-            secondPane = PaneRect{sceneX + firstWidth, 0U, secondWidth, sceneHeight};
-            thirdPane = PaneRect{sceneX + firstWidth + secondWidth, 0U, thirdWidth, sceneHeight};
-        }
-        else
-        {
-            const uint32_t firstHeight = std::max(1U, sceneHeight / 3U);
-            const uint32_t secondHeight = std::max(1U, (sceneHeight - firstHeight) / 2U);
-            const uint32_t thirdHeight = std::max(1U, sceneHeight - firstHeight - secondHeight);
-            firstPane = PaneRect{sceneX, 0U, sceneWidth, firstHeight};
-            secondPane = PaneRect{sceneX, firstHeight, sceneWidth, secondHeight};
-            thirdPane = PaneRect{sceneX, firstHeight + secondHeight, sceneWidth, thirdHeight};
-        }
+        const uint32_t firstWidth = std::max(1U, sceneWidth / 2U);
+        firstPane = PaneRect{sceneX, 0U, firstWidth, sceneHeight};
+        secondPane = PaneRect{sceneX + firstWidth, 0U, sceneWidth - firstWidth, sceneHeight};
     }
-    else if (splitActive)
+    else
     {
-        if (state.splitVertical)
-        {
-            const uint32_t firstWidth = std::clamp(
-                static_cast<uint32_t>(std::round(static_cast<float>(sceneWidth) * state.splitPosition)),
-                1U,
-                std::max(1U, sceneWidth - 1U));
-            firstPane = PaneRect{sceneX, 0U, firstWidth, sceneHeight};
-            secondPane = PaneRect{sceneX + firstWidth, 0U, sceneWidth - firstWidth, sceneHeight};
-        }
-        else
-        {
-            const uint32_t firstHeight = std::clamp(
-                static_cast<uint32_t>(std::round(static_cast<float>(sceneHeight) * state.splitPosition)),
-                1U,
-                std::max(1U, sceneHeight - 1U));
-            firstPane = PaneRect{sceneX, 0U, sceneWidth, firstHeight};
-            secondPane = PaneRect{sceneX, firstHeight, sceneWidth, sceneHeight - firstHeight};
-        }
+        const uint32_t firstHeight = std::max(1U, sceneHeight / 2U);
+        firstPane = PaneRect{sceneX, 0U, sceneWidth, firstHeight};
+        secondPane = PaneRect{sceneX, firstHeight, sceneWidth, sceneHeight - firstHeight};
     }
 
     PaneRect rawControlPane = firstPane;
-    PaneRect legacyControlPane = scientificTriple ? secondPane : firstPane;
-    PaneRect candidatePane = scientificTriple ? thirdPane : secondPane;
+    PaneRect candidatePane = secondPane;
     if (state.swapSplitSides)
     {
         std::swap(rawControlPane, candidatePane);
     }
-    const PaneRect baselinePane = rawControlPane;
     const float blendFactor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     const UINT stride = sizeof(Vertex);
     const UINT offset = 0;
@@ -327,8 +244,7 @@ void RenderPipeline::RenderShip(
             state,
             baseConstants,
             pane.width,
-            pane.height,
-            static_cast<int>(StrategyMode::OriginalBaseline));
+            pane.height);
         if (!UploadSceneConstants(context, constantBuffer, backgroundConstants)) return false;
 
         viewport.TopLeftX = static_cast<float>(pane.x);
@@ -351,22 +267,15 @@ void RenderPipeline::RenderShip(
         return true;
     };
 
-    auto drawPane = [&](const PaneRect& pane, int uiMode, const AssetBinding& asset, bool useLegacySampler)
+    auto drawPane = [&](const PaneRect& pane, const AssetBinding& asset)
     {
-        // Every pane retains the same mesh, camera, lighting, material shader
-        // and environment. Sampler choice is explicit per pane so the raw source
-        // control and NSAMDR candidate can be compared under identical sampling.
-        const bool originalSource = uiMode == static_cast<int>(StrategyMode::OriginalBaseline);
+        // Every pane retains the same mesh, camera, lighting, material shader,
+        // environment and one shared high-quality sampler.
         if (!asset.valid) return;
-        const int shaderMode = m_strategyModes.ShaderMode(uiMode);
         SceneConstants paneConstants = BuildViewportSceneConstants(
-            state, baseConstants, pane.width, pane.height, shaderMode);
-        paneConstants.options.w = state.verifyPaneIdentity
-            ? (originalSource ? -1.0f : 1.0f)
-            : 0.0f;
+            state, baseConstants, pane.width, pane.height);
         const PreviewState& renderState = state;
-        ID3D11SamplerState* paneTextureSampler =
-            useLegacySampler ? baselineTextureSampler : textureSampler;
+        ID3D11SamplerState* paneTextureSampler = textureSampler;
 
         viewport.TopLeftX = static_cast<float>(pane.x);
         viewport.TopLeftY = static_cast<float>(pane.y);
@@ -387,12 +296,23 @@ void RenderPipeline::RenderShip(
 
         auto drawArea = [&](const AreaMaterialGpu& material)
         {
+            const ObjDrawRange* drawRange = &material.drawRange;
+            if (asset.requireSourceDrawRange)
+            {
+                const auto sourceMaterial = std::find_if(
+                    resources.areaMaterials.begin(),
+                    resources.areaMaterials.end(),
+                    [&](const AreaMaterialGpu& value) {
+                        return value.source.groupIndex == material.source.groupIndex;
+                    });
+                if (sourceMaterial == resources.areaMaterials.end()) return false;
+                drawRange = &sourceMaterial->drawRange;
+            }
+
             SceneConstants constants = paneConstants;
             constants.material.x = renderState.useTexture && material.hasAlbedo ? 1.0f : 0.0f;
             constants.options.x = renderState.useNormalMap && material.hasNormal ? 1.0f : 0.0f;
             constants.options.y = renderState.usePgsMap && material.hasPgs ? 1.0f : 0.0f;
-            constants.diagnostics.z = static_cast<float>(std::max(material.albedoWidth, 1U));
-            constants.diagnostics.w = static_cast<float>(std::max(material.albedoHeight, 1U));
             constants.areaTint = XMFLOAT4(material.source.tint.x, material.source.tint.y, material.source.tint.z, 1.0f);
             constants.areaSurface = XMFLOAT4(
                 material.source.roughness,
@@ -433,14 +353,14 @@ void RenderPipeline::RenderShip(
                 static_cast<float>(material.source.dirtChannel),
                 static_cast<float>(material.source.glowChannel));
             constants.debug = XMFLOAT4(
-                static_cast<float>(state.diagnosticView),
+                0.0f,
                 static_cast<float>(material.source.groupIndex + 1),
                 material.source.baselineComplete ? 1.0f : 0.0f,
                 static_cast<float>(static_cast<int>(material.source.shaderFamily)));
             if (!UploadSceneConstants(context, constantBuffer, constants)) return false;
 
-            // Mode 3 albedo is already reconstructed by the offline V9 CUDA fidelity 4x
-            // pipeline. Both panes therefore sample their own material manifests
+            // The final albedo is already reconstructed offline. Both panes sample
+            // their own material manifests
             // through the same live shader with no hidden runtime correction pass.
             ID3D11ShaderResourceView* selectedAlbedoView = material.albedoView.Get();
             ID3D11ShaderResourceView* textureViews[9] = {
@@ -471,7 +391,7 @@ void RenderPipeline::RenderShip(
                 context->OMSetBlendState(resources.alphaBlendState.Get(), blendFactor, 0xffffffffU);
                 context->OMSetDepthStencilState(resources.depthReadState.Get(), 0);
             }
-            context->DrawIndexed(material.drawRange.indexCount, material.drawRange.startIndex, 0);
+            context->DrawIndexed(drawRange->indexCount, drawRange->startIndex, 0);
             return true;
         };
 
@@ -500,51 +420,17 @@ void RenderPipeline::RenderShip(
         }
     };
 
-    const AssetBinding selectedAsset = assetForMode(state.mode);
-    if (scientificTriple)
-    {
-        // C: NSAMDR candidate, high-quality sampler.
-        drawBackgroundPane(candidatePane);
-        drawPane(candidatePane, state.mode, selectedAsset, false);
-        context->ClearDepthStencilView(resources.depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+    // B: immutable NSAMDR FINAL material resources on the source mesh.
+    drawBackgroundPane(candidatePane);
+    drawPane(candidatePane, finalAsset);
+    context->ClearDepthStencilView(resources.depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-        // B: same untouched source, legacy EVE-like sampler emulation.
-        drawBackgroundPane(legacyControlPane);
-        drawPane(
-            legacyControlPane,
-            static_cast<int>(StrategyMode::OriginalBaseline),
-            baselineAsset,
-            true);
-        context->ClearDepthStencilView(resources.depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+    // A: authoritative raw source under the exact same draw path.
+    drawBackgroundPane(rawControlPane);
+    drawPane(rawControlPane, baselineAsset);
 
-        // A: authoritative raw control, untouched source and the exact same
-        // high-quality sampler used by C.
-        drawBackgroundPane(rawControlPane);
-        drawPane(
-            rawControlPane,
-            static_cast<int>(StrategyMode::OriginalBaseline),
-            baselineAsset,
-            false);
-    }
-    else if (splitActive)
-    {
-        drawBackgroundPane(candidatePane);
-        drawPane(candidatePane, state.mode, selectedAsset, false);
-        context->ClearDepthStencilView(resources.depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-        drawBackgroundPane(baselinePane);
-        drawPane(
-            baselinePane,
-            static_cast<int>(StrategyMode::OriginalBaseline),
-            baselineAsset,
-            state.emulateLegacyEveBaseline);
-    }
-    else
-    {
-        drawBackgroundPane(firstPane);
-        // Mode 1 is now a true untouched-source control by default.
-        drawPane(firstPane, state.mode, selectedAsset, false);
-    }
-
+    // Release bound SRVs and restore neutral output-merger state after either
+    // pane layout. This avoids carrying preview resources into later passes.
     ID3D11ShaderResourceView* nullViews[9] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
     context->PSSetShaderResources(0, 9, nullViews);
     context->OMSetBlendState(nullptr, blendFactor, 0xffffffffU);

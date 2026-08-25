@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Build the deterministic Raven Navy Issue tuning dataset for NSAMDR V9.
-
-The tuning dataset intentionally uses a fixed ship, fixed spatial crops and a
-fixed held-out split. It is not the full EVE dataset and is never used for a
-production checkpoint.
-"""
+"""Build the deterministic, feature-stratified Raven development dataset."""
 from __future__ import annotations
 
 import argparse
@@ -33,9 +28,9 @@ from v9.experiments import (
     DEFAULT_TUNING_ASSET_QUERY,
 )
 
-PREVIEW_DATASET_SCHEMA = "NSAMDR_V9_FIXED_RAVEN_PREVIEW_DATASET_V3"
-PREVIEW_CROP_SCHEMA = "NSAMDR_V9_FIXED_RAVEN_PREVIEW_CROP_V1"
-BUILDER_VERSION = "fixed-raven-grid-v4-semantic-pbr"
+PREVIEW_DATASET_SCHEMA = "NSAMDR_RAVEN_DEVELOPMENT_DATASET_V2"
+PREVIEW_CROP_SCHEMA = "NSAMDR_RAVEN_DEVELOPMENT_CROP_V2"
+BUILDER_VERSION = "raven-feature-stratified-disjoint-v2"
 
 
 def _find_navy_raven(rows: list[eve.ResourceRow], repo_root: Path) -> eve.ShipCatalogEntry:
@@ -97,7 +92,6 @@ def _grid_positions(length: int, crop_size: int) -> list[int]:
     if length < crop_size:
         return [0]
     return list(range(0, length - crop_size + 1, crop_size))
-
 
 def _texture_families_from_report(report_path: Path, fallback_manifest: dict[str, Any]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
@@ -242,13 +236,15 @@ def _select_fixed_regions(
     *,
     max_train_crops: int,
     max_validation_crops: int,
+    seed: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Choose a deterministic, strictly non-overlapping train/held-out subset.
+    """Choose deterministic, disjoint subsets balanced across authored features.
 
     Requested region counts are upper bounds. The authored Raven texture
     topology decides the actual number of unique spatial regions; regions are
     never duplicated or shared between train and validation merely to satisfy
-    an arbitrary requested count.
+    an arbitrary requested count. Selection covers the full detail distribution
+    and texture families instead of sorting for only the highest-detail crops.
     """
     if len(candidates) < 2:
         raise RuntimeError(
@@ -256,37 +252,82 @@ def _select_fixed_regions(
             "512x512 regions so training and held-out data remain spatially separate."
         )
 
-    def rank(item: dict[str, Any]) -> tuple[float, str, int, int]:
+    def stable_key(item: dict[str, Any]) -> tuple[str, str, int, int]:
+        identity = (
+            f"{seed}|{item['familyId']}|{item['x']}|{item['y']}|"
+            f"{int(bool(item['materialValid']))}"
+        )
         return (
-            -float(item["detailScore"]),
+            hashlib.sha256(identity.encode("utf-8")).hexdigest(),
             str(item["familyId"]),
             int(item["y"]),
             int(item["x"]),
         )
 
-    validation_pool = sorted(
-        (item for item in candidates if bool(item["holdout"])),
-        key=rank,
-    )
-    training_pool = sorted(
-        (item for item in candidates if not bool(item["holdout"])),
-        key=rank,
-    )
+    validation_pool = [item for item in candidates if bool(item["holdout"])]
+    training_pool = [item for item in candidates if not bool(item["holdout"])]
 
     # Tiny layouts can theoretically put every cell on one side of the
     # checkerboard. Move one *whole unique cell* to the missing split rather
     # than copying or overlapping it.
     if not validation_pool:
-        all_ranked = sorted(candidates, key=rank)
+        all_ranked = sorted(candidates, key=stable_key)
         validation_pool = [all_ranked[0]]
         training_pool = all_ranked[1:]
     elif not training_pool:
-        all_ranked = sorted(candidates, key=rank)
+        all_ranked = sorted(candidates, key=stable_key)
         training_pool = [all_ranked[0]]
         validation_pool = all_ranked[1:]
 
-    selected_train = training_pool[:max(1, int(max_train_crops))]
-    selected_validation = validation_pool[:max(1, int(max_validation_crops))]
+    def stratified_subset(pool: list[dict[str, Any]], requested: int) -> list[dict[str, Any]]:
+        requested = min(len(pool), max(1, int(requested)))
+        ordered_by_detail = sorted(
+            pool,
+            key=lambda item: (
+                float(item["detailScore"]),
+                str(item["familyId"]),
+                int(item["y"]),
+                int(item["x"]),
+            ),
+        )
+        strata: dict[int, list[dict[str, Any]]] = {index: [] for index in range(4)}
+        denominator = max(1, len(ordered_by_detail))
+        for rank, item in enumerate(ordered_by_detail):
+            stratum = min(3, (rank * 4) // denominator)
+            item["detailStratum"] = stratum
+            strata[stratum].append(item)
+        for values in strata.values():
+            values.sort(key=stable_key)
+
+        # Low/high/mid-low/mid-high ensures a four-crop validation set samples
+        # every detail quartile. Within a quartile prefer an as-yet-unseen family.
+        stratum_order = (0, 3, 1, 2)
+        family_counts: dict[str, int] = {}
+        selected: list[dict[str, Any]] = []
+        while len(selected) < requested:
+            made_progress = False
+            for stratum in stratum_order:
+                values = strata[stratum]
+                if not values or len(selected) >= requested:
+                    continue
+                choice_index = min(
+                    range(len(values)),
+                    key=lambda index: (
+                        family_counts.get(str(values[index]["familyId"]), 0),
+                        stable_key(values[index]),
+                    ),
+                )
+                choice = values.pop(choice_index)
+                selected.append(choice)
+                family = str(choice["familyId"])
+                family_counts[family] = family_counts.get(family, 0) + 1
+                made_progress = True
+            if not made_progress:
+                break
+        return selected
+
+    selected_train = stratified_subset(training_pool, max_train_crops)
+    selected_validation = stratified_subset(validation_pool, max_validation_crops)
     if not selected_train or not selected_validation:
         raise RuntimeError(
             "Raven fixed tuning set could not produce at least one unique "
@@ -431,7 +472,6 @@ def prepare(
                 if a.shape[:2] != (crop_size, crop_size):
                     continue
                 score = _detail_score(a, n, m)
-                # Checkerboard holdout is fixed and spatially non-overlapping.
                 holdout = ((gx + 2 * gy + family_index) % 4) == 0
                 candidates.append(
                     {
@@ -479,6 +519,7 @@ def prepare(
         candidates,
         max_train_crops=train_crops,
         max_validation_crops=validation_crops,
+        seed=int(config.seed),
     )
 
     available_validation = sum(1 for item in candidates if bool(item["holdout"]))
@@ -523,6 +564,7 @@ def prepare(
             "pixelBox": [item["x"], item["y"], item["x"] + crop_size, item["y"] + crop_size],
             "grid": [item["gx"], item["gy"]],
             "detailScore": item["detailScore"],
+            "detailStratum": int(item["detailStratum"]),
             "fixed": True,
             "overlapBetweenTrainAndValidation": False,
             "normalEncoding": item["normalEncoding"],
@@ -544,6 +586,7 @@ def prepare(
                 "path": str(destination.resolve()),
                 "source_box": [item["x"], item["y"], item["x"] + crop_size, item["y"] + crop_size],
                 "detail_score": item["detailScore"],
+                "detail_stratum": int(item["detailStratum"]),
                 "albedo_logical": str(item["family"].get("albedo") or ""),
                 "normal_logical": str(item["family"].get("normal") or ""),
                 "material_logical": str(item["family"].get("material") or ""),
@@ -589,7 +632,8 @@ def prepare(
             "assetManifest": str(asset_manifest_path),
         },
         "splitPolicy": {
-            "type": "adaptive-non-overlapping-512-grid-checkerboard-v1",
+            "type": "feature-stratified-non-overlapping-512-grid-v2",
+            "detailStrata": 4,
             "maxTrainCrops": train_crops,
             "maxValidationCrops": validation_crops,
             "trainCrops": sum(1 for record in records if record["split"] == "train"),
@@ -609,7 +653,7 @@ def prepare(
     output_root.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print("=" * 64, flush=True)
-    print("NSAMDR V9 FIXED RAVEN TUNING DATASET READY", flush=True)
+    print("NSAMDR RAVEN FEATURE-STRATIFIED DEVELOPMENT DATASET READY", flush=True)
     print(f"Asset                    : {selected.display_name}", flush=True)
     print(f"Selection                 : {selected.canonical_key}", flush=True)
     print(f"Texture families          : {len(family_payloads)}", flush=True)
@@ -628,12 +672,14 @@ def prepare(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build fixed Raven Navy Issue NSAMDR V9 tuning dataset")
+    parser = argparse.ArgumentParser(
+        description="Build the deterministic feature-stratified Raven development dataset"
+    )
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument("--config", type=Path, default=Path("tools/nsamdr/neural/configs/v9_preview_raven.json"))
     parser.add_argument("--shared-cache", default=r"C:\CCP\EVE")
     parser.add_argument("--rebuild", action="store_true")
-    parser.add_argument("--train-crops", type=int, default=12, help="Maximum unique non-overlapping training regions")
+    parser.add_argument("--train-crops", type=int, default=16, help="Maximum unique non-overlapping training regions")
     parser.add_argument("--validation-crops", type=int, default=4, help="Maximum unique non-overlapping held-out regions")
     args = parser.parse_args()
     repo_root = args.repo_root.resolve()

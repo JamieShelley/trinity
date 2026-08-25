@@ -39,7 +39,7 @@ def main() -> int:
     model = FidelityResidualNetV9(cfg).to(device)
 
     # Identity contract remains exact even after adding the geometry branch.
-    x = torch.rand(1, 16, 32, 32, device=device)
+    x = torch.rand(1, 17, 32, 32, device=device)
     x[:, 3:5] = x[:, 3:5] * 2.0 - 1.0
     model.set_phase("sdf-bootstrap")
     with torch.no_grad():

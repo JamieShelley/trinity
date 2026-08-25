@@ -4,16 +4,126 @@
 
 namespace nsamdr
 {
+namespace
+{
+std::string NormalizePathForComparison(std::string path)
+{
+    std::replace(path.begin(), path.end(), '/', '\\');
+    return ToLowerAscii(std::move(path));
+}
+
+bool PathsMatch(const std::string& left, const std::string& right)
+{
+    return !left.empty() && !right.empty() &&
+        NormalizePathForComparison(left) == NormalizePathForComparison(right);
+}
+
+bool IsSha256(const std::string& value)
+{
+    return value.size() == 64U && std::all_of(value.begin(), value.end(), [](unsigned char character) {
+        return std::isxdigit(character) != 0;
+    });
+}
+
+bool IsReadableFile(const std::string& path)
+{
+    return !path.empty() && static_cast<bool>(std::ifstream(path, std::ios::binary));
+}
+
+bool ValidationPassed(const std::string& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    if (!input) return false;
+    const std::string payload{
+        std::istreambuf_iterator<char>(input),
+        std::istreambuf_iterator<char>()};
+    std::string compact;
+    compact.reserve(payload.size());
+    for (unsigned char character : payload)
+    {
+        if (std::isspace(character) == 0)
+            compact.push_back(static_cast<char>(std::tolower(character)));
+    }
+    return compact.find("\"passed\":true") != std::string::npos;
+}
+
+bool BaselineContainsAlbedo(
+    const PreviewResources& resources,
+    const std::string& rawAlbedoPath,
+    const std::string& provenancePath)
+{
+    if (PathsMatch(rawAlbedoPath, provenancePath)) return true;
+    return std::any_of(resources.areaMaterials.begin(), resources.areaMaterials.end(), [&](const AreaMaterialGpu& material) {
+        return material.hasAlbedo && PathsMatch(material.source.albedoPath, provenancePath);
+    });
+}
+
+bool CandidateContainsAlbedo(const CandidateAssetGpu& candidate, const std::string& provenancePath)
+{
+    return std::any_of(candidate.areaMaterials.begin(), candidate.areaMaterials.end(), [&](const AreaMaterialGpu& material) {
+        return material.hasAlbedo && PathsMatch(material.source.albedoPath, provenancePath);
+    });
+}
+
+bool CandidateUsesSourceDrawRanges(
+    const PreviewResources& resources,
+    const CandidateAssetGpu& candidate)
+{
+    return !resources.areaMaterials.empty() &&
+        std::all_of(candidate.areaMaterials.begin(), candidate.areaMaterials.end(), [&](const AreaMaterialGpu& material) {
+            return std::any_of(resources.areaMaterials.begin(), resources.areaMaterials.end(), [&](const AreaMaterialGpu& source) {
+                return source.source.groupIndex == material.source.groupIndex;
+            });
+        });
+}
+
+std::string ValidateFinalCandidateProvenance(
+    const PreviewResources& resources,
+    const std::string& rawAlbedoPath,
+    const CandidateAssetGpu& candidate)
+{
+    if (GetEnvironmentString("NSAMDR_PROVENANCE_STATUS") != "VERIFIED")
+        return "NSAMDR_PROVENANCE_STATUS is not VERIFIED";
+
+    const std::string sourcePath = GetEnvironmentString("NSAMDR_PROVENANCE_SOURCE");
+    const std::string sourceSha = GetEnvironmentString("NSAMDR_PROVENANCE_SOURCE_SHA");
+    const std::string candidatePath = GetEnvironmentString("NSAMDR_PROVENANCE_CANDIDATE");
+    const std::string candidateSha = GetEnvironmentString("NSAMDR_PROVENANCE_CANDIDATE_SHA");
+    const std::string provenanceFile = GetEnvironmentString("NSAMDR_PROVENANCE_FILE");
+    const std::string analysisFile = GetEnvironmentString("NSAMDR_FINAL_ANALYSIS");
+    const std::string validationFile = GetEnvironmentString("NSAMDR_FINAL_VALIDATION");
+    const std::string checkpointPath = GetEnvironmentString("NSAMDR_PREVIEW_CHECKPOINT");
+    const std::string checkpointSha = GetEnvironmentString("NSAMDR_PREVIEW_CHECKPOINT_SHA256");
+    const std::string authority = ToLowerAscii(GetEnvironmentString("NSAMDR_PREVIEW_AUTHORITY"));
+
+    if (!IsSha256(sourceSha)) return "source SHA-256 is missing or malformed";
+    if (!IsSha256(candidateSha)) return "candidate SHA-256 is missing or malformed";
+    if (!IsSha256(checkpointSha)) return "checkpoint SHA-256 is missing or malformed";
+    if (authority.find("final") == std::string::npos ||
+        authority.find("intermediate") != std::string::npos ||
+        authority.find("paused") != std::string::npos ||
+        authority.find("latest") != std::string::npos)
+        return "checkpoint authority is not a final selection";
+    if (!IsReadableFile(checkpointPath)) return "bound checkpoint is missing or unreadable";
+    if (!IsReadableFile(provenanceFile)) return "provenance evidence is missing or unreadable";
+    if (!IsReadableFile(analysisFile)) return "final analysis is missing or unreadable";
+    if (!ValidationPassed(validationFile)) return "final validation is missing or did not pass";
+    if (!BaselineContainsAlbedo(resources, rawAlbedoPath, sourcePath))
+        return "raw pane albedo does not match the proven source path";
+    if (!CandidateContainsAlbedo(candidate, candidatePath))
+        return "final pane albedo does not match the proven candidate path";
+    if (!CandidateUsesSourceDrawRanges(resources, candidate))
+        return "final material groups do not map to the raw source mesh draw ranges";
+    return {};
+}
+} // namespace
+
 PreviewProcessing::PreviewProcessing(
     PreviewRenderer& renderer,
     AssetProcessor& assetProcessor,
-    StrategyModes& strategyModes,
-    NSAMDRPipeline& pipeline,
     SceneController& sceneController)
     : m_renderer(renderer),
       m_assetProcessor(assetProcessor),
-      m_strategyModes(strategyModes),
-      m_pipeline(pipeline),
       m_sceneController(sceneController)
 {
 }
@@ -21,22 +131,31 @@ PreviewProcessing::PreviewProcessing(
 bool PreviewProcessing::LoadCandidates(
     ID3D11Device* device,
     ID3D11DeviceContext* context,
-    StrategyCandidateSet& candidates)
+    const PreviewResources& resources,
+    const std::string& rawAlbedoPath,
+    FinalCandidateSet& candidates)
 {
-    for (const StrategyDescriptor& descriptor : m_strategyModes.Registry())
+    CandidateAssetGpu& candidate = candidates.candidate;
+    if (!m_assetProcessor.LoadCandidateAsset(
+            device,
+            context,
+            "NSAMDR FINAL",
+            GetEnvironmentString("NSAMDR_FINAL_OBJ"),
+            GetEnvironmentString("NSAMDR_FINAL_MATERIALS"),
+            candidate))
     {
-        if (!descriptor.physicalCandidate) continue;
-        CandidateAssetGpu& candidate = candidates.At(static_cast<int>(descriptor.mode));
-        if (!m_assetProcessor.LoadCandidateAsset(
-                device,
-                context,
-                descriptor.candidateLabel,
-                GetEnvironmentString(descriptor.objEnvironment),
-                GetEnvironmentString(descriptor.materialsEnvironment),
-                candidate))
-        {
-            return false;
-        }
+        return false;
+    }
+    if (!candidate.available) return true;
+
+    const std::string provenanceFailure = ValidateFinalCandidateProvenance(
+        resources,
+        rawAlbedoPath,
+        candidate);
+    if (!provenanceFailure.empty())
+    {
+        candidate.available = false;
+        candidate.status = "provenance gate blocked NSAMDR FINAL: " + provenanceFailure;
     }
     return true;
 }
@@ -74,7 +193,7 @@ bool PreviewProcessing::InitializeState(
 void PreviewProcessing::PrintDiagnostics(
     const ObjMesh& mesh,
     const PreviewResources& resources,
-    const StrategyCandidateSet& candidates,
+    const FinalCandidateSet& candidates,
     const std::string& albedoPath,
     const std::string& normalPath,
     const std::string& pgsPath,
@@ -108,16 +227,10 @@ void PreviewProcessing::PrintDiagnostics(
     if (!resources.areaMaterials.empty())
         std::printf("  sofMaterials=%s (draws=%zu, groups=%zu)\n", materialManifestPath.c_str(), resources.areaMaterials.size(), mesh.drawRanges.size());
     else
-        std::printf("  sofMaterials=<legacy global fallback> (groups=%zu)\n", mesh.drawRanges.size());
+        std::printf("  sofMaterials=<global texture fallback> (groups=%zu)\n", mesh.drawRanges.size());
 
-    std::printf(
-        "  publicModes=1-3 splitCompare=available sharedCamera=true nsamdrConfigured=%s\n",
-        m_pipeline.IsConfigured(candidates) ? "true" : "false");
-    for (const StrategyDescriptor& descriptor : m_strategyModes.Registry())
-    {
-        if (!descriptor.physicalCandidate) continue;
-        PrintCandidate(static_cast<int>(descriptor.mode), candidates.At(static_cast<int>(descriptor.mode)));
-    }
+    std::printf("  comparison=A_RAW_SOURCE_vs_B_NSAMDR_FINAL sharedMesh=true sharedCamera=true sharedShader=true sharedSampler=true\n");
+    PrintCandidate(candidates.candidate);
 
     if (resources.hasEnvironment)
         std::printf("  environment=%s (%ux%u)\n", environmentPath.c_str(), resources.environmentWidth, resources.environmentHeight);
@@ -126,21 +239,19 @@ void PreviewProcessing::PrintDiagnostics(
 }
 
 
-void PreviewProcessing::PrintCandidate(int mode, const CandidateAssetGpu& candidate) const
+void PreviewProcessing::PrintCandidate(const CandidateAssetGpu& candidate) const
 {
     if (candidate.available)
     {
-        std::printf("  publicMode%dCandidate=loaded texture=%ux%u triangles=%u draws=%zu obj=%s\n",
-            mode,
+        std::printf("  finalCandidate=loaded provenance=verified texture=%ux%u draws=%zu obj=%s\n",
             candidate.maximumTextureWidth,
             candidate.maximumTextureHeight,
-            candidate.mesh.triangleCount,
             candidate.areaMaterials.size(),
             candidate.objPath.c_str());
     }
     else
     {
-        std::printf("  publicMode%dCandidate=unavailable reason=%s\n", mode, candidate.status.c_str());
+        std::printf("  finalCandidate=unavailable reason=%s\n", candidate.status.c_str());
     }
 }
 

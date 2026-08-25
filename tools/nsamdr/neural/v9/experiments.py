@@ -1,4 +1,4 @@
-"""Experiment registry and immutable configuration promotion for NSAMDR V9."""
+"""Canonical NSAMDR experiment registry and immutable-final helpers."""
 from __future__ import annotations
 
 import csv
@@ -9,43 +9,18 @@ import json
 from pathlib import Path
 import re
 import shutil
+import stat
 from typing import Any
 
 import torch
 
 from .config import V9Config
 
-LEGACY_EXPERIMENT_SCHEMA = "NSAMDR_V9_TUNING_EXPERIMENT_V1"
-EXPERIMENT_SCHEMA = "NSAMDR_V9_TUNING_EXPERIMENT_V2"
-CAPABILITY_SCHEMA = "NSAMDR_V9_MODEL_CAPABILITY_V1"
-PROMOTION_SCHEMA = "NSAMDR_V9_PROMOTED_CONFIG_V1"
+EXPERIMENT_SCHEMA = "NSAMDR_EXPERIMENT_V3"
+FINAL_MANIFEST_SCHEMA = "NSAMDR_PRODUCTION_FINAL_V1"
 EXPERIMENT_RE = re.compile(r"^EXP_(\d{4,})$")
 DEFAULT_TUNING_ASSET_NAME = "Raven Navy Issue"
 DEFAULT_TUNING_ASSET_QUERY = "res:/dx9/model/ship/caldari/battleship/cb1/cb1_t1.gr2"
-
-# These fields define the data/work scope rather than the learned algorithm.
-# Promotion restores them from the full-dataset base config while preserving
-# architecture, losses, learning rates, augmentation/degradation, batch size,
-# seed and all other tunable semantic settings from the chosen experiment.
-PRODUCTION_SCOPE_FIELDS = {
-    "dataset_manifest",
-    "dataset_root",
-    "max_families",
-    "crops_per_family",
-    "source_crop_size",
-    "min_source_dimension",
-    "min_auxiliary_dimension",
-    "validation_fraction",
-    "require_complete_pbr_family",
-    "tiles_per_epoch",
-    "validation_tiles",
-    "output_dir",
-    "checkpoint_name",
-    "metadata_name",
-    "training_state_name",
-    "diagnostics_dir_name",
-}
-
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -55,15 +30,46 @@ def experiments_root(repo_root: Path) -> Path:
     return repo_root / "artifacts" / "nsamdr" / "experiments"
 
 
-def promoted_root(repo_root: Path) -> Path:
-    return repo_root / "artifacts" / "nsamdr" / "promoted"
-
-
 def experiment_dir(repo_root: Path, experiment_id: str) -> Path:
     value = str(experiment_id).strip().upper()
     if EXPERIMENT_RE.fullmatch(value) is None:
         raise ValueError(f"invalid experiment id: {experiment_id!r}")
     return experiments_root(repo_root) / value
+
+
+def ensure_experiment_layout(directory: Path) -> None:
+    """Create the canonical directories shared by Quick and Full experiments."""
+    for name in ("metrics", "checkpoints", "evidence", "previews"):
+        (directory / name).mkdir(parents=True, exist_ok=True)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _is_read_only(path: Path) -> bool:
+    return not bool(path.stat().st_mode & stat.S_IWRITE)
+
+
+def _make_read_only(path: Path) -> None:
+    path.chmod(path.stat().st_mode & ~stat.S_IWRITE & ~stat.S_IWGRP & ~stat.S_IWOTH)
+
+
+def _resolved_within(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def is_production_selection_kind(value: object) -> bool:
+    """Accept only the trainer's canonical final production authority."""
+    return str(value or "").strip().lower() == "production-final"
 
 
 def list_experiments(repo_root: Path, *, completed_only: bool = False) -> list[str]:
@@ -77,8 +83,11 @@ def list_experiments(repo_root: Path, *, completed_only: bool = False) -> list[s
         match = EXPERIMENT_RE.fullmatch(path.name.upper())
         if match is None:
             continue
-        if completed_only and not (path / "checkpoint_best.pt").is_file():
-            continue
+        if completed_only:
+            try:
+                load_final_manifest(repo_root, path.name, require_qualified=True)
+            except (OSError, RuntimeError, ValueError):
+                continue
         result.append((int(match.group(1)), path.name.upper()))
     return [name for _number, name in sorted(result)]
 
@@ -97,6 +106,7 @@ def allocate_experiment(repo_root: Path) -> tuple[str, Path]:
         path = root / experiment_id
         try:
             path.mkdir(parents=False, exist_ok=False)
+            ensure_experiment_layout(path)
             return experiment_id, path
         except FileExistsError:
             number += 1
@@ -108,15 +118,8 @@ def load_experiment_manifest(repo_root: Path, experiment_id: str) -> dict[str, A
         raise RuntimeError(f"experiment manifest is missing: {path}")
     payload = json.loads(path.read_text(encoding="utf-8"))
     schema = payload.get("schema")
-    if schema not in {LEGACY_EXPERIMENT_SCHEMA, EXPERIMENT_SCHEMA}:
+    if schema != EXPERIMENT_SCHEMA:
         raise RuntimeError(f"unsupported experiment manifest schema: {schema!r}")
-    if schema == LEGACY_EXPERIMENT_SCHEMA:
-        # Pre-4.1 tuning experiments were always the complete 24-epoch Raven
-        # proof, so preserve them as Full experiments rather than invalidating
-        # checkpoints created before the Quick mode existed.
-        payload["schema"] = EXPERIMENT_SCHEMA
-        payload.setdefault("trainingMode", "full")
-        payload.setdefault("promotionEligible", True)
     return payload
 
 
@@ -124,10 +127,255 @@ def write_experiment_manifest(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _promotion_eligible(training_mode: str, config: V9Config) -> bool:
-    # V9.4 is deliberately geometry-only until A/B proof succeeds.  A Full run
-    # is still non-promotable while AppearanceNet is disabled.
-    return str(training_mode).lower() == "full" and bool(config.appearance_enabled)
+def write_final_manifest(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def load_final_manifest(
+    repo_root: Path,
+    experiment_id: str,
+    *,
+    require_qualified: bool = True,
+) -> dict[str, Any]:
+    """Load and verify the exact immutable production checkpoint binding."""
+    directory = experiment_dir(repo_root, experiment_id)
+    path = directory / "final_manifest.json"
+    if not path.is_file():
+        raise RuntimeError(f"experiment has no final manifest: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("schema") != FINAL_MANIFEST_SCHEMA:
+        raise RuntimeError(f"unsupported final manifest schema: {payload.get('schema')!r}")
+    if str(payload.get("experiment") or "").upper() != experiment_id.upper():
+        raise RuntimeError(f"final manifest experiment mismatch: {path}")
+    if require_qualified and (
+        payload.get("status") != "completed" or payload.get("qualified") is not True
+    ):
+        raise RuntimeError(
+            f"experiment final is not qualified: {experiment_id} "
+            f"(status={payload.get('status')!r})"
+        )
+    checkpoint = payload.get("checkpoint")
+    if not isinstance(checkpoint, dict):
+        raise RuntimeError(f"final manifest has no checkpoint binding: {path}")
+    checkpoint_path = Path(str(checkpoint.get("path") or ""))
+    if not checkpoint_path.is_absolute():
+        checkpoint_path = directory / checkpoint_path
+    checkpoint_path = checkpoint_path.resolve()
+    final_root = (directory / "checkpoints" / "final").resolve()
+    if not _resolved_within(checkpoint_path, final_root) or not checkpoint_path.is_file():
+        raise RuntimeError(f"final checkpoint is missing or outside canonical final directory: {checkpoint_path}")
+    expected_sha = str(checkpoint.get("sha256") or "").strip().lower()
+    actual_sha = sha256_file(checkpoint_path)
+    if not expected_sha or actual_sha != expected_sha:
+        raise RuntimeError(
+            f"final checkpoint SHA-256 mismatch: expected={expected_sha or '<missing>'} "
+            f"actual={actual_sha} path={checkpoint_path}"
+        )
+    if not _is_read_only(checkpoint_path):
+        raise RuntimeError(f"final checkpoint is not immutable/read-only: {checkpoint_path}")
+    selection = checkpoint.get("sourceSelectionKind") or checkpoint.get("selectionKind")
+    if require_qualified and not is_production_selection_kind(selection):
+        raise RuntimeError(f"final checkpoint is not selector-qualified: {selection!r}")
+    payload["_checkpointPath"] = str(checkpoint_path)
+    return payload
+
+
+def freeze_final_checkpoint(
+    repo_root: Path,
+    experiment_id: str,
+    *,
+    source_checkpoint: Path,
+    source_metadata: Path,
+    preflight_path: Path,
+) -> dict[str, Any]:
+    """Freeze the trained full-state checkpoint and write its exact SHA binding.
+
+    The manifest is deliberately pending until postflight and an uncached
+    production forward qualify the frozen bytes. A later call may validate and
+    reuse the same immutable copy, but never overwrite it.
+    """
+    directory = experiment_dir(repo_root, experiment_id)
+    ensure_experiment_layout(directory)
+    source_checkpoint = source_checkpoint.resolve()
+    source_metadata = source_metadata.resolve()
+    if not _resolved_within(source_checkpoint, directory) or not source_checkpoint.is_file():
+        raise RuntimeError(f"trained checkpoint is missing or outside experiment: {source_checkpoint}")
+    if not _resolved_within(source_metadata, directory) or not source_metadata.is_file():
+        raise RuntimeError(f"trained checkpoint metadata is missing or outside experiment: {source_metadata}")
+
+    try:
+        checkpoint_payload = torch.load(source_checkpoint, map_location="cpu", weights_only=False)
+    except TypeError:
+        checkpoint_payload = torch.load(source_checkpoint, map_location="cpu")
+    if not isinstance(checkpoint_payload, dict) or not isinstance(checkpoint_payload.get("state_dict"), dict):
+        raise RuntimeError(f"trained checkpoint has no complete production state_dict: {source_checkpoint}")
+    selection_kind = str(checkpoint_payload.get("selection_kind") or "").strip()
+    if not is_production_selection_kind(selection_kind):
+        raise RuntimeError(
+            "training did not produce the production-final checkpoint; "
+            f"selection_kind={selection_kind or '<missing>'!r}. Renderer remains blocked."
+        )
+    trainer_qualification = checkpoint_payload.get("final_qualification")
+    if not isinstance(trainer_qualification, dict) or trainer_qualification.get("passed") is not True:
+        raise RuntimeError(
+            "training did not embed passing strict-load, uncached direct-forward final qualification"
+        )
+    cache_equivalence = checkpoint_payload.get("cache_equivalence")
+    if not isinstance(cache_equivalence, dict) or cache_equivalence.get("passed") is not True:
+        raise RuntimeError("training did not embed passing cached-versus-uncached equivalence evidence")
+
+    source_sha = sha256_file(source_checkpoint)
+    metadata_payload = json.loads(source_metadata.read_text(encoding="utf-8"))
+    metadata_sha = str(metadata_payload.get("checkpointSha256") or "").strip().lower()
+    if metadata_sha != source_sha:
+        raise RuntimeError(
+            f"checkpoint metadata SHA-256 mismatch: expected={source_sha} actual={metadata_sha or '<missing>'}"
+        )
+    if metadata_payload.get("schema") != checkpoint_payload.get("schema"):
+        raise RuntimeError("checkpoint metadata schema differs from the checkpoint payload schema")
+    final_dir = directory / "checkpoints" / "final"
+    final_dir.mkdir(parents=True, exist_ok=True)
+    final_checkpoint = final_dir / "nsamdr_v9_fidelity.pt"
+    final_metadata = final_dir / "nsamdr_v9_fidelity.json"
+    for source, target in ((source_checkpoint, final_checkpoint), (source_metadata, final_metadata)):
+        if target.exists():
+            if not target.is_file() or sha256_file(target) != sha256_file(source):
+                raise RuntimeError(f"refusing to replace an existing immutable final artifact: {target}")
+        else:
+            shutil.copy2(source, target)
+
+    copied_sha = sha256_file(final_checkpoint)
+    copied_metadata_sha = sha256_file(final_metadata)
+    if copied_sha != source_sha or copied_metadata_sha != sha256_file(source_metadata):
+        raise RuntimeError(
+            f"immutable checkpoint copy mismatch: source={source_sha} copy={copied_sha}"
+        )
+    _make_read_only(final_checkpoint)
+    _make_read_only(final_metadata)
+    frozen_sha = sha256_file(final_checkpoint)
+    if frozen_sha != source_sha or not _is_read_only(final_checkpoint):
+        raise RuntimeError(f"immutable checkpoint freeze verification failed: {final_checkpoint}")
+
+    config_path = directory / "resolved_config.json"
+    config_sha = sha256_file(config_path)
+    config = load_resolved_config(repo_root, experiment_id)
+    dataset_manifest = Path(config.dataset_manifest)
+    if not dataset_manifest.is_absolute():
+        dataset_manifest = repo_root / dataset_manifest
+    dataset_payload = (
+        json.loads(dataset_manifest.read_text(encoding="utf-8"))
+        if dataset_manifest.is_file() else {}
+    )
+    experiment = load_experiment_manifest(repo_root, experiment_id)
+    payload: dict[str, Any] = {
+        "schema": FINAL_MANIFEST_SCHEMA,
+        "experiment": experiment_id,
+        "status": "frozen-pending-qualification",
+        "qualified": False,
+        "createdUtc": _utc_now(),
+        "trainingMode": str(experiment.get("trainingMode") or ""),
+        "modelSchema": checkpoint_payload.get("schema"),
+        "selectionKind": "production-final",
+        "checkpoint": {
+            "path": str(final_checkpoint.relative_to(directory)).replace("\\", "/"),
+            "metadataPath": str(final_metadata.relative_to(directory)).replace("\\", "/"),
+            "metadataSha256": copied_metadata_sha,
+            "sha256": frozen_sha,
+            "sizeBytes": final_checkpoint.stat().st_size,
+            "readOnly": True,
+            "immutable": True,
+            "schema": checkpoint_payload.get("schema"),
+            "selectionKind": "production-final",
+            "sourceSelectionKind": selection_kind,
+            "strictStateDictRequired": True,
+        },
+        "config": {
+            "path": "resolved_config.json",
+            "sha256": config_sha,
+        },
+        "dataset": {
+            "manifest": str(dataset_manifest),
+            "fingerprint": dataset_payload.get("fingerprint"),
+            "sourceFingerprint": dataset_payload.get("sourceFingerprint"),
+        },
+        "architecture": {
+            "preflight": str(preflight_path.relative_to(directory)).replace("\\", "/"),
+            "participation": "architecture_participation.json",
+            "postflightPass": False,
+            "uncachedProductionForwardPass": False,
+        },
+        "candidate": None,
+        "renderer": {"status": "not-launched"},
+    }
+    write_final_manifest(directory / "final_manifest.json", payload)
+    return payload
+
+
+def qualify_final_manifest(repo_root: Path, experiment_id: str, participation_path: Path) -> dict[str, Any]:
+    """Mark frozen bytes qualified only after the architecture postflight passes."""
+    directory = experiment_dir(repo_root, experiment_id)
+    manifest_path = directory / "final_manifest.json"
+    participation_path = participation_path.resolve()
+    expected_participation = (directory / "architecture_participation.json").resolve()
+    if participation_path != expected_participation:
+        raise RuntimeError(
+            f"architecture participation report must use the canonical path: {expected_participation}"
+        )
+    if not participation_path.is_file():
+        raise RuntimeError(f"architecture participation report is missing: {participation_path}")
+    participation = json.loads(participation_path.read_text(encoding="utf-8"))
+    payload = load_final_manifest(repo_root, experiment_id, require_qualified=False)
+    checkpoint_path = Path(str(payload["_checkpointPath"])).resolve()
+    checkpoint_sha = str(payload["checkpoint"]["sha256"]).strip().lower()
+    reported_checkpoint = Path(str(participation.get("checkpoint") or "")).resolve()
+    trainer_qualification = participation.get("trainerFinalQualification")
+    cache_equivalence = participation.get("cacheEquivalence")
+    qualification_checks = {
+        "postflight pass": participation.get("pass") is True,
+        "checkpoint path": reported_checkpoint == checkpoint_path,
+        "checkpoint SHA-256": str(participation.get("checkpointSha256") or "").lower() == checkpoint_sha,
+        "manifest SHA-256": str(participation.get("manifestCheckpointSha256") or "").lower() == checkpoint_sha,
+        "model schema": str(participation.get("schema") or "") == str(payload.get("modelSchema") or ""),
+        "checkpoint schema": str(participation.get("checkpointSchema") or "") == str(payload.get("modelSchema") or ""),
+        "manifest schema": str(participation.get("manifestSchema") or "") == str(payload.get("modelSchema") or ""),
+        "production selection": participation.get("selectionKind") == "production-final",
+        "strict state load": participation.get("strictStateDictLoad") is True,
+        "trainer final qualification": isinstance(trainer_qualification, dict)
+        and trainer_qualification.get("passed") is True,
+        "cache equivalence": isinstance(cache_equivalence, dict)
+        and cache_equivalence.get("passed") is True,
+    }
+    failed_checks = [label for label, passed in qualification_checks.items() if not passed]
+    if failed_checks:
+        raise RuntimeError(
+            "architecture postflight does not bind and qualify the frozen final checkpoint: "
+            + ", ".join(failed_checks)
+        )
+    payload.pop("_checkpointPath", None)
+    payload["status"] = "completed"
+    payload["qualified"] = True
+    payload["qualifiedUtc"] = _utc_now()
+    architecture = payload.setdefault("architecture", {})
+    architecture["participation"] = str(participation_path.relative_to(directory)).replace("\\", "/")
+    architecture["postflightPass"] = True
+    architecture["uncachedProductionForwardPass"] = bool(
+        participation.get("uncachedProductionForwardPass", participation.get("pass"))
+    )
+    write_final_manifest(manifest_path, payload)
+
+    experiment = load_experiment_manifest(repo_root, experiment_id)
+    experiment.update(
+        {
+            "status": "completed",
+            "completedUtc": _utc_now(),
+            "qualified": True,
+            "finalManifest": str(manifest_path),
+            "finalCheckpoint": str(payload["checkpoint"]["path"]),
+            "finalCheckpointSha256": str(payload["checkpoint"]["sha256"]),
+        }
+    )
+    write_experiment_manifest(directory / "experiment.json", experiment)
+    return payload
 
 
 def config_sha256(config: V9Config) -> str:
@@ -147,6 +395,7 @@ def initialise_experiment(
     training_mode: str = "full",
 ) -> tuple[str, Path, V9Config]:
     experiment_id, directory = allocate_experiment(repo_root)
+    ensure_experiment_layout(directory)
     config = V9Config.load(base_config_path)
     for key, value in requested_overrides.items():
         if not hasattr(config, key):
@@ -178,7 +427,6 @@ def initialise_experiment(
         "createdUtc": _utc_now(),
         "preset": preset,
         "trainingMode": training_mode,
-        "promotionEligible": _promotion_eligible(training_mode, config),
         "baseConfig": str(base_config_path),
         "requestedOverrides": requested_overrides,
         "asset": {
@@ -199,10 +447,9 @@ def initialise_experiment(
             **requested,
             "status": "created",
             "resolvedConfigSha256": config_sha256(config),
-            "modelScope": "tuning",
+            "modelScope": "production",
             "trainingMode": training_mode,
-            "promotionEligible": _promotion_eligible(training_mode, config),
-            "fullProduction": False,
+            "fullProduction": True,
         },
     )
     return experiment_id, directory, config
@@ -213,38 +460,6 @@ def load_resolved_config(repo_root: Path, experiment_id: str) -> V9Config:
     if not path.is_file():
         raise RuntimeError(f"experiment resolved config is missing: {path}")
     return V9Config.load(path)
-
-
-def capability_payload(
-    experiment_id: str,
-    *,
-    asset_name: str,
-    asset_query: str,
-    selection_key: str,
-    training_mode: str = "full",
-    appearance_enabled: bool = False,
-) -> dict[str, Any]:
-    promotion_eligible = str(training_mode).lower() == "full" and bool(appearance_enabled)
-    return {
-        "schema": CAPABILITY_SCHEMA,
-        "modelScope": "tuning",
-        "fullProduction": False,
-        "experiment": experiment_id,
-        "trainingMode": training_mode,
-        "promotionEligible": promotion_eligible,
-        "supportedAssets": [
-            {
-                "displayName": asset_name,
-                "query": asset_query,
-                "selectionKey": selection_key,
-            }
-        ],
-        "lockedCapabilities": [
-            "all-ships-preview",
-            "full-dataset-inference",
-            "production-release",
-        ],
-    }
 
 
 def _flatten_metrics(prefix: str, value: Any, row: dict[str, Any]) -> None:
@@ -265,6 +480,7 @@ def finalise_experiment(
     training_mode: str = "full",
 ) -> dict[str, Any]:
     directory = experiment_dir(repo_root, experiment_id)
+    ensure_experiment_layout(directory)
     config = load_resolved_config(repo_root, experiment_id)
     checkpoint_path = directory / config.checkpoint_name
     state_path = directory / config.training_state_name
@@ -278,8 +494,8 @@ def finalise_experiment(
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
     history = list(checkpoint.get("history", [])) if isinstance(checkpoint, dict) else []
 
-    best_copy = directory / "checkpoint_best.pt"
-    shutil.copy2(checkpoint_path, best_copy)
+    training_best = directory / "checkpoints" / "training_best.pt"
+    shutil.copy2(checkpoint_path, training_best)
 
     if state_path.is_file():
         try:
@@ -299,18 +515,19 @@ def finalise_experiment(
             "dataset_fingerprint": state.get("dataset_fingerprint"),
             "history": history,
         }
-        torch.save(latest_payload, directory / "checkpoint_latest.pt")
+        torch.save(latest_payload, directory / "checkpoints" / "training_latest.pt")
 
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     metrics_payload = {
         **metadata,
         "experiment": experiment_id,
-        "modelScope": "tuning",
+        "modelScope": "production",
         "supportedAsset": asset_name,
         "resolvedConfigSha256": config_sha256(config),
         "epochCount": len(history),
     }
-    (directory / "metrics.json").write_text(
+    metrics_copy = directory / "metrics" / "summary.json"
+    metrics_copy.write_text(
         json.dumps(metrics_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
 
@@ -326,32 +543,16 @@ def finalise_experiment(
             writer.writeheader()
             writer.writerows(flattened)
 
-    previews = directory / "previews"
-    previews.mkdir(parents=True, exist_ok=True)
-    capability = capability_payload(
-        experiment_id,
-        asset_name=asset_name,
-        asset_query=asset_query,
-        selection_key=selection_key,
-        training_mode=training_mode,
-        appearance_enabled=config.appearance_enabled,
-    )
-    (directory / "capabilities.json").write_text(
-        json.dumps(capability, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-
     manifest = load_experiment_manifest(repo_root, experiment_id)
     manifest.update(
         {
-            "status": "completed",
+            "status": "trained-pending-qualification",
             "trainingMode": training_mode,
-            "promotionEligible": _promotion_eligible(training_mode, config),
             "completedUtc": _utc_now(),
-            "checkpointBest": str(best_copy),
+            "checkpointBest": str(training_best),
             "checkpointCanonical": str(checkpoint_path),
-            "metrics": str(directory / "metrics.json"),
+            "metrics": str(metrics_copy),
             "trainingLog": str(directory / "training_log.csv"),
-            "capabilities": str(directory / "capabilities.json"),
             "bestEpoch": metadata.get("bestEpoch"),
             "bestValidationTotal": metadata.get("bestValidationTotal"),
             "trainingSafetyPass": metadata.get("trainingSafetyPass", metadata.get("acceptancePass")),
@@ -372,122 +573,3 @@ def latest_validation_contact_sheet(repo_root: Path, experiment_id: str) -> Path
     if not candidates:
         raise RuntimeError(f"experiment has no validation contact sheet: {experiment_id}")
     return candidates[-1]
-
-
-def selected_promotion(repo_root: Path) -> dict[str, Any] | None:
-    path = promoted_root(repo_root) / "selected_experiment.json"
-    if not path.is_file():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if payload.get("schema") != PROMOTION_SCHEMA:
-        return None
-    return payload
-
-
-def promote_experiment(
-    repo_root: Path,
-    experiment_id: str,
-    *,
-    full_base_config_path: Path,
-) -> tuple[Path, dict[str, Any]]:
-    experiment_id = experiment_id.upper()
-    directory = experiment_dir(repo_root, experiment_id)
-    if not (directory / "checkpoint_best.pt").is_file():
-        raise RuntimeError(f"experiment is not complete and cannot be promoted: {experiment_id}")
-    manifest = load_experiment_manifest(repo_root, experiment_id)
-    resolved_for_promotion = load_resolved_config(repo_root, experiment_id)
-    if not bool(resolved_for_promotion.appearance_enabled):
-        raise RuntimeError(
-            f"{experiment_id} is a V9.4 geometry-only proof and cannot be promoted. "
-            "First prove GeometryNet A/B quality, then enable/train the frozen-geometry appearance stage."
-        )
-    if str(manifest.get("trainingMode") or "").lower() != "full" or not bool(manifest.get("promotionEligible")):
-        raise RuntimeError(
-            f"{experiment_id} is not an eligible Full promotion-proof experiment. "
-            "Run Stage 1 in Full / promotion proof mode using an appearance-enabled proven configuration first."
-        )
-    if not bool(manifest.get("trainingSafetyPass", manifest.get("acceptancePass"))):
-        raise RuntimeError(
-            f"{experiment_id} failed the training safety gate and cannot be promoted. "
-            f"regressionFraction={manifest.get('acceptanceRegressionFraction')}"
-        )
-    if not bool(manifest.get("reconstructionAcceptancePass")):
-        raise RuntimeError(
-            f"{experiment_id} has not passed the staged reconstruction acceptance gate and cannot be promoted. "
-            f"geometryVerdict={manifest.get('combinedGeometryAuditVerdict')}"
-        )
-    preview_manifest = directory / "previews" / "preview_manifest.json"
-    if not preview_manifest.is_file():
-        raise RuntimeError(
-            f"experiment has not been Raven-previewed and cannot be promoted: {experiment_id}. "
-            "Run Stage 1 Full / promotion proof and complete the renderer preview first."
-        )
-    preview_payload = json.loads(preview_manifest.read_text(encoding="utf-8"))
-    quality_gate = preview_payload.get("qualityGate", {})
-    if (
-        preview_payload.get("status") != "completed"
-        or not bool(quality_gate.get("trainingSafetyPass", quality_gate.get("acceptancePass")))
-        or not bool(quality_gate.get("reconstructionAcceptancePass"))
-    ):
-        raise RuntimeError(
-            f"{experiment_id} renderer preview exists but its training/reconstruction quality gates did not pass; promotion is locked."
-        )
-
-    tuned = load_resolved_config(repo_root, experiment_id)
-    full_base = V9Config.load(full_base_config_path)
-    promoted = V9Config.load(directory / "resolved_config.json")
-    restored: dict[str, Any] = {}
-    for field in sorted(PRODUCTION_SCOPE_FIELDS):
-        value = getattr(full_base, field)
-        setattr(promoted, field, value)
-        restored[field] = value
-    promoted.validate()
-
-    root = promoted_root(repo_root)
-    root.mkdir(parents=True, exist_ok=True)
-    config_path = root / f"v9_full_from_{experiment_id}.json"
-    promoted_payload = promoted.to_dict()
-    # Traceability metadata is intentionally ignored by V9Config.load but
-    # travels with the promoted JSON so a production config is self-identifying.
-    promoted_payload.update(
-        {
-            "source_experiment": experiment_id,
-            "promotion_schema": PROMOTION_SCHEMA,
-            "source_resolved_config_sha256": config_sha256(tuned),
-        }
-    )
-    config_path.write_text(
-        json.dumps(promoted_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-
-    semantic_tuned = tuned.to_dict()
-    semantic_promoted = promoted.to_dict()
-    for field in PRODUCTION_SCOPE_FIELDS:
-        semantic_tuned.pop(field, None)
-        semantic_promoted.pop(field, None)
-    if semantic_tuned != semantic_promoted:
-        raise RuntimeError("promotion altered one or more tuned semantic hyperparameters")
-
-    record = {
-        "schema": PROMOTION_SCHEMA,
-        "promotedUtc": _utc_now(),
-        "sourceExperiment": experiment_id,
-        "sourceResolvedConfig": str(directory / "resolved_config.json"),
-        "sourceResolvedConfigSha256": config_sha256(tuned),
-        "promotedConfig": str(config_path),
-        "promotedConfigSha256": config_sha256(promoted),
-        "fullBaseConfig": str(full_base_config_path),
-        "restoredProductionScopeFields": restored,
-        "semanticHyperparametersPreservedExactly": True,
-    }
-    pointer = root / "selected_experiment.json"
-    pointer.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-    manifest = load_experiment_manifest(repo_root, experiment_id)
-    manifest["promotedUtc"] = record["promotedUtc"]
-    manifest["promotedConfig"] = str(config_path)
-    write_experiment_manifest(directory / "experiment.json", manifest)
-    return config_path, record

@@ -1050,6 +1050,21 @@ def source_path(resfiles: Path, row: ResourceRow) -> Path:
     return resfiles / Path(row.hashed)
 
 
+def _same_size_file(source: Path, destination: Path) -> bool:
+    """Return True when an already-copied cache resource can be reused safely.
+
+    EVE background assets are immutable content-addressed files. Re-opening hundreds
+    of existing DDS destinations on every Raven dataset probe is unnecessary and,
+    on Windows, can also fail if another process momentarily has one of those files
+    open. Size equality is sufficient here because the source path itself is the
+    indexed content-addressed cache object.
+    """
+    try:
+        return destination.is_file() and destination.stat().st_size == source.stat().st_size
+    except OSError:
+        return False
+
+
 def copy_resource(resfiles: Path, row: ResourceRow, output_dir: Path) -> Path:
     source = source_path(resfiles, row)
     if not source.is_file():
@@ -1061,8 +1076,25 @@ def copy_resource(resfiles: Path, row: ResourceRow, output_dir: Path) -> Path:
     logical_name = row.logical.rsplit("/", 1)[-1]
     destination = output_dir / logical_name
     output_dir.mkdir(parents=True, exist_ok=True)
+    if _same_size_file(source, destination):
+        return destination
     shutil.copy2(source, destination)
     return destination
+
+
+def _copy_optional_resource(
+    resfiles: Path,
+    row: ResourceRow,
+    output_dir: Path,
+    *,
+    kind: str,
+) -> Path | None:
+    """Best-effort copy for non-authoritative preview environment resources."""
+    try:
+        return copy_resource(resfiles, row, output_dir)
+    except (OSError, RuntimeError) as exc:
+        print(f"WARNING: Optional EVE {kind} copy skipped for {row.logical}: {exc}", flush=True)
+        return None
 
 
 def find_command(names: list[str]) -> str:
@@ -2098,11 +2130,20 @@ def prepare_asset(
     asset_name = Path(model.logical.rsplit("/", 1)[-1]).stem
     output_dir = repo_root / "artifacts" / "nsamdr" / "eve_assets" / asset_name
     gr2_path = copy_resource(resfiles, model, output_dir)
-    copied_environment_scene = copy_resource(resfiles, environment_scene, output_dir) if environment_scene else None
+    copied_environment_scene = (
+        _copy_optional_resource(resfiles, environment_scene, output_dir, kind="environment scene")
+        if environment_scene else None
+    )
+
     copied_environment_textures: list[tuple[ResourceRow, Path]] = []
-    for index, row in enumerate(environment_textures):
-        copied_environment_textures.append((row, copy_resource(resfiles, row, output_dir / "backgrounds")))
+    for row in environment_textures:
+        # Backgrounds are preview context, not reconstruction/training authority.
+        # One bad/locked destination must not abort the fixed Raven dataset.
+        copied = _copy_optional_resource(resfiles, row, output_dir / "backgrounds", kind="background")
+        if copied is not None:
+            copied_environment_textures.append((row, copied))
     copied_environment_texture = copied_environment_textures[0][1] if copied_environment_textures else None
+    copied_environment_row = copied_environment_textures[0][0] if copied_environment_textures else None
     copied: dict[str, Path] = {}
     for kind, row in textures.items():
         copied[kind] = copy_resource(resfiles, row, output_dir)
@@ -2195,8 +2236,14 @@ def prepare_asset(
         "normalPng": str(converted_textures.get("normal")) if converted_textures.get("normal") else None,
         "pgsPng": str(converted_textures.get("pgs")) if converted_textures.get("pgs") else None,
         "environment": {
-            "scene": {**asdict(environment_scene), "local": str(copied_environment_scene)} if environment_scene else None,
-            "texture": {**asdict(environment_texture), "local": str(copied_environment_texture)} if environment_texture else None,
+            "scene": (
+                {**asdict(environment_scene), "local": str(copied_environment_scene)}
+                if environment_scene and copied_environment_scene else None
+            ),
+            "texture": (
+                {**asdict(copied_environment_row), "local": str(copied_environment_texture)}
+                if copied_environment_row and copied_environment_texture else None
+            ),
             "converted": str(environment_png) if environment_png else None,
         },
         "environments": environment_records,
@@ -2259,11 +2306,11 @@ def launch_preview(
         provenance = strategy_candidates.get("controlProvenance", {})
         primary = provenance.get("primaryAlbedo", {}) if isinstance(provenance, dict) else {}
         env.update({
-            "NSAMDR_MODE3_OBJ": str(strategy_candidates.get("mode3Obj", "")),
-            "NSAMDR_MODE3_MATERIALS": str(strategy_candidates.get("mode3Materials", "")),
-            "NSAMDR_MODE3_ANALYSIS": str(strategy_candidates.get("mode3Analysis", "")),
-            "NSAMDR_MODE3_VALIDATION": str(strategy_candidates.get("mode3Validation", "")),
-            "NSAMDR_STRATEGY_CANDIDATES": str(Path(str(strategy_candidates.get("reportPath", ""))) if strategy_candidates.get("reportPath") else ""),
+            "NSAMDR_FINAL_OBJ": str(strategy_candidates.get("candidateObj", "")),
+            "NSAMDR_FINAL_MATERIALS": str(strategy_candidates.get("candidateMaterials", "")),
+            "NSAMDR_FINAL_ANALYSIS": str(strategy_candidates.get("candidateAnalysis", "")),
+            "NSAMDR_FINAL_VALIDATION": str(strategy_candidates.get("candidateValidation", "")),
+            "NSAMDR_CANDIDATE_MANIFEST": str(Path(str(strategy_candidates.get("reportPath", ""))) if strategy_candidates.get("reportPath") else ""),
             "NSAMDR_PROVENANCE_STATUS": "VERIFIED" if isinstance(provenance, dict) and provenance.get("verified") else "FAILED",
             "NSAMDR_PROVENANCE_FILE": str(strategy_candidates.get("controlProvenancePath", "")),
             "NSAMDR_PROVENANCE_SOURCE": str(primary.get("sourcePath", "")) if isinstance(primary, dict) else "",
@@ -2298,82 +2345,29 @@ def command_prepare_run(args: argparse.Namespace) -> int:
 
     strategy_candidates: dict[str, object] | None = None
     if material_manifest and material_manifest.is_file():
-        generator = repo_root / "tools" / "nsamdr" / "generate_strategy_candidates.py"
-        raw_target_size = os.environ.get("NSAMDR_MODE3_TARGET_SIZE", "4096").strip()
-        try:
-            target_size = int(raw_target_size)
-        except ValueError as error:
+        candidate_manifest_raw = os.environ.get("NSAMDR_CANDIDATE_MANIFEST", "").strip()
+        if not candidate_manifest_raw:
             raise RuntimeError(
-                f"NSAMDR_MODE3_TARGET_SIZE must be an integer, got {raw_target_size!r}"
-            ) from error
-        if not 512 <= target_size <= 4096:
+                "Direct EVE candidate generation is not a production checkpoint-selection path. "
+                r"Use scripts\build\nsamdr.bat preview EXP_####."
+            )
+        candidate_report = Path(candidate_manifest_raw).resolve()
+        if not candidate_report.is_file():
+            raise RuntimeError(f"NSAMDR candidate manifest is missing: {candidate_report}")
+        strategy_candidates = json.loads(candidate_report.read_text(encoding="utf-8"))
+        required = (
+            "candidateObj",
+            "candidateMaterials",
+            "candidateAnalysis",
+            "candidateValidation",
+            "checkpointSha256",
+        )
+        missing = [key for key in required if not str(strategy_candidates.get(key, "")).strip()]
+        if missing:
             raise RuntimeError(
-                f"NSAMDR_MODE3_TARGET_SIZE must be from 512 to 4096, got {target_size}"
+                "NSAMDR candidate manifest is incomplete; missing: " + ", ".join(missing)
             )
-        candidate_tag = re.sub(
-            r"[^A-Za-z0-9_-]+",
-            "_",
-            os.environ.get("NSAMDR_MODE3_CANDIDATE_TAG", "").strip(),
-        ).strip("_")
-        if candidate_tag:
-            candidate_root = obj_path.parent / f"strategy_candidates_{candidate_tag}_{target_size}"
-        else:
-            candidate_root = obj_path.parent / f"strategy_candidates_{target_size}"
-        candidate_report = candidate_root / "strategy_candidates.json"
-        if generator.is_file():
-            neural_python_candidates = [
-                repo_root / "artifacts" / "nsamdr" / "python-env" / "Scripts" / "python.exe",
-                repo_root / "artifacts" / "nsamdr" / "python-env-cpu" / "Scripts" / "python.exe",
-            ]
-            candidate_python = next((path for path in neural_python_candidates if path.is_file()), Path(sys.executable))
-            command = [
-                str(candidate_python),
-                str(generator),
-                "--obj", str(obj_path),
-                "--materials", str(material_manifest),
-                "--asset-manifest", str(manifest),
-                "--output-root", str(candidate_root),
-                "--target-size", str(target_size),
-                "--install-dependencies",
-            ]
-            inference_device = os.environ.get(
-                "NSAMDR_INFERENCE_DEVICE", "cuda"
-            ).strip().lower()
-            if inference_device not in {"auto", "cuda", "cpu"}:
-                raise RuntimeError(
-                    "NSAMDR_INFERENCE_DEVICE must be auto, cuda, or cpu"
-                )
-            command.extend(("--inference-device", inference_device))
-            print(
-                f"Mode 3 candidate target/device: {target_size} / {inference_device}",
-                flush=True,
-            )
-            checkpoint_dir = str(
-                args.neural_checkpoint_dir or os.environ.get("NSAMDR_NEURAL_CHECKPOINT_DIR", "")
-            ).strip()
-            if checkpoint_dir:
-                command.extend(("--checkpoint-dir", checkpoint_dir))
-                print(f"Mode 3 checkpoint directory: {checkpoint_dir}", flush=True)
-            if os.environ.get("NSAMDR_FORCE_CANDIDATE", "").strip().lower() in {"1", "true", "yes", "on"}:
-                command.append("--force")
-                print("Mode 3 candidate cache: forced regeneration", flush=True)
-            print("Preparing the public Mode 3 NSAMDR candidate...", flush=True)
-            result = subprocess.run(command, cwd=repo_root, check=False)
-            if result.returncode == 0 and candidate_report.is_file():
-                strategy_candidates = json.loads(candidate_report.read_text(encoding="utf-8"))
-                required = ("mode3Obj", "mode3Materials", "mode3Analysis", "mode3Validation")
-                missing = [key for key in required if not str(strategy_candidates.get(key, "")).strip()]
-                if missing:
-                    raise RuntimeError(
-                        "Mode 3 candidate report is incomplete; missing: " + ", ".join(missing)
-                    )
-                strategy_candidates["reportPath"] = str(candidate_report)
-            else:
-                raise RuntimeError(
-                    "Mode 3 candidate generation failed; the preview was not launched. "
-                    "Review the generator error above. For the seven-epoch stability model, set "
-                    "NSAMDR_NEURAL_CHECKPOINT_DIR to artifacts\\nsamdr\\neural_stability."
-                )
+        strategy_candidates["reportPath"] = str(candidate_report)
 
     return launch_preview(
         repo_root, Path(args.launcher).resolve(), obj_path, albedo, normal, pgs, environment, environments, material_manifest,

@@ -3,22 +3,29 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import queue
 import re
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-APP_TITLE = "NSAMDR V9 Workflow Controller 4.9.3"
-STATE_SCHEMA = "nsamdr-v9-workflow-gui-v5"
+APP_TITLE = "NSAMDR Workflow"
+STATE_SCHEMA = "nsamdr-workflow-gui-v6"
 EPOCH_RE = re.compile(r"Epoch\s+(\d+)\s*/\s*(\d+)\s+phase=([^\s]+)", re.I)
 BATCH_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d+)\s+total=", re.I)
 RATE_RE = re.compile(r"\brate=([0-9]+(?:\.[0-9]+)?)tile/s\b", re.I)
+STEP_RE = re.compile(r"\bstep=([0-9]+(?:\.[0-9]+)?)ms\b", re.I)
+VALIDATION_PROGRESS_RE = re.compile(
+    r"^\s*\[validation\] label=([^\s]+) item=(\d+)/(\d+) elapsed=([0-9.]+)s eta=([0-9.]+)s",
+    re.I,
+)
 VRAM_MODE_RE = re.compile(r"\bvram=([^\s]+)\s+free=([0-9]+(?:\.[0-9]+)?)GiB", re.I)
 EXPERIMENT_RE = re.compile(r"^EXP_\d{4,}$", re.I)
 
@@ -36,34 +43,26 @@ def _format_duration(seconds: float) -> str:
     return f"{secs}s"
 
 
-def _live_eta(
+def _schedule_progress(
     epoch_index: int,
     epoch_total: int,
-    batch_index: int,
-    batch_total: int,
-    rate_tiles_per_second: float,
-) -> tuple[float, float, float]:
-    """Return progress %, this-epoch remaining time and full-run ETA."""
-    if (
-        epoch_index < 1
-        or epoch_total < 1
-        or batch_index < 0
-        or batch_total < 1
-        or rate_tiles_per_second <= 0.0
-    ):
-        return 0.0, math.inf, math.inf
+    item_index: int,
+    item_total: int,
+) -> float:
+    """Return schedule completion only; this is deliberately not a time estimate."""
+    if epoch_index < 1 or epoch_total < 1 or item_total < 1:
+        return 0.0
     epoch_index = min(epoch_index, epoch_total)
-    batch_index = min(max(batch_index, 0), batch_total)
-    completed_tiles = (epoch_index - 1) * batch_total + batch_index
-    total_tiles = epoch_total * batch_total
-    remaining_epoch_tiles = max(0, batch_total - batch_index)
-    remaining_total_tiles = max(0, total_tiles - completed_tiles)
-    progress = 100.0 * completed_tiles / max(1, total_tiles)
-    return (
-        progress,
-        remaining_epoch_tiles / rate_tiles_per_second,
-        remaining_total_tiles / rate_tiles_per_second,
-    )
+    fraction = min(max(float(item_index) / float(item_total), 0.0), 1.0)
+    return 100.0 * ((epoch_index - 1) + fraction) / float(epoch_total)
+
+
+def _phase_eta_from_step_ms(item_index: int, item_total: int, step_ms: float) -> float:
+    """Estimate only the remainder of the current homogeneous training loop."""
+    if item_total < 1 or item_index < 0 or step_ms <= 0.0:
+        return math.inf
+    remaining = max(0, int(item_total) - int(item_index))
+    return remaining * float(step_ms) / 1000.0
 
 
 @dataclass(frozen=True)
@@ -78,55 +77,12 @@ class Stage:
 
 STAGES = (
     Stage("setup", "P0", "Prepare CUDA environment", ("setup", "cuda"), "Create or verify the CUDA Python environment.", False),
-    Stage("validate", "0", "Pipeline validation", ("validate",), "Verify source layout, fidelity contract and CUDA architecture."),
-    Stage("tune", "1", "Raven tune + instrumented preview", ("tune",), "Build/reuse the fixed Raven set, train V9.8 coarse-to-fine geometry fields, run the G0-G5 renderer/SDF/gate proof first, and launch the Raven candidate/preview only after synthetic PASS."),
-    Stage("tune_compare", "C1", "Compare tuning experiments", ("compare",), "Open deterministic linked-pan/zoom comparisons for two or three completed Raven experiments.", False),
-    Stage("tune_promote", "2", "Promote best configuration", ("promote",), "Promotion is locked during the V9.8 geometry-convergence boundary-only proof; later promotes an appearance-enabled Full proof.", False),
-    Stage("index", "3", "Index full V9 dataset", ("index", "eve"), "Build the all-supported-assets dataset using the promoted configuration."),
-    Stage("train", "4", "Train full production", ("train", "full"), "Run full production from the promoted experiment configuration."),
-    Stage("preview", "5", "Preview full production", ("preview", "production"), "Unlock all-ship production preview after full training completes."),
-    Stage("all", "U1", "Run promoted production pipeline", ("run",), "Validate/index/train/preview using the selected promoted experiment.", False),
+    Stage("quick", "1", "Raven Quick", ("raven-quick",), "Train and qualify the complete production NSAMDR model on a deterministic feature-stratified Raven development set."),
+    Stage("train", "2", "Full Training", ("full-train",), "Train and qualify the same production model on the full production dataset."),
+    Stage("preview", "3", "Preview", ("preview",), "Preview only a completed qualified experiment from its immutable final checkpoint.", False),
 )
 BY_ID = {stage.id: stage for stage in STAGES}
 PIPELINE = [stage.id for stage in STAGES if stage.pipeline]
-
-
-PRESET_VALUES = {
-    "Baseline": {
-        "learning_rate": "0.0001", "weight_decay": "0.00001", "optimizer": "adamw", "scheduler": "phase",
-        "batch_size": "1", "tiles_per_epoch": "320", "augmentation_strength": "1.0",
-        "regret_weight": "2.50", "normal_regret_weight": "1.25", "edge_weight": "2.00",
-        "detail_laplacian_weight": "0.28", "geometric_alignment_weight": "0.48",
-        "tangent_coherence_weight": "0.36", "curvature_coherence_weight": "0.30",
-        "synthetic_geometry_probability": "0.82", "boundary_sampling_probability": "0.68",
-        "boundary_renderer_band_pixels": "3.5", "boundary_renderer_sample_pixels": "3.75",
-        "boundary_renderer_hard_width_pixels": "0.70", "boundary_renderer_soft_width_pixels": "1.80",
-        "boundary_renderer_gate_gain": "1.60", "boundary_renderer_far_sample_multiplier": "1.70", "boundary_renderer_far_sample_weight": "0.22", "boundary_gate_need_scale": "0.075", "boundary_gate_exact_floor": "0.35", "boundary_sdf_zero_weight": "3.00", "boundary_edge_sdf_consistency_weight": "1.50", "boundary_pixel_regret_weight": "3.00", "boundary_profile_weight": "1.65", "boundary_regret_weight": "5.00", "sdf_surface_weight": "8.00", "sdf_sign_weight": "2.00", "sdf_eikonal_weight": "8.00", "sdf_gradient_alignment_weight": "2.00", "sdf_metric_gradient_weight": "6.00", "sdf_metric_band_pixels": "12.0", "sdf_coarse_init_std": "0.0005", "sdf_synthetic_validation_tiles": "12", "sdf_zero_band_pixels": "0.50", "sdf_bootstrap_residual_pixels": "0.00", "sdf_proof_residual_pixels": "1.00", "sdf_proof_renderer_weight": "2.50", "implicit_sdf_hidden_channels": "48", "implicit_sdf_residual_pixels": "2.00", "coarse_sdf_surface_weight": "6.00", "sdf_residual_l1_weight": "0.30", "boundary_fuzz_weight": "2.50", "boundary_halo_weight": "1.75", "boundary_renderer_plateau_samples": "5", "boundary_renderer_plateau_max_multiplier": "2.20", "boundary_renderer_plateau_stability_scale": "14.0", "seed": "1337",
-    },
-    "High Detail": {
-        "learning_rate": "0.0001", "weight_decay": "0.00001", "optimizer": "adamw", "scheduler": "cosine-phase",
-        "batch_size": "1", "tiles_per_epoch": "384", "augmentation_strength": "1.0",
-        "regret_weight": "2.60", "normal_regret_weight": "1.30", "edge_weight": "2.30",
-        "detail_laplacian_weight": "0.36", "geometric_alignment_weight": "0.52",
-        "tangent_coherence_weight": "0.40", "curvature_coherence_weight": "0.34",
-        "synthetic_geometry_probability": "0.88", "boundary_sampling_probability": "0.72",
-        "boundary_renderer_band_pixels": "3.75", "boundary_renderer_sample_pixels": "4.0",
-        "boundary_renderer_hard_width_pixels": "0.65", "boundary_renderer_soft_width_pixels": "1.65",
-        "boundary_renderer_gate_gain": "1.70", "boundary_renderer_far_sample_multiplier": "1.75", "boundary_renderer_far_sample_weight": "0.25", "boundary_gate_need_scale": "0.070", "boundary_gate_exact_floor": "0.40", "boundary_sdf_zero_weight": "3.25", "boundary_edge_sdf_consistency_weight": "1.65", "boundary_pixel_regret_weight": "3.25", "boundary_profile_weight": "1.80", "boundary_regret_weight": "5.25", "sdf_surface_weight": "9.00", "sdf_sign_weight": "2.25", "sdf_eikonal_weight": "9.00", "sdf_gradient_alignment_weight": "2.25", "sdf_metric_gradient_weight": "7.00", "sdf_metric_band_pixels": "12.0", "sdf_coarse_init_std": "0.0005", "sdf_synthetic_validation_tiles": "12", "sdf_zero_band_pixels": "0.45", "sdf_bootstrap_residual_pixels": "0.00", "sdf_proof_residual_pixels": "1.00", "sdf_proof_renderer_weight": "2.75", "implicit_sdf_hidden_channels": "64", "implicit_sdf_residual_pixels": "2.25", "coarse_sdf_surface_weight": "7.00", "sdf_residual_l1_weight": "0.32", "boundary_fuzz_weight": "2.75", "boundary_halo_weight": "2.00", "boundary_renderer_plateau_samples": "6", "boundary_renderer_plateau_max_multiplier": "2.35", "boundary_renderer_plateau_stability_scale": "15.0", "seed": "1337",
-    },
-    "Conservative": {
-        "learning_rate": "0.00008", "weight_decay": "0.00001", "optimizer": "adamw", "scheduler": "phase",
-        "batch_size": "1", "tiles_per_epoch": "320", "augmentation_strength": "0.85",
-        "regret_weight": "3.00", "normal_regret_weight": "1.45", "edge_weight": "1.80",
-        "detail_laplacian_weight": "0.24", "geometric_alignment_weight": "0.50",
-        "tangent_coherence_weight": "0.40", "curvature_coherence_weight": "0.34",
-        "synthetic_geometry_probability": "0.82", "boundary_sampling_probability": "0.65",
-        "boundary_renderer_band_pixels": "3.25", "boundary_renderer_sample_pixels": "3.5",
-        "boundary_renderer_hard_width_pixels": "0.85", "boundary_renderer_soft_width_pixels": "2.0",
-        "boundary_renderer_gate_gain": "1.45", "boundary_renderer_far_sample_multiplier": "1.60", "boundary_renderer_far_sample_weight": "0.18", "boundary_gate_need_scale": "0.085", "boundary_gate_exact_floor": "0.30", "boundary_sdf_zero_weight": "3.00", "boundary_edge_sdf_consistency_weight": "1.50", "boundary_pixel_regret_weight": "3.50", "boundary_profile_weight": "1.35", "boundary_regret_weight": "5.50", "sdf_surface_weight": "8.50", "sdf_sign_weight": "2.00", "sdf_eikonal_weight": "8.00", "sdf_gradient_alignment_weight": "2.25", "sdf_metric_gradient_weight": "6.50", "sdf_metric_band_pixels": "12.0", "sdf_coarse_init_std": "0.0005", "sdf_synthetic_validation_tiles": "12", "sdf_zero_band_pixels": "0.45", "sdf_bootstrap_residual_pixels": "0.00", "sdf_proof_residual_pixels": "0.75", "sdf_proof_renderer_weight": "2.25", "implicit_sdf_hidden_channels": "48", "implicit_sdf_residual_pixels": "1.50", "coarse_sdf_surface_weight": "7.00", "sdf_residual_l1_weight": "0.35", "boundary_fuzz_weight": "2.25", "boundary_halo_weight": "2.25", "boundary_renderer_plateau_samples": "5", "boundary_renderer_plateau_max_multiplier": "2.00", "boundary_renderer_plateau_stability_scale": "16.0", "seed": "1337",
-    },
-}
-
 
 class App:
     def __init__(self, root: tk.Tk, repo: Path) -> None:
@@ -147,6 +103,30 @@ class App:
         self.recovered_interrupted: list[str] = []
         self._normalize_recovered_process_state()
         self.vars: dict[str, tk.Variable] = {}
+        # Preview selector follows newly-created experiments until the user
+        # explicitly chooses an older one.  This keeps the default on the
+        # newest EXP_* while preserving deliberate manual selection.
+        self._preview_user_selected = False
+        self._preview_last_latest: str | None = None
+
+        # Selected-preview preparation is deliberately tracked separately from
+        # the main pipeline worker.  Preview generation can spend several
+        # minutes in 4x CUDA inference before the renderer window exists; a
+        # dedicated progress/log window keeps that work visible to the user.
+        self.preview_process: subprocess.Popen[str] | None = None
+        self.preview_thread: threading.Thread | None = None
+        self.preview_queue: queue.Queue[tuple] = queue.Queue()
+        self.preview_window: tk.Toplevel | None = None
+        self.preview_output: tk.Text | None = None
+        self.preview_progress: ttk.Progressbar | None = None
+        self.preview_status_var = tk.StringVar(value="Preview idle")
+        self.preview_elapsed_var = tk.StringVar(value="")
+        self.preview_started_at: float | None = None
+        self.preview_last_output_at: float | None = None
+        self.preview_last_heartbeat_at: float | None = None
+        self.preview_phase = "Waiting to start"
+        self.preview_log_path: Path | None = None
+        self.preview_experiment: str | None = None
 
         root.title(APP_TITLE)
         root.geometry("1580x940")
@@ -166,12 +146,14 @@ class App:
                 "[GUI] No stage is running until this GUI launches a new child process.\n",
             )
         self._poll()
+        self._poll_preview()
+        self.root.after(1000, self._preview_refresh_tick)
 
     def _load_state(self) -> dict:
         state = {
             "schema": STATE_SCHEMA,
             "status": {stage.id: "pending" for stage in STAGES},
-            "current": "validate",
+            "current": "quick",
         }
         try:
             loaded = json.loads(self.state_path.read_text(encoding="utf-8"))
@@ -268,7 +250,7 @@ class App:
         controls_header = ttk.Frame(controls_panel)
         controls_header.pack(fill="x", pady=(0, 3))
         ttk.Label(controls_header, text="Stage controls", font=("Segoe UI", 9, "bold")).pack(side="left")
-        ttk.Label(controls_header, text="scroll for additional tuning controls").pack(side="right")
+        ttk.Label(controls_header, text="scroll for additional training controls").pack(side="right")
 
         form_host = ttk.Frame(controls_panel)
         form_host.pack(fill="both", expand=True)
@@ -322,13 +304,25 @@ class App:
         ttk.Button(footer, text="Run next incomplete", command=self.run_next).pack(side="left", padx=5)
         ttk.Button(footer, text="Run remaining pipeline", command=self.run_remaining).pack(side="left")
         ttk.Button(footer, text="Stop current process", command=self.stop).pack(side="left", padx=5)
-        ttk.Button(footer, text="Preview available model", command=self.preview_available_model).pack(side="left")
+        ttk.Label(footer, text="Preview:").pack(side="left", padx=(6, 2))
+        self.preview_target = tk.StringVar(value="")
+        self.preview_combo = ttk.Combobox(
+            footer,
+            textvariable=self.preview_target,
+            width=14,
+            state="readonly",
+            postcommand=self._refresh_preview_selector,
+        )
+        self.preview_combo.bind("<<ComboboxSelected>>", self._preview_selection_changed)
+        self.preview_combo.pack(side="left", padx=(0, 3))
+        ttk.Button(footer, text="Render selected preview", command=self.preview_available_model).pack(side="left")
         ttk.Button(footer, text="Detect artifacts", command=self.detect).pack(side="right")
         self.footer = footer
+        self._refresh_preview_selector()
 
-        current = self.state.get("current", "validate")
+        current = self.state.get("current", "quick")
         if current not in BY_ID:
-            current = "validate"
+            current = "quick"
         self.tree.selection_set(current)
         self._selected()
 
@@ -405,6 +399,36 @@ class App:
     def _experiments_root(self) -> Path:
         return self.repo / "artifacts/nsamdr/experiments"
 
+    @staticmethod
+    def _qualified_final(path: Path) -> bool:
+        manifest_path = path / "final_manifest.json"
+        experiment_path = path / "experiment.json"
+        if not manifest_path.is_file() or not experiment_path.is_file():
+            return False
+        try:
+            final = json.loads(manifest_path.read_text(encoding="utf-8"))
+            experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
+            checkpoint = final.get("checkpoint", {})
+            checkpoint_path = (path / str(checkpoint.get("path") or "")).resolve()
+            checkpoint_path.relative_to((path / "checkpoints/final").resolve())
+            participation = json.loads(
+                (path / "architecture_participation.json").read_text(encoding="utf-8")
+            )
+            return bool(
+                final.get("qualified") is True
+                and final.get("status") == "completed"
+                and final.get("selectionKind") == "production-final"
+                and experiment.get("qualified") is True
+                and experiment.get("status") == "completed"
+                and bool(re.fullmatch(r"[0-9a-f]{64}", str(checkpoint.get("sha256") or "")))
+                and checkpoint.get("immutable") is True
+                and checkpoint.get("selectionKind") == "production-final"
+                and participation.get("pass") is True
+                and checkpoint_path.is_file()
+            )
+        except (OSError, ValueError, TypeError):
+            return False
+
     def _experiment_ids(self, *, completed_only: bool = False) -> list[str]:
         root = self._experiments_root()
         if not root.is_dir():
@@ -413,7 +437,7 @@ class App:
         for path in root.iterdir():
             if not path.is_dir() or EXPERIMENT_RE.fullmatch(path.name) is None:
                 continue
-            if completed_only and not (path / "checkpoint_best.pt").is_file():
+            if completed_only and not self._qualified_final(path):
                 continue
             values.append(path.name.upper())
         return sorted(values, key=lambda value: int(value.split("_")[1]))
@@ -422,82 +446,51 @@ class App:
         values = self._experiment_ids(completed_only=True)
         return values[-1] if values else None
 
-    def _previewed_experiment_ids(self) -> list[str]:
-        return [
-            experiment_id
-            for experiment_id in self._experiment_ids(completed_only=True)
-            if (self._experiments_root() / experiment_id / "previews/preview_manifest.json").is_file()
-        ]
+    def _previewable_experiment_ids(self) -> list[str]:
+        return self._experiment_ids(completed_only=True)
 
-    def _promotion_eligible_experiment_ids(self) -> list[str]:
-        eligible: list[str] = []
-        for experiment_id in self._previewed_experiment_ids():
-            manifest_path = self._experiments_root() / experiment_id / "experiment.json"
+    def _preview_choices(self) -> list[str]:
+        return list(reversed(self._previewable_experiment_ids()))
+
+    def _preview_selection_changed(self, _event: tk.Event | None = None) -> None:
+        # Once the user deliberately chooses a historical experiment, periodic
+        # discovery must not yank the selector back to latest.
+        self._preview_user_selected = True
+
+    def _refresh_preview_selector(self, *, force_latest: bool = False) -> None:
+        if not hasattr(self, "preview_combo") or not hasattr(self, "preview_target"):
+            return
+        choices = self._preview_choices()
+        latest = choices[0] if choices else None
+        previous_latest = self._preview_last_latest
+        new_latest_appeared = latest is not None and latest != previous_latest
+
+        self.preview_combo.configure(values=choices)
+        current = self.preview_target.get().strip().upper()
+        choose_latest = (
+            force_latest
+            or not current
+            or current not in choices
+            or (new_latest_appeared and not self._preview_user_selected)
+        )
+        if choose_latest:
+            self.preview_target.set(latest or "")
+
+        self._preview_last_latest = latest
+
+    def _preview_refresh_tick(self) -> None:
+        # Experiments are allocated by a child process while the GUI remains
+        # open. Refresh independently of stage completion so EXP_000N appears
+        # in the selector as soon as its directory exists.
+        try:
+            self._refresh_preview_selector()
+        finally:
             try:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            if str(manifest.get("trainingMode") or "").lower() == "full" and bool(manifest.get("promotionEligible")):
-                eligible.append(experiment_id)
-        return eligible
-
-    def _promotion_record(self) -> dict | None:
-        path = self.repo / "artifacts/nsamdr/promoted/selected_experiment.json"
-        if not path.is_file():
-            return None
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return None
-
-    def _promoted_config(self) -> Path | None:
-        record = self._promotion_record()
-        if not record:
-            return None
-        raw = str(record.get("promotedConfig") or "")
-        if not raw:
-            return None
-        path = Path(raw)
-        if not path.is_absolute():
-            path = self.repo / path
-        return path if path.is_file() else None
-
-    def _production_checkpoint(self) -> Path:
-        return self.repo / "artifacts/nsamdr/neural_v9/nsamdr_v9_fidelity.pt"
-
-    def _production_state(self) -> Path:
-        return self.repo / "artifacts/nsamdr/neural_v9/nsamdr_v9_training_state.pt"
-
-    def _promotion_pointer(self) -> Path:
-        return self.repo / "artifacts/nsamdr/promoted/selected_experiment.json"
-
-    def _production_artifact_is_current(self, path: Path) -> bool:
-        if not path.is_file():
-            return False
-        pointer = self._promotion_pointer()
-        # A legacy/full checkpoint remains usable until a new tuning config is
-        # explicitly promoted. Once promotion occurs, older production state is
-        # stale and must not satisfy the new workflow's completion lock.
-        if not pointer.is_file():
-            return True
-        try:
-            return path.stat().st_mtime_ns >= pointer.stat().st_mtime_ns
-        except OSError:
-            return False
-
-    def _production_checkpoint_is_current(self) -> bool:
-        return self._production_artifact_is_current(self._production_checkpoint())
-
-    def _preview_dataset_manifest(self) -> Path:
-        return self.repo / "artifacts/nsamdr/training_v9_preview_raven/dataset_manifest.json"
+                self.root.after(1000, self._preview_refresh_tick)
+            except tk.TclError:
+                pass
 
     def _refresh_scope(self) -> None:
-        production = self._production_checkpoint()
-        promotion = self._promotion_record()
-        if self._production_checkpoint_is_current():
-            source = str((promotion or {}).get("sourceExperiment") or "legacy/unrecorded")
-            self.scope_text.set(f"Model scope: FULL — all supported ships enabled | tuning source: {source}")
-            return
         latest = self._latest_completed_experiment()
         if latest:
             mode = "unknown"
@@ -506,22 +499,13 @@ class App:
                 mode = str(manifest.get("trainingMode") or "unknown").upper()
             except Exception:
                 pass
-            self.scope_text.set(
-                f"Model scope: TUNING — Raven Navy Issue only | {latest} {mode} | all-ship production preview LOCKED"
-            )
+            self.scope_text.set(f"Qualified production final: {latest} | {mode} training")
         else:
-            self.scope_text.set("Model scope: V9.4 geometry-only | Stage 1 Quick Raven tune is the next feedback gate")
+            self.scope_text.set("Qualified production final: none")
 
     def _stage_lock_reason(self, stage_id: str) -> str | None:
-        completed = self._experiment_ids(completed_only=True)
-        if stage_id == "tune_compare" and len(completed) < 2:
-            return "At least two completed Raven experiments are required."
-        if stage_id == "tune_promote" and not self._promotion_eligible_experiment_ids():
-            return "V9.4 geometry-only experiments cannot be promoted. Promotion remains locked until geometry A/B passes and the later frozen-geometry appearance stage is enabled and proven."
-        if stage_id in {"index", "train", "all"} and self._promoted_config() is None:
-            return "Full-dataset work is locked until a Full Raven proof experiment is promoted."
-        if stage_id == "preview" and not self._production_checkpoint_is_current():
-            return "Full production preview is locked until the selected promoted configuration completes full training."
+        if stage_id == "preview" and not self._previewable_experiment_ids():
+            return "Preview requires a completed qualified EXP_#### final."
         return None
 
     def _selected(self) -> None:
@@ -540,128 +524,36 @@ class App:
 
         if stage_id == "setup":
             self._check("Recreate environment", "force", False)
-        elif stage_id == "tune":
+        elif stage_id == "quick":
             experiments = ["new", *self._experiment_ids()]
-            self._row("Training mode", "training_mode", "Quick (~10-15 min)", ("Quick (~10-15 min)", "Full / promotion proof"))
             self._row("Experiment", "experiment", "new", experiments)
-            self._row("Preset", "preset", "Baseline", ("Current Best", "Baseline", "High Detail", "Conservative", "Custom"))
-            self._label_row("Dataset", "Raven Navy Issue — fixed deterministic train + held-out regions")
+            self._label_row("Model", "Complete production NSAMDR architecture")
+            self._label_row("Dataset", "Raven Navy Issue - deterministic, feature-stratified, disjoint")
             self._row("Shared cache", "cache", r"C:\CCP\EVE")
-            self._row("Max training regions", "train_crops", "12")
+            self._row("Training regions", "train_crops", "16")
             self._row("Max held-out regions", "validation_crops", "4")
             self._check("Rebuild fixed Raven dataset", "rebuild", False)
-            self._row("Training control", "control", "auto", ("auto", "resume", "restart"))
-            self._row("Learning rate", "learning_rate", "0.0001")
-            self._row("Optimiser", "optimizer", "adamw", ("adamw", "adam"))
-            self._row("Scheduler", "scheduler", "phase", ("phase", "cosine-phase"))
-            self._row("Batch size", "batch_size", "1", ("1", "2", "4", "8"))
-            self._row("Weight decay", "weight_decay", "0.00001")
-            self._row("Tiles / epoch", "tiles_per_epoch", "96")
-            self._row("Validation tiles", "validation_tiles", "16")
-            self._row("Augmentation strength", "augmentation_strength", "1.0")
-            self._row("Regret loss", "regret_weight", "2.50")
-            self._row("Normal regret loss", "normal_regret_weight", "1.25")
-            self._row("Edge loss", "edge_weight", "2.00")
-            self._row("Detail/Laplacian", "detail_laplacian_weight", "0.28")
-            self._row("Geometric alignment", "geometric_alignment_weight", "0.48")
-            self._row("Tangent coherence", "tangent_coherence_weight", "0.36")
-            self._row("Curvature coherence", "curvature_coherence_weight", "0.30")
-            self._row("Exact geometry fraction", "synthetic_geometry_probability", "0.82")
-            self._row("Boundary sampling", "boundary_sampling_probability", "0.68")
-            self._row("Boundary band (HR px)", "boundary_renderer_band_pixels", "3.5")
-            self._row("Side sample distance (HR px)", "boundary_renderer_sample_pixels", "3.75")
-            self._row("Hard edge width (HR px)", "boundary_renderer_hard_width_pixels", "0.70")
-            self._row("Soft edge width (HR px)", "boundary_renderer_soft_width_pixels", "1.80")
-            self._row("Boundary gate gain", "boundary_renderer_gate_gain", "1.60")
-            self._row("Far plateau multiplier", "boundary_renderer_far_sample_multiplier", "1.70")
-            self._row("Far plateau weight", "boundary_renderer_far_sample_weight", "0.22")
-            self._row("Gate need scale", "boundary_gate_need_scale", "0.075")
-            self._row("Exact gate floor", "boundary_gate_exact_floor", "0.35")
-            self._row("SDF zero-set loss", "boundary_sdf_zero_weight", "3.00")
-            self._row("Edge/SDF consistency", "boundary_edge_sdf_consistency_weight", "1.50")
-            self._row("Pixel boundary regret", "boundary_pixel_regret_weight", "3.00")
-            self._row("Boundary profile loss", "boundary_profile_weight", "1.65")
-            self._row("Boundary regret loss", "boundary_regret_weight", "5.00")
-            self._row("SDF surface loss", "sdf_surface_weight", "8.00")
-            self._row("SDF sign loss", "sdf_sign_weight", "2.00")
-            self._row("SDF Eikonal loss", "sdf_eikonal_weight", "8.00")
-            self._row("SDF gradient alignment", "sdf_gradient_alignment_weight", "2.00")
-            self._row("SDF metric gradient", "sdf_metric_gradient_weight", "6.00")
-            self._row("SDF metric band px", "sdf_metric_band_pixels", "12.0")
-            self._row("SDF coarse init std", "sdf_coarse_init_std", "0.0005")
-            self._row("Synthetic SDF validation tiles", "sdf_synthetic_validation_tiles", "12")
-            self._row("SDF zero band px", "sdf_zero_band_pixels", "0.50")
-            self._row("Bootstrap residual px", "sdf_bootstrap_residual_pixels", "0.00")
-            self._row("SDF-proof residual px", "sdf_proof_residual_pixels", "1.00")
-            self._row("SDF forced-gate renderer", "sdf_proof_renderer_weight", "2.50")
-            self._row("Implicit SDF hidden", "implicit_sdf_hidden_channels", "48")
-            self._row("Bounded SDF residual px", "implicit_sdf_residual_pixels", "2.00")
-            self._row("Coarse SDF loss", "coarse_sdf_surface_weight", "6.00")
-            self._row("SDF residual L1", "sdf_residual_l1_weight", "0.30")
-            self._row("Hard-edge fuzz loss", "boundary_fuzz_weight", "2.50")
-            self._row("Halo suppression loss", "boundary_halo_weight", "1.75")
-            self._row("Plateau samples", "boundary_renderer_plateau_samples", "5")
-            self._row("Plateau max multiplier", "boundary_renderer_plateau_max_multiplier", "2.20")
-            self._row("Plateau stability", "boundary_renderer_plateau_stability_scale", "14.0")
-            self._row("Seed", "seed", "1337")
-            self._check("Randomise seed (advanced)", "randomise_seed", False)
-            self._row("Advanced overrides", "advanced_overrides", "")
-            self._label_row("Renderer", "launches automatically after successful training")
+            self._row("Training control", "control", "auto", ("auto", "resume"))
             self._row("Preview target", "target", "4096", ("1024", "2048", "4096"))
             self._row("Preview device", "device", "cuda", ("cuda", "cpu", "auto"))
-            self._check("Force candidate regeneration", "force_candidate", True)
-            self._label_row("Automated evidence", "G0-G5 renderer/SDF/gate proof + fuzz/halo/topology; Raven only after PASS")
-            self._check("Automatic geometry audit + captured evidence", "geometry_audit", True)
-            self._row("Geometry critic", "geometry_critic", "auto", ("auto", "off", "required"))
-            self._row("Audit policy", "geometry_audit_policy", "report", ("report", "strict"))
-            self._row("Evidence regions", "geometry_evidence_regions", "12")
-            self._row("Critic calibration steps", "critic_steps", "120")
-            self._label_row("Feedback output", r"EXP_####\previews\EXP_####_geometry_feedback.zip")
-            self._row("Early-stop patience (Full)", "early_stop_patience", "3")
-            self._row("Early-stop min delta (Full)", "early_stop_min_delta", "0.0005")
             self._training_performance_rows(default_workers="4")
-            self.vars["preset"].trace_add("write", lambda *_args: self._preset_changed())
-            self.vars["training_mode"].trace_add("write", lambda *_args: self._tuning_mode_changed())
-            self.vars["experiment"].trace_add("write", lambda *_args: self._experiment_changed())
-            self._apply_preset("Baseline")
-            self._tuning_mode_changed()
-        elif stage_id == "tune_compare":
-            completed = self._experiment_ids(completed_only=True)
-            a = completed[-1] if completed else "<none>"
-            b = completed[-2] if len(completed) >= 2 else "<none>"
-            self._row("Experiment A", "exp_a", a, completed or ("<none>",))
-            self._row("Experiment B", "exp_b", b, completed or ("<none>",))
-            self._row("Experiment C", "exp_c", "<none>", ["<none>", *completed])
-            self._label_row("Comparison", "same held-out Raven tiles; linked pan/zoom; immutable config diff")
-        elif stage_id == "tune_promote":
-            eligible = self._promotion_eligible_experiment_ids()
-            default = eligible[-1] if eligible else "<none>"
-            self._row("Experiment", "experiment", default, eligible or ("<none>",))
-            self._label_row("Promotion policy", "semantic hyperparameters copied exactly; only full-data/work scope changes")
-        elif stage_id == "index":
-            config = self._promoted_config()
-            self._label_row("Promoted config", str(config or "<locked: promote experiment first>"))
+        elif stage_id == "train":
+            experiments = ["new", *self._experiment_ids()]
+            self._row("Experiment", "experiment", "new", experiments)
+            self._label_row("Model", "Complete production NSAMDR architecture")
+            self._label_row("Dataset", "Full production authored EVE dataset")
             self._row("Shared cache", "cache", r"C:\CCP\EVE")
             self._check("Rebuild full dataset", "rebuild", False)
-        elif stage_id == "train":
-            promotion = self._promotion_record() or {}
-            config = self._promoted_config()
-            self._label_row("Tuning source", str(promotion.get("sourceExperiment") or "<locked>"))
-            self._label_row("Promoted config", str(config or "<locked>"))
-            self._row("Shared cache", "cache", r"C:\CCP\EVE")
-            self._row("Training control", "control", "auto", ("auto", "resume", "restart"))
-            self._check("Skip existing full dataset", "skip", True)
+            self._row("Training control", "control", "auto", ("auto", "resume"))
+            self._row("Preview target", "target", "4096", ("1024", "2048", "4096"))
+            self._row("Preview device", "device", "cuda", ("cuda", "cpu", "auto"))
             self._training_performance_rows(default_workers="8")
         elif stage_id == "preview":
-            self._label_row("Checkpoint", str(self._production_checkpoint()))
+            completed = list(reversed(self._previewable_experiment_ids()))
+            self._row("Experiment", "experiment", completed[0] if completed else "<none>", completed or ("<none>",))
+            self._row("Shared cache", "cache", r"C:\CCP\EVE")
             self._row("Target size", "target", "4096", ("1024", "2048", "4096"))
-            self._row("Device", "device", "cuda", ("cuda", "cpu"))
-            self._check("Force candidate regeneration", "force_candidate", True)
-            self._label_row("Capability", "FULL — all supported ships unlocked")
-        elif stage_id == "all":
-            promotion = self._promotion_record() or {}
-            self._label_row("Tuning source", str(promotion.get("sourceExperiment") or "<locked>"))
-            self._label_row("Promoted config", str(self._promoted_config() or "<locked>"))
+            self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
         self._update_command()
         self.form_canvas.yview_moveto(0.0)
         self.root.after_idle(self._form_content_configured)
@@ -672,114 +564,6 @@ class App:
         self._row("Prefetch", "prefetch", "2")
         self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
 
-    def _preset_changed(self) -> None:
-        preset = self._value("preset")
-        if preset != "Custom":
-            self._apply_preset(preset)
-            if "training_mode" in self.vars:
-                self._tuning_mode_changed()
-
-    def _apply_preset(self, preset: str) -> None:
-        values = PRESET_VALUES.get(preset)
-        if preset == "Current Best":
-            source = None
-            promotion = self._promotion_record()
-            if promotion:
-                source = str(promotion.get("sourceExperiment") or "")
-            if not source:
-                source = self._latest_completed_experiment()
-            path = self._experiments_root() / source / "resolved_config.json" if source else None
-            if path and path.is_file():
-                try:
-                    config = json.loads(path.read_text(encoding="utf-8"))
-                    values = {
-                        "learning_rate": str(config.get("learning_rate", 0.0001)),
-                        "weight_decay": str(config.get("weight_decay", 0.00001)),
-                        "optimizer": str(config.get("optimizer_name", "adamw")),
-                        "scheduler": str(config.get("scheduler_name", "phase")),
-                        "batch_size": str(config.get("batch_size", 1)),
-                        "tiles_per_epoch": "320",
-                        "augmentation_strength": "1.0",
-                        "regret_weight": str(config.get("regret_weight", 2.5)),
-                        "normal_regret_weight": str(config.get("normal_regret_weight", 1.25)),
-                        "edge_weight": str(config.get("edge_weight", 2.00)),
-                        "detail_laplacian_weight": str(config.get("detail_laplacian_weight", 0.28)),
-                        "geometric_alignment_weight": str(config.get("geometric_alignment_weight", 0.48)),
-                        "tangent_coherence_weight": str(config.get("tangent_coherence_weight", 0.36)),
-                        "curvature_coherence_weight": str(config.get("curvature_coherence_weight", 0.30)),
-                        "synthetic_geometry_probability": str(config.get("synthetic_geometry_probability", 0.82)),
-                        "boundary_sampling_probability": str(config.get("boundary_sampling_probability", 0.68)),
-                        "boundary_renderer_band_pixels": str(config.get("boundary_renderer_band_pixels", 3.5)),
-                        "boundary_renderer_sample_pixels": str(config.get("boundary_renderer_sample_pixels", 3.75)),
-                        "boundary_renderer_hard_width_pixels": str(config.get("boundary_renderer_hard_width_pixels", 0.70)),
-                        "boundary_renderer_soft_width_pixels": str(config.get("boundary_renderer_soft_width_pixels", 1.80)),
-                        "boundary_renderer_gate_gain": str(config.get("boundary_renderer_gate_gain", 1.60)),
-                        "boundary_renderer_far_sample_multiplier": str(config.get("boundary_renderer_far_sample_multiplier", 1.70)),
-                        "boundary_renderer_far_sample_weight": str(config.get("boundary_renderer_far_sample_weight", 0.22)),
-                        "boundary_gate_need_scale": str(config.get("boundary_gate_need_scale", 0.075)),
-                        "boundary_gate_exact_floor": str(config.get("boundary_gate_exact_floor", 0.35)),
-                        "boundary_sdf_zero_weight": str(config.get("boundary_sdf_zero_weight", 3.00)),
-                        "boundary_edge_sdf_consistency_weight": str(config.get("boundary_edge_sdf_consistency_weight", 1.50)),
-                        "boundary_pixel_regret_weight": str(config.get("boundary_pixel_regret_weight", 3.00)),
-                        "boundary_profile_weight": str(config.get("boundary_profile_weight", 1.65)),
-                        "boundary_regret_weight": str(config.get("boundary_regret_weight", 5.00)),
-                        "sdf_surface_weight": str(config.get("sdf_surface_weight", 8.00)),
-                        "sdf_sign_weight": str(config.get("sdf_sign_weight", 2.00)),
-                        "sdf_eikonal_weight": str(config.get("sdf_eikonal_weight", 8.00)),
-                        "sdf_gradient_alignment_weight": str(config.get("sdf_gradient_alignment_weight", 2.00)),
-                        "sdf_metric_gradient_weight": str(config.get("sdf_metric_gradient_weight", 6.00)),
-                        "sdf_metric_band_pixels": str(config.get("sdf_metric_band_pixels", 12.0)),
-                        "sdf_coarse_init_std": str(config.get("sdf_coarse_init_std", 0.0005)),
-                        "sdf_synthetic_validation_tiles": str(config.get("sdf_synthetic_validation_tiles", 12)),
-                        "sdf_zero_band_pixels": str(config.get("sdf_zero_band_pixels", 0.50)),
-                        "sdf_bootstrap_residual_pixels": str(config.get("sdf_bootstrap_residual_pixels", 0.00)),
-                        "sdf_proof_residual_pixels": str(config.get("sdf_proof_residual_pixels", 1.00)),
-                        "sdf_proof_renderer_weight": str(config.get("sdf_proof_renderer_weight", 2.50)),
-                        "implicit_sdf_hidden_channels": str(config.get("implicit_sdf_hidden_channels", 48)),
-                        "implicit_sdf_residual_pixels": str(config.get("implicit_sdf_residual_pixels", 2.0)),
-                        "coarse_sdf_surface_weight": str(config.get("coarse_sdf_surface_weight", 6.0)),
-                        "sdf_residual_l1_weight": str(config.get("sdf_residual_l1_weight", 0.30)),
-                        "boundary_fuzz_weight": str(config.get("boundary_fuzz_weight", 2.50)),
-                        "boundary_halo_weight": str(config.get("boundary_halo_weight", 1.75)),
-                        "boundary_renderer_plateau_samples": str(config.get("boundary_renderer_plateau_samples", 5)),
-                        "boundary_renderer_plateau_max_multiplier": str(config.get("boundary_renderer_plateau_max_multiplier", 2.20)),
-                        "boundary_renderer_plateau_stability_scale": str(config.get("boundary_renderer_plateau_stability_scale", 14.0)),
-                        "seed": str(config.get("seed", 1337)),
-                    }
-                except Exception:
-                    values = PRESET_VALUES["Baseline"]
-            else:
-                values = PRESET_VALUES["Baseline"]
-        if not values:
-            return
-        for key, value in values.items():
-            variable = self.vars.get(key)
-            if variable is not None:
-                variable.set(value)
-
-    def _tuning_mode_changed(self) -> None:
-        mode = self._value("training_mode", "Quick (~10-15 min)")
-        quick = mode.startswith("Quick")
-        if "tiles_per_epoch" in self.vars:
-            self.vars["tiles_per_epoch"].set("96" if quick else "128")
-        if "validation_tiles" in self.vars:
-            self.vars["validation_tiles"].set("16" if quick else "32")
-        self._update_command()
-
-    def _experiment_changed(self) -> None:
-        experiment = self._value("experiment", "new").upper()
-        if experiment in {"", "NEW"}:
-            return
-        manifest_path = self._experiments_root() / experiment / "experiment.json"
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:
-            return
-        mode = str(manifest.get("trainingMode") or "full").lower()
-        variable = self.vars.get("training_mode")
-        if variable is not None:
-            variable.set("Quick (~10-15 min)" if mode == "quick" else "Full / promotion proof")
-
     def _value(self, key: str, default: str = "") -> str:
         variable = self.vars.get(key)
         return str(variable.get()) if variable is not None else default
@@ -789,140 +573,52 @@ class App:
         if stage_id == "setup":
             if self.vars.get("force") and bool(self.vars["force"].get()):
                 args.append("--force")
-        elif stage_id == "tune":
+        elif stage_id == "quick":
             experiment = self._value("experiment", "new")
-            mode = "quick" if self._value("training_mode", "Quick").startswith("Quick") else "full"
             args = [
-                "--base-config", "tools/nsamdr/neural/configs/v9_preview_raven.json",
                 "--shared-cache", self._value("cache"),
-                "--max-train-regions", self._value("train_crops", "12"),
+                "--max-train-regions", self._value("train_crops", "16"),
                 "--max-validation-regions", self._value("validation_crops", "4"),
                 "--experiment", experiment,
                 "--control", self._value("control", "auto"),
-                "--training-mode", mode,
-                "--preset", self._value("preset", "Baseline"),
                 "--preview-target-size", self._value("target", "4096"),
                 "--preview-device", self._value("device", "cuda"),
                 "--performance-profile", self._value("profile", "fast"),
                 "--workers", self._value("workers", "4"),
                 "--prefetch-factor", self._value("prefetch", "2"),
                 "--amp-precision", self._value("amp", "auto"),
-                "--early-stop-patience", self._value("early_stop_patience", "3"),
-                "--early-stop-min-delta", self._value("early_stop_min_delta", "0.0005"),
-                "--geometry-critic", self._value("geometry_critic", "auto"),
-                "--geometry-audit-policy", self._value("geometry_audit_policy", "report"),
-                "--geometry-evidence-regions", self._value("geometry_evidence_regions", "12"),
-                "--critic-steps", self._value("critic_steps", "120"),
             ]
-            if self.vars.get("geometry_audit") is not None and not bool(self.vars["geometry_audit"].get()):
-                args.append("--no-geometry-audit")
             if bool(self.vars["rebuild"].get()):
                 args.append("--rebuild-dataset")
-            if bool(self.vars["force_candidate"].get()):
-                args.append("--force-candidate")
-            if experiment.lower() == "new":
-                args.extend([
-                    "--learning-rate", self._value("learning_rate"),
-                    "--optimizer-name", self._value("optimizer"),
-                    "--scheduler-name", self._value("scheduler"),
-                    "--batch-size", self._value("batch_size"),
-                    "--weight-decay", self._value("weight_decay"),
-                    "--tiles-per-epoch", self._value("tiles_per_epoch"),
-                    "--validation-tiles", self._value("validation_tiles"),
-                    "--augmentation-strength", self._value("augmentation_strength"),
-                    "--regret-weight", self._value("regret_weight"),
-                    "--normal-regret-weight", self._value("normal_regret_weight"),
-                    "--edge-weight", self._value("edge_weight"),
-                    "--detail-laplacian-weight", self._value("detail_laplacian_weight"),
-                    "--geometric-alignment-weight", self._value("geometric_alignment_weight"),
-                    "--tangent-coherence-weight", self._value("tangent_coherence_weight"),
-                    "--curvature-coherence-weight", self._value("curvature_coherence_weight"),
-                    "--synthetic-geometry-probability", self._value("synthetic_geometry_probability"),
-                    "--boundary-sampling-probability", self._value("boundary_sampling_probability"),
-                    "--boundary-renderer-band-pixels", self._value("boundary_renderer_band_pixels"),
-                    "--boundary-renderer-sample-pixels", self._value("boundary_renderer_sample_pixels"),
-                    "--boundary-renderer-hard-width-pixels", self._value("boundary_renderer_hard_width_pixels"),
-                    "--boundary-renderer-soft-width-pixels", self._value("boundary_renderer_soft_width_pixels"),
-                    "--boundary-renderer-gate-gain", self._value("boundary_renderer_gate_gain"),
-                    "--boundary-renderer-far-sample-multiplier", self._value("boundary_renderer_far_sample_multiplier"),
-                    "--boundary-renderer-far-sample-weight", self._value("boundary_renderer_far_sample_weight"),
-                    "--boundary-gate-need-scale", self._value("boundary_gate_need_scale"),
-                    "--boundary-gate-exact-floor", self._value("boundary_gate_exact_floor"),
-                    "--boundary-sdf-zero-weight", self._value("boundary_sdf_zero_weight"),
-                    "--boundary-edge-sdf-consistency-weight", self._value("boundary_edge_sdf_consistency_weight"),
-                    "--boundary-pixel-regret-weight", self._value("boundary_pixel_regret_weight"),
-                    "--boundary-profile-weight", self._value("boundary_profile_weight"),
-                    "--boundary-regret-weight", self._value("boundary_regret_weight"),
-                    "--sdf-surface-weight", self._value("sdf_surface_weight"),
-                    "--sdf-sign-weight", self._value("sdf_sign_weight"),
-                    "--sdf-eikonal-weight", self._value("sdf_eikonal_weight"),
-                    "--sdf-gradient-alignment-weight", self._value("sdf_gradient_alignment_weight"),
-                    "--sdf-metric-gradient-weight", self._value("sdf_metric_gradient_weight"),
-                    "--sdf-metric-band-pixels", self._value("sdf_metric_band_pixels"),
-                    "--sdf-coarse-init-std", self._value("sdf_coarse_init_std"),
-                    "--sdf-synthetic-validation-tiles", self._value("sdf_synthetic_validation_tiles"),
-                    "--sdf-zero-band-pixels", self._value("sdf_zero_band_pixels"),
-                    "--sdf-bootstrap-residual-pixels", self._value("sdf_bootstrap_residual_pixels"),
-                    "--sdf-proof-residual-pixels", self._value("sdf_proof_residual_pixels"),
-                    "--sdf-proof-renderer-weight", self._value("sdf_proof_renderer_weight"),
-                    "--implicit-sdf-hidden-channels", self._value("implicit_sdf_hidden_channels"),
-                    "--implicit-sdf-residual-pixels", self._value("implicit_sdf_residual_pixels"),
-                    "--coarse-sdf-surface-weight", self._value("coarse_sdf_surface_weight"),
-                    "--sdf-residual-l1-weight", self._value("sdf_residual_l1_weight"),
-                    "--boundary-fuzz-weight", self._value("boundary_fuzz_weight"),
-                    "--boundary-halo-weight", self._value("boundary_halo_weight"),
-                    "--boundary-renderer-plateau-samples", self._value("boundary_renderer_plateau_samples"),
-                    "--boundary-renderer-plateau-max-multiplier", self._value("boundary_renderer_plateau_max_multiplier"),
-                    "--boundary-renderer-plateau-stability-scale", self._value("boundary_renderer_plateau_stability_scale"),
-                    "--seed", self._value("seed"),
-                ])
-                if bool(self.vars["randomise_seed"].get()):
-                    args.append("--randomise-seed")
-                advanced = self._value("advanced_overrides").strip()
-                if advanced:
-                    args.extend(["--advanced-overrides", advanced])
-        elif stage_id == "tune_compare":
-            values = [self._value("exp_a"), self._value("exp_b"), self._value("exp_c")]
-            ids = [value for value in values if value and value != "<none>"]
-            args = ids
-        elif stage_id == "tune_promote":
-            args = [self._value("experiment")]
-        elif stage_id == "index":
-            config = self._promoted_config()
-            args = ["--config", str(config or ""), "--shared-cache", self._value("cache")]
-            if bool(self.vars["rebuild"].get()):
-                args.append("--rebuild")
         elif stage_id == "train":
-            config = self._promoted_config()
-            args = ["--config", str(config or ""), "--shared-cache", self._value("cache")]
-            if bool(self.vars["skip"].get()):
-                args.append("--skip-dataset")
-            args.extend([
+            args = [
+                "--shared-cache", self._value("cache"),
+                "--experiment", self._value("experiment", "new"),
                 "--control", self._value("control", "auto"),
                 "--performance-profile", self._value("profile", "fast"),
                 "--workers", self._value("workers", "8"),
                 "--prefetch-factor", self._value("prefetch", "2"),
                 "--amp-precision", self._value("amp", "auto"),
-            ])
+                "--preview-target-size", self._value("target", "4096"),
+                "--preview-device", self._value("device", "cuda"),
+            ]
+            if bool(self.vars["rebuild"].get()):
+                args.append("--rebuild-dataset")
         elif stage_id == "preview":
             args = [
-                "--checkpoint-dir", "artifacts/nsamdr/neural_v9",
-                "--preview-strength", "1.0",
+                self._value("experiment"),
+                "--shared-cache", self._value("cache"),
                 "--target-size", self._value("target"),
                 "--device", self._value("device"),
             ]
-            if bool(self.vars["force_candidate"].get()):
-                args.append("--force-candidate")
         return args
 
     def _training_artifact_paths(self, stage_id: str) -> tuple[Path | None, Path | None]:
-        if stage_id == "tune":
+        if stage_id in {"quick", "train"}:
             experiment = self._value("experiment", "new")
             if experiment.lower() == "new":
                 return None, None
             output = self._experiments_root() / experiment
-        elif stage_id == "train":
-            output = self.repo / "artifacts/nsamdr/neural_v9"
         else:
             return None, None
         return output / "nsamdr_v9_training_state.pt", output / "nsamdr_v9_fidelity.pt"
@@ -933,22 +629,16 @@ class App:
             messagebox.showwarning("Stage locked", lock)
             self.progress_text.set(f"Locked — {lock}")
             return False
-        if stage_id == "tune_compare":
-            ids = [self._value("exp_a"), self._value("exp_b"), self._value("exp_c")]
-            ids = [value for value in ids if value and value != "<none>"]
-            if len(set(ids)) < 2:
-                messagebox.showerror(APP_TITLE, "Select at least two distinct completed experiments.")
-                return False
-        if stage_id in {"tune", "train"}:
+        if stage_id in {"quick", "train"}:
             control = self._value("control", "auto")
             state_path, checkpoint_path = self._training_artifact_paths(stage_id)
-            if stage_id == "tune" and self._value("experiment", "new").lower() != "new":
+            if self._value("experiment", "new").lower() != "new":
                 experiment_id = self._value("experiment").upper()
                 manifest_path = self._experiments_root() / experiment_id / "experiment.json"
                 try:
                     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                     stored_mode = str(manifest.get("trainingMode") or "full").lower()
-                    selected_mode = "quick" if self._value("training_mode", "Quick").startswith("Quick") else "full"
+                    selected_mode = "quick" if stage_id == "quick" else "full"
                     if stored_mode != selected_mode:
                         messagebox.showerror(
                             APP_TITLE,
@@ -956,57 +646,20 @@ class App:
                             "Its immutable training mode cannot be changed while resuming.",
                         )
                         return False
+                    if manifest.get("status") == "completed" or manifest.get("qualified") is True:
+                        messagebox.showinfo(
+                            APP_TITLE,
+                            "Completed experiments are immutable. Select 'new' to allocate a new EXP_####.",
+                        )
+                        return False
                 except OSError:
                     pass
-            if (
-                stage_id == "tune"
-                and self._value("experiment", "new").lower() != "new"
-                and checkpoint_path is not None
-                and (checkpoint_path.parent / "checkpoint_best.pt").is_file()
-            ):
-                messagebox.showinfo(
-                    APP_TITLE,
-                    "Completed experiments are immutable. Select 'new' to allocate "
-                    "a new EXP_####. Existing completed checkpoints/configs are never "
-                    "overwritten by Stage 1.",
-                )
-                return False
-            if (
-                stage_id == "train"
-                and control in {"auto", "resume"}
-                and state_path is not None
-                and state_path.is_file()
-                and not self._production_artifact_is_current(state_path)
-            ):
-                messagebox.showwarning(
-                    "New promoted configuration",
-                    "The existing production training state predates the selected "
-                    "Raven experiment promotion and cannot be resumed into the new "
-                    "semantic configuration.\n\nSelect 'restart' once to begin the new "
-                    "full training run. The old state/checkpoint will be backed up "
-                    "before deletion.",
-                )
-                self.progress_text.set(
-                    "New promotion requires one explicit backed-up production restart"
-                )
-                return False
             if control == "resume" and (state_path is None or not state_path.is_file()):
                 messagebox.showerror(APP_TITLE, f"Resume selected but no resumable state exists:\n\n{state_path or '<new experiment>'}")
                 return False
             if control == "auto" and state_path is not None and not state_path.is_file() and checkpoint_path and checkpoint_path.is_file():
                 messagebox.showerror(APP_TITLE, "A final checkpoint exists without a resumable state. Auto refuses to overwrite it.")
                 return False
-            if control == "restart" and state_path is not None:
-                existing = [path for path in (state_path, checkpoint_path) if path and path.is_file()]
-                if existing:
-                    text = "\n".join(str(path) for path in existing)
-                    if not messagebox.askyesno(
-                        "Confirm destructive restart",
-                        "Restart begins again at epoch 1. A timestamped backup is created first.\n\n"
-                        f"Existing artifact(s):\n{text}\n\nContinue?",
-                        icon="warning",
-                    ):
-                        return False
         return True
 
     def _dispatcher_argv(self, command: tuple[str, ...], args: list[str]) -> list[str]:
@@ -1074,6 +727,13 @@ class App:
             return
         command = self._process_command(stage_id, args)
         display_command = self._command_line(stage_id, args)
+        if stage_id in {"quick", "train"}:
+            experiment_var = self.vars.get("experiment")
+            experiment_value = str(experiment_var.get()).strip().lower() if experiment_var is not None else ""
+            if experiment_value == "new":
+                # A newly allocated EXP_* becomes the default preview target as
+                # soon as the child process creates its directory.
+                self._preview_user_selected = False
         self.active_stage = stage_id
         self.current_epoch = None
         self.current_rate = None
@@ -1145,31 +805,76 @@ class App:
                     if line.lstrip().startswith("[VRAM] safety wait:") and self.current_epoch:
                         e, total, phase = self.current_epoch
                         self.progress_text.set(f"Epoch {e}/{total} — {phase} | ETA paused — waiting for GPU/RAM safety envelope")
+                    validation = VALIDATION_PROGRESS_RE.search(line)
+                    if validation and self.current_epoch:
+                        e, total, phase = self.current_epoch
+                        label = validation.group(1)
+                        item, item_total = int(validation.group(2)), int(validation.group(3))
+                        elapsed = float(validation.group(4))
+                        eta = float(validation.group(5))
+                        self.progress_text.set(
+                            f"Epoch {e}/{total} — {phase} | {label} {item}/{item_total} | "
+                            f"Elapsed {_format_duration(elapsed)} | Phase ETA ~{_format_duration(eta)}"
+                        )
                     batch = BATCH_RE.search(line)
                     rate = RATE_RE.search(line)
+                    step = STEP_RE.search(line)
                     if batch and rate and self.current_epoch:
                         e, total, phase = self.current_epoch
                         b, btotal = int(batch.group(1)), int(batch.group(2))
                         live_rate = float(rate.group(1))
-                        progress, epoch_eta, total_eta = _live_eta(e, total, b, btotal, live_rate)
+                        progress = _schedule_progress(e, total, b, btotal)
                         self.progress["value"] = progress
+                        phase_eta = (
+                            _phase_eta_from_step_ms(b, btotal, float(step.group(1)))
+                            if step else math.inf
+                        )
                         vram = VRAM_MODE_RE.search(line)
                         vram_text = f" | VRAM {vram.group(1)} {float(vram.group(2)):.2f}GiB free" if vram else ""
                         self.progress_text.set(
-                            f"Epoch {e}/{total} — {phase} | Batch {b}/{btotal} | {progress:.1f}% | "
-                            f"Rate {live_rate:.2f} tile/s | ETA {_format_duration(total_eta)} | "
-                            f"This epoch {_format_duration(epoch_eta)}{vram_text}"
+                            f"Epoch {e}/{total} — {phase} | Batch {b}/{btotal} | schedule {progress:.1f}% | "
+                            f"Rate {live_rate:.2f} tile/s | Phase ETA ~{_format_duration(phase_eta)}{vram_text}"
                         )
                 elif kind == "done":
                     return_code, queue_next = item[2], item[3]
                     self.process = None
-                    self._set_status(stage_id, "completed" if return_code == 0 else "failed")
-                    self.progress_text.set("Completed successfully" if return_code == 0 else f"Failed, exit code {return_code}")
+                    # Epoch-derived progress can legitimately stop at 30-40% when
+                    # Quick mode exits its staged training schedule early. Once the
+                    # process exits, the operation is 100% finished regardless of
+                    # success/failure; never leave a stale partial green bar.
+                    self.progress["value"] = 100
                     self.detect(silent=True)
+                    # Artifact detection is historical and may find an older
+                    # successful experiment. The explicit result of the stage that
+                    # just ran must win over that historical state.
+                    self._set_status(stage_id, "completed" if return_code == 0 else "failed")
+                    if stage_id in {"quick", "train"}:
+                        result_path = self.repo / "artifacts/nsamdr/gui/last_nsamdr_workflow_result.json"
+                        if result_path.is_file():
+                            try:
+                                result_payload = json.loads(result_path.read_text(encoding="utf-8"))
+                                latest_experiment = str(result_payload.get("experiment") or "").strip().upper()
+                                if latest_experiment:
+                                    self._refresh_preview_selector()
+                                    if latest_experiment in self._preview_choices():
+                                        self.preview_target.set(latest_experiment)
+                            except (OSError, ValueError, TypeError):
+                                pass
+                        if return_code == 0:
+                            self.progress_text.set("Completed - qualified final renderer launched")
+                        else:
+                            self.progress_text.set(
+                                f"Training or qualified preview failed (exit code {return_code})"
+                            )
+                    else:
+                        self.progress_text.set(
+                            "Completed successfully" if return_code == 0 else f"Failed, exit code {return_code}"
+                        )
                     if queue_next and return_code == 0:
                         self.root.after(150, self._run_pending)
                 else:
                     self.process = None
+                    self.progress["value"] = 100
                     self._set_status(stage_id, "failed")
                     self.progress_text.set(item[2])
         except queue.Empty:
@@ -1186,59 +891,281 @@ class App:
         if self.active_stage:
             self._set_status(self.active_stage, "interrupted")
 
+    def _preview_phase_from_line(self, line: str) -> str | None:
+        """Translate noisy preview subprocess output into a user-facing phase."""
+        text = line.strip()
+        lower = text.lower()
+        if not text:
+            return None
+        if "reading eve resource indexes" in lower or "indexed resources:" in lower:
+            return "Reading EVE resource indexes and Raven source assets"
+        if "selected model:" in lower or "selected albedo:" in lower or "selected normal:" in lower:
+            return "Resolving Raven model, albedo and normal-map inputs"
+        if "direct production inference" in lower:
+            return "Running direct production-model inference from the immutable final"
+        if lower.startswith("[candidate] ["):
+            return "Generating final Raven physical-map textures"
+        if "[candidate] verified" in lower:
+            return "Candidate textures generated; preparing the renderer"
+        if "preview=pass" in lower:
+            return "Candidate provenance verified; renderer launch approved"
+        if "cmake" in lower and ("configure" in lower or "build" in lower):
+            return "Configuring the standalone DX11 preview renderer"
+        if "msbuild" in lower or "nsamdrpreview_dx11" in lower and ("build" in lower or "link" in lower):
+            return "Building/reusing the standalone DX11 preview renderer"
+        if "launching" in lower and ("renderer" in lower or "preview" in lower):
+            return "Launching the Raven comparison renderer"
+        if "preview failed" in lower or "renderer preview" in lower and "failed" in lower:
+            return "Preview preparation failed"
+        return None
+
+    def _append_preview_log(self, text: str) -> None:
+        if self.preview_output is None:
+            return
+        try:
+            self.preview_output.insert("end", text)
+            self.preview_output.see("end")
+        except tk.TclError:
+            pass
+
+    def _show_preview_progress_window(self, experiment: str, log_path: Path) -> None:
+        if self.preview_window is not None:
+            try:
+                if self.preview_window.winfo_exists():
+                    self.preview_window.deiconify()
+                    self.preview_window.lift()
+                    return
+            except tk.TclError:
+                pass
+
+        win = tk.Toplevel(self.root)
+        self.preview_window = win
+        win.title(f"NSAMDR Preview Preparation — {experiment}")
+        win.geometry("1120x650")
+        win.minsize(760, 420)
+
+        outer = ttk.Frame(win, padding=12)
+        outer.pack(fill="both", expand=True)
+        ttk.Label(outer, text=f"Preparing renderer preview for {experiment}", font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        ttk.Label(outer, textvariable=self.preview_status_var).pack(anchor="w", pady=(6, 2))
+        ttk.Label(outer, textvariable=self.preview_elapsed_var).pack(anchor="w", pady=(0, 8))
+
+        progress = ttk.Progressbar(outer, mode="indeterminate")
+        self.preview_progress = progress
+        progress.pack(fill="x", pady=(0, 10))
+        progress.start(10)
+
+        log_frame = ttk.Frame(outer)
+        log_frame.pack(fill="both", expand=True)
+        scroll = ttk.Scrollbar(log_frame, orient="vertical")
+        output = tk.Text(log_frame, wrap="none", yscrollcommand=scroll.set, font=("Consolas", 9))
+        self.preview_output = output
+        scroll.configure(command=output.yview)
+        scroll.pack(side="right", fill="y")
+        output.pack(side="left", fill="both", expand=True)
+
+        footer = ttk.Frame(outer)
+        footer.pack(fill="x", pady=(8, 0))
+        ttk.Label(footer, text=f"Detailed log: {log_path}").pack(side="left", anchor="w")
+        ttk.Button(footer, text="Hide", command=win.withdraw).pack(side="right")
+
+        self._append_preview_log(
+            f"[GUI PREVIEW] Experiment: {experiment}\n"
+            f"[GUI PREVIEW] Detailed log: {log_path}\n"
+            "[GUI PREVIEW] The renderer window will open only after candidate preparation completes.\n"
+            "[GUI PREVIEW] This window remains live during long CUDA inference steps.\n\n"
+        )
+
+    def _preview_worker(self, experiment: str, command: list[str], log_path: Path) -> None:
+        try:
+            env = os.environ.copy()
+            env["PYTHONUNBUFFERED"] = "1"
+            with log_path.open("w", encoding="utf-8", errors="replace") as log:
+                log.write(f"[GUI PREVIEW] Experiment: {experiment}\n")
+                log.write(f"[GUI PREVIEW] Command: {subprocess.list2cmdline(command)}\n")
+                log.flush()
+                process = subprocess.Popen(
+                    command,
+                    cwd=self.repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                    env=env,
+                )
+                self.preview_process = process
+                self.preview_queue.put(("started", experiment, process.pid))
+                assert process.stdout is not None
+                for line in process.stdout:
+                    log.write(line)
+                    log.flush()
+                    self.preview_queue.put(("line", experiment, line))
+                return_code = process.wait()
+            self.preview_queue.put(("done", experiment, return_code))
+        except Exception as exc:
+            self.preview_queue.put(("error", experiment, repr(exc)))
+
+    def _poll_preview(self) -> None:
+        try:
+            while True:
+                item = self.preview_queue.get_nowait()
+                kind, experiment = item[0], item[1]
+                now = time.monotonic()
+                if kind == "started":
+                    self.preview_started_at = now
+                    self.preview_last_output_at = now
+                    self.preview_last_heartbeat_at = now
+                    self.preview_phase = "Preview subprocess started; resolving Raven inputs"
+                    self.preview_status_var.set(f"{self.preview_phase} — PID {item[2]}")
+                    self._append_preview_log(f"[GUI PREVIEW] Process started: PID {item[2]}\n")
+                elif kind == "line":
+                    line = item[2]
+                    self.preview_last_output_at = now
+                    self._append_preview_log(line)
+                    phase = self._preview_phase_from_line(line)
+                    if phase:
+                        self.preview_phase = phase
+                        self.preview_status_var.set(phase)
+                elif kind == "done":
+                    return_code = int(item[2])
+                    elapsed = now - self.preview_started_at if self.preview_started_at is not None else 0.0
+                    self.preview_process = None
+                    if self.preview_progress is not None:
+                        try:
+                            self.preview_progress.stop()
+                        except tk.TclError:
+                            pass
+                    if return_code == 0:
+                        self.preview_phase = "Preview preparation completed / renderer launched"
+                        self.preview_status_var.set(self.preview_phase)
+                        self.progress_text.set(f"Renderer preview prepared for {experiment}")
+                    else:
+                        self.preview_phase = f"Preview preparation failed (exit code {return_code})"
+                        self.preview_status_var.set(self.preview_phase)
+                        self.progress_text.set(self.preview_phase)
+                    self.preview_elapsed_var.set(f"Elapsed: {_format_duration(elapsed)}")
+                    self._append_preview_log(
+                        f"\n[GUI PREVIEW] Process exited with code {return_code} after {_format_duration(elapsed)}.\n"
+                    )
+                elif kind == "error":
+                    self.preview_process = None
+                    if self.preview_progress is not None:
+                        try:
+                            self.preview_progress.stop()
+                        except tk.TclError:
+                            pass
+                    self.preview_phase = "Preview preparation worker failed"
+                    self.preview_status_var.set(self.preview_phase)
+                    self._append_preview_log(f"\n[GUI PREVIEW] ERROR: {item[2]}\n")
+        except queue.Empty:
+            pass
+
+        now = time.monotonic()
+        if self.preview_process is not None and self.preview_started_at is not None:
+            elapsed = now - self.preview_started_at
+            silent_for = now - (self.preview_last_output_at or self.preview_started_at)
+            self.preview_elapsed_var.set(
+                f"Elapsed: {_format_duration(elapsed)} | Last subprocess output: {_format_duration(silent_for)} ago | Process active"
+            )
+            # Long CUDA kernels may emit no lines for minutes.  Emit a sparse
+            # GUI-owned heartbeat into the dedicated log so silence can never
+            # look like a frozen/idle tool.
+            if self.preview_last_heartbeat_at is None or now - self.preview_last_heartbeat_at >= 10.0:
+                self.preview_last_heartbeat_at = now
+                self._append_preview_log(
+                    f"[GUI PREVIEW] {_format_duration(elapsed)} elapsed — {self.preview_phase}; process still active.\n"
+                )
+
+        try:
+            self.root.after(250, self._poll_preview)
+        except tk.TclError:
+            pass
+
+    def _launch_preview_with_detailed_log(self, experiment: str, command: list[str]) -> None:
+        if self.preview_process is not None:
+            self._show_preview_progress_window(experiment, self.preview_log_path or self.log_dir / "preview.log")
+            messagebox.showinfo(APP_TITLE, "A renderer preview is already being prepared. Its detailed progress window has been brought forward.")
+            return
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_path = self.log_dir / f"{stamp}_preview_{experiment.lower()}.log"
+        self.preview_log_path = log_path
+        self.preview_experiment = experiment
+        self.preview_started_at = None
+        self.preview_last_output_at = None
+        self.preview_last_heartbeat_at = None
+        self.preview_phase = "Launching preview preparation"
+        self.preview_status_var.set(self.preview_phase)
+        self.preview_elapsed_var.set("")
+        self._show_preview_progress_window(experiment, log_path)
+        if self.preview_output is not None:
+            try:
+                self.preview_output.delete("1.0", "end")
+            except tk.TclError:
+                pass
+        self._append_preview_log(
+            f"[GUI PREVIEW] Experiment: {experiment}\n"
+            f"[GUI PREVIEW] Detailed log: {log_path}\n"
+            f"[GUI PREVIEW] Command: {subprocess.list2cmdline(command)}\n"
+            "[GUI PREVIEW] The renderer window will open only after candidate preparation completes.\n"
+            "[GUI PREVIEW] Long CUDA inference steps receive a GUI heartbeat every 10 seconds.\n\n"
+        )
+        self.preview_thread = threading.Thread(
+            target=self._preview_worker,
+            args=(experiment, command, log_path),
+            daemon=True,
+        )
+        self.preview_thread.start()
+
     def preview_available_model(self) -> None:
-        if self._production_checkpoint_is_current():
-            args = [
-                "--checkpoint-dir", "artifacts/nsamdr/neural_v9",
-                "--preview-strength", "1.0", "--target-size", "1024",
-                "--device", "cuda", "--force-candidate",
-            ]
-            self._run("preview", args=args)
+        self._refresh_preview_selector()
+        target = self.preview_target.get().strip().upper() if hasattr(self, "preview_target") else ""
+        if not target:
+            messagebox.showinfo(APP_TITLE, "No completed qualified experiment exists yet.")
             return
-        experiment = self._latest_completed_experiment()
-        if experiment:
-            preview_args = [
-                experiment, "--shared-cache", self._value("cache", r"C:\CCP\EVE"),
-                "--target-size", self._value("target", "4096"),
-                "--device", self._value("device", "cuda"),
-                "--geometry-critic", self._value("geometry_critic", "auto"),
-                "--geometry-audit-policy", self._value("geometry_audit_policy", "report"),
-                "--geometry-evidence-regions", self._value("geometry_evidence_regions", "12"),
-                "--force-candidate",
-            ]
-            command = self._dispatcher_argv(("preview", "experiment"), preview_args)
-            subprocess.Popen(command, cwd=self.repo)
-            self.progress_text.set(f"Launched Raven renderer preview for {experiment}")
+
+        experiment = target
+        if experiment not in self._previewable_experiment_ids():
+            self._refresh_preview_selector()
+            messagebox.showinfo(
+                APP_TITLE,
+                f"{experiment} is not a completed qualified immutable final.",
+            )
             return
-        messagebox.showinfo(APP_TITLE, "No completed tuning or production checkpoint exists yet.")
+
+        preview_args = [
+            experiment, "--shared-cache", self._value("cache", r"C:\CCP\EVE"),
+            "--target-size", self._value("target", "4096"),
+            "--device", self._value("device", "cuda"),
+        ]
+        command = self._dispatcher_argv(("preview",), preview_args)
+        self._launch_preview_with_detailed_log(experiment, command)
+        self.progress_text.set(f"Preparing diagnostic Raven renderer preview for {experiment} — see detailed preview log")
 
     def detect(self, silent: bool = False) -> None:
+        self._refresh_preview_selector()
         statuses = self.state.setdefault("status", {})
-        artifacts = {
-            "validate": None,
-            "tune": None,
-            "tune_compare": None,
-            "tune_promote": self.repo / "artifacts/nsamdr/promoted/selected_experiment.json",
-            "index": self.repo / "artifacts/nsamdr/training_v9/dataset_manifest.json",
-            "train": self._production_checkpoint() if self._production_checkpoint_is_current() else None,
-            "preview": self._production_checkpoint() if self._production_checkpoint_is_current() else None,
-        }
-        if self._promotion_pointer().is_file() and not self._production_checkpoint_is_current():
-            if statuses.get("train") == "completed":
-                statuses["train"] = "pending"
-            if statuses.get("preview") == "completed":
-                statuses["preview"] = "pending"
         completed_experiments = self._experiment_ids(completed_only=True)
-        if any((self._experiments_root() / exp / "previews/preview_manifest.json").is_file() for exp in completed_experiments):
-            statuses["tune"] = "completed"
-        compare_root = self.repo / "artifacts/nsamdr/experiments/compare"
-        if compare_root.is_dir() and any(compare_root.glob("compare_*.html")):
-            statuses["tune_compare"] = "completed"
-        for stage_id, path in artifacts.items():
-            if path is not None and path.is_file():
-                statuses[stage_id] = "completed"
-        if statuses.get("validate") == "locked":
-            statuses["validate"] = "pending"
+        completed_modes: set[str] = set()
+        preview_completed = False
+        for experiment_id in completed_experiments:
+            directory = self._experiments_root() / experiment_id
+            try:
+                experiment = json.loads((directory / "experiment.json").read_text(encoding="utf-8"))
+                completed_modes.add(str(experiment.get("trainingMode") or "").lower())
+                preview_path = directory / "previews/preview_manifest.json"
+                if preview_path.is_file():
+                    preview = json.loads(preview_path.read_text(encoding="utf-8"))
+                    preview_completed = preview_completed or preview.get("status") == "launched"
+            except (OSError, ValueError, TypeError):
+                continue
+        if self.active_stage != "quick":
+            statuses["quick"] = "completed" if "quick" in completed_modes else "pending"
+        if self.active_stage != "train":
+            statuses["train"] = "completed" if "full" in completed_modes else "pending"
+        if self.active_stage != "preview":
+            statuses["preview"] = "completed" if preview_completed else "pending"
         for stage in STAGES:
             if self.process is not None and stage.id == self.active_stage:
                 continue

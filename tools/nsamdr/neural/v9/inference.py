@@ -60,7 +60,10 @@ def load_trained_model(
         converter = getattr(torch.nn.utils, "convert_conv2d_weight_memory_format", None)
         model = converter(model, torch.channels_last) if converter is not None else model.to(memory_format=torch.channels_last)
     model.load_state_dict(checkpoint["state_dict"], strict=True)
-    model.set_inference_mode()
+    selection_kind = str(checkpoint.get("selection_kind", ""))
+    # Selection labels are provenance only. Every schema-compatible checkpoint
+    # has one strict state topology and one production forward graph.
+    model._checkpoint_selection_kind = selection_kind
     model.eval()
     return model, config, checkpoint
 
@@ -116,7 +119,7 @@ def infer_tiled(
     output_width = padded_width * UPSCALE_FACTOR
     # albedo3, normal2, roughness1, emissive1, material3, sdf1,
     # orientation2, confidence1, edge1, hardness1, boundaryGate1,
-    # coarseSdf1, sdfResidualPixels1 = 19 channels.
+    # source-compatible SDF1, contourNormalOffsetPixels1 = 19 channels.
     accumulator = torch.zeros((1, 19, output_height, output_width), device=device, dtype=torch.float32)
     weights = torch.zeros((1, 1, output_height, output_width), device=device, dtype=torch.float32)
     window = _blend_window(output_tile, overlap * UPSCALE_FACTOR, device)
@@ -130,7 +133,6 @@ def infer_tiled(
     if use_amp:
         torch.cuda.synchronize(device)
     started = time.perf_counter()
-
     for y in ys:
         for x in xs:
             tile = tensor[:, :, y:y + tile_size, x:x + tile_size]
@@ -140,7 +142,7 @@ def infer_tiled(
                 output["albedo"], output["normal_xy"], output["roughness"], output["emissive"],
                 output["material"], output["sdf"], output["orientation"], output["confidence"],
                 torch.sigmoid(output["edge_logits"]), output["hardness"], output["boundary_gate"],
-                output["coarse_sdf"], output["sdf_residual_pixels"],
+                output["coarse_sdf"], output["contour_normal_offset_pixels"],
             ), dim=1).float()
             oy, ox = y * UPSCALE_FACTOR, x * UPSCALE_FACTOR
             accumulator[:, :, oy:oy + output_tile, ox:ox + output_tile] += packed * window
@@ -165,10 +167,12 @@ def infer_tiled(
         "hardness": np.clip(packed_np[..., 15:16], 0.0, 1.0),
         "boundary_gate": np.clip(packed_np[..., 16:17], 0.0, 1.0),
         "coarse_sdf": np.clip(packed_np[..., 17:18], -1.0, 1.0),
-        "sdf_residual_pixels": packed_np[..., 18:19].astype(np.float32),
+        "contour_normal_offset_pixels": packed_np[..., 18:19].astype(np.float32),
     }
-    # Compatibility maps for old preview/audit consumers. V9.8 reconstruction
-    # is boundary-field based and does not use a displacement actuator.
+    # Compatibility maps for old preview/audit consumers. V9.9.3 has no free
+    # renderer-facing raster redistance. Geometry is queried continuously; the
+    # scalar normal-offset map below remains compatibility telemetry only.
+    maps["sdf_residual_pixels"] = np.zeros_like(maps["contour_normal_offset_pixels"], dtype=np.float32)
     maps["displacement"] = np.zeros(
         (maps["sdf"].shape[0], maps["sdf"].shape[1], 2), dtype=np.float32
     )
@@ -192,10 +196,17 @@ def infer_tiled(
         "displacementRmsPixels": 0.0,
         "displacementMaxAbsPixels": 0.0,
         "appearanceEnabled": bool(model.config.appearance_enabled),
-        "geometryOnlyProof": not bool(model.config.appearance_enabled),
-        "coarseSdfMeanAbs": float(np.mean(np.abs(maps["coarse_sdf"]))),
-        "sdfResidualRmsPixels": float(np.sqrt(np.mean(maps["sdf_residual_pixels"] ** 2))),
-        "reconstructionPrimitive": "coarse-sdf-bounded-residual-adaptive-plateau-renderer",
+        "detailReconstructionEnabled": bool(getattr(model.config, "detail_reconstruction_enabled", True)),
+        "checkpointSelectionKind": str(getattr(model, "_checkpoint_selection_kind", "")),
+        "productionForward": "FidelityResidualNetV9.forward(inputs)",
+        "externalGeometryAuthority": False,
+        "sourceCompatibleSdfMeanAbs": float(np.mean(np.abs(maps["coarse_sdf"]))),
+        "contourNormalOffsetRmsPixels": float(np.sqrt(np.mean(maps["contour_normal_offset_pixels"] ** 2))),
+        "contourNormalOffsetMaxAbsPixels": float(np.max(np.abs(maps["contour_normal_offset_pixels"]))),
+        "sdfResidualRmsPixels": 0.0,
+        "reconstructionPrimitive": (
+            "learned-parametric-analytic-sdf-plus-boundary-profile-phase-seam-detail-selector"
+        ),
     }
     if not return_all_maps:
         maps = {key: maps[key] for key in ("albedo", "normal_xy", "material")}

@@ -30,10 +30,7 @@ private:
     CameraController m_cameraController;
     MeshProcessor m_meshProcessor;
     InputController m_inputController;
-    StrategyModes m_strategyModes;
-    NSAMDRPipeline m_pipeline;
     AssetProcessor m_assetProcessor;
-    NSAMDRTrainingController m_trainingController;
     SceneController m_sceneController;
     RenderPipeline m_renderPipeline;
     PreviewRenderer m_renderer;

@@ -690,6 +690,7 @@ bool AssetProcessor::CreatePreviewResources(
     samplerDescription.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
     samplerDescription.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
     samplerDescription.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+    samplerDescription.MipLODBias = 0.0f;
     samplerDescription.MaxAnisotropy = 16;
     samplerDescription.ComparisonFunc = D3D11_COMPARISON_NEVER;
     samplerDescription.MinLOD = 0.0f;
@@ -700,24 +701,7 @@ bool AssetProcessor::CreatePreviewResources(
         return false;
     }
 
-    // The left pane is intended to resemble the visibly softer legacy EVE
-    // client presentation rather than a lossless PNG shown through the same
-    // 16x sampler as the neural result.  Keep this as a separate immutable
-    // sampler so the right pane cannot accidentally inherit the degradation.
-    D3D11_SAMPLER_DESC baselineSamplerDescription = samplerDescription;
-    baselineSamplerDescription.Filter = D3D11_FILTER_ANISOTROPIC;
-    baselineSamplerDescription.MaxAnisotropy = 2;
-    baselineSamplerDescription.MipLODBias = 1.0f;
-    if (FAILED(device->CreateSamplerState(
-            &baselineSamplerDescription,
-            resources.baselineTextureSampler.GetAddressOf())))
-    {
-        ADD_FAILURE() << "Failed to create legacy EVE-like baseline sampler";
-        return false;
-    }
-
-    std::printf(
-        "NSAMDR A/B samplers: baseline=2x anisotropic lodBias=+1.00 | candidate=16x anisotropic lodBias=0.00\n");
+    std::printf("NSAMDR A/B sampler: raw source and candidate both use 16x anisotropic, lodBias=0.00\n");
 
     bool success = true;
     if (albedoPath.empty())
@@ -850,44 +834,6 @@ bool AssetProcessor::CreatePreviewResources(
     return true;
 }
 
-bool AssetProcessor::CreateCandidateMeshBuffers(
-    ID3D11Device* device,
-    const ObjMesh& mesh,
-    CandidateAssetGpu& candidate,
-    std::string& error)
-{
-    if (mesh.vertices.empty() || mesh.indices.empty() ||
-        mesh.vertices.size() * sizeof(Vertex) > static_cast<size_t>(std::numeric_limits<UINT>::max()) ||
-        mesh.indices.size() * sizeof(uint32_t) > static_cast<size_t>(std::numeric_limits<UINT>::max()))
-    {
-        error = "Candidate OBJ mesh is empty or exceeds D3D11 buffer limits";
-        return false;
-    }
-
-    D3D11_BUFFER_DESC vertexDescription{};
-    vertexDescription.ByteWidth = static_cast<UINT>(mesh.vertices.size() * sizeof(Vertex));
-    vertexDescription.Usage = D3D11_USAGE_IMMUTABLE;
-    vertexDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    D3D11_SUBRESOURCE_DATA vertexData{};
-    vertexData.pSysMem = mesh.vertices.data();
-
-    D3D11_BUFFER_DESC indexDescription{};
-    indexDescription.ByteWidth = static_cast<UINT>(mesh.indices.size() * sizeof(uint32_t));
-    indexDescription.Usage = D3D11_USAGE_IMMUTABLE;
-    indexDescription.BindFlags = D3D11_BIND_INDEX_BUFFER;
-    D3D11_SUBRESOURCE_DATA indexData{};
-    indexData.pSysMem = mesh.indices.data();
-
-    if (FAILED(device->CreateBuffer(&vertexDescription, &vertexData, candidate.vertexBuffer.GetAddressOf())) ||
-        FAILED(device->CreateBuffer(&indexDescription, &indexData, candidate.indexBuffer.GetAddressOf())))
-    {
-        error = "Failed to create candidate OBJ vertex/index buffers";
-        return false;
-    }
-    candidate.indexCount = static_cast<uint32_t>(mesh.indices.size());
-    return true;
-}
-
 bool AssetProcessor::LoadCandidateAsset(
     ID3D11Device* device,
     ID3D11DeviceContext* context,
@@ -906,19 +852,13 @@ bool AssetProcessor::LoadCandidateAsset(
         return true;
     }
 
+    ObjMesh candidateMesh;
     std::string meshError;
-    if (!m_meshProcessor.LoadObjMesh(objPath, candidate.mesh, meshError))
+    if (!m_meshProcessor.LoadObjMesh(objPath, candidateMesh, meshError))
     {
         candidate.status = "OBJ load failed: " + meshError;
         return true;
     }
-    std::string bufferError;
-    if (!CreateCandidateMeshBuffers(device, candidate.mesh, candidate, bufferError))
-    {
-        candidate.status = bufferError;
-        return true;
-    }
-
     std::vector<AreaMaterialSource> sources;
     std::string materialError;
     if (!LoadAreaMaterialSources(materialManifestPath, sources, materialError))
@@ -970,7 +910,7 @@ bool AssetProcessor::LoadCandidateAsset(
 
     for (const AreaMaterialSource& source : sources)
     {
-        for (const ObjDrawRange& range : candidate.mesh.drawRanges)
+        for (const ObjDrawRange& range : candidateMesh.drawRanges)
         {
             if (range.groupIndex != source.groupIndex) continue;
             AreaMaterialGpu material;
