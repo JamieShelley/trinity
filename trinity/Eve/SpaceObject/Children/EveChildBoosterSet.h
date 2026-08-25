@@ -127,17 +127,17 @@ public:
 	void UpdateAsyncronous( const EveUpdateContext& updateContext, const EveChildUpdateParams& params ) override;
 	// manage individual exhaust points
 	void Clear();
-	void Add( const Matrix* localMatrix, uint32_t atlasIndex0, uint32_t atlasIndex1, float lightScale = 1 );
+	void Add( const Matrix& localMatrix, uint32_t atlasIndex0, uint32_t atlasIndex1, float lightScale = 1 );
 	// set internal visual data
 	void SetData(
 		float glowScale,
-		const Color* glowColor,
-		const Color* warpGlowColor,
+		const Color& glowColor,
+		const Color& warpGlowColor,
 		float symHaloScale,
 		float haloScaleX,
 		float haloScaleY,
-		const Color* haloColor,
-		const Color* warpHaloColor );
+		const Color& haloColor,
+		const Color& warpHaloColor );
 	void SetLightData( float offset, float flickerAmplitude, float flickerFrequency, float radius, const Color& color, float warpRadius, const Color& warpColor );
 	void SetEffect( Tr2Effect* effect, Tr2Effect* effectFar );
 	void SetGlow( EveSpriteSetPtr glow );

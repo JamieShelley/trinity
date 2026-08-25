@@ -3027,13 +3027,13 @@ void EveSOF::SetupChildBoosters( EveChildContainerPtr child, const EveSOFDNAPtr 
 	// set the booster set's internal data
 	set->SetData(
 		rdata->glowScale,
-		&rdata->glowColor,
-		&rdata->warpGlowColor,
+		rdata->glowColor,
+		rdata->warpGlowColor,
 		rdata->symHaloScale,
 		rdata->haloScaleX,
 		rdata->haloScaleY,
-		&rdata->haloColor,
-		&rdata->warpHaloColor );
+		rdata->haloColor,
+		rdata->warpHaloColor );
 	set->SetLightData( rdata->lightOffset, rdata->lightFlickerAmplitude, rdata->lightFlickerFrequency, rdata->lightRadius, rdata->lightColor, rdata->lightWarpRadius, rdata->lightWarpColor );
 
 	std::string effectPath = hdata0->effectPath.empty() ? EveChildBoosterSet::DEFAULT_EFFECT_PATH : hdata0->effectPath.c_str();
@@ -3062,11 +3062,11 @@ void EveSOF::SetupChildBoosters( EveChildContainerPtr child, const EveSOFDNAPtr 
 		const EveSOFDataMgr::HullBoosterData* hdata = dna->GetHullBoosterData( hullIdx );
 
 		// add all the indiviual items
-		for( auto biit = hdata->items.begin(); biit != hdata->items.end(); ++biit )
+		for( const auto& item : hdata->items )
 		{
-			Matrix m;
-			TriMatrixTranslate( &m, &biit->transform, &hullOffset );
-			set->Add( &m, biit->atlasIndex0, biit->atlasIndex1, biit->lightScale );
+			Matrix matrix;
+			TriMatrixTranslate( &matrix, &item.transform, &hullOffset );
+			set->Add( matrix, item.atlasIndex0, item.atlasIndex1, item.lightScale );
 		}
 
 		// next hull needs offset update from hull's locator

@@ -142,7 +142,9 @@ float ComputeBoosterLightFlicker( float phase, float amplitude, float frequency 
 	static const std::array<float, g_lightNoiseSize> noise = [] {
 		std::array<float, g_lightNoiseSize> table;
 		for( auto& v : table )
+		{
 			v = float( rand() ) / float( RAND_MAX );
+		}
 		return table;
 	}();
 

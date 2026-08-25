@@ -51,7 +51,6 @@ EveChildBoosterSet::EveChildBoosterSet( IRoot* lockobj ) :
 	m_parentTransform( IdentityMatrix() )
 {
 	Tr2Renderer::ReserveQuadListIndexBuffer( 6 );
-
 	BoundingSphereInitialize( m_boosterBoundingSphere );
 }
 
@@ -137,6 +136,7 @@ void EveChildBoosterSet::Clear()
 	{
 		m_glows->Clear();
 	}
+	m_maxSize = 0.f;
 
 	// no bounding sphere
 	BoundingSphereInitialize( m_boosterBoundingSphere );
@@ -146,16 +146,16 @@ void EveChildBoosterSet::Clear()
 }
 
 // --------------------------------------------------------------------------------
-void EveChildBoosterSet::Add( const Matrix* localMatrix, uint32_t atlasIndex0, uint32_t atlasIndex1, float lightScale )
+void EveChildBoosterSet::Add( const Matrix& localMatrix, uint32_t atlasIndex0, uint32_t atlasIndex1, float lightScale )
 {
-	Vector3 pos( localMatrix->_41, localMatrix->_42, localMatrix->_43 );
-	float scale = std::max( Length( localMatrix->GetX() ), Length( localMatrix->GetY() ) );
+	Vector3 pos( localMatrix._41, localMatrix._42, localMatrix._43 );
+	float scale = std::max( Length( localMatrix.GetX() ), Length( localMatrix.GetY() ) );
 
 	// keep it in our list of boosters
 	SingleBoosterData sbd;
-	sbd.transform = *localMatrix;
+	sbd.transform = localMatrix;
 	Vector3 lightOffset( 0.f, 0.f, -m_lightOffset );
-	sbd.lightPosition = TransformCoord( lightOffset, *localMatrix );
+	sbd.lightPosition = TransformCoord( lightOffset, localMatrix );
 	sbd.lightRadius = scale * lightScale;
 	sbd.lightPhase = GenerateBoosterLightPhase();
 	sbd.atlasIndex0 = atlasIndex0;
@@ -186,22 +186,22 @@ void EveChildBoosterSet::Add( const Matrix* localMatrix, uint32_t atlasIndex0, u
 // --------------------------------------------------------------------------------
 void EveChildBoosterSet::SetData(
 	float glowScale,
-	const Color* glowColor,
-	const Color* warpGlowColor,
+	const Color& glowColor,
+	const Color& warpGlowColor,
 	float symHaloScale,
 	float haloScaleX,
 	float haloScaleY,
-	const Color* haloColor,
-	const Color* warpHaloColor )
+	const Color& haloColor,
+	const Color& warpHaloColor )
 {
 	m_glowScale = glowScale;
-	m_glowColor = *glowColor;
-	m_warpGlowColor = *warpGlowColor;
+	m_glowColor = glowColor;
+	m_warpGlowColor = warpGlowColor;
 	m_symHaloScale = symHaloScale;
 	m_haloScaleX = haloScaleX;
 	m_haloScaleY = haloScaleY;
-	m_haloColor = *haloColor;
-	m_warpHaloColor = *warpHaloColor;
+	m_haloColor = haloColor;
+	m_warpHaloColor = warpHaloColor;
 }
 
 // --------------------------------------------------------------------------------
@@ -486,6 +486,10 @@ void EveChildBoosterSet::GetBatches( ITriRenderBatchAccumulator* batches, TriBat
 		return;
 	}
 	if( m_vertexDeclHandle == Tr2EffectStateManager::UNINITIALIZED_DECLARATION )
+	{
+		return;
+	}
+	if( m_singleBoosters.empty() )
 	{
 		return;
 	}
