@@ -265,6 +265,45 @@ def main(argv: list[str] | None = None) -> int:
             if str(trained.get("experiment") or "").upper() != experiment:
                 raise RuntimeError("trainer changed the allocated experiment identity")
 
+        # A failed production proof is a normal fail-closed outcome, not an
+        # exception in checkpoint freezing. Report it cleanly and retain the
+        # diagnostics instead of throwing a traceback when the trainer has
+        # deliberately exported `production-final-unqualified`.
+        trained_metadata_path = experiment_directory / "nsamdr_v9_fidelity.json"
+        trained_metadata = _read_json(trained_metadata_path)
+        trained_selection = str(
+            trained_metadata.get("selectionKind")
+            or trained_metadata.get("selection_kind")
+            or ""
+        ).strip()
+        if trained_selection != "production-final":
+            diagnostics_path = _diagnostics(experiment_directory)
+            rejected = {
+                "experiment": experiment,
+                "directory": str(experiment_directory),
+                "trainingMode": args.training_mode,
+                "status": "training-rejected",
+                "selectionKind": trained_selection or "<missing>",
+                "acceptancePass": bool(trained_metadata.get("acceptancePass", False)),
+                "trainingSafetyPass": bool(
+                    trained_metadata.get("trainingSafetyPass", False)
+                ),
+                "diagnostics": str(diagnostics_path),
+                "completedUtc": _utc_now(),
+            }
+            result_file.write_text(
+                json.dumps(rejected, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            print("=" * 78, file=sys.stderr, flush=True)
+            print("NSAMDR TRAINING REJECTED BY PRODUCTION GATES", file=sys.stderr, flush=True)
+            print(f"Experiment               : {experiment}", file=sys.stderr, flush=True)
+            print(f"Selection kind            : {trained_selection or '<missing>'}", file=sys.stderr, flush=True)
+            print(f"Diagnostics               : {diagnostics_path}", file=sys.stderr, flush=True)
+            print("Renderer                  : BLOCKED (correct fail-closed behaviour)", file=sys.stderr, flush=True)
+            print("=" * 78, file=sys.stderr, flush=True)
+            return 3
+
         final_manifest_path = experiment_directory / "final_manifest.json"
         if not final_manifest_path.is_file():
             freeze_final_checkpoint(

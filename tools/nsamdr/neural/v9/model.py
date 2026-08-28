@@ -1,9 +1,9 @@
-"""NSAMDR V10.7.9 explicit-parametric deterministic geometry redraw.
+"""NSAMDR V10.1 topology-anchored continuous SDF reconstruction.
 
-The synthetic structural proof no longer predicts a dense SDF or dense medial
-field. B1b classifies one manufactured primitive family and regresses a compact
-continuous parameter vector; exact analytic geometry then generates the HR SDF.
-Panel 3 and Panel 2 continue to share the exact same BoundaryRenderer.
+GeometryNet predicts distance magnitudes on one shared LR control lattice while
+source-derived control signs remain fixed. This moves existing zero crossings
+without giving neighbouring LR cells independent contour ownership. The same
+continuous field is queried for every subpixel renderer sample.
 """
 from __future__ import annotations
 
@@ -18,12 +18,10 @@ from torch.nn import functional as F
 from .config import V9Config
 from .redistance import redistance_zero_contour, sdf_gradient_components
 from .contours import build_guidance_numpy, contour_targets, lr_contour_prior
-from .parametric_boundary import make_query_grid, supersample_coverage
-from .parametric_primitives import ParametricPrimitiveField, PRIMITIVE_COUNT, PARAM_DIM
+from .parametric_boundary import LocalParametricBoundaryDecoder, make_query_grid, supersample_coverage
 from .direct_coverage_specialist import BoundaryProfileSpecialist, BenefitSelector
-from .seam_restoration import DirectionalSeamRestorer
 
-MODEL_SCHEMA = "NSAMDR_RAVEN_PRODUCTION_PARAMETRIC_4X_V11_0_0"
+MODEL_SCHEMA = "NSAMDR_LOCAL_PARAMETRIC_BOUNDARY_FIELD_4X_V10_1_1"
 UPSCALE_FACTOR = 4
 INPUT_CHANNELS = 17
 
@@ -159,11 +157,11 @@ class ZeroHead(nn.Module):
 
 
 class GeometryNet(nn.Module):
-    """Canonical learned parametric geometry and shared boundary conditioning.
+    """Encode LR evidence and reconstruct a topology-anchored continuous SDF.
 
-    The compact primitive classifier/regressor is the only production SDF
-    authority. The encoder/decoder predicts the shared edge, orientation and
-    hardness fields consumed by the renderer and downstream safety modules.
+    The observable LR segmentation supplies the control-lattice sign graph. The
+    network predicts only positive metric magnitudes, moving shared edge zero
+    crossings without gaining authority to create new sign islands.
     """
 
     def __init__(self, config: V9Config) -> None:
@@ -205,12 +203,25 @@ class GeometryNet(nn.Module):
             current = output_channels
         self.decoders = nn.ModuleList(decoders)
 
-        self.parametric_primitive_field = ParametricPrimitiveField(
-            INPUT_CHANNELS,
-            int(getattr(config, "parametric_primitive_hidden_channels", 96)),
-            upscale=UPSCALE_FACTOR,
-            max_distance_pixels=float(config.contour_sdf_max_distance_pixels),
+        feature_channels = int(getattr(config, "topology_field_feature_channels", 64))
+        self.field_feature_project = nn.Sequential(
+            nn.Conv2d(widths[0] + 16, feature_channels, 3, padding=1),
+            nn.GELU(),
+            ResidualBlock(feature_channels),
+            ResidualBlock(feature_channels, dilation=2),
         )
+        self.local_boundary_decoder = LocalParametricBoundaryDecoder(
+            feature_channels,
+            int(getattr(config, "topology_field_hidden_channels", 96)),
+            max_distance_pixels=float(config.contour_sdf_max_distance_pixels),
+            max_offset_pixels=float(getattr(config, "parametric_boundary_max_offset_pixels", 6.0)),
+            max_normal_correction=float(getattr(config, "parametric_boundary_max_normal_correction", 1.5)),
+            max_curvature_per_pixel=float(getattr(config, "parametric_boundary_max_curvature_per_pixel", 0.35)),
+            max_ribbon_half_width_pixels=float(getattr(config, "parametric_boundary_max_ribbon_half_width_pixels", 6.0)),
+            control_scale=int(getattr(config, "parametric_boundary_control_scale", 1)),
+            output_scale=int(getattr(config, "target_scale", UPSCALE_FACTOR)),
+        )
+
         aux_channels = max(16, min(32, widths[0] // 3))
         self.aux_project = nn.Conv2d(widths[0], aux_channels, 1)
         self.prior_project = nn.Sequential(
@@ -225,10 +236,7 @@ class GeometryNet(nn.Module):
             nn.GELU(),
             ResidualBlock(aux_channels),
         )
-        # Axial orientation loss has a flat derivative at an exact (0, 0)
-        # vector; a tiny deterministic-scale initialization keeps the head
-        # trainable while downstream normalization bounds its authority.
-        self.orientation_head = ZeroHead(aux_channels, 2, weight_std=1.0e-3)
+        self.orientation_head = ZeroHead(aux_channels, 2)
         self.edge_head = ZeroHead(aux_channels, 1, bias=-2.0)
         self.hardness_head = ZeroHead(aux_channels, 1, bias=0.0)
 
@@ -252,7 +260,11 @@ class GeometryNet(nn.Module):
         # evidence. Subpixel phase is observable in antialiased albedo/normal/
         # material transitions and must not depend on a deep encoder recovering
         # that information after several nonlinear stages.
-        parametric_field = self.parametric_primitive_field(inputs, source_prior_lr)
+        direct_evidence = inputs[:, 0:16].to(value.dtype)
+        field_features = self.field_feature_project(
+            torch.cat((value, direct_evidence), dim=1)
+        )
+        field_context = self.local_boundary_decoder.build_context(field_features, source_prior_lr)
 
         aux = self.aux_project(value)
         aux = F.interpolate(aux, scale_factor=UPSCALE_FACTOR, mode="bilinear", align_corners=False)
@@ -260,27 +272,44 @@ class GeometryNet(nn.Module):
         prior = F.interpolate(prior, scale_factor=UPSCALE_FACTOR, mode="bilinear", align_corners=False)
         aux = self.aux_refine(aux + prior.to(aux.dtype))
         return {
+            "feature_grid": field_features,
             "source_sdf_prior_lr": source_prior_lr,
-            "parametric_field": parametric_field,
+            "field_context": field_context,
             "aux": aux,
         }
 
     def forward(self, inputs: torch.Tensor) -> dict[str, torch.Tensor]:
         context = self.encode(inputs)
         aux = context["aux"]
-        parametric_field = context["parametric_field"]
-        active_field = parametric_field
-        final_pixels = active_field["phi_pixels"].float()
+        field_context = context["field_context"]
+        hr_height = inputs.shape[-2] * UPSCALE_FACTOR
+        hr_width = inputs.shape[-1] * UPSCALE_FACTOR
+        query_grid = make_query_grid(
+            inputs.shape[0], hr_height, hr_width, device=inputs.device, dtype=torch.float32
+        )
+        field = self.local_boundary_decoder.query(field_context, query_grid)
+        final_pixels = field["phi_pixels"].float()
         max_distance = float(self.config.contour_sdf_max_distance_pixels)
-        source_prior_pixels = active_field["source_sdf_prior_pixels"].float()
+        source_prior_pixels = field["warped_source_pixels"].float()
         sdf_raw = final_pixels / max(max_distance, 1.0e-6)
         sdf = sdf_raw.clamp(-1.0, 1.0)
         source_prior_hr = source_prior_pixels / max(max_distance, 1.0e-6)
 
-        gx, gy = sdf_gradient_components(final_pixels)
-        gnorm = torch.sqrt(gx.square() + gy.square() + 1.0e-6)
-        primitive_normal = torch.cat((gx / gnorm, gy / gnorm), dim=1)
-        curvature = torch.zeros_like(final_pixels)
+        control_anchor = field_context["anchor_distance_pixels"].float()
+        source_control = F.interpolate(
+            (context["source_sdf_prior_lr"].float() * max_distance),
+            size=control_anchor.shape[-2:], mode="bilinear", align_corners=False,
+        )
+        source_control_sign = torch.where(
+            source_control >= 0.0, torch.ones_like(source_control), -torch.ones_like(source_control)
+        )
+        magnitude_pixels = control_anchor.abs()
+        log_magnitude_delta = torch.log(
+            magnitude_pixels.clamp_min(1.0e-4) / source_control.abs().clamp_min(1.0e-4)
+        )
+
+        primitive_normal = field["primitive_normal"].float()
+        curvature = field["primitive_curvature"].float()
         zeros = torch.zeros_like(final_pixels)
         zero_source = torch.zeros_like(context["source_sdf_prior_lr"])
         zero_control2 = torch.zeros(
@@ -297,17 +326,36 @@ class GeometryNet(nn.Module):
             "sdf_raw": sdf_raw.to(aux.dtype),
             "source_sdf_prior": source_prior_hr.to(aux.dtype),
             "source_sdf_prior_pixels": source_prior_pixels.to(aux.dtype),
-            "implicit_feature_grid": aux,
+            "implicit_feature_grid": context["feature_grid"],
             "implicit_source_sdf_prior_lr": context["source_sdf_prior_lr"],
+            "topology_control_phi_pixels": control_anchor.to(aux.dtype),
+            "topology_source_control_phi_pixels": source_control.to(aux.dtype),
+            "topology_source_control_sign": source_control_sign.to(aux.dtype),
+            "topology_magnitude_pixels": magnitude_pixels.to(aux.dtype),
+            "topology_log_magnitude_delta": log_magnitude_delta.to(aux.dtype),
+            "topology_field_confidence": field_context["confidence"].to(aux.dtype),
+            "topology_edit_authority": field["implicit_authority"].to(aux.dtype),
+            "topology_saddle_projection_fraction": zeros.to(aux.dtype),
             "primitive_normal": primitive_normal.to(aux.dtype),
             "primitive_curvature_hr": curvature.to(aux.dtype),
-            "primitive_phi_pixels": final_pixels.to(aux.dtype),
+            "primitive_phi_pixels": field["primitive_phi_pixels"].to(aux.dtype),
+            "parametric_anchor_distance_pixels": field_context["anchor_distance_pixels"].to(aux.dtype),
+            "parametric_distance_delta_pixels": field_context["distance_delta_pixels"].to(aux.dtype),
+            "branch_anchor_distance_pixels": field_context["branch_anchor_distance_pixels"].to(aux.dtype),
+            "branch_normal_x": field_context["branch_normal_x"].to(aux.dtype),
+            "branch_normal_y": field_context["branch_normal_y"].to(aux.dtype),
+            "branch_curvature_per_pixel": field_context["branch_curvature_per_pixel"].to(aux.dtype),
+            "branch_half_width_pixels": field_context["branch_half_width_pixels"].to(aux.dtype),
+            "branch_ribbon_mode": field_context["branch_ribbon_mode"].to(aux.dtype),
+            "branch_activation": field_context["branch_activation"].to(aux.dtype),
+            "csg_logits": field_context["csg_logits"].to(aux.dtype),
+            "parametric_confidence": field_context["confidence"].to(aux.dtype),
             "contour_transport_control_pixels": zero_control2,
             "contour_transport_pixels": zero_hr2,
             "contour_dilation_control_pixels": zero_control2[:, 0:1],
             "contour_dilation_pixels": zeros.to(aux.dtype),
-            "implicit_residual_pixels": (final_pixels - source_prior_pixels).to(aux.dtype),
-            "implicit_direct_delta_pixels": (final_pixels - source_prior_pixels).to(aux.dtype),
+            "implicit_residual_pixels": field["residual_pixels"].to(aux.dtype),
+            "implicit_direct_delta_pixels": field["direct_delta_pixels"].to(aux.dtype),
             "contour_normal_offset_source_pixels": zero_source.to(aux.dtype),
             "contour_normal_offset_coarse_pixels": zeros.to(aux.dtype),
             "contour_phase_offset_pixels": zeros.to(aux.dtype),
@@ -317,22 +365,6 @@ class GeometryNet(nn.Module):
             "coarse_sdf_delta_pixels": (final_pixels - source_prior_pixels).to(aux.dtype),
             "sdf_delta_pixels": (final_pixels - source_prior_pixels).to(aux.dtype),
             "sdf_residual_pixels": (final_pixels - source_prior_pixels).to(aux.dtype),
-            "parametric_primitive_active": final_pixels.new_tensor(1.0).to(aux.dtype),
-            "primitive_class_logits": (
-                parametric_field["class_logits"].to(aux.dtype)
-            ),
-            "primitive_class_index": (
-                parametric_field["class_index"]
-            ),
-            "primitive_params": (
-                parametric_field["params"].to(aux.dtype)
-            ),
-            "primitive_params_by_class": (
-                parametric_field["params_by_class"].to(aux.dtype)
-            ),
-            "primitive_confidence": (
-                parametric_field["confidence"].to(aux.dtype)
-            ),
             "orientation_raw": self.orientation_head(aux),
             "edge_logits": self.edge_head(aux),
             "hardness_logits": self.hardness_head(aux),
@@ -344,26 +376,27 @@ class GeometryNet(nn.Module):
         outputs: dict[str, torch.Tensor],
         query_grid: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
-        phi = F.grid_sample(
-            outputs["primitive_phi_pixels"].float(), query_grid.float(),
-            mode="bilinear", padding_mode="border", align_corners=False,
-        )
-        return {
-            "phi_pixels": phi,
-            "primitive_phi_pixels": phi,
-            "primitive_normal": F.grid_sample(
-                outputs["primitive_normal"].float(), query_grid.float(), mode="bilinear",
-                padding_mode="border", align_corners=False,
-            ),
-            "primitive_curvature": torch.zeros_like(phi),
-            "transport_pixels": torch.zeros(
-                (phi.shape[0], 2, phi.shape[-2], phi.shape[-1]),
-                device=phi.device, dtype=phi.dtype,
-            ),
-            "dilation_pixels": torch.zeros_like(phi),
-            "residual_pixels": phi,
-            "direct_delta_pixels": phi,
+        context = {
+            "source_sdf_prior_lr": outputs["implicit_source_sdf_prior_lr"],
+            "branch_anchor_distance_pixels": outputs["branch_anchor_distance_pixels"],
+            "branch_normal_x": outputs["branch_normal_x"],
+            "branch_normal_y": outputs["branch_normal_y"],
+            "branch_curvature_per_pixel": outputs["branch_curvature_per_pixel"],
+            "branch_half_width_pixels": outputs["branch_half_width_pixels"],
+            "branch_ribbon_mode": outputs["branch_ribbon_mode"],
+            "branch_activation": outputs["branch_activation"],
+            "csg_logits": outputs["csg_logits"],
+            "confidence": outputs["parametric_confidence"],
+            "anchor_distance_pixels": outputs["parametric_anchor_distance_pixels"],
+            "normal_x": outputs["branch_normal_x"][:, 0:1],
+            "normal_y": outputs["branch_normal_y"][:, 0:1],
+            "curvature_per_pixel": outputs["branch_curvature_per_pixel"][:, 0:1],
+            "ribbon_half_width_pixels": outputs["branch_half_width_pixels"][:, 0:1],
+            "ribbon_mode": outputs["branch_ribbon_mode"][:, 0:1],
+            "distance_delta_pixels": outputs["parametric_distance_delta_pixels"],
+            "junction_hint": outputs["branch_activation"][:, 1:].amax(dim=1, keepdim=True),
         }
+        return self.local_boundary_decoder.query(context, query_grid)
 
 
 class BoundaryRenderer(nn.Module):
@@ -810,102 +843,36 @@ class BoundaryRenderer(nn.Module):
         }
 
 
-class GeometryConditionedDetailNet(nn.Module):
-    """Full-resolution residual decoder conditioned by the accepted geometry.
+class AppearanceNet(nn.Module):
+    """Independent low-authority appearance residual model.
 
-    Unlike the legacy LR AppearanceNet, this branch has explicit 2x and 4x
-    decoder stages, so it can reconstruct authored detail above the LR Nyquist
-    limit. It never moves the parametric contour: geometry arrives as detached
-    conditioning and the branch can only add bounded residuals to the already
-    reconstructed physical maps.
+    V10.1 topology-field proof configs leave this disabled. If enabled later, geometry
+    freezes before AppearanceNet is allowed to modify the already reconstructed
+    physical maps.
     """
-
-    GEOMETRY_CHANNELS = 6
-    PHYSICAL_CHANNELS = 8  # albedo RGB + normal XY + material RGB
 
     def __init__(self, config: V9Config) -> None:
         super().__init__()
-        base_channels = int(getattr(config, "detail_feature_channels", 48))
-        mid_channels = int(getattr(config, "detail_mid_channels", 40))
-        hr_channels = int(getattr(config, "detail_hr_channels", 32))
-        input_channels = INPUT_CHANNELS + self.GEOMETRY_CHANNELS
-        self.encoder = nn.Sequential(
-            nn.Conv2d(input_channels, base_channels, 5, padding=2),
+        channels = max(40, min(64, config.widths[0]))
+        self.body = nn.Sequential(
+            nn.Conv2d(INPUT_CHANNELS, channels, 5, padding=2),
             nn.GELU(),
-            ResidualBlock(base_channels),
-            ResidualBlock(base_channels, dilation=2),
-            ResidualBlock(base_channels),
+            ResidualBlock(channels),
+            ResidualBlock(channels),
+            ResidualBlock(channels),
         )
-        self.up2_pre = nn.Conv2d(base_channels, mid_channels, 3, padding=1)
-        self.up2_fuse = nn.Conv2d(
-            mid_channels + self.PHYSICAL_CHANNELS + self.GEOMETRY_CHANNELS,
-            mid_channels, 1,
-        )
-        self.up2_body = nn.Sequential(
-            ResidualBlock(mid_channels),
-            ResidualBlock(mid_channels, dilation=2),
-        )
-        self.up4_pre = nn.Conv2d(mid_channels, hr_channels, 3, padding=1)
-        self.up4_fuse = nn.Conv2d(
-            hr_channels + self.PHYSICAL_CHANNELS + self.GEOMETRY_CHANNELS,
-            hr_channels, 1,
-        )
-        self.up4_body = nn.Sequential(
-            ResidualBlock(hr_channels),
-            ResidualBlock(hr_channels),
-        )
-        self.albedo_head = ZeroHead(hr_channels, 3)
-        self.normal_head = ZeroHead(hr_channels, 2)
-        self.material_head = ZeroHead(hr_channels, 3)
-        self.confidence_head = ZeroHead(
-            hr_channels, 1, bias=float(getattr(config, "detail_confidence_initial_bias", -0.5))
-        )
-        self.regret_head = ZeroHead(
-            hr_channels, 1, bias=float(getattr(config, "detail_regret_initial_bias", 0.0))
-        )
+        self.albedo_head = ZeroHead(channels, 3)
+        self.normal_head = ZeroHead(channels, 2)
+        self.material_head = ZeroHead(channels, 3)
+        self.gate_head = ZeroHead(channels, 1, bias=config.initial_gate_bias)
 
-    @staticmethod
-    def _resize(value: torch.Tensor, size: tuple[int, int]) -> torch.Tensor:
-        return F.interpolate(value, size=size, mode="bilinear", align_corners=False)
-
-    def forward(
-        self,
-        inputs: torch.Tensor,
-        base_albedo_hr: torch.Tensor,
-        base_normal_hr: torch.Tensor,
-        base_material_hr: torch.Tensor,
-        geometry_condition_hr: torch.Tensor,
-    ) -> dict[str, torch.Tensor]:
-        lr_size = inputs.shape[-2:]
-        geometry_lr = self._resize(geometry_condition_hr.float(), lr_size)
-        x = self.encoder(torch.cat((inputs.float(), geometry_lr), dim=1))
-
-        physical_hr = torch.cat((
-            base_albedo_hr.float(), base_normal_hr.float(), base_material_hr.float()
-        ), dim=1)
-        size2 = (lr_size[0] * 2, lr_size[1] * 2)
-        x = self._resize(x, size2)
-        x = self.up2_pre(x)
-        x = self.up2_fuse(torch.cat((
-            x,
-            self._resize(physical_hr, size2),
-            self._resize(geometry_condition_hr.float(), size2),
-        ), dim=1))
-        x = self.up2_body(x)
-
-        hr_size = base_albedo_hr.shape[-2:]
-        x = self._resize(x, hr_size)
-        x = self.up4_pre(x)
-        x = self.up4_fuse(torch.cat((
-            x, physical_hr, geometry_condition_hr.float()
-        ), dim=1))
-        x = self.up4_body(x)
+    def forward(self, inputs: torch.Tensor) -> dict[str, torch.Tensor]:
+        value = self.body(inputs)
         return {
-            "albedo_raw": torch.tanh(self.albedo_head(x)),
-            "normal_raw": torch.tanh(self.normal_head(x)),
-            "material_raw": torch.tanh(self.material_head(x)),
-            "confidence_logits": self.confidence_head(x),
-            "regret_logits": self.regret_head(x),
+            "albedo": self.albedo_head(value),
+            "normal": self.normal_head(value),
+            "material": self.material_head(value),
+            "gate_logits": self.gate_head(value),
         }
 
 
@@ -928,11 +895,14 @@ class FidelityResidualNetV9(nn.Module):
             max_logit_delta=float(getattr(config, "boundary_specialist_logit_delta_max", 16.0)),
         )
         self.benefit_selector = BenefitSelector(
-            in_channels=12,
+            in_channels=10,
             channels=int(getattr(config, "benefit_selector_channels", 24)),
         )
-        self.detail_net = GeometryConditionedDetailNet(config)
-        self.seam_restorer = DirectionalSeamRestorer(config)
+        self.appearance_net = AppearanceNet(config)
+        self._boundary_enabled = False
+        self._specialist_enabled = False
+        self._selector_enabled = False
+        self._appearance_enabled = bool(config.appearance_enabled)
 
     @staticmethod
     def _set_trainable(module: nn.Module, enabled: bool) -> None:
@@ -982,58 +952,32 @@ class FidelityResidualNetV9(nn.Module):
         return gx, gy
 
     def set_phase(self, phase: str) -> None:
-        """Freeze parameters by curriculum stage without changing the forward graph."""
-        self._set_trainable(self.geometry_net, False)
-        self._set_trainable(self.seam_restorer, False)
-        self._set_trainable(self.boundary_specialist, False)
-        self._set_trainable(self.benefit_selector, False)
-        self._set_trainable(self.detail_net, False)
+        """Strict specialist isolation.
 
-        if phase == "sdf-bootstrap":
-            # The production geometry graph is trained directly: analytic
-            # primitive SDF plus renderer-facing edge/orientation/hardness.
-            self._set_trainable(self.geometry_net.stem, True)
-            self._set_trainable(self.geometry_net.encoders, True)
-            self._set_trainable(self.geometry_net.downsamples, True)
-            self._set_trainable(self.geometry_net.decoders, True)
-            self._set_trainable(self.geometry_net.aux_project, True)
-            self._set_trainable(self.geometry_net.prior_project, True)
-            self._set_trainable(self.geometry_net.aux_refine, True)
-            self._set_trainable(self.geometry_net.orientation_head, True)
-            self._set_trainable(self.geometry_net.edge_head, True)
-            self._set_trainable(self.geometry_net.hardness_head, True)
-            self._set_trainable(self.geometry_net.parametric_primitive_field, True)
-        elif phase == "sdf-proof":
-            self._set_trainable(self.geometry_net.parametric_primitive_field, True)
-        elif phase == "seam-proof":
-            self._set_trainable(self.seam_restorer.phase_sr, True)
-        elif phase == "seam-authority":
-            authority = getattr(self.seam_restorer, "authority", None)
-            if authority is not None:
-                self._set_trainable(authority, True)
-            else:
-                self._set_trainable(self.seam_restorer, True)
-        elif phase == "gate-proof":
-            self._set_trainable(self.boundary_specialist, True)
-        elif phase == "detail-reconstruction":
-            self._set_trainable(self.detail_net, True)
-        elif phase in {"boundary-hardening", "physical-finetune"}:
-            self._set_trainable(self.benefit_selector, True)
+        Historical phase identifiers are retained in the trainer CLI, but V9.9
+        assigns them new authority:
+          sdf-bootstrap/sdf-proof -> structural implicit geometry only
+          gate-proof              -> boundary profile specialist only
+          boundary-hardening      -> benefit selector only
+          physical-finetune       -> selector calibration only (no joint polish)
+        """
+        structure = phase in {"sdf-bootstrap", "sdf-proof"}
+        specialist = phase == "gate-proof"
+        selector = phase in {"boundary-hardening", "physical-finetune"}
+        self._set_trainable(self.geometry_net, structure)
+        self._set_trainable(self.boundary_specialist, specialist)
+        self._set_trainable(self.benefit_selector, selector)
+        self._set_trainable(self.appearance_net, False)
+        self._boundary_enabled = phase != "sdf-bootstrap"
+        self._specialist_enabled = phase in {"gate-proof", "boundary-hardening", "physical-finetune"}
+        self._selector_enabled = selector
+        self._appearance_enabled = False
 
-    def set_parametric_substage(self, substage: str) -> None:
-        """Select the classifier/regressor subset trained in the B1b curriculum."""
-        if substage not in {"classifier", "parameters", "integration"}:
-            raise ValueError(f"unsupported parametric substage: {substage}")
-        field = self.geometry_net.parametric_primitive_field
-        self._set_trainable(field, False)
-        if substage in {"classifier", "integration"}:
-            self._set_trainable(field.class_encoder, True)
-            self._set_trainable(field.class_trunk, True)
-            self._set_trainable(field.class_head, True)
-        if substage in {"parameters", "integration"}:
-            self._set_trainable(field.param_encoder, True)
-            self._set_trainable(field.param_trunk, True)
-            self._set_trainable(field.param_head, True)
+    def set_inference_mode(self) -> None:
+        self._boundary_enabled = True
+        self._specialist_enabled = True
+        self._selector_enabled = True
+        self._appearance_enabled = bool(self.config.appearance_enabled)
 
     def architecture_contract(self) -> dict[str, object]:
         return {
@@ -1043,80 +987,33 @@ class FidelityResidualNetV9(nn.Module):
             "renderer": type(self.boundary_renderer).__name__,
             "profileSpecialist": type(self.boundary_specialist).__name__,
             "benefitSelector": type(self.benefit_selector).__name__,
-            "detailReconstructor": type(self.detail_net).__name__,
-            "seamRestorer": type(self.seam_restorer).__name__,
-            "productionComponents": {
-                "geometry": "geometry_net",
-                "structural representation": "geometry_net.parametric_primitive_field",
-                "boundary renderer": "boundary_renderer",
-                "boundary/profile": "boundary_specialist",
-                "PhaseAwareSeamSR": "seam_restorer.phase_sr",
-                "seam authority": "seam_restorer.authority",
-                "conditioned detail": "detail_net",
-                "albedo physical head": "detail_net.albedo_head",
-                "normal physical head": "detail_net.normal_head",
-                "material physical head": "detail_net.material_head",
-                "confidence": "detail_net.confidence_head",
-                "regret": "detail_net.regret_head",
-                "BenefitSelector": "benefit_selector",
-            },
-            "directionalSeamEnabled": True,
             "geometryCanPaintRgb": False,
             "profileSpecialistCanPaintRgb": False,
-            "profileSpecialistAuthority": "always-active bounded shared-coverage correction",
-            "detailReconstructionEnabled": True,
-            "geometryOutputs": ("source_sdf_prior", "parametric_primitive_geometry", "edge", "orientation", "hardness"),
-            "geometryPrior": "native-LR physical maps plus observable LR SDF",
-            "geometryPrediction": "learned primitive class and continuous parameters rendered as one analytic metric SDF",
-            "b1bObjective": "supervised primitive classification, continuous parameters and analytic render consistency",
-            "topologyGeometryFeatureSplit": True,
-            "finiteWidthStrokeRepresentation": "explicit line/ellipse-oval/rounded-box/corner/parallel/ring/junction parameters; circles are zero-eccentricity ellipses and smoothness is guaranteed by analytic construction",
-            "parametricPrimitiveClassCount": PRIMITIVE_COUNT,
-            "parametricPrimitiveParamDim": PARAM_DIM,
-            "parametricPrimitiveClassAccuracyRequired": float(getattr(self.config, "parametric_primitive_class_accuracy_required", 0.95)),
-            "parametricPrimitiveParamMaeRequired": float(getattr(self.config, "parametric_primitive_param_mae_required", 0.040)),
-            "parametricPrimitiveTrainTilesPerEpoch": int(getattr(self.config, "parametric_primitive_train_tiles_per_epoch", 448)),
-            "parametricPrimitiveBatchSize": int(getattr(self.config, "parametric_primitive_batch_size", 14)),
-            "parametricPrimitiveLrMultiplier": float(getattr(self.config, "parametric_primitive_lr_multiplier", 10.0)),
-            "parametricPrimitiveClassifierEpochs": int(getattr(self.config, "parametric_primitive_classifier_epochs", 10)),
-            "parametricPrimitiveParameterEpochs": int(getattr(self.config, "parametric_primitive_parameter_epochs", 16)),
-            "parametricPrimitiveIntegrationEpochs": int(getattr(self.config, "parametric_primitive_integration_epochs", 6)),
-            "parametricPrimitiveTraining": "checkpointed learned classifier/regressor is the sole structural authority",
-            "parametricPrimitiveSpatialEncoding": "normalized LR SDF/guidance evidence + 8x8 spatial lattices + measured centroid/principal-axis seeds + bounded residual heads",
-            "reconstructionPrimitive": "compact primitive geometry -> exact analytic metric SDF -> deterministic BoundaryRenderer; structural pixels are analytic redraw, not neural seam painting",
-            "seamPrimitiveClasses": ("straight", "curve", "irregular"),
-            "seamAuthority": "always-active learned PhaseAwareSeamSR reconstruction and authority",
-            "seamDirectionalAngleBins": int(getattr(self.config, "seam_directional_angle_bins", 12)),
-            "seamDirectionalKernelSize": int(getattr(self.config, "seam_directional_kernel_size", 7)),
-            "seamPhaseAware4x": True,
-            "seamPhaseOnlyReconstruction": False,
-            "seamPhaseSrMaxDelta": float(getattr(self.config, "seam_phase_sr_max_delta", 0.40)),
-            "ddsAwareDegradation": bool(getattr(self.config, "dds_codec_degradation_enabled", True)),
+            "profileSpecialistAuthority": "optional residual shared coverage correction after structure qualification",
+            "appearanceEnabled": bool(self.config.appearance_enabled),
+            "geometryOutputs": ("source_sdf_prior", "topology_control_sdf", "edge", "orientation", "hardness"),
+            "geometryPrior": "observable LR multi-map segmentation SDF supplies immutable sign topology on a shared LR control lattice",
+            "geometryPrediction": "network changes only positive metric distance magnitudes on the shared sign-fixed control lattice",
+            "reconstructionPrimitive": "single topology-anchored bilinear zero-crossing field queried at nine subpixel samples then rendered by the deterministic Panel-2 renderer",
             "sharedAcrossPhysicalMaps": True,
-            "stagedProofs": (
-                "geometry-conditioning", "B1b-parametric-primitive", "B2-same-deterministic-redraw",
-                "phase-aware-seam", "boundary-profile", "physical-detail", "benefit-selector",
-            ),
+            "stagedProofs": ("oracle-renderer", "topology-anchored-structure", "boundary-profile-specialist", "benefit-selector"),
             "moduloCoordinatePhase": False,
             "pointwiseFourierSdfAuthority": False,
             "rendererZeroContourRedistance": False,
             "rendererLocalSdfMetricization": False,
-            "productionForward": "FidelityResidualNetV9.forward(inputs) with no override authority",
-            "candidateAuthority": "one final selector path; no raw-candidate deployment mode",
-            "detailAuthority": "bounded 4x albedo/normal/material residual conditioned on detached structural SDF, boundary normal, shared coverage, hardness and profile confidence",
-            "detailUpsampling": "explicit LR -> 2x -> 4x decoder with physical-map and geometry fusion at both scales",
-            "detailMovesContour": False,
-            "selectorRequires": "BenefitSelector probability multiplied by learned confidence and regret suppression",
-            "topologyFrozenDuringProof": True,
-            "panel3StructuralTarget": "predicted explicit primitive geometry through the exact same deterministic BoundaryRenderer as GT geometry Panel 2",
-            "structuralPixelAuthority": "deterministic renderer only; learned appearance modules cannot move geometry",
-            "structuralCoverageAuthority": "derived only from the canonical parametric SDF then refined by the bounded shared profile specialist",
+            "candidateAuthority": "compact boundary-local band only; exact baseline outside",
+            "topologyFieldControlScale": int(getattr(self.config, "topology_field_control_scale", 1)),
+            "topologyFieldMaxLogMagnitudeDelta": float(getattr(self.config, "topology_field_max_log_magnitude_delta", 8.0)),
+            "topologyFieldEditBandPixels": float(getattr(self.config, "topology_field_edit_band_pixels", 12.0)),
+            "topologyFieldSignAuthority": "source-derived immutable control signs; learned magnitudes only",
+            "topologySaddleConnectivity": "source asymptotic decider preserved by hard shared-vertex projection",
+            "structuralCoverageAuthority": "derived only from the shared continuous SDF; no independent patch coverage head",
             "subpixelSamples": int(getattr(self.config, "implicit_boundary_supersample_grid", 3)) ** 2,
             "boundarySpecialistPatch": 17,
-            "teacherRendererTarget": "training-only GT-SDF forced-gate forced-hardness Panel-2 evidence",
+            "teacherRendererTarget": "GT-SDF forced-gate forced-hardness Panel-2 teacher SDF/coverage/render",
         }
 
-    def _training_render_sdf_teacher(
+    def render_sdf_teacher(
         self,
         inputs: torch.Tensor,
         sdf_override: torch.Tensor,
@@ -1193,9 +1090,10 @@ class FidelityResidualNetV9(nn.Module):
             offsets=offsets, transition_width=transition_width,
             return_samples=True,
         )
-        # V10.4 has no independent structural coverage head. Coverage is derived
-        # only from the shared parametric SDF, so the rendered profile cannot
-        # diverge from the geometry used for plateau sampling.
+        # V10.1 deliberately has no independent structural coverage head.
+        # Coverage is derived only from the same topology-anchored continuous
+        # SDF queried by geometry, so a second patch field cannot punch periodic
+        # holes into an otherwise coherent zero contour.
         return sdf_coverage, center_phi, samples
 
     def _specialist_features(
@@ -1240,16 +1138,10 @@ class FidelityResidualNetV9(nn.Module):
         profile_confidence: torch.Tensor,
         observed_support: torch.Tensor,
         edge_probability: torch.Tensor,
-        detail_confidence: torch.Tensor | None = None,
-        detail_regret: torch.Tensor | None = None,
     ) -> torch.Tensor:
         baseline_gray = baseline_albedo.float().mean(dim=1, keepdim=True)
         candidate_gray = candidate_albedo.float().mean(dim=1, keepdim=True)
         difference = (candidate_albedo.float() - baseline_albedo.float()).abs().mean(dim=1, keepdim=True)
-        if detail_confidence is None:
-            detail_confidence = torch.zeros_like(coverage)
-        if detail_regret is None:
-            detail_regret = torch.zeros_like(coverage)
         return torch.cat((
             baseline_gray,
             candidate_gray,
@@ -1260,50 +1152,16 @@ class FidelityResidualNetV9(nn.Module):
             profile_confidence.float(),
             observed_support.float(),
             edge_probability.float(),
-            detail_confidence.float(),
-            detail_regret.float(),
         ), dim=1)
 
-    def forward(self, inputs: torch.Tensor) -> dict[str, torch.Tensor]:
-        """Run the only deployable Raven graph.
-
-        Production callers cannot replace geometry, renderer authority, gates,
-        hardness, seam authority or cached intermediate state.
-        """
-        return self._forward_impl(inputs)
-
-    def _forward_training(
-        self,
-        inputs: torch.Tensor,
-        *,
-        teacher_sdf: torch.Tensor | None = None,
-        teacher_gate: torch.Tensor | None = None,
-        teacher_hardness: torch.Tensor | None = None,
-        teacher_seam_authority: torch.Tensor | None = None,
-        teacher_seam_tangent: torch.Tensor | None = None,
-        phase_only_seam_teacher: bool = False,
-    ) -> dict[str, torch.Tensor]:
-        """Training-only teacher/cache entry point; never used by inference."""
-        return self._forward_impl(
-            inputs,
-            sdf_override=teacher_sdf,
-            gate_override=teacher_gate,
-            hardness_override=teacher_hardness,
-            seam_authority_override=teacher_seam_authority,
-            seam_tangent_override=teacher_seam_tangent,
-            phase_only_seam_teacher=phase_only_seam_teacher,
-        )
-
-    def _forward_impl(
+    def forward(
         self,
         inputs: torch.Tensor,
         *,
         sdf_override: torch.Tensor | None = None,
         gate_override: torch.Tensor | None = None,
         hardness_override: torch.Tensor | None = None,
-        seam_authority_override: torch.Tensor | None = None,
-        seam_tangent_override: torch.Tensor | None = None,
-        phase_only_seam_teacher: bool = False,
+        renderer_enabled_override: bool | None = None,
     ) -> dict[str, torch.Tensor]:
         if inputs.ndim != 4 or inputs.shape[1] != INPUT_CHANNELS:
             raise ValueError(f"V9 input must be Nx{INPUT_CHANNELS}xHxW, got {tuple(inputs.shape)}")
@@ -1336,6 +1194,7 @@ class FidelityResidualNetV9(nn.Module):
             implicit_phi_samples = center_phi.repeat(1, 9, 1, 1)
             metricize_render_sdf = False
 
+        boundary_enabled = self._boundary_enabled if renderer_enabled_override is None else bool(renderer_enabled_override)
         observed_source_support = self._source_edge_support(inputs, self.config.geometry_edge_support_radius)
         observed_support_hr = F.interpolate(observed_source_support, scale_factor=UPSCALE_FACTOR, mode="bilinear", align_corners=False).clamp(0.0, 1.0)
         ones_gate = torch.ones_like(render_sdf)
@@ -1376,7 +1235,10 @@ class FidelityResidualNetV9(nn.Module):
         specialist = self.boundary_specialist(
             specialist_features, initial_coverage, band_weight
         )
-        refined_coverage = specialist["coverage"].float()
+        if self._specialist_enabled:
+            refined_coverage = specialist["coverage"].float()
+        else:
+            refined_coverage = initial_coverage
         candidate_albedo = (
             boundary["negative_side"].float() * refined_coverage
             + boundary["positive_side"].float() * (1.0 - refined_coverage)
@@ -1407,121 +1269,51 @@ class FidelityResidualNetV9(nn.Module):
             + material_boundary["positive_side"].float() * (1.0 - refined_coverage)
         ).to(baseline_material.dtype)
 
-        # Geometry-only candidate. Structural reconstruction remains compact/local
-        # and therefore preserves the true bicubic baseline exactly elsewhere.
-        if gate_override is not None:
-            structural_gate = gate_override.to(
-                device=inputs.device, dtype=torch.float32, non_blocking=True
-            ).clamp(0.0, 1.0)
-            if structural_gate.shape[-2:] != candidate_locality.shape[-2:]:
-                structural_gate = F.interpolate(
-                    structural_gate, size=candidate_locality.shape[-2:], mode="bilinear", align_corners=False
-                )
-            structural_gate = structural_gate * candidate_locality
-        else:
-            structural_gate = candidate_locality
-
-        boundary_albedo = (
-            baseline_albedo.float() * (1.0 - structural_gate)
-            + candidate_albedo.float() * structural_gate
-        ).to(baseline_albedo.dtype)
-        boundary_normal_out = self._normalize_xy((
-            baseline_normal.float() * (1.0 - structural_gate)
-            + candidate_normal.float() * structural_gate
-        ).to(baseline_normal.dtype))
-        boundary_material = (
-            baseline_material.float() * (1.0 - structural_gate)
-            + candidate_material.float() * structural_gate
-        ).to(baseline_material.dtype)
-
-        # V10.7.1 seam path: manufactured panel seams are local vector features,
-        # not solely material-boundary zero sets.  Refine the already reconstructed
-        # physical maps with one shared multi-map orientation field.  This branch
-        # cannot move the parametric contour; Stage-B still has to pass SDF topology,
-        # jitter and roughness gates independently.
-        profile_confidence = specialist["confidence"].float()
-        seam = self.seam_restorer(
-            boundary_albedo, boundary_normal_out, boundary_material,
-            sdf_pixels=metric_pixels, coverage=refined_coverage,
-            profile_confidence=profile_confidence, edge_probability=edge_probability,
-            geometry_normal=boundary["boundary_normal"].float(),
-            source_albedo=source_albedo, source_normal=source_normal, source_material=source_material,
-            authority_override=seam_authority_override, tangent_override=seam_tangent_override,
-            phase_only=bool(phase_only_seam_teacher),
-            enabled=True,
-        )
-        pre_seam_albedo = boundary_albedo
-        pre_seam_normal = boundary_normal_out
-        pre_seam_material = boundary_material
-        boundary_albedo = seam["albedo"]
-        boundary_normal_out = seam["normal_xy"]
-        boundary_material = seam["material"]
-
-        sdf_condition = (
-            metric_pixels.float() / max(float(self.config.contour_sdf_max_distance_pixels), 1.0)
-        ).clamp(-1.0, 1.0)
-        geometry_condition = torch.cat((
-            sdf_condition,
-            boundary["boundary_normal"].float(),
-            refined_coverage.float(),
-            hardness.float(),
-            profile_confidence,
-        ), dim=1).detach()
-        detail = self.detail_net(
-            inputs,
-            boundary_albedo.detach(),
-            boundary_normal_out.detach(),
-            boundary_material.detach(),
-            geometry_condition,
-        )
-        detail_confidence = torch.sigmoid(detail["confidence_logits"].float())
-        detail_regret = torch.sigmoid(detail["regret_logits"].float())
-        albedo_delta = (
-            detail["albedo_raw"].float()
-            * float(getattr(self.config, "detail_albedo_max_delta", 0.20))
-        )
-        normal_delta = (
-            detail["normal_raw"].float()
-            * float(getattr(self.config, "detail_normal_max_delta", 0.15))
-        )
-        material_delta_rgb = (
-            detail["material_raw"].float()
-            * float(getattr(self.config, "detail_material_max_delta", 0.18))
-        )
-        full_candidate_albedo = (boundary_albedo.float() + albedo_delta).clamp(0.0, 1.0)
-        full_candidate_normal = self._normalize_xy(boundary_normal_out.float() + normal_delta)
-        full_candidate_material = (boundary_material.float() + material_delta_rgb).clamp(0.0, 1.0)
-
         selector_features = self._selector_features(
-            baseline_albedo, full_candidate_albedo, metric_pixels, boundary["boundary_normal"],
-            refined_coverage, profile_confidence, observed_support_hr, edge_probability,
-            detail_confidence, detail_regret,
+            baseline_albedo, candidate_albedo, metric_pixels, boundary["boundary_normal"],
+            refined_coverage, specialist["confidence"], observed_support_hr, edge_probability,
         )
         selector_logits = self.benefit_selector(selector_features)
         selector_probability = torch.sigmoid(selector_logits.float())
-        # Selector, confidence and regret always jointly own final authority.
-        confidence_support = ((detail_confidence - 0.50) / 0.35).clamp(0.0, 1.0)
-        regret_suppression = ((0.50 - detail_regret) / 0.35).clamp(0.0, 1.0)
-        final_gate = selector_probability * confidence_support * regret_suppression
+        predicted_gate = (selector_probability * candidate_locality).clamp(0.0, 1.0)
+        if gate_override is not None:
+            applied_gate = gate_override.to(device=inputs.device, dtype=torch.float32, non_blocking=True).clamp(0.0, 1.0)
+            if applied_gate.shape[-2:] != predicted_gate.shape[-2:]:
+                applied_gate = F.interpolate(applied_gate, size=predicted_gate.shape[-2:], mode="bilinear", align_corners=False)
+            applied_gate = applied_gate * candidate_locality
+        elif self._selector_enabled and boundary_enabled:
+            applied_gate = predicted_gate
+        elif boundary_enabled and self._specialist_enabled:
+            # Forced Panel-3 candidate authority is full *inside the compact
+            # boundary band*, never global over authored texture.
+            applied_gate = candidate_locality
+        elif boundary_enabled and not self._selector_enabled:
+            applied_gate = candidate_locality
+        else:
+            applied_gate = torch.zeros_like(predicted_gate)
 
-        albedo = (
-            baseline_albedo.float() * (1.0 - final_gate)
-            + full_candidate_albedo.float() * final_gate
-        ).clamp(0.0, 1.0).to(baseline_albedo.dtype)
-        normal_xy = self._normalize_xy((
-            baseline_normal.float() * (1.0 - final_gate)
-            + full_candidate_normal.float() * final_gate
-        ).to(baseline_normal.dtype))
-        material = (
-            baseline_material.float() * (1.0 - final_gate)
-            + full_candidate_material.float() * final_gate
-        ).clamp(0.0, 1.0).to(baseline_material.dtype)
+        boundary_albedo = (baseline_albedo.float() * (1.0 - applied_gate) + candidate_albedo.float() * applied_gate).to(baseline_albedo.dtype)
+        boundary_normal_out = self._normalize_xy((baseline_normal.float() * (1.0 - applied_gate) + candidate_normal.float() * applied_gate).to(baseline_normal.dtype))
+        boundary_material = (baseline_material.float() * (1.0 - applied_gate) + candidate_material.float() * applied_gate).to(baseline_material.dtype)
+
+        appearance = self.appearance_net(inputs)
+        appearance_gate = torch.sigmoid(appearance["gate_logits"].float())
+        appearance_gate = F.interpolate(appearance_gate, scale_factor=UPSCALE_FACTOR, mode="bilinear", align_corners=False)
+        appearance_gate = appearance_gate * (1.0 - applied_gate.detach() * float(self.config.appearance_edge_suppression))
+        if not self._appearance_enabled:
+            appearance_gate = torch.zeros_like(appearance_gate)
+        albedo_delta = F.interpolate(appearance["albedo"], scale_factor=UPSCALE_FACTOR, mode="bilinear", align_corners=False) * float(self.config.albedo_medium_delta) * appearance_gate
+        normal_delta = F.interpolate(appearance["normal"], scale_factor=UPSCALE_FACTOR, mode="bilinear", align_corners=False) * float(self.config.normal_medium_delta) * appearance_gate
+        material_delta_rgb = F.interpolate(appearance["material"], scale_factor=UPSCALE_FACTOR, mode="bilinear", align_corners=False) * float(self.config.material_delta) * appearance_gate
+        albedo = (boundary_albedo + albedo_delta).clamp(0.0, 1.0)
+        normal_xy = self._normalize_xy(boundary_normal_out + normal_delta)
+        material = (boundary_material + material_delta_rgb).clamp(0.0, 1.0)
         emissive = material[:, 1:2]
         roughness = material[:, 2:3]
         class_centres = torch.linspace(0.0, 1.0, self.config.material_classes, device=inputs.device, dtype=material.dtype)
         material_logits = -((material[:, 0:1] - class_centres.view(1, -1, 1, 1)) ** 2) * 40.0
         orientation = self._safe_direction(geometry["orientation_raw"])
-        confidence = selector_probability.clamp(1e-5, 1.0 - 1e-5)
+        confidence = predicted_gate.clamp(1e-5, 1.0 - 1e-5)
         confidence_logits = torch.logit(confidence)
         zero_hr2 = torch.zeros((inputs.shape[0], 2, baseline_albedo.shape[-2], baseline_albedo.shape[-1]), device=inputs.device, dtype=baseline_albedo.dtype)
         zero_source2 = torch.zeros((inputs.shape[0], 2, inputs.shape[-2], inputs.shape[-1]), device=inputs.device, dtype=baseline_albedo.dtype)
@@ -1547,12 +1339,14 @@ class FidelityResidualNetV9(nn.Module):
             "source_sdf_prior_pixels": geometry["source_sdf_prior_pixels"],
             "implicit_feature_grid": geometry["implicit_feature_grid"],
             "implicit_source_sdf_prior_lr": geometry["implicit_source_sdf_prior_lr"],
-            "parametric_primitive_active": geometry["parametric_primitive_active"],
-            "primitive_class_logits": geometry["primitive_class_logits"],
-            "primitive_class_index": geometry["primitive_class_index"],
-            "primitive_params": geometry["primitive_params"],
-            "primitive_params_by_class": geometry["primitive_params_by_class"],
-            "primitive_confidence": geometry["primitive_confidence"],
+            "topology_control_phi_pixels": geometry["topology_control_phi_pixels"],
+            "topology_source_control_phi_pixels": geometry["topology_source_control_phi_pixels"],
+            "topology_source_control_sign": geometry["topology_source_control_sign"],
+            "topology_magnitude_pixels": geometry["topology_magnitude_pixels"],
+            "topology_log_magnitude_delta": geometry["topology_log_magnitude_delta"],
+            "topology_field_confidence": geometry["topology_field_confidence"],
+            "topology_edit_authority": geometry["topology_edit_authority"],
+            "topology_saddle_projection_fraction": geometry["topology_saddle_projection_fraction"],
             "primitive_normal": geometry["primitive_normal"],
             "primitive_curvature_hr": geometry["primitive_curvature_hr"],
             "primitive_phi_pixels": geometry["primitive_phi_pixels"],
@@ -1587,9 +1381,9 @@ class FidelityResidualNetV9(nn.Module):
             "hardness": hardness.to(albedo.dtype),
             "transition_width": (float(self.config.boundary_renderer_soft_width_pixels) + (float(self.config.boundary_renderer_hard_width_pixels) - float(self.config.boundary_renderer_soft_width_pixels)) * hardness).to(albedo.dtype),
             "boundary_normal": boundary["boundary_normal"],
-            "boundary_gate": structural_gate.to(albedo.dtype),
+            "boundary_gate": applied_gate.to(albedo.dtype),
             "boundary_candidate_locality": candidate_locality.to(albedo.dtype),
-            "boundary_gate_prediction": selector_probability.to(albedo.dtype),
+            "boundary_gate_prediction": predicted_gate.to(albedo.dtype),
             "boundary_gate_probability": selector_probability.to(albedo.dtype),
             "forced_gate_used": albedo.new_tensor(1.0 if gate_override is not None else 0.0),
             "plateau_confidence": boundary["plateau_confidence"],
@@ -1600,14 +1394,11 @@ class FidelityResidualNetV9(nn.Module):
             "baseline_normal": baseline_normal,
             "baseline_material": baseline_material,
             "boundary_reconstructed_albedo": boundary_albedo,
-            "boundary_pre_seam_albedo": pre_seam_albedo,
             "boundary_candidate_albedo": candidate_albedo,
             "boundary_initial_candidate_albedo": initial_candidate_albedo,
             "boundary_reconstructed_normal": boundary_normal_out,
-            "boundary_pre_seam_normal": pre_seam_normal,
             "boundary_candidate_normal": candidate_normal,
             "boundary_reconstructed_material": boundary_material,
-            "boundary_pre_seam_material": pre_seam_material,
             "boundary_candidate_material": candidate_material,
             "boundary_initial_coverage": initial_coverage.to(albedo.dtype),
             "boundary_refined_coverage": refined_coverage.to(albedo.dtype),
@@ -1624,48 +1415,28 @@ class FidelityResidualNetV9(nn.Module):
             "displacement": zero_hr2,
             "source_displacement": zero_source2,
             "raw_source_displacement": zero_source2,
-            "displacement_gate": structural_gate.to(albedo.dtype),
+            "displacement_gate": applied_gate.to(albedo.dtype),
             "source_displacement_gate": observed_source_support,
             "learned_source_displacement_gate": observed_source_support,
             "source_edge_support": observed_source_support,
             "observed_source_edge_support": observed_source_support,
-            "seam_authority": seam["authority"].to(albedo.dtype),
-            "seam_learned_authority": seam["learned_authority"].to(albedo.dtype),
-            "seam_normal": seam["normal"].to(albedo.dtype),
-            "seam_tangent": seam["tangent"].to(albedo.dtype),
-            "seam_strength": seam["strength"].to(albedo.dtype),
-            "seam_coherence": seam["coherence"].to(albedo.dtype),
-            "seam_ridge": seam["ridge"].to(albedo.dtype),
-            "seam_authority_forced": seam["authority_forced"].to(albedo.dtype),
-            "seam_curvature": seam["curvature"].to(albedo.dtype),
-            "seam_primitive_class": seam["primitive_class"].to(albedo.dtype),
-            "seam_sharpen": seam["sharpen"].to(albedo.dtype),
-            "seam_phase_delta": seam["phase_delta"].to(albedo.dtype),
-            "seam_phase_mix": seam["phase_mix"].to(albedo.dtype),
-            "seam_phase_only": seam["phase_only"].to(albedo.dtype),
-            "detail_confidence_logits": detail["confidence_logits"].to(albedo.dtype),
-            "detail_regret_logits": detail["regret_logits"].to(albedo.dtype),
-            "detail_confidence": detail_confidence.to(albedo.dtype),
-            "detail_regret": detail_regret.to(albedo.dtype),
-            "detail_geometry_condition": geometry_condition.to(albedo.dtype),
-            "detail_candidate_albedo": full_candidate_albedo.to(albedo.dtype),
-            "detail_candidate_normal": full_candidate_normal.to(albedo.dtype),
-            "detail_candidate_material": full_candidate_material.to(albedo.dtype),
-            "final_selector_gate": final_gate.to(albedo.dtype),
-            # Compatibility aliases retained for existing diagnostics.
-            "appearance_gate": detail_confidence.to(albedo.dtype),
-            "albedo_gate_medium": detail_confidence.to(albedo.dtype),
-            "albedo_gate_fine": torch.zeros_like(detail_confidence).to(albedo.dtype),
-            "normal_gate_medium": detail_confidence.to(albedo.dtype),
-            "normal_gate_fine": torch.zeros_like(detail_confidence).to(albedo.dtype),
-            "material_gate": detail_confidence.to(albedo.dtype),
-            "albedo_delta_medium": albedo_delta.to(albedo.dtype),
+            "appearance_gate": appearance_gate,
+            "albedo_gate_medium": appearance_gate,
+            "albedo_gate_fine": torch.zeros_like(appearance_gate),
+            "normal_gate_medium": appearance_gate,
+            "normal_gate_fine": torch.zeros_like(appearance_gate),
+            "material_gate": appearance_gate,
+            "albedo_delta_medium": albedo_delta,
             "albedo_delta_fine": zero_albedo,
-            "normal_delta_medium": normal_delta.to(albedo.dtype),
+            "normal_delta_medium": normal_delta,
             "normal_delta_fine": zero_normal,
-            "material_delta": material_delta_rgb[:, 0:1].to(albedo.dtype),
-            "appearance_enabled": albedo.new_tensor(1.0),
+            "material_delta": material_delta_rgb[:, 0:1],
+            "appearance_enabled": albedo.new_tensor(1.0 if self._appearance_enabled else 0.0),
         }
+
+
+MaterialPhysicalNet = FidelityResidualNetV9
+
 
 def build_model_input(
     albedo_rgb: np.ndarray,
@@ -1750,15 +1521,15 @@ def architecture_summary(model: FidelityResidualNetV9) -> Mapping[str, object]:
         "attention": f"local {config.attention_window}x{config.attention_window} bottleneck attention",
         "parameterCount": parameter_count(model),
         "upsampling": (
-            "explicit compact primitive geometry -> analytic metric SDF + "
-            "9-sample SDF-derived subpixel coverage; no independent structural coverage, "
+            "topology-anchored shared zero-crossing SDF + deterministic two-sided plateau solve + "
+            "9-sample SDF-derived subpixel coverage + direct local coverage-profile specialist; no independent structural coverage, "
             "PixelShuffle or transposed convolution"
         ),
         "proposalPolicy": (
-            "B1 synthetic structural proof -> learned compact primitive hypotheses -> exact analytic SDF -> BoundaryRenderer; later stages train real-Raven seam/profile/detail/selector components"
+            "deterministic baseline -> topology-anchored shared zero-crossing SDF -> optional local profile specialist -> frozen-candidate benefit selector"
         ),
         "geometryPath": (
-            "GeometryNet consumes native LR physical maps, predicts a compact primitive class/parameter vector, and rasterizes its exact analytic primitive SDF before deterministic rendering."
+            "GeometryNet encodes LR physical maps and the observable LR SDF; immutable source control signs preserve the contour graph while learned positive magnitudes place shared zero crossings before deterministic rendering."
         ),
         "boundaryRenderer": {
             "bandPixels": config.boundary_renderer_band_pixels,
@@ -1767,7 +1538,7 @@ def architecture_summary(model: FidelityResidualNetV9) -> Mapping[str, object]:
             "softWidthPixels": config.boundary_renderer_soft_width_pixels,
             "sharedAcrossPhysicalMaps": True,
             "topologySafeSideSampling": True,
-            "rendererRevision": "V11-production-parametric-forward",
+            "rendererRevision": "V10.1.0-topology-anchored-zero-crossing-sdf",
         },
         "profileSpecialist": {
             "kind": "small sliding-window direct coverage-profile network",
@@ -1779,9 +1550,8 @@ def architecture_summary(model: FidelityResidualNetV9) -> Mapping[str, object]:
             "kind": "frozen-candidate local benefit selector",
             "rgbAuthority": False,
         },
-        "detailPath": "GeometryConditionedDetailNet with explicit 2x/4x decoder; frozen during B1/B2 then trained on real Raven crops in V10.8",
-        "seamPath": "DirectionalSeamRestorer: shared multi-map structure tensor + tangent smoothing + normal sharpening",
-        "detailEnabled": bool(getattr(config, "detail_reconstruction_enabled", True)),
+        "appearancePath": "independent AppearanceNet; disabled during V10 structural proof",
+        "appearanceEnabled": config.appearance_enabled,
         "identityInitialization": True,
         "outputs": [
             "albedoRGB", "normalXY", "roughness", "emissive", "material",
@@ -1790,3 +1560,4 @@ def architecture_summary(model: FidelityResidualNetV9) -> Mapping[str, object]:
         ],
         "presentationMode": "not included; physical reconstruction only",
     }
+

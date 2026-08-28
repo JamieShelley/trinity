@@ -1,0 +1,96 @@
+"""Static contracts for the V11.1 local-boundary production override."""
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[3]
+CONTRACT = ROOT / "tools/nsamdr/neural/v9/local_boundary_production_contract.py"
+ENTRY = ROOT / "tools/nsamdr/neural/train_nsamdr_v9_preview_experiment.py"
+INIT = ROOT / "tools/nsamdr/neural/v9/__init__.py"
+
+
+def test_current_v11_is_patched_not_replaced() -> None:
+    source = CONTRACT.read_text(encoding="utf-8")
+    assert "_ORIGINAL_GEOMETRY_INIT(self, config)" in source
+    assert "requires the current V11 model.py" in source
+    assert "parametric_primitive_field" in source
+
+
+def test_structural_authority_is_local_decoder() -> None:
+    source = CONTRACT.read_text(encoding="utf-8")
+    assert "LocalParametricBoundaryDecoder" in source
+    assert 'production["structural representation"] = "geometry_net.local_boundary_decoder"' in source
+    assert '"wholeTilePrimitiveClassifierAuthority": False' in source
+
+
+def test_complete_production_graph_is_preserved() -> None:
+    source = CONTRACT.read_text(encoding="utf-8")
+    for path in (
+        "model.boundary_renderer",
+        "model.boundary_specialist",
+        "model.seam_restorer.phase_sr",
+        "model.seam_restorer.authority",
+        "model.detail_net",
+        "model.detail_net.albedo_head",
+        "model.detail_net.normal_head",
+        "model.detail_net.material_head",
+        "model.detail_net.confidence_head",
+        "model.detail_net.regret_head",
+        "model.benefit_selector",
+    ):
+        assert path in source
+
+
+def test_local_losses_are_existing_physical_geometry_losses() -> None:
+    source = CONTRACT.read_text(encoding="utf-8")
+    for name in (
+        'losses["sdf_surface"]',
+        'losses["sdf_sign"]',
+        'losses["sdf_topology_sign"]',
+        'losses["sdf_eikonal"]',
+        'losses["sdf_metric_gradient"]',
+        'losses["sdf_improvement_regret"]',
+        'losses["parametric_anchor"]',
+        'losses["parametric_normal"]',
+        'losses["parametric_curvature"]',
+        'losses["parametric_offset_smoothness"]',
+    ):
+        assert name in source
+
+
+def test_quick_has_no_whole_tile_b1b_epoch_budget() -> None:
+    source = ENTRY.read_text(encoding="utf-8")
+    quick = source[source.index("QUICK_WORK_BUDGET"):source.index("FULL_MINIMUM_WORK_BUDGET")]
+    assert '"identity_epochs": 3' in quick
+    assert '"residual_epochs": 0' in quick
+    assert '"tiles_per_epoch": 64' in quick
+
+
+def test_pass_driven_plan_skips_retired_sdf_proof_stage() -> None:
+    source = ENTRY.read_text(encoding="utf-8")
+    plan = source[source.index("_PASS_DRIVEN_STAGE_PLAN"):source.index("def _stage_already_qualified")]
+    assert '"sdf-bootstrap"' in plan
+    assert '"sdf-proof"' not in plan
+    assert '"seam-proof"' in plan
+
+
+def test_local_gate_does_not_consume_primitive_classifier_metrics() -> None:
+    source = ENTRY.read_text(encoding="utf-8")
+    gate = source[source.index("def _local_geometry_gate"):source.index("def _promote_local_geometry_state")]
+    assert "primitive_class_accuracy" not in gate
+    assert "primitive_teacher_param_mae" not in gate
+    assert "sdf_stageb_topology_regression_fraction" in gate
+    assert "sdf_zero_contour_relative_gain_mean" in gate
+    assert "sdf_oracle_render_band_mae_mean" in gate
+
+
+def test_package_init_installs_one_local_model_contract() -> None:
+    source = INIT.read_text(encoding="utf-8")
+    assert "install_local_boundary_model_contract()" in source
+    assert "install_b1a_parametric_bootstrap" not in source
+    assert "install_classifier_generalisation_contract" not in source
+
+
+def test_local_promotion_does_not_force_retired_classifier_gates() -> None:
+    source = ENTRY.read_text(encoding="utf-8")
+    promotion = source[source.index("def _promote_local_geometry_state"):source.index("_PASS_DRIVEN_STAGE_PLAN")]
+    assert 'state["b1b_classifier_qualified"] = True' not in promotion
+    assert 'state["b1b_parameters_qualified"] = True' not in promotion
