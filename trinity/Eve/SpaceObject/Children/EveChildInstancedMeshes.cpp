@@ -484,6 +484,8 @@ void EveChildInstancedMeshes::AddMesh(
 		a.batchType = areas[i].batchType;
 		a.areaIndex = areas[i].areaIndex;
 		a.areaCount = areas[i].areaCount;
+		a.alphaCutout = areas[i].alphaCutout;
+		a.reversed = areas[i].reversed;
 		a.effectHash = a.effect ? a.effect->GetHashValue() : 0;
 	}
 	mesh.instances.reserve( count );
@@ -1247,6 +1249,53 @@ void EveChildInstancedMeshes::GetBatches( ITriRenderBatchAccumulator* batches, T
 			{
 				EmitOverlayBatches( batches, pod.framePod, batchType, *m_parentOverlayEffects, mesh.overlayAreaBlocks, *lod );
 			}
+		}
+	}
+}
+
+void EveChildInstancedMeshes::CollectOwnedGeometry( TriBatchType type, const Matrix& parentTransform, std::vector<EveChildGeometry>& out, std::vector<EveChildGeometryArea>& areaPool ) const
+{
+	static_assert(
+		sizeof( Float4x3 ) == sizeof( EveInstancedMeshManager::StaticPerInstanceData::worldTransform ),
+		"Float4x3 must match StaticPerInstanceData::worldTransform" );
+
+	for( const Mesh& mesh : m_meshes )
+	{
+		if( !mesh.geometry || mesh.instances.empty() )
+		{
+			continue;
+		}
+
+		uint32_t areaStart = uint32_t( areaPool.size() );
+		for( const MeshArea& area : mesh.areas )
+		{
+			if( area.batchType != type )
+			{
+				continue;
+			}
+			EveChildGeometryArea childGeometryArea;
+			childGeometryArea.index = area.areaIndex;
+			childGeometryArea.count = area.areaCount;
+			childGeometryArea.alphaCutout = area.alphaCutout;
+			childGeometryArea.reversed = area.reversed;
+			areaPool.push_back( childGeometryArea );
+		}
+		uint32_t areaCount = uint32_t( areaPool.size() ) - areaStart;
+
+		if( areaCount == 0 )
+		{
+			continue;
+		}
+
+		for( const auto& instance : mesh.instances )
+		{
+			Matrix instanceTransform = *(Float4x3*)&instance.worldTransform;
+			EveChildGeometry source;
+			source.childToObject = instanceTransform * parentTransform;
+			source.geometry = mesh.geometry;
+			source.areaStart = areaStart;
+			source.areaCount = areaCount;
+			out.push_back( source );
 		}
 	}
 }
