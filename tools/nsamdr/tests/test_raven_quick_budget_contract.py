@@ -1,24 +1,27 @@
-"""Quick stays bounded while respecting V9Config validator minima in V11.3."""
+"""Quick stays bounded while respecting V9Config validator minima after OOP refactor."""
 from __future__ import annotations
-import ast
+
 from pathlib import Path
+import sys
 
 ROOT = Path(__file__).resolve().parents[3]
-ENTRY = ROOT / "tools/nsamdr/neural/train_nsamdr_v9_preview_experiment.py"
-
-
-def _literal_assignment(name: str) -> dict[str, int]:
-    tree = ast.parse(ENTRY.read_text(encoding="utf-8"))
-    for node in tree.body:
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == name:
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, dict)
-            return value
-    raise AssertionError(name)
+NEURAL = ROOT / "tools/nsamdr/neural"
+if str(NEURAL) not in sys.path:
+    sys.path.insert(0, str(NEURAL))
 
 
 def test_quick_is_a_short_local_capacity_run() -> None:
-    budget = _literal_assignment("QUICK_WORK_BUDGET")
+    """Verify the unchanged Quick work budget moved into application configuration.
+
+    Purpose:
+        Preserve the bounded Quick runtime contract across source reorganisation.
+    Called by:
+        pytest.
+    Calls:
+        Imports QUICK_WORK_BUDGET.
+    """
+    from v9.application.configuration import QUICK_WORK_BUDGET as budget
+
     assert budget["identity_epochs"] == 3
     assert budget["residual_epochs"] == 1
     assert budget["tiles_per_epoch"] == 64
@@ -29,5 +32,15 @@ def test_quick_is_a_short_local_capacity_run() -> None:
 
 
 def test_retired_primitive_bank_uses_only_validator_minimum() -> None:
-    budget = _literal_assignment("QUICK_WORK_BUDGET")
+    """Verify the retired primitive-loader allocation remains at its legal minimum.
+
+    Purpose:
+        Prevent source refactoring from expanding obsolete B1b work.
+    Called by:
+        pytest.
+    Calls:
+        Imports QUICK_WORK_BUDGET.
+    """
+    from v9.application.configuration import QUICK_WORK_BUDGET as budget
+
     assert budget["parametric_primitive_train_tiles_per_epoch"] == 14
