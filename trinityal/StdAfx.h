@@ -3,12 +3,16 @@
 #ifndef TrinityALTest_StdAfx_H
 #define TrinityALTest_StdAfx_H
 
-#include <string>
+#ifdef _MSC_VER
+#pragma warning( push, 3 )
+#endif
 
 #ifdef _WIN32
 
 #ifndef NOMINMAX
-#define NOMINMAX
+#define NOMINMAX //don't want that evil microsoft macro
+#endif
+#include <windows.h>
 #endif
 
 #include <Windows.h>
@@ -21,43 +25,16 @@ typedef id Tr2WindowHandle;
 typedef uintptr_t Tr2WindowHandle;
 #endif
 
-#include <include/TrinityAL.h>
-
-#if ( TRINITY_PLATFORM == TRINITY_DIRECTX11 )
-#define SHADER_PATH Shaders.DX11
-#elif ( TRINITY_PLATFORM == TRINITY_STUB )
-#define SHADER_PATH Shaders.DX11
-#elif ( TRINITY_PLATFORM == TRINITY_DIRECTX12 )
-#define SHADER_PATH Shaders.DX12
-#elif ( TRINITY_PLATFORM == TRINITY_METAL )
-#define SHADER_PATH Shaders.metal
-#else
-#error Define shader path for this TrinityAL platform
+#ifdef _MSC_VER
+#pragma warning( pop )
 #endif
 
 // clang-format off
 #define INCLUDE_SHADER_CODE( name ) CCP_STRINGIZE( SHADER_PATH/name.h )
 // clang-format on
 
-#include "gtest/gtest.h"
-
-#ifndef ASSERT_HRESULT_SUCCEEDED
-
-namespace testing
-{
-namespace internal
-{
-inline AssertionResult HRESULTFailureHelper( const char* expr, const char* expected, HRESULT hr )
-{
-#if __APPLE__
-	std::stringstream error_hex;
-	error_hex << "0x" << std::hex << hr;
-	return AssertionFailure() << "Expected: " << expr << " " << expected << ".\n"
-							  << "  Actual: " << error_hex.str() << "\n";
-#else
-	const std::string error_hex( "0x" + String::FormatHexInt( hr ) );
-	return AssertionFailure() << "Expected: " << expr << " " << expected << ".\n"
-							  << "  Actual: " << error_hex << "\n";
+#if ( TRINITY_PLATFORM == TRINITY_DIRECTX11 || TRINITY_PLATFORM == TRINITY_DIRECTX12 )
+#include <GFSDK_Aftermath.h>
 #endif
 }
 
