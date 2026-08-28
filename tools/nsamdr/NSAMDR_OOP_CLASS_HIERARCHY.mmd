@@ -1,0 +1,27 @@
+flowchart TD
+    APP[TrainingApplication]
+    EXP[ExperimentService]
+    EVO[EvolutionaryRecoveryController]
+    PIPE[PassDrivenPipeline]
+    BACK[TrainingBackend]
+    TRAIN[TrainingRuntimeOperations]
+    STATE[TrainingStateService]
+    GATES[QualificationGates]
+    MODEL[Model / nn.Module classes]
+    LOSS[LossOperations]
+    DATA[Dataset classes + DatasetOperations]
+    INF[InferenceOperations]
+    AUDIT[RavenArchitectureAuditor]
+
+    APP --> EXP
+    APP --> EVO
+    APP --> PIPE
+    PIPE --> BACK
+    PIPE --> STATE
+    PIPE --> GATES
+    BACK --> TRAIN
+    TRAIN --> MODEL
+    TRAIN --> LOSS
+    TRAIN --> DATA
+    INF --> MODEL
+    AUDIT --> MODEL
