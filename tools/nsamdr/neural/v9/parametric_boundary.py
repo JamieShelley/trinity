@@ -20,58 +20,115 @@ from torch import nn
 from torch.nn import functional as F
 
 
-def make_query_grid(
-    batch: int,
-    height: int,
-    width: int,
-    *,
-    device: torch.device,
-    dtype: torch.dtype = torch.float32,
-    offset_x_pixels: float = 0.0,
-    offset_y_pixels: float = 0.0,
-) -> torch.Tensor:
-    yy = (
-        (torch.arange(height, device=device, dtype=dtype) + 0.5 + float(offset_y_pixels))
-        * (2.0 / max(height, 1))
-        - 1.0
-    )
-    xx = (
-        (torch.arange(width, device=device, dtype=dtype) + 0.5 + float(offset_x_pixels))
-        * (2.0 / max(width, 1))
-        - 1.0
-    )
-    gy, gx = torch.meshgrid(yy, xx, indexing="ij")
-    return torch.stack((gx, gy), dim=-1).unsqueeze(0).expand(batch, -1, -1, -1)
+class ParametricBoundaryService:
+    # Purpose: Implement make query grid for ParametricBoundaryService.
+    # Called by: supersample_coverage
+    # Calls: No same-class helper methods.
+    def make_query_grid(
+        self,
+        batch: int,
+        height: int,
+        width: int,
+        *,
+        device: torch.device,
+        dtype: torch.dtype = torch.float32,
+        offset_x_pixels: float = 0.0,
+        offset_y_pixels: float = 0.0,
+    ) -> torch.Tensor:
+        yy = (
+            (torch.arange(height, device=device, dtype=dtype) + 0.5 + float(offset_y_pixels))
+            * (2.0 / max(height, 1))
+            - 1.0
+        )
+        xx = (
+            (torch.arange(width, device=device, dtype=dtype) + 0.5 + float(offset_x_pixels))
+            * (2.0 / max(width, 1))
+            - 1.0
+        )
+        gy, gx = torch.meshgrid(yy, xx, indexing="ij")
+        return torch.stack((gx, gy), dim=-1).unsqueeze(0).expand(batch, -1, -1, -1)
 
+    # Purpose: Implement sample for ParametricBoundaryService.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def _sample(self, value: torch.Tensor, grid: torch.Tensor) -> torch.Tensor:
+        return F.grid_sample(
+            value.float(), grid.float(), mode="bilinear", padding_mode="border", align_corners=False
+        )
 
-def _sample(value: torch.Tensor, grid: torch.Tensor) -> torch.Tensor:
-    return F.grid_sample(
-        value.float(), grid.float(), mode="bilinear", padding_mode="border", align_corners=False
-    )
+    # Purpose: Implement central difference for ParametricBoundaryService.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def _central_difference(self, value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        x = value.float()
+        xp = F.pad(x, (1, 1, 0, 0), mode="replicate")
+        yp = F.pad(x, (0, 0, 1, 1), mode="replicate")
+        gx = 0.5 * (xp[:, :, :, 2:] - xp[:, :, :, :-2])
+        gy = 0.5 * (yp[:, :, 2:, :] - yp[:, :, :-2, :])
+        return gx, gy
 
+    # Purpose: Implement gather control for ParametricBoundaryService.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def _gather_control(self, field: torch.Tensor, ix: torch.Tensor, iy: torch.Tensor) -> torch.Tensor:
+        b, c, h, w = field.shape
+        ix = ix.clamp(0, w - 1)
+        iy = iy.clamp(0, h - 1)
+        index = (iy * w + ix).reshape(b, 1, -1).expand(-1, c, -1)
+        return torch.gather(field.reshape(b, c, h * w), 2, index).reshape(
+            b, c, ix.shape[-2], ix.shape[-1]
+        )
 
-def _central_difference(value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    x = value.float()
-    xp = F.pad(x, (1, 1, 0, 0), mode="replicate")
-    yp = F.pad(x, (0, 0, 1, 1), mode="replicate")
-    gx = 0.5 * (xp[:, :, :, 2:] - xp[:, :, :, :-2])
-    gy = 0.5 * (yp[:, :, 2:, :] - yp[:, :, :-2, :])
-    return gx, gy
+    # Purpose: Implement rotate for ParametricBoundaryService.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def _rotate(self, nx: torch.Tensor, ny: torch.Tensor, angle: float) -> tuple[torch.Tensor, torch.Tensor]:
+        ca, sa = math.cos(angle), math.sin(angle)
+        return ca * nx - sa * ny, sa * nx + ca * ny
 
+    # Purpose: Implement supersample coverage for ParametricBoundaryService.
+    # Called by: External callers and the owning workflow.
+    # Calls: make_query_grid
+    def supersample_coverage(
+        self,
+        query_fn,
+        *,
+        batch: int,
+        height: int,
+        width: int,
+        device: torch.device,
+        offsets: tuple[tuple[float, float], ...],
+        transition_width: torch.Tensor,
+        return_samples: bool = False,
+    ):
+        center_grid = self.make_query_grid(batch, height, width, device=device)
+        center_phi = query_fn(center_grid).float()
+        accum = torch.zeros_like(center_phi)
+        samples: list[torch.Tensor] = []
+        width_field = transition_width.float().clamp_min(0.20)
+        for ox, oy in offsets:
+            grid = self.make_query_grid(
+                batch, height, width, device=device,
+                offset_x_pixels=float(ox), offset_y_pixels=float(oy),
+            )
+            phi = query_fn(grid).float()
+            if return_samples:
+                samples.append(phi)
+            t = (0.5 - phi / width_field).clamp(0.0, 1.0)
+            t = t * t * (3.0 - 2.0 * t)
+            accum = accum + t
+        coverage = accum / float(max(len(offsets), 1))
+        if return_samples:
+            return coverage, center_phi, torch.cat(samples, dim=1) if samples else center_phi
+        return coverage, center_phi
 
-def _gather_control(field: torch.Tensor, ix: torch.Tensor, iy: torch.Tensor) -> torch.Tensor:
-    b, c, h, w = field.shape
-    ix = ix.clamp(0, w - 1)
-    iy = iy.clamp(0, h - 1)
-    index = (iy * w + ix).reshape(b, 1, -1).expand(-1, c, -1)
-    return torch.gather(field.reshape(b, c, h * w), 2, index).reshape(
-        b, c, ix.shape[-2], ix.shape[-1]
-    )
-
-
-def _rotate(nx: torch.Tensor, ny: torch.Tensor, angle: float) -> tuple[torch.Tensor, torch.Tensor]:
-    ca, sa = math.cos(angle), math.sin(angle)
-    return ca * nx - sa * ny, sa * nx + ca * ny
+_parametric_boundary_service = ParametricBoundaryService()
+make_query_grid = _parametric_boundary_service.make_query_grid
+_sample = _parametric_boundary_service._sample
+_central_difference = _parametric_boundary_service._central_difference
+_gather_control = _parametric_boundary_service._gather_control
+_rotate = _parametric_boundary_service._rotate
+supersample_coverage = _parametric_boundary_service.supersample_coverage
 
 
 class PrimitiveParameterHead(nn.Module):
@@ -87,6 +144,9 @@ class PrimitiveParameterHead(nn.Module):
     BRANCH_STRIDE = 6
     OUTPUTS = 24
 
+    # Purpose: Implement init for PrimitiveParameterHead.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, in_channels: int, hidden_channels: int) -> None:
         super().__init__()
         hidden = max(24, int(hidden_channels))
@@ -110,6 +170,9 @@ class PrimitiveParameterHead(nn.Module):
             self.net[-1].bias[21] = -1.5          # union
             self.net[-1].bias[22] = -1.5          # intersection
 
+    # Purpose: Implement forward for PrimitiveParameterHead.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         raw = self.net(x)
         smooth = F.avg_pool2d(raw, kernel_size=3, stride=1, padding=1)
@@ -129,6 +192,9 @@ class PrimitiveParameterHead(nn.Module):
 class LocalParametricBoundaryDecoder(nn.Module):
     """Continuous metric SDF assembled from local analytic line/arc primitives."""
 
+    # Purpose: Implement init for LocalParametricBoundaryDecoder.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(
         self,
         feature_channels: int,
@@ -152,6 +218,9 @@ class LocalParametricBoundaryDecoder(nn.Module):
         self.output_scale = max(1, int(output_scale))
         self.parameter_head = PrimitiveParameterHead(feature_channels + 4, hidden_channels)
 
+    # Purpose: Implement branch parameters for LocalParametricBoundaryDecoder.
+    # Called by: build_context
+    # Calls: No same-class helper methods.
     def _branch_parameters(
         self,
         raw: torch.Tensor,
@@ -181,6 +250,9 @@ class LocalParametricBoundaryDecoder(nn.Module):
         ribbon_mode = torch.sigmoid(raw[:, start + 5:start + 6])
         return distance, nx, ny, curvature, half_width, ribbon_mode
 
+    # Purpose: Implement build context for LocalParametricBoundaryDecoder.
+    # Called by: forward
+    # Calls: _branch_parameters
     def build_context(
         self,
         feature_grid: torch.Tensor,
@@ -263,14 +335,23 @@ class LocalParametricBoundaryDecoder(nn.Module):
             "junction_hint": up(torch.maximum(branch_activation[:, 1:2], branch_activation[:, 2:3])),
         }
 
+    # Purpose: Implement smooth min for LocalParametricBoundaryDecoder.
+    # Called by: query
+    # Calls: No same-class helper methods.
     @staticmethod
     def _smooth_min(values: torch.Tensor, tau: float = 0.25) -> torch.Tensor:
         return -float(tau) * torch.logsumexp(-values / float(tau), dim=1, keepdim=True)
 
+    # Purpose: Implement smooth max for LocalParametricBoundaryDecoder.
+    # Called by: query
+    # Calls: No same-class helper methods.
     @staticmethod
     def _smooth_max(values: torch.Tensor, tau: float = 0.25) -> torch.Tensor:
         return float(tau) * torch.logsumexp(values / float(tau), dim=1, keepdim=True)
 
+    # Purpose: Implement query for LocalParametricBoundaryDecoder.
+    # Called by: forward
+    # Calls: _smooth_max, _smooth_min
     def query(
         self,
         context: dict[str, torch.Tensor],
@@ -395,6 +476,9 @@ class LocalParametricBoundaryDecoder(nn.Module):
             "implicit_authority": authority,
         }
 
+    # Purpose: Implement forward for LocalParametricBoundaryDecoder.
+    # Called by: External callers and the owning workflow.
+    # Calls: build_context, query
     def forward(
         self,
         feature_grid: torch.Tensor,
@@ -402,36 +486,3 @@ class LocalParametricBoundaryDecoder(nn.Module):
         query_grid: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
         return self.query(self.build_context(feature_grid, source_sdf_normalized), query_grid)
-
-
-def supersample_coverage(
-    query_fn,
-    *,
-    batch: int,
-    height: int,
-    width: int,
-    device: torch.device,
-    offsets: tuple[tuple[float, float], ...],
-    transition_width: torch.Tensor,
-    return_samples: bool = False,
-):
-    center_grid = make_query_grid(batch, height, width, device=device)
-    center_phi = query_fn(center_grid).float()
-    accum = torch.zeros_like(center_phi)
-    samples: list[torch.Tensor] = []
-    width_field = transition_width.float().clamp_min(0.20)
-    for ox, oy in offsets:
-        grid = make_query_grid(
-            batch, height, width, device=device,
-            offset_x_pixels=float(ox), offset_y_pixels=float(oy),
-        )
-        phi = query_fn(grid).float()
-        if return_samples:
-            samples.append(phi)
-        t = (0.5 - phi / width_field).clamp(0.0, 1.0)
-        t = t * t * (3.0 - 2.0 * t)
-        accum = accum + t
-    coverage = accum / float(max(len(offsets), 1))
-    if return_samples:
-        return coverage, center_phi, torch.cat(samples, dim=1) if samples else center_phi
-    return coverage, center_phi

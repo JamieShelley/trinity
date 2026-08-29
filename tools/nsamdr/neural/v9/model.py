@@ -26,26 +26,173 @@ UPSCALE_FACTOR = 4
 INPUT_CHANNELS = 17
 
 
-def parameter_count(model: nn.Module) -> int:
-    return sum(parameter.numel() for parameter in model.parameters())
+class ModelService:
+    # Purpose: Implement parameter count for ModelService.
+    # Called by: architecture_summary
+    # Calls: No same-class helper methods.
+    def parameter_count(self, model: nn.Module) -> int:
+        return sum(parameter.numel() for parameter in model.parameters())
 
+    # Purpose: Implement model hash for ModelService.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def model_hash(self, model: nn.Module) -> str:
+        digest = hashlib.sha256()
+        with torch.no_grad():
+            for name, value in sorted(model.state_dict().items()):
+                digest.update(name.encode("utf-8"))
+                digest.update(value.detach().cpu().contiguous().numpy().tobytes())
+        return digest.hexdigest()
 
-def model_hash(model: nn.Module) -> str:
-    digest = hashlib.sha256()
-    with torch.no_grad():
-        for name, value in sorted(model.state_dict().items()):
-            digest.update(name.encode("utf-8"))
-            digest.update(value.detach().cpu().contiguous().numpy().tobytes())
-    return digest.hexdigest()
+    # Purpose: Implement build model input for ModelService.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def build_model_input(
+        self,
+        albedo_rgb: np.ndarray,
+        normal_xy: np.ndarray | None = None,
+        material_rgb: np.ndarray | None = None,
+        degradation_level: float = 1.0,
+        uv_stretch: np.ndarray | None = None,
+        chart_mask: np.ndarray | None = None,
+        *,
+        source_sdf_prior: np.ndarray | None = None,
+        contour_sdf_max_distance_pixels: float = 24.0,
+        target_scale: int = UPSCALE_FACTOR,
+    ) -> np.ndarray:
+        albedo = np.asarray(albedo_rgb, dtype=np.float32)
+        if albedo.max(initial=0.0) > 1.5:
+            albedo = albedo / 255.0
+        albedo = np.clip(albedo[..., :3], 0.0, 1.0)
+        height, width = albedo.shape[:2]
+        if normal_xy is None:
+            luma = (
+                albedo[..., 0] * 0.2126
+                + albedo[..., 1] * 0.7152
+                + albedo[..., 2] * 0.0722
+            )
+            gy, gx = np.gradient(luma)
+            normal_xy = np.stack((gx, gy), axis=-1)
+        normal = np.asarray(normal_xy, dtype=np.float32)[..., :2]
+        length = np.sqrt(np.maximum((normal * normal).sum(axis=-1, keepdims=True), 1e-8))
+        normal = normal / np.maximum(1.0, length / 0.999)
+        if material_rgb is None:
+            material = np.zeros((height, width, 3), dtype=np.float32)
+        else:
+            material = np.asarray(material_rgb, dtype=np.float32)
+            if material.max(initial=0.0) > 1.5:
+                material = material / 255.0
+            material = np.clip(material[..., :3], 0.0, 1.0)
+        guidance = build_guidance_numpy(
+            albedo,
+            normal,
+            material,
+            degradation_level,
+            uv_stretch,
+            chart_mask,
+        )
+        if source_sdf_prior is None:
+            # contour_targets measures distance in LR pixels. Normalising by
+            # maxDistance/scale means multiplying this channel by the HR maxDistance
+            # inside GeometryNet reconstructs distance directly in HR pixels.
+            lr_max_distance = max(
+                float(contour_sdf_max_distance_pixels) / max(int(target_scale), 1), 1.0
+            )
+            source_sdf_prior, _source_orientation, _source_edge, _source_confidence = lr_contour_prior(
+                albedo, normal, material, 1.0 if material_rgb is not None else 0.0,
+                max_distance=lr_max_distance,
+            )
+        source_sdf_prior = np.asarray(source_sdf_prior, dtype=np.float32)
+        if source_sdf_prior.ndim == 2:
+            source_sdf_prior = source_sdf_prior[..., None]
+        if source_sdf_prior.shape[:2] != (height, width):
+            raise ValueError(
+                f"source_sdf_prior must match LR input size {(height, width)}, "
+                f"got {source_sdf_prior.shape[:2]}"
+            )
+        source_sdf_prior = np.clip(source_sdf_prior[..., :1], -1.0, 1.0)
+        return np.ascontiguousarray(
+            np.concatenate((albedo, normal, material, guidance, source_sdf_prior), axis=-1)
+            .transpose(2, 0, 1)
+        )
+
+    # Purpose: Implement architecture summary for ModelService.
+    # Called by: External callers and the owning workflow.
+    # Calls: parameter_count
+    def architecture_summary(self, model: FidelityResidualNetV9) -> Mapping[str, object]:
+        config = model.config
+        return {
+            "schema": MODEL_SCHEMA,
+            "inputChannels": INPUT_CHANNELS,
+            "inputTile": [config.tile_size, config.tile_size],
+            "outputTile": [config.tile_size * UPSCALE_FACTOR, config.tile_size * UPSCALE_FACTOR],
+            "upscaleFactor": UPSCALE_FACTOR,
+            "widths": list(config.widths),
+            "blocksPerLevel": list(config.blocks_per_level),
+            "decoderBlocks": list(config.decoder_blocks),
+            "attention": f"local {config.attention_window}x{config.attention_window} bottleneck attention",
+            "parameterCount": self.parameter_count(model),
+            "upsampling": (
+                "topology-anchored shared zero-crossing SDF + deterministic two-sided plateau solve + "
+                "9-sample SDF-derived subpixel coverage + direct local coverage-profile specialist; no independent structural coverage, "
+                "PixelShuffle or transposed convolution"
+            ),
+            "proposalPolicy": (
+                "deterministic baseline -> topology-anchored shared zero-crossing SDF -> optional local profile specialist -> frozen-candidate benefit selector"
+            ),
+            "geometryPath": (
+                "GeometryNet encodes LR physical maps and the observable LR SDF; immutable source control signs preserve the contour graph while learned positive magnitudes place shared zero crossings before deterministic rendering."
+            ),
+            "boundaryRenderer": {
+                "bandPixels": config.boundary_renderer_band_pixels,
+                "samplePixels": config.boundary_renderer_sample_pixels,
+                "hardWidthPixels": config.boundary_renderer_hard_width_pixels,
+                "softWidthPixels": config.boundary_renderer_soft_width_pixels,
+                "sharedAcrossPhysicalMaps": True,
+                "topologySafeSideSampling": True,
+                "rendererRevision": "V10.1.0-topology-anchored-zero-crossing-sdf",
+            },
+            "profileSpecialist": {
+                "kind": "small sliding-window direct coverage-profile network",
+                "rgbAuthority": False,
+                "bandPixels": config.boundary_specialist_band_pixels,
+                "maxCoverageLogitDelta": config.boundary_specialist_logit_delta_max,
+            },
+            "benefitSelector": {
+                "kind": "frozen-candidate local benefit selector",
+                "rgbAuthority": False,
+            },
+            "appearancePath": "independent AppearanceNet; disabled during V10 structural proof",
+            "appearanceEnabled": config.appearance_enabled,
+            "identityInitialization": True,
+            "outputs": [
+                "albedoRGB", "normalXY", "roughness", "emissive", "material",
+                "topologyAnchoredContourSDF", "edgeOrientationXY", "boundaryHardness",
+                "boundaryGate", "confidence",
+            ],
+            "presentationMode": "not included; physical reconstruction only",
+        }
+
+_model_service = ModelService()
+parameter_count = _model_service.parameter_count
+model_hash = _model_service.model_hash
+build_model_input = _model_service.build_model_input
+architecture_summary = _model_service.architecture_summary
 
 
 class LayerNorm2d(nn.Module):
+    # Purpose: Implement init for LayerNorm2d.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, channels: int, epsilon: float = 1e-6) -> None:
         super().__init__()
         self.weight = nn.Parameter(torch.ones(1, channels, 1, 1))
         self.bias = nn.Parameter(torch.zeros(1, channels, 1, 1))
         self.epsilon = epsilon
 
+    # Purpose: Implement forward for LayerNorm2d.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def forward(self, value: torch.Tensor) -> torch.Tensor:
         dtype = value.dtype
         x = value.float()
@@ -58,6 +205,9 @@ class LayerNorm2d(nn.Module):
 class ResidualBlock(nn.Module):
     """Memory-safe convolutional residual block with identity initialisation."""
 
+    # Purpose: Implement init for ResidualBlock.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, channels: int, dilation: int = 1) -> None:
         super().__init__()
         padding = dilation
@@ -69,6 +219,9 @@ class ResidualBlock(nn.Module):
         self.project = nn.Conv2d(channels * 3, channels, 1)
         self.scale = nn.Parameter(torch.zeros(1, channels, 1, 1))
 
+    # Purpose: Implement forward for ResidualBlock.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def forward(self, value: torch.Tensor) -> torch.Tensor:
         residual = self.depthwise(self.norm(value))
         residual = self.project(F.gelu(self.expand(residual)))
@@ -78,6 +231,9 @@ class ResidualBlock(nn.Module):
 class WindowAttention2d(nn.Module):
     """Local bottleneck attention; never operates at reconstructed resolution."""
 
+    # Purpose: Implement init for WindowAttention2d.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, channels: int, heads: int, window: int) -> None:
         super().__init__()
         self.channels = channels
@@ -86,6 +242,9 @@ class WindowAttention2d(nn.Module):
         self.attention = nn.MultiheadAttention(channels, heads, batch_first=True)
         self.scale = nn.Parameter(torch.zeros(1, channels, 1, 1))
 
+    # Purpose: Implement forward for WindowAttention2d.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def forward(self, value: torch.Tensor) -> torch.Tensor:
         b, c, h, w = value.shape
         ws = min(self.window, h, w)
@@ -105,6 +264,9 @@ class WindowAttention2d(nn.Module):
 
 
 class Downsample(nn.Module):
+    # Purpose: Implement init for Downsample.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, input_channels: int, output_channels: int) -> None:
         super().__init__()
         self.body = nn.Sequential(
@@ -112,6 +274,9 @@ class Downsample(nn.Module):
             nn.Conv2d(input_channels, output_channels, 3, stride=2, padding=1),
         )
 
+    # Purpose: Implement forward for Downsample.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def forward(self, value: torch.Tensor) -> torch.Tensor:
         return self.body(value)
 
@@ -119,12 +284,18 @@ class Downsample(nn.Module):
 class ResizeDecoderStage(nn.Module):
     """Bilinear resize + convolution; no PixelShuffle or transpose convolution."""
 
+    # Purpose: Implement init for ResizeDecoderStage.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, input_channels: int, skip_channels: int, output_channels: int, blocks: int) -> None:
         super().__init__()
         self.pre = nn.Conv2d(input_channels, output_channels, 3, padding=1)
         self.fuse = nn.Conv2d(output_channels + skip_channels, output_channels, 1)
         self.blocks = nn.Sequential(*[ResidualBlock(output_channels) for _ in range(blocks)])
 
+    # Purpose: Implement forward for ResizeDecoderStage.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def forward(self, value: torch.Tensor, skip: torch.Tensor) -> torch.Tensor:
         value = F.interpolate(value, size=skip.shape[-2:], mode="bilinear", align_corners=False)
         value = self.pre(value)
@@ -134,6 +305,9 @@ class ResizeDecoderStage(nn.Module):
 class ZeroHead(nn.Module):
     """Compact output head whose final layer starts at exact zero."""
 
+    # Purpose: Implement init for ZeroHead.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, channels: int, outputs: int, *, bias: float = 0.0, weight_std: float = 0.0) -> None:
         super().__init__()
         hidden = max(16, min(channels, 64))
@@ -152,6 +326,9 @@ class ZeroHead(nn.Module):
             nn.init.zeros_(self.body[-1].weight)
         nn.init.constant_(self.body[-1].bias, bias)
 
+    # Purpose: Implement forward for ZeroHead.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def forward(self, value: torch.Tensor) -> torch.Tensor:
         return self.body(value)
 
@@ -164,6 +341,9 @@ class GeometryNet(nn.Module):
     crossings without gaining authority to create new sign islands.
     """
 
+    # Purpose: Implement init for GeometryNet.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, config: V9Config) -> None:
         super().__init__()
         widths = config.widths
@@ -240,9 +420,15 @@ class GeometryNet(nn.Module):
         self.edge_head = ZeroHead(aux_channels, 1, bias=-2.0)
         self.hardness_head = ZeroHead(aux_channels, 1, bias=0.0)
 
+    # Purpose: Implement set sdf residual limit for GeometryNet.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def set_sdf_residual_limit(self, pixels: float) -> None:
         _ = pixels
 
+    # Purpose: Implement encode for GeometryNet.
+    # Called by: forward
+    # Calls: No same-class helper methods.
     def encode(self, inputs: torch.Tensor) -> dict[str, torch.Tensor]:
         value = self.stem(inputs)
         skips: list[torch.Tensor] = []
@@ -278,6 +464,9 @@ class GeometryNet(nn.Module):
             "aux": aux,
         }
 
+    # Purpose: Implement forward for GeometryNet.
+    # Called by: External callers and the owning workflow.
+    # Calls: encode
     def forward(self, inputs: torch.Tensor) -> dict[str, torch.Tensor]:
         context = self.encode(inputs)
         aux = context["aux"]
@@ -371,6 +560,9 @@ class GeometryNet(nn.Module):
             "boundary_gate_logits": zero_gate.to(aux.dtype),
         }
 
+    # Purpose: Implement query from outputs for GeometryNet.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def query_from_outputs(
         self,
         outputs: dict[str, torch.Tensor],
@@ -408,25 +600,40 @@ class BoundaryRenderer(nn.Module):
     allowing GeometryNet to invent texture values.
     """
 
+    # Purpose: Implement init for BoundaryRenderer.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, config: V9Config) -> None:
         super().__init__()
         self.config = config
 
+    # Purpose: Implement smooth01 for BoundaryRenderer.
+    # Called by: forward
+    # Calls: No same-class helper methods.
     @staticmethod
     def _smooth01(value: torch.Tensor) -> torch.Tensor:
         value = value.clamp(0.0, 1.0)
         return value * value * (3.0 - 2.0 * value)
 
+    # Purpose: Implement sdf gradient components for BoundaryRenderer.
+    # Called by: _normal_from_sdf, forward
+    # Calls: No same-class helper methods.
     @staticmethod
     def _sdf_gradient_components(sdf_pixels: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         return sdf_gradient_components(sdf_pixels)
 
+    # Purpose: Implement normal from sdf for BoundaryRenderer.
+    # Called by: forward
+    # Calls: _sdf_gradient_components
     @classmethod
     def _normal_from_sdf(cls, sdf_pixels: torch.Tensor) -> torch.Tensor:
         gx, gy = cls._sdf_gradient_components(sdf_pixels)
         length = torch.sqrt(gx.square() + gy.square() + 1.0e-6)
         return torch.cat((gx / length, gy / length), dim=1)
 
+    # Purpose: Implement metricize sdf pixels for BoundaryRenderer.
+    # Called by: forward
+    # Calls: No same-class helper methods.
     def _metricize_sdf_pixels(
         self,
         sdf_pixels: torch.Tensor,
@@ -450,6 +657,9 @@ class BoundaryRenderer(nn.Module):
         denominator = torch.ones_like(metric)
         return metric, grad, denominator
 
+    # Purpose: Implement sample offset for BoundaryRenderer.
+    # Called by: _adaptive_plateau_sample
+    # Calls: No same-class helper methods.
     @staticmethod
     def _sample_offset(
         value: torch.Tensor,
@@ -472,6 +682,9 @@ class BoundaryRenderer(nn.Module):
             align_corners=False,
         )
 
+    # Purpose: Implement adaptive plateau sample for BoundaryRenderer.
+    # Called by: forward
+    # Calls: _sample_offset
     def _adaptive_plateau_sample(
         self,
         value: torch.Tensor,
@@ -543,12 +756,18 @@ class BoundaryRenderer(nn.Module):
         confidence = (selected_stability * weights * prefix_valid).sum(dim=1).clamp(0.0, 1.0)
         return plateau.to(value.dtype), confidence.to(value.dtype)
 
+    # Purpose: Implement box sum for BoundaryRenderer.
+    # Called by: _geometry_solved_plateaus
+    # Calls: No same-class helper methods.
     @staticmethod
     def _box_sum(value: torch.Tensor, kernel: int) -> torch.Tensor:
         radius = kernel // 2
         padded = F.pad(value, (radius, radius, radius, radius), mode="replicate")
         return F.avg_pool2d(padded, kernel_size=kernel, stride=1) * float(kernel * kernel)
 
+    # Purpose: Implement geometry solved plateaus for BoundaryRenderer.
+    # Called by: forward
+    # Calls: _box_sum
     def _geometry_solved_plateaus(
         self,
         source_value_lr: torch.Tensor,
@@ -666,6 +885,9 @@ class BoundaryRenderer(nn.Module):
             confidence_hr.to(source_value_lr.dtype),
         )
 
+    # Purpose: Implement forward for BoundaryRenderer.
+    # Called by: External callers and the owning workflow.
+    # Calls: _adaptive_plateau_sample, _geometry_solved_plateaus, _metricize_sdf_pixels, _normal_from_sdf, _sdf_gradient_components, _smooth01
     def forward(
         self,
         value: torch.Tensor,
@@ -851,6 +1073,9 @@ class AppearanceNet(nn.Module):
     physical maps.
     """
 
+    # Purpose: Implement init for AppearanceNet.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, config: V9Config) -> None:
         super().__init__()
         channels = max(40, min(64, config.widths[0]))
@@ -866,6 +1091,9 @@ class AppearanceNet(nn.Module):
         self.material_head = ZeroHead(channels, 3)
         self.gate_head = ZeroHead(channels, 1, bias=config.initial_gate_bias)
 
+    # Purpose: Implement forward for AppearanceNet.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def forward(self, inputs: torch.Tensor) -> dict[str, torch.Tensor]:
         value = self.body(inputs)
         return {
@@ -879,6 +1107,9 @@ class AppearanceNet(nn.Module):
 class FidelityResidualNetV9(nn.Module):
     """V10 oracle-distilled local SDF/coverage model with deterministic rendering."""
 
+    # Purpose: Implement init for FidelityResidualNetV9.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, config: V9Config | None = None, **overrides: object) -> None:
         super().__init__()
         config = V9Config() if config is None else config
@@ -904,23 +1135,35 @@ class FidelityResidualNetV9(nn.Module):
         self._selector_enabled = False
         self._appearance_enabled = bool(config.appearance_enabled)
 
+    # Purpose: Implement set trainable for FidelityResidualNetV9.
+    # Called by: set_phase
+    # Calls: No same-class helper methods.
     @staticmethod
     def _set_trainable(module: nn.Module, enabled: bool) -> None:
         for parameter in module.parameters():
             parameter.requires_grad = bool(enabled)
 
+    # Purpose: Implement normalize xy for FidelityResidualNetV9.
+    # Called by: forward, render_sdf_teacher
+    # Calls: No same-class helper methods.
     @staticmethod
     def _normalize_xy(value: torch.Tensor) -> torch.Tensor:
         length = torch.sqrt(value.float().square().sum(dim=1, keepdim=True) + 1e-6)
         limiter = torch.maximum(torch.ones_like(length), length / 0.999)
         return (value.float() / limiter).to(value.dtype)
 
+    # Purpose: Implement safe direction for FidelityResidualNetV9.
+    # Called by: forward
+    # Calls: No same-class helper methods.
     def _safe_direction(self, value: torch.Tensor) -> torch.Tensor:
         epsilon = float(self.config.orientation_normalization_epsilon)
         fp32 = value.float()
         denominator = torch.sqrt(fp32.square().sum(dim=1, keepdim=True) + epsilon * epsilon)
         return (fp32 / denominator).to(value.dtype)
 
+    # Purpose: Implement source edge support for FidelityResidualNetV9.
+    # Called by: forward
+    # Calls: No same-class helper methods.
     @staticmethod
     def _source_edge_support(inputs: torch.Tensor, radius: int) -> torch.Tensor:
         guidance = inputs[:, 8:16].float()
@@ -937,11 +1180,17 @@ class FidelityResidualNetV9(nn.Module):
             support = F.avg_pool2d(F.pad(support, (1, 1, 1, 1), mode="replicate"), 3, 1)
         return support.clamp(0.0, 1.0)
 
+    # Purpose: Implement laplacian scalar for FidelityResidualNetV9.
+    # Called by: _specialist_features
+    # Calls: No same-class helper methods.
     @staticmethod
     def _laplacian_scalar(value: torch.Tensor) -> torch.Tensor:
         kernel = value.new_tensor([[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]])
         return F.conv2d(value.float(), kernel.view(1, 1, 3, 3), padding=1)
 
+    # Purpose: Implement gradient xy scalar for FidelityResidualNetV9.
+    # Called by: _specialist_features
+    # Calls: No same-class helper methods.
     @staticmethod
     def _gradient_xy_scalar(value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         x = value.float()
@@ -951,6 +1200,9 @@ class FidelityResidualNetV9(nn.Module):
         gy = 0.5 * (py[:, :, 2:, :] - py[:, :, :-2, :])
         return gx, gy
 
+    # Purpose: Implement set phase for FidelityResidualNetV9.
+    # Called by: External callers and the owning workflow.
+    # Calls: _set_trainable
     def set_phase(self, phase: str) -> None:
         """Strict specialist isolation.
 
@@ -973,12 +1225,18 @@ class FidelityResidualNetV9(nn.Module):
         self._selector_enabled = selector
         self._appearance_enabled = False
 
+    # Purpose: Implement set inference mode for FidelityResidualNetV9.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def set_inference_mode(self) -> None:
         self._boundary_enabled = True
         self._specialist_enabled = True
         self._selector_enabled = True
         self._appearance_enabled = bool(self.config.appearance_enabled)
 
+    # Purpose: Implement architecture contract for FidelityResidualNetV9.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def architecture_contract(self) -> dict[str, object]:
         return {
             "schema": MODEL_SCHEMA,
@@ -1013,6 +1271,9 @@ class FidelityResidualNetV9(nn.Module):
             "teacherRendererTarget": "GT-SDF forced-gate forced-hardness Panel-2 teacher SDF/coverage/render",
         }
 
+    # Purpose: Implement render sdf teacher for FidelityResidualNetV9.
+    # Called by: External callers and the owning workflow.
+    # Calls: _normalize_xy
     def render_sdf_teacher(
         self,
         inputs: torch.Tensor,
@@ -1064,6 +1325,9 @@ class FidelityResidualNetV9(nn.Module):
             "sdf_pixels_metric": metric_pixels,
         }
 
+    # Purpose: Implement continuous coverage for FidelityResidualNetV9.
+    # Called by: forward
+    # Calls: No same-class helper methods.
     def _continuous_coverage(
         self,
         geometry: dict[str, torch.Tensor],
@@ -1096,6 +1360,9 @@ class FidelityResidualNetV9(nn.Module):
         # holes into an otherwise coherent zero contour.
         return sdf_coverage, center_phi, samples
 
+    # Purpose: Implement specialist features for FidelityResidualNetV9.
+    # Called by: forward
+    # Calls: _gradient_xy_scalar, _laplacian_scalar
     def _specialist_features(
         self,
         baseline_albedo: torch.Tensor,
@@ -1128,6 +1395,9 @@ class FidelityResidualNetV9(nn.Module):
             (candidate_gy * 4.0).clamp(-1.0, 1.0),
         ), dim=1)
 
+    # Purpose: Implement selector features for FidelityResidualNetV9.
+    # Called by: forward
+    # Calls: No same-class helper methods.
     def _selector_features(
         self,
         baseline_albedo: torch.Tensor,
@@ -1154,6 +1424,9 @@ class FidelityResidualNetV9(nn.Module):
             edge_probability.float(),
         ), dim=1)
 
+    # Purpose: Implement forward for FidelityResidualNetV9.
+    # Called by: External callers and the owning workflow.
+    # Calls: _continuous_coverage, _normalize_xy, _safe_direction, _selector_features, _source_edge_support, _specialist_features
     def forward(
         self,
         inputs: torch.Tensor,
@@ -1436,128 +1709,3 @@ class FidelityResidualNetV9(nn.Module):
 
 
 MaterialPhysicalNet = FidelityResidualNetV9
-
-
-def build_model_input(
-    albedo_rgb: np.ndarray,
-    normal_xy: np.ndarray | None = None,
-    material_rgb: np.ndarray | None = None,
-    degradation_level: float = 1.0,
-    uv_stretch: np.ndarray | None = None,
-    chart_mask: np.ndarray | None = None,
-    *,
-    source_sdf_prior: np.ndarray | None = None,
-    contour_sdf_max_distance_pixels: float = 24.0,
-    target_scale: int = UPSCALE_FACTOR,
-) -> np.ndarray:
-    albedo = np.asarray(albedo_rgb, dtype=np.float32)
-    if albedo.max(initial=0.0) > 1.5:
-        albedo = albedo / 255.0
-    albedo = np.clip(albedo[..., :3], 0.0, 1.0)
-    height, width = albedo.shape[:2]
-    if normal_xy is None:
-        luma = (
-            albedo[..., 0] * 0.2126
-            + albedo[..., 1] * 0.7152
-            + albedo[..., 2] * 0.0722
-        )
-        gy, gx = np.gradient(luma)
-        normal_xy = np.stack((gx, gy), axis=-1)
-    normal = np.asarray(normal_xy, dtype=np.float32)[..., :2]
-    length = np.sqrt(np.maximum((normal * normal).sum(axis=-1, keepdims=True), 1e-8))
-    normal = normal / np.maximum(1.0, length / 0.999)
-    if material_rgb is None:
-        material = np.zeros((height, width, 3), dtype=np.float32)
-    else:
-        material = np.asarray(material_rgb, dtype=np.float32)
-        if material.max(initial=0.0) > 1.5:
-            material = material / 255.0
-        material = np.clip(material[..., :3], 0.0, 1.0)
-    guidance = build_guidance_numpy(
-        albedo,
-        normal,
-        material,
-        degradation_level,
-        uv_stretch,
-        chart_mask,
-    )
-    if source_sdf_prior is None:
-        # contour_targets measures distance in LR pixels. Normalising by
-        # maxDistance/scale means multiplying this channel by the HR maxDistance
-        # inside GeometryNet reconstructs distance directly in HR pixels.
-        lr_max_distance = max(
-            float(contour_sdf_max_distance_pixels) / max(int(target_scale), 1), 1.0
-        )
-        source_sdf_prior, _source_orientation, _source_edge, _source_confidence = lr_contour_prior(
-            albedo, normal, material, 1.0 if material_rgb is not None else 0.0,
-            max_distance=lr_max_distance,
-        )
-    source_sdf_prior = np.asarray(source_sdf_prior, dtype=np.float32)
-    if source_sdf_prior.ndim == 2:
-        source_sdf_prior = source_sdf_prior[..., None]
-    if source_sdf_prior.shape[:2] != (height, width):
-        raise ValueError(
-            f"source_sdf_prior must match LR input size {(height, width)}, "
-            f"got {source_sdf_prior.shape[:2]}"
-        )
-    source_sdf_prior = np.clip(source_sdf_prior[..., :1], -1.0, 1.0)
-    return np.ascontiguousarray(
-        np.concatenate((albedo, normal, material, guidance, source_sdf_prior), axis=-1)
-        .transpose(2, 0, 1)
-    )
-
-
-def architecture_summary(model: FidelityResidualNetV9) -> Mapping[str, object]:
-    config = model.config
-    return {
-        "schema": MODEL_SCHEMA,
-        "inputChannels": INPUT_CHANNELS,
-        "inputTile": [config.tile_size, config.tile_size],
-        "outputTile": [config.tile_size * UPSCALE_FACTOR, config.tile_size * UPSCALE_FACTOR],
-        "upscaleFactor": UPSCALE_FACTOR,
-        "widths": list(config.widths),
-        "blocksPerLevel": list(config.blocks_per_level),
-        "decoderBlocks": list(config.decoder_blocks),
-        "attention": f"local {config.attention_window}x{config.attention_window} bottleneck attention",
-        "parameterCount": parameter_count(model),
-        "upsampling": (
-            "topology-anchored shared zero-crossing SDF + deterministic two-sided plateau solve + "
-            "9-sample SDF-derived subpixel coverage + direct local coverage-profile specialist; no independent structural coverage, "
-            "PixelShuffle or transposed convolution"
-        ),
-        "proposalPolicy": (
-            "deterministic baseline -> topology-anchored shared zero-crossing SDF -> optional local profile specialist -> frozen-candidate benefit selector"
-        ),
-        "geometryPath": (
-            "GeometryNet encodes LR physical maps and the observable LR SDF; immutable source control signs preserve the contour graph while learned positive magnitudes place shared zero crossings before deterministic rendering."
-        ),
-        "boundaryRenderer": {
-            "bandPixels": config.boundary_renderer_band_pixels,
-            "samplePixels": config.boundary_renderer_sample_pixels,
-            "hardWidthPixels": config.boundary_renderer_hard_width_pixels,
-            "softWidthPixels": config.boundary_renderer_soft_width_pixels,
-            "sharedAcrossPhysicalMaps": True,
-            "topologySafeSideSampling": True,
-            "rendererRevision": "V10.1.0-topology-anchored-zero-crossing-sdf",
-        },
-        "profileSpecialist": {
-            "kind": "small sliding-window direct coverage-profile network",
-            "rgbAuthority": False,
-            "bandPixels": config.boundary_specialist_band_pixels,
-            "maxCoverageLogitDelta": config.boundary_specialist_logit_delta_max,
-        },
-        "benefitSelector": {
-            "kind": "frozen-candidate local benefit selector",
-            "rgbAuthority": False,
-        },
-        "appearancePath": "independent AppearanceNet; disabled during V10 structural proof",
-        "appearanceEnabled": config.appearance_enabled,
-        "identityInitialization": True,
-        "outputs": [
-            "albedoRGB", "normalXY", "roughness", "emissive", "material",
-            "topologyAnchoredContourSDF", "edgeOrientationXY", "boundaryHardness",
-            "boundaryGate", "confidence",
-        ],
-        "presentationMode": "not included; physical reconstruction only",
-    }
-

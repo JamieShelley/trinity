@@ -11,17 +11,21 @@ from .gates import QualificationGates, StagePlan
 from .runner import TrainingApplication
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Run the canonical NSAMDR training application.
+class InitService:
+    def main(self, argv: list[str] | None = None) -> int:
+        """Run the canonical NSAMDR training application.
 
-    Purpose:
-        Preserve the historic script entrypoint through the new composition root.
-    Called by:
-        train_nsamdr_v9_preview_experiment.py and direct package callers.
-    Calls:
-        parse_options(), TrainingApplication.run().
-    """
-    return TrainingApplication(parse_options(argv)).run()
+        Purpose:
+            Preserve the historic script entrypoint through the new composition root.
+        Called by:
+            train_nsamdr_v9_preview_experiment.py and direct package callers.
+        Calls:
+            parse_options(), TrainingApplication.run().
+        """
+        return TrainingApplication(parse_options(argv)).run()
+
+_init_service = InitService()
+main = _init_service.main
 
 
 __all__ = [

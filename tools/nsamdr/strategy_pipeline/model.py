@@ -22,6 +22,9 @@ class CandidateArtifact:
     status: str = "ready"
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    # Purpose: Implement report entry for CandidateArtifact.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def report_entry(self) -> dict[str, Any]:
         return {
             "mode": self.mode,
@@ -36,6 +39,9 @@ class CandidateArtifact:
 class StrategyManifest:
     """Owns the registry-shaped report while retaining legacy flat keys."""
 
+    # Purpose: Implement init for StrategyManifest.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, schema: str, target_size: int, baseline_obj: Path, baseline_materials: Path) -> None:
         self.schema = schema
         self.target_size = target_size
@@ -45,12 +51,21 @@ class StrategyManifest:
         self._extra_entries: dict[int, dict[str, Any]] = {}
         self.notes: list[str] = []
 
+    # Purpose: Implement add for StrategyManifest.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def add(self, artifact: CandidateArtifact) -> None:
         self._artifacts[artifact.mode] = artifact
 
+    # Purpose: Implement add entry for StrategyManifest.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def add_entry(self, mode: int, entry: dict[str, Any]) -> None:
         self._extra_entries[mode] = dict(entry)
 
+    # Purpose: Implement to report for StrategyManifest.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def to_report(self) -> dict[str, Any]:
         strategies: dict[str, dict[str, Any]] = {}
         report: dict[str, Any] = {

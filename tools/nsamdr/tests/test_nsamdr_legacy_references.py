@@ -38,32 +38,42 @@ REMOVED_PATHS = (
 )
 
 
-def test_only_canonical_nsamdr_batch_entrypoints_remain() -> None:
-    actual = {
-        path.name
-        for path in (ROOT / "scripts" / "build").glob("*nsamdr*.bat")
-        if path.is_file()
-    }
-    assert actual == CANONICAL_BATCH_FILES
+class TestNsamdrLegacyReferences:
+    # Purpose: Implement test only canonical nsamdr batch entrypoints remain for TestNsamdrLegacyReferences.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def test_only_canonical_nsamdr_batch_entrypoints_remain(self) -> None:
+        actual = {
+            path.name
+            for path in (ROOT / "scripts" / "build").glob("*nsamdr*.bat")
+            if path.is_file()
+        }
+        assert actual == CANONICAL_BATCH_FILES
 
+    # Purpose: Implement test removed alternate routes are absent for TestNsamdrLegacyReferences.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def test_removed_alternate_routes_are_absent(self) -> None:
+        present = [relative for relative in REMOVED_PATHS if (ROOT / relative).exists()]
+        assert present == []
 
-def test_removed_alternate_routes_are_absent() -> None:
-    present = [relative for relative in REMOVED_PATHS if (ROOT / relative).exists()]
-    assert present == []
+    # Purpose: Implement test no version patch test files remain for TestNsamdrLegacyReferences.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def test_no_version_patch_test_files_remain(self) -> None:
+        tests = ROOT / "tools" / "nsamdr" / "tests"
+        assert list(tests.glob("test_v*.py")) == []
 
-
-def test_no_version_patch_test_files_remain() -> None:
-    tests = ROOT / "tools" / "nsamdr" / "tests"
-    assert list(tests.glob("test_v*.py")) == []
-
-
-def test_real_eve_legacy_pgs_compatibility_remains() -> None:
-    types = (
-        ROOT / "trinityal" / "tests" / "nsamdr" / "NSAMDRPreviewTypes.h"
-    ).read_text(encoding="utf-8")
-    processor = (
-        ROOT / "trinityal" / "tests" / "nsamdr" / "NSAMDRAssetProcessor.cpp"
-    ).read_text(encoding="utf-8")
-    assert "LegacyPgs" in types
-    assert "ShaderFamily::LegacyPgs" in processor
-    assert "shaderFamily == ShaderFamily::LegacyPgs" in processor
+    # Purpose: Implement test real eve legacy pgs compatibility remains for TestNsamdrLegacyReferences.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def test_real_eve_legacy_pgs_compatibility_remains(self) -> None:
+        types = (
+            ROOT / "trinityal" / "tests" / "nsamdr" / "NSAMDRPreviewTypes.h"
+        ).read_text(encoding="utf-8")
+        processor = (
+            ROOT / "trinityal" / "tests" / "nsamdr" / "NSAMDRAssetProcessor.cpp"
+        ).read_text(encoding="utf-8")
+        assert "LegacyPgs" in types
+        assert "ShaderFamily::LegacyPgs" in processor
+        assert "shaderFamily == ShaderFamily::LegacyPgs" in processor
