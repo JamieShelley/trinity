@@ -84,6 +84,52 @@ class TestEvolutionaryRecoveryV114Contract:
             assert torch.isfinite(output[key]).all()
             assert tuple(output[key].shape[-2:]) == (64, 64)
 
+    # Purpose: Verify the capacity gate accepts Raven-scale descent only when held-out structure improves.
+    # Called by: Pytest discovery and evolutionary recovery regression validation.
+    # Calls: StructuralFitness.measure().
+    def test_capacity_gate_uses_held_out_improvement_not_fixed_one_percent_descent(self) -> None:
+        torch = pytest.importorskip("torch")
+        from v9.evolution.fitness import StructuralFitness
+
+        target = torch.tensor(
+            [[[[-2.0, -1.0], [1.0, 2.0]]]],
+            dtype=torch.float32,
+        )
+        source = target + 0.50
+        improved = target + 0.25
+        fitness = StructuralFitness()
+
+        evidence = fitness.measure(
+            improved,
+            target,
+            source,
+            train_loss_before=14.0508,
+            train_loss_after=14.0353,
+        )
+        observed_learning_gain = (14.0508 - 14.0353) / 14.0508
+        assert 0.0 < observed_learning_gain < 0.01
+        assert float(evidence["gain"]) > 0.0
+        assert evidence["passed"] is True
+
+        no_descent = fitness.measure(
+            improved,
+            target,
+            source,
+            train_loss_before=14.0508,
+            train_loss_after=14.0508,
+        )
+        assert no_descent["passed"] is False
+
+        validation_regression = fitness.measure(
+            target + 0.75,
+            target,
+            source,
+            train_loss_before=14.0508,
+            train_loss_after=14.0353,
+        )
+        assert float(validation_regression["gain"]) < 0.0
+        assert validation_regression["passed"] is False
+
     # Purpose: Implement test failure classifier never evolves software exception for TestEvolutionaryRecoveryV114Contract.
     # Called by: External callers and the owning workflow.
     # Calls: No same-class helper methods.

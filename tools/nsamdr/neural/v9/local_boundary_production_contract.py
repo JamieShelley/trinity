@@ -484,9 +484,28 @@ class LocalBoundaryProductionContract:
         _model.MODEL_SCHEMA = SCHEMA
         _INSTALLED = True
 
+    # Purpose: Implement local representation microproof for LocalBoundaryProductionContract.
+    # Called by: install_local_boundary_training_contract and TrainingService.train_v9
+    # Calls: TrainingService._parametric_structure_microproof through the training module.
+    def _local_representation_microproof(
+        self,
+        device: torch.device,
+        config: Any,
+    ) -> tuple[float, float, float, float]:
+        """Run the existing deterministic local analytic capacity proof.
+
+        This must remain a class/module-level callable. Windows DataLoader workers
+        use spawn/pickle; installing a nested closure on the TrainingService singleton
+        makes its bound worker initializer unpickleable.
+        """
+        _ = config
+        from . import training as training_module
+
+        return training_module._parametric_structure_microproof(device)
+
     # Purpose: Implement install local boundary training contract for LocalBoundaryProductionContract.
     # Called by: External callers and the owning workflow.
-    # Calls: install_local_boundary_model_contract
+    # Calls: _local_representation_microproof, install_local_boundary_model_contract
     def install_local_boundary_training_contract(self, training_module: ModuleType) -> None:
         """Redirect current trainer bookkeeping/losses to the local production field."""
         global _ORIGINAL_COMPUTE_LOSSES
@@ -502,12 +521,12 @@ class LocalBoundaryProductionContract:
         training_module._validate_v990_architecture_contract = _validate_local_architecture
 
         # The source tree already contains a deterministic local analytic capacity
-        # proof. Reuse it instead of the retired whole-tile primitive proof.
-        def local_representation_microproof(device: torch.device, config: Any):
-            _ = config
-            return training_module._parametric_structure_microproof(device)
-
-        training_module._explicit_primitive_structure_microproof = local_representation_microproof
+        # proof. Reuse it instead of the retired whole-tile primitive proof. Keep
+        # the callback pickle-safe because TrainingService also owns the Windows
+        # multiprocessing DataLoader worker initializer.
+        training_module._explicit_primitive_structure_microproof = (
+            _local_representation_microproof
+        )
         training_module._production_component_modules = _production_component_modules
         training_module._nsamdr_local_boundary_v114_installed = True
 
@@ -525,6 +544,9 @@ _architecture_contract = _local_boundary_production_contract._architecture_contr
 _production_component_modules = _local_boundary_production_contract._production_component_modules
 _validate_local_architecture = _local_boundary_production_contract._validate_local_architecture
 _local_compute_losses = _local_boundary_production_contract._local_compute_losses
+_local_representation_microproof = (
+    _local_boundary_production_contract._local_representation_microproof
+)
 install_local_boundary_model_contract = _local_boundary_production_contract.install_local_boundary_model_contract
 install_local_boundary_training_contract = _local_boundary_production_contract.install_local_boundary_training_contract
 

@@ -2,16 +2,9 @@
 
 ## Quick start
 
-From the Trinity repository root, launch the workflow GUI directly with the managed NSAMDR Python environment:
+From the Trinity repository root, launch the workflow GUI with the canonical NSAMDR script:
 
 ```bat
-artifacts\nsamdr\python-env\Scripts\python.exe tools\nsamdr\gui\nsamdr_v9_workflow_gui.py
-```
-
-The normal Windows launchers remain available:
-
-```bat
-scripts\build\run_nsamdr_v9_gui.bat
 scripts\build\nsamdr.bat gui
 ```
 
@@ -295,19 +288,7 @@ are source-format compatibility, not an obsolete NSAMDR baseline mode.
 
 Run commands from the repository root.
 
-Open the single workflow GUI directly with Python:
-
-```bat
-artifacts\nsamdr\python-env\Scripts\python.exe tools\nsamdr\gui\nsamdr_v9_workflow_gui.py
-```
-
-Or use the launcher:
-
-```bat
-scripts\build\run_nsamdr_v9_gui.bat
-```
-
-The GUI dispatches to the same canonical CLI:
+Open the workflow GUI:
 
 ```bat
 scripts\build\nsamdr.bat gui

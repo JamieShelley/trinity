@@ -195,11 +195,14 @@ class RavenTunePreviewApplication:
             experiment_directory / "final_manifest.json",
             experiment_directory / "architecture_participation.json",
             experiment_directory / "training_log.csv",
+            experiment_directory / "nsamdr_v9_fidelity.json",
         )
         folders = (
             experiment_directory / "metrics",
             experiment_directory / "checkpoints",
+            experiment_directory / "diagnostics",
             experiment_directory / "evidence",
+            experiment_directory / "evolution",
             experiment_directory / "previews",
         )
         with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import V9Config
-from ..evolutionary_recovery import EvolutionaryRecoveryController
+from ..evolution import EvolutionaryRecoveryController
 from .backend import TrainingBackend
 from .clock import UtcClock
 from .configuration import ConfigResolver

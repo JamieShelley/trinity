@@ -86,7 +86,8 @@ class StructuralFitness:
         """Measure hard checks and scalar fitness for a trained candidate.
 
         Purpose:
-            Rank candidates while rejecting topology/sign/numerical regressions.
+            Rank candidates while requiring real held-out improvement, measurable
+            optimisation descent, and no topology/sign regression.
         Called by:
             CandidateEvaluator._measure_candidate().
         Calls:
@@ -140,10 +141,16 @@ class StructuralFitness:
             - 0.12 * grad_mae
             - 0.015 * correction_rms
         )
+
+        # The microproof is a capacity check, not a tiny-training-speed benchmark.
+        # Quick and Full deliberately use different micro-step budgets, so a fixed
+        # 1% short-horizon loss-drop threshold made the gate depend on work budget.
+        # Require actual descent, then use held-out Raven improvement as the hard
+        # evidence that the representation is already better than the source prior.
         passed = bool(
             finite
-            and learning_gain >= 0.01
-            and predicted_mae <= source_mae * 1.08
+            and learning_gain > 0.0
+            and gain > 0.0
             and sign_regression <= 0.025
         )
         return {

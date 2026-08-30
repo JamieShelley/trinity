@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..evolutionary_recovery import EvolutionaryRecoveryController, FailureKind
+from ..evolution import EvolutionaryRecoveryController, FailureKind
 from .backend import TrainingBackend
 from .domain import ExperimentContext, StageDefinition, TrainingOptions
 from .experiment import ExperimentService

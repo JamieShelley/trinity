@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import inspect
+import pickle
 from pathlib import Path
 import sys
 
@@ -90,3 +91,21 @@ class TestPassDrivenPipelineContract:
         source = inspect.getsource(PassDrivenPipeline._run_final)
         assert 'latest.get("trainingSafetyPass", False)' in source
         assert '== "production-final"' in source
+    def test_backend_patch_keeps_windows_worker_initializer_pickleable(self) -> None:
+        """Verify V11.4 callbacks do not break spawn-based DataLoader workers.
+
+        Purpose:
+            Prevent nested trainer callbacks from making the TrainingService singleton
+            unpickleable when Windows serializes its bound worker initializer.
+        Called by:
+            pytest.
+        Calls:
+            TrainingBackend(), pickle.dumps().
+        """
+        import v9.training as training
+        from v9.application.backend import TrainingBackend
+
+        TrainingBackend()
+        callback = training._training_service._explicit_primitive_structure_microproof
+        assert "<locals>" not in callback.__qualname__
+        pickle.dumps(training._data_worker_init)

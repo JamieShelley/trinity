@@ -4,6 +4,8 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+import traceback
+from types import TracebackType
 from typing import Any
 
 from ..config import V9Config
@@ -245,18 +247,66 @@ class ExperimentService:
         )
         write_experiment_manifest(context.directory / "experiment.json", manifest)
 
-    def mark_failed(self, context: ExperimentContext) -> None:
-        """Mark an exception-terminated run as interrupted-or-failed.
+    def mark_failed(
+        self,
+        context: ExperimentContext,
+        *,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Persist an exception-terminated run and its traceback as experiment evidence.
 
         Purpose:
-            RAII cleanup so errors during discovery or training cannot leave a misleading running status.
+            Keep exported diagnostics self-contained instead of reducing a runtime
+            failure to the generic ``interrupted-or-failed`` manifest status.
         Called by:
             ExperimentRunSession.__exit__().
         Calls:
-            load_experiment_manifest(), write_experiment_manifest().
+            load_experiment_manifest(), traceback.format_exception(),
+            write_experiment_manifest().
         """
+        failure_type = (
+            exc_type.__name__
+            if exc_type is not None
+            else type(exc).__name__ if exc is not None else "UnknownException"
+        )
+        failure_message = str(exc) if exc is not None else ""
+        formatted_traceback = (
+            "".join(traceback.format_exception(exc_type, exc, tb))
+            if exc_type is not None and exc is not None
+            else ""
+        )
+        evidence = context.directory / "evidence"
+        evidence.mkdir(parents=True, exist_ok=True)
+        failure_path = evidence / "runtime_failure.json"
+        failure_path.write_text(
+            json.dumps(
+                {
+                    "schema": "NSAMDR_RUNTIME_FAILURE_V1",
+                    "experiment": context.experiment_id,
+                    "capturedUtc": self.clock.now(),
+                    "exceptionType": failure_type,
+                    "message": failure_message,
+                    "traceback": formatted_traceback,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
         failed = load_experiment_manifest(self.repo_root, context.experiment_id)
-        failed.update({"status": "interrupted-or-failed", "lastStoppedUtc": self.clock.now()})
+        failed.update(
+            {
+                "status": "interrupted-or-failed",
+                "lastStoppedUtc": self.clock.now(),
+                "failedExceptionType": failure_type,
+                "failedExceptionMessage": failure_message,
+                "failureEvidence": "evidence/runtime_failure.json",
+            }
+        )
         write_experiment_manifest(context.directory / "experiment.json", failed)
 
     def reject(
@@ -340,7 +390,7 @@ class ExperimentService:
         Purpose:
             Preserve the trained-pending-qualification terminal state.
         Called by:
-            TrainingApplication._finalise().
+            TrainingApplication.run().
         Calls:
             finalise_experiment(), write_experiment_manifest(), ResultWriter.write().
         """
@@ -396,16 +446,27 @@ class ExperimentRunSession:
         self.service.mark_running(self.context)
         return self
 
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
-        """Release lifecycle ownership and mark exceptions as failed.
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool:
+        """Release lifecycle ownership and preserve exception evidence on failure.
 
         Purpose:
-            Guarantee failure-state cleanup across discovery and training exceptions.
+            Guarantee failure-state cleanup and retain the traceback required to
+            diagnose a failed Quick/Full run from its diagnostics ZIP.
         Called by:
             Python context-manager protocol.
         Calls:
             ExperimentService.mark_failed().
         """
         if exc_type is not None:
-            self.service.mark_failed(self.context)
+            self.service.mark_failed(
+                self.context,
+                exc_type=exc_type,
+                exc=exc,
+                tb=tb,
+            )
         return False
