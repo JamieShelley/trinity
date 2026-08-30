@@ -9,412 +9,447 @@ from torch.nn import functional as F
 CONTOUR_SCHEMA = "NSAMDR_GEOMETRIC_CONTOUR_V2"
 
 
-def _sobel_numpy(signal: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    import cv2
-    gx = cv2.Sobel(signal.astype(np.float32), cv2.CV_32F, 1, 0, ksize=3, scale=0.125)
-    gy = cv2.Sobel(signal.astype(np.float32), cv2.CV_32F, 0, 1, ksize=3, scale=0.125)
-    return gx, gy
+class ContourGeometry:
+    # Purpose: Implement sobel numpy for ContourGeometry.
+    # Called by: _multi_scale_structure_tensor, build_guidance_numpy
+    # Calls: No same-class helper methods.
+    def _sobel_numpy(self, signal: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        import cv2
+        gx = cv2.Sobel(signal.astype(np.float32), cv2.CV_32F, 1, 0, ksize=3, scale=0.125)
+        gy = cv2.Sobel(signal.astype(np.float32), cv2.CV_32F, 0, 1, ksize=3, scale=0.125)
+        return gx, gy
 
+    # Purpose: Implement gaussian for ContourGeometry.
+    # Called by: _multi_scale_structure_tensor
+    # Calls: No same-class helper methods.
+    def _gaussian(self, signal: np.ndarray, sigma: float) -> np.ndarray:
+        if sigma <= 1.0e-6:
+            return signal.astype(np.float32, copy=False)
+        import cv2
+        return cv2.GaussianBlur(signal.astype(np.float32), (0, 0), sigmaX=sigma, sigmaY=sigma)
 
-def _gaussian(signal: np.ndarray, sigma: float) -> np.ndarray:
-    if sigma <= 1.0e-6:
-        return signal.astype(np.float32, copy=False)
-    import cv2
-    return cv2.GaussianBlur(signal.astype(np.float32), (0, 0), sigmaX=sigma, sigmaY=sigma)
+    # Purpose: Implement multi scale structure tensor for ContourGeometry.
+    # Called by: contour_targets
+    # Calls: _gaussian, _sobel_numpy
+    def _multi_scale_structure_tensor(
+        self,
+        albedo: np.ndarray,
+        normal_xy: np.ndarray,
+        material: np.ndarray,
+        material_valid: float,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return smooth edge strength and a coherent local tangent field.
 
+        A raw thresholded Sobel mask can inherit one-pixel staircase changes.  This
+        structure tensor pools gradient evidence over several scales before an edge
+        direction is chosen.  The resulting tangent therefore follows the common
+        local geometry instead of fitting each damaged raster sample independently.
+        """
+        import cv2
 
-def _multi_scale_structure_tensor(
-    albedo: np.ndarray,
-    normal_xy: np.ndarray,
-    material: np.ndarray,
-    material_valid: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return smooth edge strength and a coherent local tangent field.
+        luma = (
+            albedo[..., 0] * 0.2126
+            + albedo[..., 1] * 0.7152
+            + albedo[..., 2] * 0.0722
+        ).astype(np.float32)
+        signals: list[tuple[np.ndarray, float]] = [
+            (luma, 1.00),
+            (normal_xy[..., 0].astype(np.float32), 0.55),
+            (normal_xy[..., 1].astype(np.float32), 0.55),
+        ]
+        if material_valid > 0.5:
+            for channel in range(min(3, material.shape[-1])):
+                signals.append((material[..., channel].astype(np.float32), 0.40))
 
-    A raw thresholded Sobel mask can inherit one-pixel staircase changes.  This
-    structure tensor pools gradient evidence over several scales before an edge
-    direction is chosen.  The resulting tangent therefore follows the common
-    local geometry instead of fitting each damaged raster sample independently.
-    """
-    import cv2
+        scales = ((0.60, 0.52), (1.35, 0.31), (2.70, 0.17))
+        shape = luma.shape
+        jxx = np.zeros(shape, dtype=np.float32)
+        jxy = np.zeros(shape, dtype=np.float32)
+        jyy = np.zeros(shape, dtype=np.float32)
 
-    luma = (
-        albedo[..., 0] * 0.2126
-        + albedo[..., 1] * 0.7152
-        + albedo[..., 2] * 0.0722
-    ).astype(np.float32)
-    signals: list[tuple[np.ndarray, float]] = [
-        (luma, 1.00),
-        (normal_xy[..., 0].astype(np.float32), 0.55),
-        (normal_xy[..., 1].astype(np.float32), 0.55),
-    ]
-    if material_valid > 0.5:
-        for channel in range(min(3, material.shape[-1])):
-            signals.append((material[..., channel].astype(np.float32), 0.40))
+        for sigma, scale_weight in scales:
+            for signal, channel_weight in signals:
+                smooth = self._gaussian(signal, sigma)
+                gx, gy = self._sobel_numpy(smooth)
+                weight = float(scale_weight * channel_weight)
+                jxx += gx * gx * weight
+                jxy += gx * gy * weight
+                jyy += gy * gy * weight
 
-    scales = ((0.60, 0.52), (1.35, 0.31), (2.70, 0.17))
-    shape = luma.shape
-    jxx = np.zeros(shape, dtype=np.float32)
-    jxy = np.zeros(shape, dtype=np.float32)
-    jyy = np.zeros(shape, dtype=np.float32)
+        # Spatial pooling of the tensor is what rejects alternating one-pixel
+        # orientations along diagonals and arcs.
+        jxx = cv2.GaussianBlur(jxx, (0, 0), 1.10)
+        jxy = cv2.GaussianBlur(jxy, (0, 0), 1.10)
+        jyy = cv2.GaussianBlur(jyy, (0, 0), 1.10)
 
-    for sigma, scale_weight in scales:
-        for signal, channel_weight in signals:
-            smooth = _gaussian(signal, sigma)
-            gx, gy = _sobel_numpy(smooth)
-            weight = float(scale_weight * channel_weight)
-            jxx += gx * gx * weight
-            jxy += gx * gy * weight
-            jyy += gy * gy * weight
+        trace = jxx + jyy
+        discriminant = np.sqrt(np.maximum((jxx - jyy) ** 2 + 4.0 * jxy * jxy, 0.0))
+        lambda_max = np.maximum(0.5 * (trace + discriminant), 0.0)
+        strength = np.sqrt(lambda_max + 1.0e-12).astype(np.float32)
 
-    # Spatial pooling of the tensor is what rejects alternating one-pixel
-    # orientations along diagonals and arcs.
-    jxx = cv2.GaussianBlur(jxx, (0, 0), 1.10)
-    jxy = cv2.GaussianBlur(jxy, (0, 0), 1.10)
-    jyy = cv2.GaussianBlur(jyy, (0, 0), 1.10)
+        # Principal tensor eigenvector is the local gradient normal.  Tangent is
+        # perpendicular to it.  Tangent sign is intentionally axial: +t and -t are
+        # the same contour direction and losses account for that symmetry.
+        normal_angle = 0.5 * np.arctan2(2.0 * jxy, jxx - jyy)
+        tangent_x = -np.sin(normal_angle)
+        tangent_y = np.cos(normal_angle)
+        tangent = np.stack((tangent_x, tangent_y), axis=-1).astype(np.float32)
+        return strength, tangent, luma
 
-    trace = jxx + jyy
-    discriminant = np.sqrt(np.maximum((jxx - jyy) ** 2 + 4.0 * jxy * jxy, 0.0))
-    lambda_max = np.maximum(0.5 * (trace + discriminant), 0.0)
-    strength = np.sqrt(lambda_max + 1.0e-12).astype(np.float32)
+    # Purpose: Implement ridge centreline for ContourGeometry.
+    # Called by: contour_targets
+    # Calls: No same-class helper methods.
+    def _ridge_centreline(self, strength: np.ndarray) -> np.ndarray:
+        """Return a narrow medial ridge from the multi-scale edge response."""
+        import cv2
 
-    # Principal tensor eigenvector is the local gradient normal.  Tangent is
-    # perpendicular to it.  Tangent sign is intentionally axial: +t and -t are
-    # the same contour direction and losses account for that symmetry.
-    normal_angle = 0.5 * np.arctan2(2.0 * jxy, jxx - jyy)
-    tangent_x = -np.sin(normal_angle)
-    tangent_y = np.cos(normal_angle)
-    tangent = np.stack((tangent_x, tangent_y), axis=-1).astype(np.float32)
-    return strength, tangent, luma
+        peak = float(strength.max(initial=0.0))
+        if peak <= 1.0e-8:
+            return np.zeros(strength.shape, dtype=np.uint8)
+        meaningful = strength[strength > peak * 0.003]
+        adaptive = float(np.percentile(meaningful, 40.0)) if meaningful.size else peak * 0.05
+        threshold = max(adaptive, peak * 0.015, 1.0e-4)
+        band = (strength >= threshold).astype(np.uint8)
 
+        # Distance inside the broad response band; local maxima form its medial
+        # centreline.  This is fast in OpenCV and avoids explicitly dilating a raw
+        # staircase-shaped Sobel mask.
+        interior_distance = cv2.distanceTransform(band, cv2.DIST_L2, 5)
+        local_max = cv2.dilate(interior_distance, np.ones((3, 3), np.uint8))
+        ridge = (band > 0) & (interior_distance >= local_max - 1.0e-5)
+        return ridge.astype(np.uint8)
 
+    # Purpose: Implement signed distance from edge for ContourGeometry.
+    # Called by: contour_targets
+    # Calls: No same-class helper methods.
+    def _signed_distance_from_edge(self, edge_seed: np.ndarray, luma: np.ndarray, max_distance: float) -> np.ndarray:
+        import cv2
 
+        binary = (edge_seed > 0).astype(np.uint8)
+        if not binary.any():
+            return np.ones((*binary.shape, 1), dtype=np.float32)
 
-def _ridge_centreline(strength: np.ndarray) -> np.ndarray:
-    """Return a narrow medial ridge from the multi-scale edge response."""
-    import cv2
+        distance_to_edge = cv2.distanceTransform(1 - binary, cv2.DIST_L2, 5)
+        # The sign is only used to make the SDF locally directional.  Geometry
+        # supervision is sign-invariant through tangent/edge terms.
+        local_mean = cv2.GaussianBlur(luma.astype(np.float32), (0, 0), 2.0)
+        inside_signal = luma < local_mean
+        signed = distance_to_edge.astype(np.float32)
+        signed[inside_signal] *= -1.0
+        signed = np.clip(signed / max(max_distance, 1.0), -1.0, 1.0)
+        return signed[..., None].astype(np.float32)
 
-    peak = float(strength.max(initial=0.0))
-    if peak <= 1.0e-8:
-        return np.zeros(strength.shape, dtype=np.uint8)
-    meaningful = strength[strength > peak * 0.003]
-    adaptive = float(np.percentile(meaningful, 40.0)) if meaningful.size else peak * 0.05
-    threshold = max(adaptive, peak * 0.015, 1.0e-4)
-    band = (strength >= threshold).astype(np.uint8)
+    # Purpose: Implement contour targets for ContourGeometry.
+    # Called by: External callers and the owning workflow.
+    # Calls: _multi_scale_structure_tensor, _ridge_centreline, _signed_distance_from_edge
+    def contour_targets(
+        self,
+        albedo: np.ndarray,
+        normal_xy: np.ndarray,
+        material: np.ndarray,
+        material_valid: float,
+        max_distance: float = 24.0,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return multi-scale SDF, coherent tangent and soft contour target.
 
-    # Distance inside the broad response band; local maxima form its medial
-    # centreline.  This is fast in OpenCV and avoids explicitly dilating a raw
-    # staircase-shaped Sobel mask.
-    interior_distance = cv2.distanceTransform(band, cv2.DIST_L2, 5)
-    local_max = cv2.dilate(interior_distance, np.ones((3, 3), np.uint8))
-    ridge = (band > 0) & (interior_distance >= local_max - 1.0e-5)
-    return ridge.astype(np.uint8)
+        The target intentionally does not dilate a raw 3x3 Sobel mask.  It derives
+        orientation from a multi-scale structure tensor and produces a narrow soft
+        centreline.  This is substantially less likely to teach a stair-step or
+        locally oscillating tangent than the original V9.1 contour target.
+        """
+        import cv2
 
-
-def _signed_distance_from_edge(edge_seed: np.ndarray, luma: np.ndarray, max_distance: float) -> np.ndarray:
-    import cv2
-
-    binary = (edge_seed > 0).astype(np.uint8)
-    if not binary.any():
-        return np.ones((*binary.shape, 1), dtype=np.float32)
-
-    distance_to_edge = cv2.distanceTransform(1 - binary, cv2.DIST_L2, 5)
-    # The sign is only used to make the SDF locally directional.  Geometry
-    # supervision is sign-invariant through tangent/edge terms.
-    local_mean = cv2.GaussianBlur(luma.astype(np.float32), (0, 0), 2.0)
-    inside_signal = luma < local_mean
-    signed = distance_to_edge.astype(np.float32)
-    signed[inside_signal] *= -1.0
-    signed = np.clip(signed / max(max_distance, 1.0), -1.0, 1.0)
-    return signed[..., None].astype(np.float32)
-
-
-def contour_targets(
-    albedo: np.ndarray,
-    normal_xy: np.ndarray,
-    material: np.ndarray,
-    material_valid: float,
-    max_distance: float = 24.0,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return multi-scale SDF, coherent tangent and soft contour target.
-
-    The target intentionally does not dilate a raw 3x3 Sobel mask.  It derives
-    orientation from a multi-scale structure tensor and produces a narrow soft
-    centreline.  This is substantially less likely to teach a stair-step or
-    locally oscillating tangent than the original V9.1 contour target.
-    """
-    import cv2
-
-    strength, tangent, luma = _multi_scale_structure_tensor(
-        albedo, normal_xy, material, material_valid
-    )
-    seed = _ridge_centreline(strength)
-
-    # Keep the centreline narrow.  A soft distance falloff is preferable to the
-    # previous explicit dilation because it does not turn a one-pixel diagonal
-    # into a thick staircase-shaped target.
-    distance = cv2.distanceTransform(1 - seed, cv2.DIST_L2, 5)
-    edge = np.exp(-0.5 * (distance / 0.85) ** 2).astype(np.float32)
-    edge[seed > 0] = 1.0
-
-    sdf = _signed_distance_from_edge(seed, luma, max_distance)
-    orientation_decay = np.exp(-np.abs(sdf[..., 0]) * 4.0).astype(np.float32)
-    orientation = tangent * orientation_decay[..., None]
-    return sdf, np.ascontiguousarray(orientation), edge[..., None]
-
-
-
-
-def lr_contour_prior(
-    albedo: np.ndarray,
-    normal_xy: np.ndarray,
-    material: np.ndarray,
-    material_valid: float,
-    max_distance: float = 6.0,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
-    """Build a robust observable LR contour prior from the physical-map stack.
-
-    V9.8.7 used ``contour_targets`` for the LR prior.  That routine is useful for
-    authored HR supervision, but its permissive multi-scale ridge detector also
-    turns normal-map noise and compression blocks into hundreds of zero-set seeds
-    after strong LR degradation.  EXP_0004 therefore started from a source contour
-    that was already badly wrong before GeometryNet made any correction.
-
-    The LR prior is now a *segmentation-derived* signed distance.  We denoise the
-    observable albedo/normal/material channels, find several deterministic
-    low-dimensional projections, and choose the binary partition whose boundary
-    best explains the full physical-map change.  The sign is merely a gauge; the
-    important contract is that sign changes can occur only at the selected
-    material partition boundary rather than at arbitrary noisy pixels.
-
-    The returned confidence is a continuous observability score used only for
-    training weights.  Inference never receives HR information.
-    """
-    import cv2
-
-    albedo = np.asarray(albedo, dtype=np.float32)
-    normal_xy = np.asarray(normal_xy, dtype=np.float32)
-    material = np.asarray(material, dtype=np.float32)
-    h, w = albedo.shape[:2]
-
-    features: list[np.ndarray] = []
-    for channel in range(min(3, albedo.shape[-1])):
-        features.append(cv2.GaussianBlur(albedo[..., channel], (0, 0), 0.70))
-    for channel in range(min(2, normal_xy.shape[-1])):
-        # Normal maps receive explicit degradation noise.  Slightly stronger
-        # smoothing and lower scale stop that noise becoming the dominant PCA
-        # direction while preserving actual normal discontinuities.
-        features.append(
-            cv2.GaussianBlur(normal_xy[..., channel], (0, 0), 1.00) * 0.70
+        strength, tangent, luma = self._multi_scale_structure_tensor(
+            albedo, normal_xy, material, material_valid
         )
-    if material_valid > 0.5:
-        for channel in range(min(3, material.shape[-1])):
+        seed = self._ridge_centreline(strength)
+
+        # Keep the centreline narrow.  A soft distance falloff is preferable to the
+        # previous explicit dilation because it does not turn a one-pixel diagonal
+        # into a thick staircase-shaped target.
+        distance = cv2.distanceTransform(1 - seed, cv2.DIST_L2, 5)
+        edge = np.exp(-0.5 * (distance / 0.85) ** 2).astype(np.float32)
+        edge[seed > 0] = 1.0
+
+        sdf = self._signed_distance_from_edge(seed, luma, max_distance)
+        orientation_decay = np.exp(-np.abs(sdf[..., 0]) * 4.0).astype(np.float32)
+        orientation = tangent * orientation_decay[..., None]
+        return sdf, np.ascontiguousarray(orientation), edge[..., None]
+
+    # Purpose: Implement lr contour prior for ContourGeometry.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def lr_contour_prior(
+        self,
+        albedo: np.ndarray,
+        normal_xy: np.ndarray,
+        material: np.ndarray,
+        material_valid: float,
+        max_distance: float = 6.0,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+        """Build a robust observable LR contour prior from the physical-map stack.
+
+        V9.8.7 used ``contour_targets`` for the LR prior.  That routine is useful for
+        authored HR supervision, but its permissive multi-scale ridge detector also
+        turns normal-map noise and compression blocks into hundreds of zero-set seeds
+        after strong LR degradation.  EXP_0004 therefore started from a source contour
+        that was already badly wrong before GeometryNet made any correction.
+
+        The LR prior is now a *segmentation-derived* signed distance.  We denoise the
+        observable albedo/normal/material channels, find several deterministic
+        low-dimensional projections, and choose the binary partition whose boundary
+        best explains the full physical-map change.  The sign is merely a gauge; the
+        important contract is that sign changes can occur only at the selected
+        material partition boundary rather than at arbitrary noisy pixels.
+
+        The returned confidence is a continuous observability score used only for
+        training weights.  Inference never receives HR information.
+        """
+        import cv2
+
+        albedo = np.asarray(albedo, dtype=np.float32)
+        normal_xy = np.asarray(normal_xy, dtype=np.float32)
+        material = np.asarray(material, dtype=np.float32)
+        h, w = albedo.shape[:2]
+
+        features: list[np.ndarray] = []
+        for channel in range(min(3, albedo.shape[-1])):
+            features.append(cv2.GaussianBlur(albedo[..., channel], (0, 0), 0.70))
+        for channel in range(min(2, normal_xy.shape[-1])):
+            # Normal maps receive explicit degradation noise.  Slightly stronger
+            # smoothing and lower scale stop that noise becoming the dominant PCA
+            # direction while preserving actual normal discontinuities.
             features.append(
-                cv2.GaussianBlur(material[..., channel], (0, 0), 0.70) * 0.80
+                cv2.GaussianBlur(normal_xy[..., channel], (0, 0), 1.00) * 0.70
             )
+        if material_valid > 0.5:
+            for channel in range(min(3, material.shape[-1])):
+                features.append(
+                    cv2.GaussianBlur(material[..., channel], (0, 0), 0.70) * 0.80
+                )
 
-    if not features:
-        sdf = np.ones((h, w, 1), dtype=np.float32)
-        orientation = np.zeros((h, w, 2), dtype=np.float32)
-        edge = np.zeros((h, w, 1), dtype=np.float32)
-        return sdf, orientation, edge, 0.0
+        if not features:
+            sdf = np.ones((h, w, 1), dtype=np.float32)
+            orientation = np.zeros((h, w, 2), dtype=np.float32)
+            edge = np.zeros((h, w, 1), dtype=np.float32)
+            return sdf, orientation, edge, 0.0
 
-    feature_image = np.stack(features, axis=-1).astype(np.float32)
-    flat = feature_image.reshape(-1, feature_image.shape[-1])
-    centred = flat - flat.mean(axis=0, keepdims=True)
-    covariance = centred.T @ centred / max(int(flat.shape[0]) - 1, 1)
-    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+        feature_image = np.stack(features, axis=-1).astype(np.float32)
+        flat = feature_image.reshape(-1, feature_image.shape[-1])
+        centred = flat - flat.mean(axis=0, keepdims=True)
+        covariance = centred.T @ centred / max(int(flat.shape[0]) - 1, 1)
+        eigenvalues, eigenvectors = np.linalg.eigh(covariance)
 
-    # Candidate projections include the leading physical-map PCA directions and
-    # the highest-variance raw channels.  This catches low-luma material changes
-    # without allowing a noisy companion map to define the contour by itself.
-    candidate_scalars: list[np.ndarray] = []
-    candidate_count = min(4, feature_image.shape[-1])
-    for offset in range(1, candidate_count + 1):
-        candidate_scalars.append(
-            (centred @ eigenvectors[:, -offset]).reshape(h, w).astype(np.float32)
-        )
-    channel_variance = flat.var(axis=0)
-    for channel in np.argsort(channel_variance)[::-1][:candidate_count]:
-        candidate_scalars.append(feature_image[..., int(channel)])
-
-    # Fused gradient energy is used only to rank candidate partitions.  It does
-    # not itself seed a contour, so random high-frequency map noise cannot create
-    # extra zero sets.
-    gradient_energy = np.zeros((h, w), dtype=np.float32)
-    for channel in range(feature_image.shape[-1]):
-        gx = cv2.Sobel(
-            feature_image[..., channel], cv2.CV_32F, 1, 0, ksize=3, scale=0.125
-        )
-        gy = cv2.Sobel(
-            feature_image[..., channel], cv2.CV_32F, 0, 1, ksize=3, scale=0.125
-        )
-        gradient_energy += np.sqrt(gx * gx + gy * gy)
-    gradient_mean = float(gradient_energy.mean()) + 1.0e-6
-
-    best: tuple[float, np.ndarray, float, float] | None = None
-    for scalar in candidate_scalars:
-        low, high = np.percentile(scalar, (1.0, 99.0))
-        if float(high - low) <= 1.0e-6:
-            continue
-        encoded = np.uint8(
-            np.round(np.clip((scalar - low) / (high - low), 0.0, 1.0) * 255.0)
-        )
-        _threshold, binary = cv2.threshold(
-            encoded, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-        )
-        mask = (binary > 0).astype(np.uint8)
-        minor_fraction = min(float(mask.mean()), 1.0 - float(mask.mean()))
-        if minor_fraction < 0.001:
-            continue
-
-        # Remove isolated compression/noise islands only.  Long one-pixel lines
-        # survive because the operation is component-area based, not erosion.
-        for phase_value in (0, 1):
-            phase = (mask == phase_value).astype(np.uint8)
-            count, labels, stats, _centroids = cv2.connectedComponentsWithStats(
-                phase, 8
+        # Candidate projections include the leading physical-map PCA directions and
+        # the highest-variance raw channels.  This catches low-luma material changes
+        # without allowing a noisy companion map to define the contour by itself.
+        candidate_scalars: list[np.ndarray] = []
+        candidate_count = min(4, feature_image.shape[-1])
+        for offset in range(1, candidate_count + 1):
+            candidate_scalars.append(
+                (centred @ eigenvectors[:, -offset]).reshape(h, w).astype(np.float32)
             )
-            for component in range(1, count):
-                if int(stats[component, cv2.CC_STAT_AREA]) < 3:
-                    mask[labels == component] = 1 - phase_value
+        channel_variance = flat.var(axis=0)
+        for channel in np.argsort(channel_variance)[::-1][:candidate_count]:
+            candidate_scalars.append(feature_image[..., int(channel)])
 
-        flat_mask = mask.reshape(-1)
-        zero = flat_mask == 0
-        one = ~zero
-        if int(zero.sum()) < 2 or int(one.sum()) < 2:
-            continue
-        mean_zero = flat[zero].mean(axis=0)
-        mean_one = flat[one].mean(axis=0)
-        between = float(np.linalg.norm(mean_zero - mean_one))
-        within = 0.5 * (
-            float(np.sqrt(np.mean(np.var(flat[zero], axis=0))))
-            + float(np.sqrt(np.mean(np.var(flat[one], axis=0))))
-        ) + 1.0e-6
-        fisher = between / within
+        # Fused gradient energy is used only to rank candidate partitions.  It does
+        # not itself seed a contour, so random high-frequency map noise cannot create
+        # extra zero sets.
+        gradient_energy = np.zeros((h, w), dtype=np.float32)
+        for channel in range(feature_image.shape[-1]):
+            gx = cv2.Sobel(
+                feature_image[..., channel], cv2.CV_32F, 1, 0, ksize=3, scale=0.125
+            )
+            gy = cv2.Sobel(
+                feature_image[..., channel], cv2.CV_32F, 0, 1, ksize=3, scale=0.125
+            )
+            gradient_energy += np.sqrt(gx * gx + gy * gy)
+        gradient_mean = float(gradient_energy.mean()) + 1.0e-6
 
-        boundary = np.zeros((h, w), dtype=np.uint8)
-        boundary[:, 1:] |= mask[:, 1:] != mask[:, :-1]
-        boundary[1:, :] |= mask[1:, :] != mask[:-1, :]
-        if not boundary.any():
-            continue
-        alignment = float(gradient_energy[boundary > 0].mean() / gradient_mean)
-        component_count = max(cv2.connectedComponents(boundary, 8)[0] - 1, 1)
-        boundary_length = max(float(boundary.sum()), 1.0)
-        fragmentation = 1.0 / (
-            1.0 + max(component_count - 4, 0) * 8.0 / boundary_length
+        best: tuple[float, np.ndarray, float, float] | None = None
+        for scalar in candidate_scalars:
+            low, high = np.percentile(scalar, (1.0, 99.0))
+            if float(high - low) <= 1.0e-6:
+                continue
+            encoded = np.uint8(
+                np.round(np.clip((scalar - low) / (high - low), 0.0, 1.0) * 255.0)
+            )
+            _threshold, binary = cv2.threshold(
+                encoded, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            )
+            mask = (binary > 0).astype(np.uint8)
+            minor_fraction = min(float(mask.mean()), 1.0 - float(mask.mean()))
+            if minor_fraction < 0.001:
+                continue
+
+            # Remove isolated compression/noise islands only.  Long one-pixel lines
+            # survive because the operation is component-area based, not erosion.
+            for phase_value in (0, 1):
+                phase = (mask == phase_value).astype(np.uint8)
+                count, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+                    phase, 8
+                )
+                for component in range(1, count):
+                    if int(stats[component, cv2.CC_STAT_AREA]) < 3:
+                        mask[labels == component] = 1 - phase_value
+
+            flat_mask = mask.reshape(-1)
+            zero = flat_mask == 0
+            one = ~zero
+            if int(zero.sum()) < 2 or int(one.sum()) < 2:
+                continue
+            mean_zero = flat[zero].mean(axis=0)
+            mean_one = flat[one].mean(axis=0)
+            between = float(np.linalg.norm(mean_zero - mean_one))
+            within = 0.5 * (
+                float(np.sqrt(np.mean(np.var(flat[zero], axis=0))))
+                + float(np.sqrt(np.mean(np.var(flat[one], axis=0))))
+            ) + 1.0e-6
+            fisher = between / within
+
+            boundary = np.zeros((h, w), dtype=np.uint8)
+            boundary[:, 1:] |= mask[:, 1:] != mask[:, :-1]
+            boundary[1:, :] |= mask[1:, :] != mask[:-1, :]
+            if not boundary.any():
+                continue
+            alignment = float(gradient_energy[boundary > 0].mean() / gradient_mean)
+            component_count = max(cv2.connectedComponents(boundary, 8)[0] - 1, 1)
+            boundary_length = max(float(boundary.sum()), 1.0)
+            fragmentation = 1.0 / (
+                1.0 + max(component_count - 4, 0) * 8.0 / boundary_length
+            )
+            score = (
+                fisher
+                * (0.5 + 0.5 * min(alignment / 3.0, 2.0))
+                * fragmentation
+            )
+            if best is None or score > best[0]:
+                best = (score, mask.copy(), fisher, alignment)
+
+        if best is None:
+            sdf = np.ones((h, w, 1), dtype=np.float32)
+            orientation = np.zeros((h, w, 2), dtype=np.float32)
+            edge = np.zeros((h, w, 1), dtype=np.float32)
+            return sdf, orientation, edge, 0.0
+
+        _score, mask, fisher, alignment = best
+        inside_distance = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
+        outside_distance = cv2.distanceTransform(1 - mask, cv2.DIST_L2, 5)
+        signed_pixels = outside_distance - inside_distance
+        sdf = np.clip(
+            signed_pixels / max(float(max_distance), 1.0), -1.0, 1.0
+        ).astype(np.float32)
+
+        gy, gx = np.gradient(signed_pixels.astype(np.float32))
+        normal_length = np.sqrt(gx * gx + gy * gy + 1.0e-8)
+        tangent = np.stack((-gy / normal_length, gx / normal_length), axis=-1)
+        orientation_decay = np.exp(
+            -np.minimum(np.abs(signed_pixels), max(float(max_distance), 1.0))
+            / max(float(max_distance), 1.0)
+            * 4.0
+        ).astype(np.float32)
+        orientation = (tangent * orientation_decay[..., None]).astype(np.float32)
+        edge = np.exp(-0.5 * (signed_pixels / 0.85) ** 2).astype(np.float32)
+
+        # Continuous confidence: strong feature separation and edge-aligned
+        # partitioning receive full weight; ambiguous LR evidence is down-weighted
+        # rather than rejected by another arbitrary geometric threshold.
+        separation_confidence = np.clip((fisher - 1.0) / 8.0, 0.0, 1.0)
+        alignment_confidence = np.clip(alignment / 3.0, 0.0, 1.0)
+        confidence = float(np.sqrt(separation_confidence * alignment_confidence))
+        return (
+            np.ascontiguousarray(sdf[..., None]),
+            np.ascontiguousarray(orientation),
+            np.ascontiguousarray(edge[..., None]),
+            confidence,
         )
-        score = (
-            fisher
-            * (0.5 + 0.5 * min(alignment / 3.0, 2.0))
-            * fragmentation
+
+    # Purpose: Implement analytic contour targets for ContourGeometry.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def analytic_contour_targets(
+        self,
+        signed_distance_pixels: np.ndarray,
+        *,
+        max_distance: float = 24.0,
+        edge_sigma: float = 0.72,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Create exact geometric supervision from an analytic signed distance.
+
+        Used by synthetic line/arc/corner examples.  Because the SDF is defined by
+        mathematics rather than a thresholded texture edge, a straight line has a
+        constant tangent and a circle has smoothly varying curvature by construction.
+        """
+        distance = np.asarray(signed_distance_pixels, dtype=np.float32)
+        gy, gx = np.gradient(distance)
+        length = np.sqrt(gx * gx + gy * gy + 1.0e-8)
+        tangent = np.stack((-gy / length, gx / length), axis=-1).astype(np.float32)
+        sdf = np.clip(distance / max(max_distance, 1.0), -1.0, 1.0)[..., None].astype(np.float32)
+        edge = np.exp(-0.5 * (distance / max(edge_sigma, 0.1)) ** 2)[..., None].astype(np.float32)
+        tangent *= np.exp(-np.abs(sdf[..., 0]) * 4.0)[..., None]
+        return np.ascontiguousarray(sdf), np.ascontiguousarray(tangent), np.ascontiguousarray(edge)
+
+    # Purpose: Implement build guidance numpy for ContourGeometry.
+    # Called by: External callers and the owning workflow.
+    # Calls: _sobel_numpy
+    def build_guidance_numpy(
+        self,
+        albedo: np.ndarray,
+        normal_xy: np.ndarray,
+        material: np.ndarray,
+        degradation_level: float,
+        uv_stretch: np.ndarray | None = None,
+        chart_mask: np.ndarray | None = None,
+    ) -> np.ndarray:
+        luma = albedo[..., 0] * 0.2126 + albedo[..., 1] * 0.7152 + albedo[..., 2] * 0.0722
+        lgx, lgy = self._sobel_numpy(luma)
+        ngx0, ngy0 = self._sobel_numpy(normal_xy[..., 0])
+        ngx1, ngy1 = self._sobel_numpy(normal_xy[..., 1])
+        normal_edge = np.sqrt(ngx0 * ngx0 + ngy0 * ngy0 + ngx1 * ngx1 + ngy1 * ngy1)
+        material_edge = np.zeros_like(luma)
+        for channel in range(min(3, material.shape[-1])):
+            gx, gy = self._sobel_numpy(material[..., channel])
+            material_edge = np.maximum(material_edge, np.sqrt(gx * gx + gy * gy))
+        import cv2
+        curvature = cv2.Laplacian(luma.astype(np.float32), cv2.CV_32F, ksize=3) * 0.25
+        if uv_stretch is None:
+            uv_stretch = np.zeros_like(luma, dtype=np.float32)
+        if chart_mask is None:
+            chart_mask = np.ones_like(luma, dtype=np.float32)
+        severity = np.full_like(luma, float(degradation_level), dtype=np.float32)
+        guidance = np.stack((
+            severity,
+            np.clip(lgx, -1.0, 1.0),
+            np.clip(lgy, -1.0, 1.0),
+            np.clip(normal_edge, 0.0, 1.0),
+            np.clip(material_edge, 0.0, 1.0),
+            np.clip(curvature, -1.0, 1.0),
+            np.clip(uv_stretch, 0.0, 1.0),
+            np.clip(chart_mask, 0.0, 1.0),
+        ), axis=-1)
+        return np.ascontiguousarray(guidance.astype(np.float32))
+
+    # Purpose: Implement sobel tensor for ContourGeometry.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def sobel_tensor(self, value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        channels = value.shape[1]
+        kernel_x = value.new_tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]]) / 8.0
+        kernel_y = kernel_x.t().contiguous()
+        return (
+            F.conv2d(value, kernel_x.view(1, 1, 3, 3).expand(channels, 1, 3, 3), padding=1, groups=channels),
+            F.conv2d(value, kernel_y.view(1, 1, 3, 3).expand(channels, 1, 3, 3), padding=1, groups=channels),
         )
-        if best is None or score > best[0]:
-            best = (score, mask.copy(), fisher, alignment)
 
-    if best is None:
-        sdf = np.ones((h, w, 1), dtype=np.float32)
-        orientation = np.zeros((h, w, 2), dtype=np.float32)
-        edge = np.zeros((h, w, 1), dtype=np.float32)
-        return sdf, orientation, edge, 0.0
-
-    _score, mask, fisher, alignment = best
-    inside_distance = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
-    outside_distance = cv2.distanceTransform(1 - mask, cv2.DIST_L2, 5)
-    signed_pixels = outside_distance - inside_distance
-    sdf = np.clip(
-        signed_pixels / max(float(max_distance), 1.0), -1.0, 1.0
-    ).astype(np.float32)
-
-    gy, gx = np.gradient(signed_pixels.astype(np.float32))
-    normal_length = np.sqrt(gx * gx + gy * gy + 1.0e-8)
-    tangent = np.stack((-gy / normal_length, gx / normal_length), axis=-1)
-    orientation_decay = np.exp(
-        -np.minimum(np.abs(signed_pixels), max(float(max_distance), 1.0))
-        / max(float(max_distance), 1.0)
-        * 4.0
-    ).astype(np.float32)
-    orientation = (tangent * orientation_decay[..., None]).astype(np.float32)
-    edge = np.exp(-0.5 * (signed_pixels / 0.85) ** 2).astype(np.float32)
-
-    # Continuous confidence: strong feature separation and edge-aligned
-    # partitioning receive full weight; ambiguous LR evidence is down-weighted
-    # rather than rejected by another arbitrary geometric threshold.
-    separation_confidence = np.clip((fisher - 1.0) / 8.0, 0.0, 1.0)
-    alignment_confidence = np.clip(alignment / 3.0, 0.0, 1.0)
-    confidence = float(np.sqrt(separation_confidence * alignment_confidence))
-    return (
-        np.ascontiguousarray(sdf[..., None]),
-        np.ascontiguousarray(orientation),
-        np.ascontiguousarray(edge[..., None]),
-        confidence,
-    )
-
-
-def analytic_contour_targets(
-    signed_distance_pixels: np.ndarray,
-    *,
-    max_distance: float = 24.0,
-    edge_sigma: float = 0.72,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Create exact geometric supervision from an analytic signed distance.
-
-    Used by synthetic line/arc/corner examples.  Because the SDF is defined by
-    mathematics rather than a thresholded texture edge, a straight line has a
-    constant tangent and a circle has smoothly varying curvature by construction.
-    """
-    distance = np.asarray(signed_distance_pixels, dtype=np.float32)
-    gy, gx = np.gradient(distance)
-    length = np.sqrt(gx * gx + gy * gy + 1.0e-8)
-    tangent = np.stack((-gy / length, gx / length), axis=-1).astype(np.float32)
-    sdf = np.clip(distance / max(max_distance, 1.0), -1.0, 1.0)[..., None].astype(np.float32)
-    edge = np.exp(-0.5 * (distance / max(edge_sigma, 0.1)) ** 2)[..., None].astype(np.float32)
-    tangent *= np.exp(-np.abs(sdf[..., 0]) * 4.0)[..., None]
-    return np.ascontiguousarray(sdf), np.ascontiguousarray(tangent), np.ascontiguousarray(edge)
-
-
-def build_guidance_numpy(
-    albedo: np.ndarray,
-    normal_xy: np.ndarray,
-    material: np.ndarray,
-    degradation_level: float,
-    uv_stretch: np.ndarray | None = None,
-    chart_mask: np.ndarray | None = None,
-) -> np.ndarray:
-    luma = albedo[..., 0] * 0.2126 + albedo[..., 1] * 0.7152 + albedo[..., 2] * 0.0722
-    lgx, lgy = _sobel_numpy(luma)
-    ngx0, ngy0 = _sobel_numpy(normal_xy[..., 0])
-    ngx1, ngy1 = _sobel_numpy(normal_xy[..., 1])
-    normal_edge = np.sqrt(ngx0 * ngx0 + ngy0 * ngy0 + ngx1 * ngx1 + ngy1 * ngy1)
-    material_edge = np.zeros_like(luma)
-    for channel in range(min(3, material.shape[-1])):
-        gx, gy = _sobel_numpy(material[..., channel])
-        material_edge = np.maximum(material_edge, np.sqrt(gx * gx + gy * gy))
-    import cv2
-    curvature = cv2.Laplacian(luma.astype(np.float32), cv2.CV_32F, ksize=3) * 0.25
-    if uv_stretch is None:
-        uv_stretch = np.zeros_like(luma, dtype=np.float32)
-    if chart_mask is None:
-        chart_mask = np.ones_like(luma, dtype=np.float32)
-    severity = np.full_like(luma, float(degradation_level), dtype=np.float32)
-    guidance = np.stack((
-        severity,
-        np.clip(lgx, -1.0, 1.0),
-        np.clip(lgy, -1.0, 1.0),
-        np.clip(normal_edge, 0.0, 1.0),
-        np.clip(material_edge, 0.0, 1.0),
-        np.clip(curvature, -1.0, 1.0),
-        np.clip(uv_stretch, 0.0, 1.0),
-        np.clip(chart_mask, 0.0, 1.0),
-    ), axis=-1)
-    return np.ascontiguousarray(guidance.astype(np.float32))
-
-
-def sobel_tensor(value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    channels = value.shape[1]
-    kernel_x = value.new_tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]]) / 8.0
-    kernel_y = kernel_x.t().contiguous()
-    return (
-        F.conv2d(value, kernel_x.view(1, 1, 3, 3).expand(channels, 1, 3, 3), padding=1, groups=channels),
-        F.conv2d(value, kernel_y.view(1, 1, 3, 3).expand(channels, 1, 3, 3), padding=1, groups=channels),
-    )
+_contour_geometry = ContourGeometry()
+_sobel_numpy = _contour_geometry._sobel_numpy
+_gaussian = _contour_geometry._gaussian
+_multi_scale_structure_tensor = _contour_geometry._multi_scale_structure_tensor
+_ridge_centreline = _contour_geometry._ridge_centreline
+_signed_distance_from_edge = _contour_geometry._signed_distance_from_edge
+contour_targets = _contour_geometry.contour_targets
+lr_contour_prior = _contour_geometry.lr_contour_prior
+analytic_contour_targets = _contour_geometry.analytic_contour_targets
+build_guidance_numpy = _contour_geometry.build_guidance_numpy
+sobel_tensor = _contour_geometry.sobel_tensor

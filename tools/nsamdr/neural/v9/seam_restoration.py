@@ -16,120 +16,141 @@ from torch import nn
 from torch.nn import functional as F
 
 
-def _sobel(value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    channels = value.shape[1]
-    kx = value.new_tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]]) / 8.0
-    ky = kx.t()
-    x = F.pad(value.float(), (1, 1, 1, 1), mode="reflect")
-    gx = F.conv2d(x, kx.view(1, 1, 3, 3).expand(channels, 1, 3, 3), groups=channels)
-    gy = F.conv2d(x, ky.view(1, 1, 3, 3).expand(channels, 1, 3, 3), groups=channels)
-    return gx, gy
+class SeamRestorationService:
+    # Purpose: Implement sobel for SeamRestorationService.
+    # Called by: multi_map_ridge_response, multi_map_structure_tensor
+    # Calls: No same-class helper methods.
+    def _sobel(self, value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        channels = value.shape[1]
+        kx = value.new_tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]]) / 8.0
+        ky = kx.t()
+        x = F.pad(value.float(), (1, 1, 1, 1), mode="reflect")
+        gx = F.conv2d(x, kx.view(1, 1, 3, 3).expand(channels, 1, 3, 3), groups=channels)
+        gy = F.conv2d(x, ky.view(1, 1, 3, 3).expand(channels, 1, 3, 3), groups=channels)
+        return gx, gy
 
+    # Purpose: Implement smooth for SeamRestorationService.
+    # Called by: multi_map_structure_tensor
+    # Calls: No same-class helper methods.
+    def _smooth(self, value: torch.Tensor, radius: int) -> torch.Tensor:
+        radius = max(1, int(radius))
+        kernel = radius * 2 + 1
+        return F.avg_pool2d(value, kernel_size=kernel, stride=1, padding=radius)
 
-def _smooth(value: torch.Tensor, radius: int) -> torch.Tensor:
-    radius = max(1, int(radius))
-    kernel = radius * 2 + 1
-    return F.avg_pool2d(value, kernel_size=kernel, stride=1, padding=radius)
+    # Purpose: Implement multi map structure tensor for SeamRestorationService.
+    # Called by: External callers and the owning workflow.
+    # Calls: _smooth, _sobel
+    def multi_map_structure_tensor(
+        self,
+        albedo: torch.Tensor,
+        normal_xy: torch.Tensor,
+        material: torch.Tensor,
+        *,
+        radius: int = 2,
+        strength_gain: float = 4.0,
+    ) -> dict[str, torch.Tensor]:
+        """Return an axial normal/tangent field shared by all physical maps."""
+        luma = (
+            albedo[:, 0:1].float() * 0.2126
+            + albedo[:, 1:2].float() * 0.7152
+            + albedo[:, 2:3].float() * 0.0722
+        )
+        # Normal/material edges are deliberately lower weight than albedo but can
+        # rescue a physically real seam that is low contrast in diffuse colour.
+        features = torch.cat((luma, normal_xy.float() * 0.55, material.float() * 0.45), dim=1)
+        gx, gy = self._sobel(features)
+        jxx = self._smooth(gx.square().sum(dim=1, keepdim=True), radius)
+        jyy = self._smooth(gy.square().sum(dim=1, keepdim=True), radius)
+        jxy = self._smooth((gx * gy).sum(dim=1, keepdim=True), radius)
 
+        trace = jxx + jyy
+        disc = torch.sqrt((jxx - jyy).square() + 4.0 * jxy.square() + 1.0e-12)
+        lambda1 = 0.5 * (trace + disc)
+        lambda2 = 0.5 * (trace - disc)
+        coherence = ((lambda1 - lambda2) / (lambda1 + lambda2 + 1.0e-6)).clamp(0.0, 1.0)
+        strength = (1.0 - torch.exp(-torch.sqrt(lambda1.clamp_min(0.0) + 1.0e-10) * float(strength_gain))).clamp(0.0, 1.0)
 
-def multi_map_structure_tensor(
-    albedo: torch.Tensor,
-    normal_xy: torch.Tensor,
-    material: torch.Tensor,
-    *,
-    radius: int = 2,
-    strength_gain: float = 4.0,
-) -> dict[str, torch.Tensor]:
-    """Return an axial normal/tangent field shared by all physical maps."""
-    luma = (
-        albedo[:, 0:1].float() * 0.2126
-        + albedo[:, 1:2].float() * 0.7152
-        + albedo[:, 2:3].float() * 0.0722
-    )
-    # Normal/material edges are deliberately lower weight than albedo but can
-    # rescue a physically real seam that is low contrast in diffuse colour.
-    features = torch.cat((luma, normal_xy.float() * 0.55, material.float() * 0.45), dim=1)
-    gx, gy = _sobel(features)
-    jxx = _smooth(gx.square().sum(dim=1, keepdim=True), radius)
-    jyy = _smooth(gy.square().sum(dim=1, keepdim=True), radius)
-    jxy = _smooth((gx * gy).sum(dim=1, keepdim=True), radius)
+        # Dominant eigenvector of the structure tensor is the edge normal.  The
+        # half-angle form is stable and axial, so +/- direction is equivalent.
+        theta = 0.5 * torch.atan2(2.0 * jxy, jxx - jyy + 1.0e-12)
+        nx = torch.cos(theta)
+        ny = torch.sin(theta)
+        normal = torch.cat((nx, ny), dim=1)
+        tangent = torch.cat((-ny, nx), dim=1)
 
-    trace = jxx + jyy
-    disc = torch.sqrt((jxx - jyy).square() + 4.0 * jxy.square() + 1.0e-12)
-    lambda1 = 0.5 * (trace + disc)
-    lambda2 = 0.5 * (trace - disc)
-    coherence = ((lambda1 - lambda2) / (lambda1 + lambda2 + 1.0e-6)).clamp(0.0, 1.0)
-    strength = (1.0 - torch.exp(-torch.sqrt(lambda1.clamp_min(0.0) + 1.0e-10) * float(strength_gain))).clamp(0.0, 1.0)
+        # Axial tangent curvature: t and -t describe the same seam direction.
+        tx, ty = tangent[:, 0:1], tangent[:, 1:2]
+        axial = torch.cat((tx.square() - ty.square(), 2.0 * tx * ty), dim=1)
+        ax, ay = self._sobel(axial)
+        curvature = torch.sqrt(ax.square() + ay.square() + 1.0e-8).mean(dim=1, keepdim=True)
+        straightness = (coherence * torch.exp(-curvature * 6.0)).clamp(0.0, 1.0)
+        curve_support = (coherence * (1.0 - straightness) * torch.exp(-curvature * 0.75)).clamp(0.0, 1.0)
+        irregular = (1.0 - torch.maximum(straightness, curve_support)).clamp(0.0, 1.0)
+        classes = torch.cat((straightness, curve_support, irregular), dim=1)
+        classes = classes / classes.sum(dim=1, keepdim=True).clamp_min(1.0e-6)
+        return {
+            "normal": normal,
+            "tangent": tangent,
+            "strength": strength,
+            "coherence": coherence,
+            "curvature": curvature,
+            "primitive_class": classes,
+        }
 
-    # Dominant eigenvector of the structure tensor is the edge normal.  The
-    # half-angle form is stable and axial, so +/- direction is equivalent.
-    theta = 0.5 * torch.atan2(2.0 * jxy, jxx - jyy + 1.0e-12)
-    nx = torch.cos(theta)
-    ny = torch.sin(theta)
-    normal = torch.cat((nx, ny), dim=1)
-    tangent = torch.cat((-ny, nx), dim=1)
+    # Purpose: Implement multi map ridge response for SeamRestorationService.
+    # Called by: External callers and the owning workflow.
+    # Calls: _sobel
+    def multi_map_ridge_response(
+        self,
+        albedo: torch.Tensor, normal_xy: torch.Tensor, material: torch.Tensor
+    ) -> torch.Tensor:
+        """Return a bounded ridge/groove response, not just a step-edge response.
 
-    # Axial tangent curvature: t and -t describe the same seam direction.
-    tx, ty = tangent[:, 0:1], tangent[:, 1:2]
-    axial = torch.cat((tx.square() - ty.square(), 2.0 * tx * ty), dim=1)
-    ax, ay = _sobel(axial)
-    curvature = torch.sqrt(ax.square() + ay.square() + 1.0e-8).mean(dim=1, keepdim=True)
-    straightness = (coherence * torch.exp(-curvature * 6.0)).clamp(0.0, 1.0)
-    curve_support = (coherence * (1.0 - straightness) * torch.exp(-curvature * 0.75)).clamp(0.0, 1.0)
-    irregular = (1.0 - torch.maximum(straightness, curve_support)).clamp(0.0, 1.0)
-    classes = torch.cat((straightness, curve_support, irregular), dim=1)
-    classes = classes / classes.sum(dim=1, keepdim=True).clamp_min(1.0e-6)
-    return {
-        "normal": normal,
-        "tangent": tangent,
-        "strength": strength,
-        "coherence": coherence,
-        "curvature": curvature,
-        "primitive_class": classes,
-    }
+        Manufactured panel seams are frequently bright-dark-bright or normal-map
+        grooves and therefore need second-derivative evidence even when no material
+        boundary exists.
+        """
+        luma = (
+            albedo[:, 0:1].float() * 0.2126
+            + albedo[:, 1:2].float() * 0.7152
+            + albedo[:, 2:3].float() * 0.0722
+        )
+        features = torch.cat((luma, normal_xy.float() * 0.70, material.float() * 0.35), dim=1)
+        gx, gy = self._sobel(features)
+        gxx, gxy = self._sobel(gx)
+        gyx, gyy = self._sobel(gy)
+        # Frobenius norm of the symmetric Hessian is sign-independent, so both
+        # engraved valleys and raised ridges receive support.
+        hxy = 0.5 * (gxy + gyx)
+        ridge = torch.sqrt((gxx.square() + 2.0 * hxy.square() + gyy.square()).mean(dim=1, keepdim=True) + 1.0e-10)
+        return (1.0 - torch.exp(-ridge * 10.0)).clamp(0.0, 1.0)
 
+    # Purpose: Implement sample offset for SeamRestorationService.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def _sample_offset(self, value: torch.Tensor, vector: torch.Tensor, pixels: float) -> torch.Tensor:
+        """Bilinearly sample `value` at a spatially varying vector offset."""
+        b, _c, h, w = value.shape
+        yy, xx = torch.meshgrid(
+            torch.linspace(-1.0, 1.0, h, device=value.device, dtype=torch.float32),
+            torch.linspace(-1.0, 1.0, w, device=value.device, dtype=torch.float32),
+            indexing="ij",
+        )
+        grid = torch.stack((xx, yy), dim=-1).unsqueeze(0).expand(b, -1, -1, -1).clone()
+        sx = 2.0 * float(pixels) / max(float(w - 1), 1.0)
+        sy = 2.0 * float(pixels) / max(float(h - 1), 1.0)
+        grid[..., 0] += vector[:, 0].float() * sx
+        grid[..., 1] += vector[:, 1].float() * sy
+        return F.grid_sample(
+            value.float(), grid, mode="bilinear", padding_mode="border", align_corners=True
+        )
 
-def multi_map_ridge_response(
-    albedo: torch.Tensor, normal_xy: torch.Tensor, material: torch.Tensor
-) -> torch.Tensor:
-    """Return a bounded ridge/groove response, not just a step-edge response.
-
-    Manufactured panel seams are frequently bright-dark-bright or normal-map
-    grooves and therefore need second-derivative evidence even when no material
-    boundary exists.
-    """
-    luma = (
-        albedo[:, 0:1].float() * 0.2126
-        + albedo[:, 1:2].float() * 0.7152
-        + albedo[:, 2:3].float() * 0.0722
-    )
-    features = torch.cat((luma, normal_xy.float() * 0.70, material.float() * 0.35), dim=1)
-    gx, gy = _sobel(features)
-    gxx, gxy = _sobel(gx)
-    gyx, gyy = _sobel(gy)
-    # Frobenius norm of the symmetric Hessian is sign-independent, so both
-    # engraved valleys and raised ridges receive support.
-    hxy = 0.5 * (gxy + gyx)
-    ridge = torch.sqrt((gxx.square() + 2.0 * hxy.square() + gyy.square()).mean(dim=1, keepdim=True) + 1.0e-10)
-    return (1.0 - torch.exp(-ridge * 10.0)).clamp(0.0, 1.0)
-
-
-def _sample_offset(value: torch.Tensor, vector: torch.Tensor, pixels: float) -> torch.Tensor:
-    """Bilinearly sample `value` at a spatially varying vector offset."""
-    b, _c, h, w = value.shape
-    yy, xx = torch.meshgrid(
-        torch.linspace(-1.0, 1.0, h, device=value.device, dtype=torch.float32),
-        torch.linspace(-1.0, 1.0, w, device=value.device, dtype=torch.float32),
-        indexing="ij",
-    )
-    grid = torch.stack((xx, yy), dim=-1).unsqueeze(0).expand(b, -1, -1, -1).clone()
-    sx = 2.0 * float(pixels) / max(float(w - 1), 1.0)
-    sy = 2.0 * float(pixels) / max(float(h - 1), 1.0)
-    grid[..., 0] += vector[:, 0].float() * sx
-    grid[..., 1] += vector[:, 1].float() * sy
-    return F.grid_sample(
-        value.float(), grid, mode="bilinear", padding_mode="border", align_corners=True
-    )
+_seam_restoration_service = SeamRestorationService()
+_sobel = _seam_restoration_service._sobel
+_smooth = _seam_restoration_service._smooth
+multi_map_structure_tensor = _seam_restoration_service.multi_map_structure_tensor
+multi_map_ridge_response = _seam_restoration_service.multi_map_ridge_response
+_sample_offset = _seam_restoration_service._sample_offset
 
 
 class DirectionalKernelBank(nn.Module):
@@ -142,6 +163,9 @@ class DirectionalKernelBank(nn.Module):
     correction from the HR teacher.
     """
 
+    # Purpose: Implement init for DirectionalKernelBank.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, bins: int = 12, kernel_size: int = 7, residual_scale: float = 0.10) -> None:
         super().__init__()
         self.bins = max(4, int(bins))
@@ -151,6 +175,9 @@ class DirectionalKernelBank(nn.Module):
         angles = torch.arange(self.bins, dtype=torch.float32) * (math.pi / float(self.bins))
         self.register_buffer("bin_tangent", torch.stack((torch.cos(angles), torch.sin(angles)), dim=1), persistent=False)
 
+    # Purpose: Implement kernels for DirectionalKernelBank.
+    # Called by: forward
+    # Calls: No same-class helper methods.
     def kernels(self) -> torch.Tensor:
         residual = torch.tanh(self.logits) * self.residual_scale
         residual = residual - residual.mean(dim=(1, 2), keepdim=True)
@@ -159,6 +186,9 @@ class DirectionalKernelBank(nn.Module):
         base[:, c, c] = 1.0
         return base + residual
 
+    # Purpose: Implement forward for DirectionalKernelBank.
+    # Called by: External callers and the owning workflow.
+    # Calls: kernels
     def forward(self, value: torch.Tensor, tangent: torch.Tensor, coherence: torch.Tensor) -> torch.Tensor:
         # Axial orientation: t and -t are the same seam.  Soft hashing avoids
         # bin-boundary discontinuities while retaining RAISR-like specialisation.
@@ -193,6 +223,9 @@ class PhaseAwareSeamSR(nn.Module):
     The zero-initialised head makes this branch exact identity at startup.
     """
 
+    # Purpose: Implement init for PhaseAwareSeamSR.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, hidden: int = 32, max_delta: float = 0.25) -> None:
         super().__init__()
         self.max_delta = float(max_delta)
@@ -206,6 +239,9 @@ class PhaseAwareSeamSR(nn.Module):
         nn.init.zeros_(self.head.weight)
         nn.init.zeros_(self.head.bias)
 
+    # Purpose: Implement forward for PhaseAwareSeamSR.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def forward(
         self,
         source_albedo: torch.Tensor,
@@ -238,6 +274,9 @@ class DirectionalSeamRestorer(nn.Module):
     weights make it nearly identity so Stage-B must earn any seam correction.
     """
 
+    # Purpose: Implement init for DirectionalSeamRestorer.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, config) -> None:
         super().__init__()
         hidden = int(getattr(config, "seam_directional_channels", 24))
@@ -272,12 +311,18 @@ class DirectionalSeamRestorer(nn.Module):
         nn.init.zeros_(self.authority[-1].bias[2])
         nn.init.zeros_(self.authority[-1].bias[3])
 
+    # Purpose: Implement normalise xy for DirectionalSeamRestorer.
+    # Called by: forward
+    # Calls: No same-class helper methods.
     @staticmethod
     def _normalise_xy(value: torch.Tensor) -> torch.Tensor:
         length2 = value.float().square().sum(dim=1, keepdim=True)
         scale = torch.where(length2 > 0.999**2, 0.999 / torch.sqrt(length2 + 1.0e-8), torch.ones_like(length2))
         return value.float() * scale
 
+    # Purpose: Implement proposal for DirectionalSeamRestorer.
+    # Called by: forward
+    # Calls: No same-class helper methods.
     def _proposal(
         self,
         value: torch.Tensor,
@@ -294,6 +339,9 @@ class DirectionalSeamRestorer(nn.Module):
         normal_detail = value.float() - across_blur
         return along + normal_detail * sharpen
 
+    # Purpose: Implement forward for DirectionalSeamRestorer.
+    # Called by: External callers and the owning workflow.
+    # Calls: _normalise_xy, _proposal
     def forward(
         self,
         albedo: torch.Tensor,

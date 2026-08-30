@@ -596,6 +596,9 @@ class V9Config:
     loss_precision: str = "mixed"
     torch_compile_mode: str = "off"
 
+    # Purpose: Implement total epochs for V9Config.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     @property
     def total_epochs(self) -> int:
         return (
@@ -604,6 +607,9 @@ class V9Config:
             + self.physical_finetune_epochs
         )
 
+    # Purpose: Implement to dict for V9Config.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
         payload["widths"] = list(self.widths)
@@ -611,6 +617,9 @@ class V9Config:
         payload["decoder_blocks"] = list(self.decoder_blocks)
         return payload
 
+    # Purpose: Implement load for V9Config.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     @classmethod
     def load(cls, path: Path | None) -> "V9Config":
         config = cls()
@@ -970,6 +979,9 @@ class V9Config:
         config.validate()
         return config
 
+    # Purpose: Implement validate for V9Config.
+    # Called by: apply_performance_profile
+    # Calls: No same-class helper methods.
     def validate(self) -> None:
         self.max_families = max(8, min(int(self.max_families), 4096))
         self.crops_per_family = max(2, min(int(self.crops_per_family), 128))
@@ -1369,6 +1381,9 @@ class V9Config:
         self.torch_compile_mode = str(self.torch_compile_mode).strip().lower()
         if self.torch_compile_mode not in {"off", "default", "reduce-overhead", "max-autotune"}: raise ValueError("invalid torchCompileMode")
 
+    # Purpose: Implement apply performance profile for V9Config.
+    # Called by: apply_performance_profile
+    # Calls: apply_performance_profile, validate
     def apply_performance_profile(self, profile: str) -> None:
         profile = str(profile).strip().lower()
         if profile in {"fast", "optimized", "tuned"}:

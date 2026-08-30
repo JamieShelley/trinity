@@ -16,6 +16,9 @@ from torch.nn import functional as F
 
 
 class _LocalBlock(nn.Module):
+    # Purpose: Implement init for _LocalBlock.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, channels: int, dilation: int = 1) -> None:
         super().__init__()
         self.depthwise = nn.Conv2d(
@@ -25,20 +28,72 @@ class _LocalBlock(nn.Module):
         self.norm = nn.GroupNorm(max(1, min(8, channels // 8)), channels)
         self.scale = nn.Parameter(torch.zeros(1, channels, 1, 1))
 
+    # Purpose: Implement forward for _LocalBlock.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         y = self.depthwise(self.norm(x))
         y = self.pointwise(F.gelu(y))
         return x + y * self.scale
 
 
-def _blend_window(patch_size: int, *, device: torch.device | None = None) -> torch.Tensor:
-    # Positive raised-cosine window.  A non-zero floor keeps image-border
-    # normalization well-conditioned while the central region has most weight.
-    n = int(patch_size)
-    coord = torch.arange(n, device=device, dtype=torch.float32)
-    phase = (coord + 0.5) / float(n)
-    w = 0.10 + 0.90 * torch.sin(math.pi * phase).square()
-    return (w[:, None] * w[None, :]).reshape(1, n * n, 1)
+class OraclePatchDistillationService:
+    # Purpose: Implement blend window for OraclePatchDistillationService.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
+    def _blend_window(self, patch_size: int, *, device: torch.device | None = None) -> torch.Tensor:
+        # Positive raised-cosine window.  A non-zero floor keeps image-border
+        # normalization well-conditioned while the central region has most weight.
+        n = int(patch_size)
+        coord = torch.arange(n, device=device, dtype=torch.float32)
+        phase = (coord + 0.5) / float(n)
+        w = 0.10 + 0.90 * torch.sin(math.pi * phase).square()
+        return (w[:, None] * w[None, :]).reshape(1, n * n, 1)
+
+    # Purpose: Implement extract target patches for OraclePatchDistillationService.
+    # Called by: extract_target_patch_validity
+    # Calls: No same-class helper methods.
+    def extract_target_patches(
+        self,
+        target_pixels: torch.Tensor,
+        *,
+        patch_size: int,
+        upscale: int = 4,
+        footprint_lr: int = 3,
+    ) -> torch.Tensor:
+        """Extract HR teacher patches in the exact layout used by the predictor."""
+        padding_hr = (int(footprint_lr) // 2) * int(upscale)
+        return F.unfold(
+            target_pixels.float(), kernel_size=int(patch_size),
+            stride=int(upscale), padding=padding_hr,
+        )
+
+    # Purpose: Implement extract target patch validity for OraclePatchDistillationService.
+    # Called by: External callers and the owning workflow.
+    # Calls: extract_target_patches
+    def extract_target_patch_validity(
+        self,
+        target_pixels: torch.Tensor,
+        *,
+        patch_size: int,
+        upscale: int = 4,
+        footprint_lr: int = 3,
+    ) -> torch.Tensor:
+        """Return 1 for real HR samples and 0 for unfold padding.
+
+        Edge LR cells predict patches that extend beyond the image. Those padded
+        coefficients never contribute to the folded output and must not receive a
+        fictitious zero-SDF/zero-coverage teacher target.
+        """
+        ones = torch.ones_like(target_pixels[:, :1], dtype=torch.float32)
+        return self.extract_target_patches(
+            ones, patch_size=patch_size, upscale=upscale, footprint_lr=footprint_lr
+        )
+
+_oracle_patch_distillation_service = OraclePatchDistillationService()
+_blend_window = _oracle_patch_distillation_service._blend_window
+extract_target_patches = _oracle_patch_distillation_service.extract_target_patches
+extract_target_patch_validity = _oracle_patch_distillation_service.extract_target_patch_validity
 
 
 class OraclePatchSDFPredictor(nn.Module):
@@ -50,6 +105,9 @@ class OraclePatchSDFPredictor(nn.Module):
     than independent per-phase or per-cell geometry.
     """
 
+    # Purpose: Implement init for OraclePatchSDFPredictor.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(
         self,
         feature_channels: int,
@@ -93,18 +151,27 @@ class OraclePatchSDFPredictor(nn.Module):
         nn.init.constant_(self.confidence_head.bias, -1.0)
         self.register_buffer("blend_window", _blend_window(self.patch_size), persistent=False)
 
+    # Purpose: Implement source hr for OraclePatchSDFPredictor.
+    # Called by: forward
+    # Calls: No same-class helper methods.
     def _source_hr(self, source_sdf_prior_lr: torch.Tensor) -> torch.Tensor:
         return F.interpolate(
             source_sdf_prior_lr.float(), scale_factor=self.upscale,
             mode="bilinear", align_corners=False,
         ) * self.max_distance_pixels
 
+    # Purpose: Implement unfold hr for OraclePatchSDFPredictor.
+    # Called by: forward
+    # Calls: No same-class helper methods.
     def _unfold_hr(self, value: torch.Tensor) -> torch.Tensor:
         return F.unfold(
             value.float(), kernel_size=self.patch_size,
             stride=self.upscale, padding=self.padding_hr,
         )
 
+    # Purpose: Implement fold for OraclePatchSDFPredictor.
+    # Called by: forward
+    # Calls: No same-class helper methods.
     def _fold(self, patches: torch.Tensor, height_lr: int, width_lr: int) -> torch.Tensor:
         h_hr, w_hr = height_lr * self.upscale, width_lr * self.upscale
         weight = self.blend_window.to(device=patches.device, dtype=patches.dtype)
@@ -120,6 +187,9 @@ class OraclePatchSDFPredictor(nn.Module):
         )
         return numerator / denominator.clamp_min(1.0e-6)
 
+    # Purpose: Implement forward for OraclePatchSDFPredictor.
+    # Called by: External callers and the owning workflow.
+    # Calls: _fold, _source_hr, _unfold_hr
     def forward(
         self,
         features_lr: torch.Tensor,
@@ -167,6 +237,9 @@ class OraclePatchSDFPredictor(nn.Module):
             "patch_size": phi_pixels.new_tensor(float(self.patch_size)),
         }
 
+    # Purpose: Implement query aggregate for OraclePatchSDFPredictor.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def query_aggregate(
         self,
         phi_pixels: torch.Tensor,
@@ -177,37 +250,3 @@ class OraclePatchSDFPredictor(nn.Module):
             phi_pixels.float(), query_grid.float(), mode="bilinear",
             padding_mode="border", align_corners=False,
         )
-
-
-def extract_target_patches(
-    target_pixels: torch.Tensor,
-    *,
-    patch_size: int,
-    upscale: int = 4,
-    footprint_lr: int = 3,
-) -> torch.Tensor:
-    """Extract HR teacher patches in the exact layout used by the predictor."""
-    padding_hr = (int(footprint_lr) // 2) * int(upscale)
-    return F.unfold(
-        target_pixels.float(), kernel_size=int(patch_size),
-        stride=int(upscale), padding=padding_hr,
-    )
-
-
-def extract_target_patch_validity(
-    target_pixels: torch.Tensor,
-    *,
-    patch_size: int,
-    upscale: int = 4,
-    footprint_lr: int = 3,
-) -> torch.Tensor:
-    """Return 1 for real HR samples and 0 for unfold padding.
-
-    Edge LR cells predict patches that extend beyond the image. Those padded
-    coefficients never contribute to the folded output and must not receive a
-    fictitious zero-SDF/zero-coverage teacher target.
-    """
-    ones = torch.ones_like(target_pixels[:, :1], dtype=torch.float32)
-    return extract_target_patches(
-        ones, patch_size=patch_size, upscale=upscale, footprint_lr=footprint_lr
-    )

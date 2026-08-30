@@ -10,29 +10,33 @@ from typing import Any, Mapping
 from .domain import EVOLUTION_SCHEMA, EvolutionResult, Genome
 
 
-def write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
-    """Write JSON by temporary file followed by atomic replacement.
+class RepositoryService:
+    def write_json_atomic(self, path: Path, payload: Mapping[str, Any]) -> None:
+        """Write JSON by temporary file followed by atomic replacement.
 
-    Purpose:
-        Prevent interrupted evidence/checkpoint metadata writes from appearing valid.
-    Called by:
-        GenomeRepository.write_generation(), write_candidate(), lock().
-    Calls:
-        tempfile.mkstemp(), os.replace().
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
-            json.dump(dict(payload), stream, indent=2, sort_keys=True, default=str)
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
+        Purpose:
+            Prevent interrupted evidence/checkpoint metadata writes from appearing valid.
+        Called by:
+            GenomeRepository.write_generation(), write_candidate(), lock().
+        Calls:
+            tempfile.mkstemp(), os.replace().
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+                json.dump(dict(payload), stream, indent=2, sort_keys=True, default=str)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+
+_repository_service = RepositoryService()
+write_json_atomic = _repository_service.write_json_atomic
 
 
 class GenomeRepository:

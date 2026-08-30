@@ -55,18 +55,23 @@ class FailureDetector:
         return FailureKind.LEARNING
 
 
-def classify_failure(
-    *,
-    error: BaseException | None = None,
-    metrics: Mapping[str, Any] | None = None,
-) -> FailureKind:
-    """Compatibility function for existing callers of evolutionary_recovery.py.
+class FailureService:
+    def classify_failure(
+        self,
+        *,
+        error: BaseException | None = None,
+        metrics: Mapping[str, Any] | None = None,
+    ) -> FailureKind:
+        """Compatibility function for existing callers of evolutionary_recovery.py.
 
-    Purpose:
-        Preserve the old public functional API while delegating policy to an object.
-    Called by:
-        Legacy NSAMDR orchestration and tests.
-    Calls:
-        FailureDetector.classify().
-    """
-    return FailureDetector().classify(error=error, metrics=metrics)
+        Purpose:
+            Preserve the old public functional API while delegating policy to an object.
+        Called by:
+            Legacy NSAMDR orchestration and tests.
+        Calls:
+            FailureDetector.classify().
+        """
+        return FailureDetector().classify(error=error, metrics=metrics)
+
+_failure_service = FailureService()
+classify_failure = _failure_service.classify_failure

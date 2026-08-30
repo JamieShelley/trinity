@@ -14,6 +14,9 @@ from torch.nn import functional as F
 
 
 class LocalResidualBlock(nn.Module):
+    # Purpose: Implement init for LocalResidualBlock.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, channels: int, *, dilation: int = 1) -> None:
         super().__init__()
         dilation = max(1, int(dilation))
@@ -29,6 +32,9 @@ class LocalResidualBlock(nn.Module):
         self.pw2 = nn.Conv2d(channels * 2, channels, 1)
         self.scale = nn.Parameter(torch.zeros(1, channels, 1, 1))
 
+    # Purpose: Implement forward for LocalResidualBlock.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         r = self.pw2(F.gelu(self.pw1(self.dw(x))))
         return x + r * self.scale
@@ -44,6 +50,9 @@ class BoundaryProfileSpecialist(nn.Module):
     normals and material semantics.
     """
 
+    # Purpose: Implement init for BoundaryProfileSpecialist.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(
         self,
         in_channels: int = 18,
@@ -67,6 +76,9 @@ class BoundaryProfileSpecialist(nn.Module):
         nn.init.zeros_(self.head.weight)
         nn.init.zeros_(self.head.bias)
 
+    # Purpose: Implement forward for BoundaryProfileSpecialist.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def forward(
         self,
         features: torch.Tensor,
@@ -101,6 +113,9 @@ class BoundaryProfileSpecialist(nn.Module):
 class BenefitSelector(nn.Module):
     """Small local selector trained only after candidate reconstruction freezes."""
 
+    # Purpose: Implement init for BenefitSelector.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def __init__(self, in_channels: int = 10, channels: int = 24) -> None:
         super().__init__()
         self.body = nn.Sequential(
@@ -114,5 +129,8 @@ class BenefitSelector(nn.Module):
         nn.init.zeros_(self.body[-1].weight)
         nn.init.constant_(self.body[-1].bias, -2.0)
 
+    # Purpose: Implement forward for BenefitSelector.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         return self.body(features)

@@ -11,37 +11,37 @@ if str(NEURAL) not in sys.path:
     sys.path.insert(0, str(NEURAL))
 
 
-def test_quick_local_gate_precedes_seams() -> None:
-    """Verify local geometry remains the first pass-driven production stage.
+class TestRavenQuickFastStructuralContract:
+    def test_quick_local_gate_precedes_seams(self) -> None:
+        """Verify local geometry remains the first pass-driven production stage.
 
-    Purpose:
-        Preserve fail-fast structural ordering.
-    Called by:
-        pytest.
-    Calls:
-        QualificationGates(), StagePlan().
-    """
-    from v9.application.gates import QualificationGates, StagePlan
+        Purpose:
+            Preserve fail-fast structural ordering.
+        Called by:
+            pytest.
+        Calls:
+            QualificationGates(), StagePlan().
+        """
+        from v9.application.gates import QualificationGates, StagePlan
 
-    phases = [
-        definition.phase
-        for definition in StagePlan(QualificationGates()).definitions
-    ]
-    assert phases.index("sdf-bootstrap") < phases.index("seam-proof")
+        phases = [
+            definition.phase
+            for definition in StagePlan(QualificationGates()).definitions
+        ]
+        assert phases.index("sdf-bootstrap") < phases.index("seam-proof")
 
+    def test_no_primitive_accuracy_or_mae_gate_in_local_promotion(self) -> None:
+        """Verify local geometry gate contains no retired whole-tile classifier thresholds.
 
-def test_no_primitive_accuracy_or_mae_gate_in_local_promotion() -> None:
-    """Verify local geometry gate contains no retired whole-tile classifier thresholds.
+        Purpose:
+            Prevent the source refactor from reintroducing obsolete B1b authority.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource().
+        """
+        from v9.application.gates import QualificationGates
 
-    Purpose:
-        Prevent the source refactor from reintroducing obsolete B1b authority.
-    Called by:
-        pytest.
-    Calls:
-        inspect.getsource().
-    """
-    from v9.application.gates import QualificationGates
-
-    source = inspect.getsource(QualificationGates.local_geometry_gate)
-    assert "parametric_primitive_class_accuracy_required" not in source
-    assert "parametric_primitive_param_mae_required" not in source
+        source = inspect.getsource(QualificationGates.local_geometry_gate)
+        assert "parametric_primitive_class_accuracy_required" not in source
+        assert "parametric_primitive_param_mae_required" not in source

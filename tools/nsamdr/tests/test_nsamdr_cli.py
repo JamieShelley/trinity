@@ -66,44 +66,63 @@ MINIMAL_LEAF_ARGV = {
 }
 
 
-def _subparser_choices(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
-    for action in parser._actions:  # argparse exposes no public subparser iterator
-        if isinstance(action, argparse._SubParsersAction):
-            return dict(action.choices)
-    return {}
+class TestNsamdrCli:
+    # Purpose: Implement subparser choices for TestNsamdrCli.
+    # Called by: _leaf_paths, _registered_paths
+    # Calls: No same-class helper methods.
+    def _subparser_choices(self, parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
+        for action in parser._actions:  # argparse exposes no public subparser iterator
+            if isinstance(action, argparse._SubParsersAction):
+                return dict(action.choices)
+        return {}
 
+    # Purpose: Implement registered paths for TestNsamdrCli.
+    # Called by: External callers and the owning workflow.
+    # Calls: _subparser_choices
+    def _registered_paths(self, parser: argparse.ArgumentParser) -> set[tuple[str, ...]]:
+        result: set[tuple[str, ...]] = set()
 
-def _registered_paths(parser: argparse.ArgumentParser) -> set[tuple[str, ...]]:
-    result: set[tuple[str, ...]] = set()
+        def visit(current: argparse.ArgumentParser, prefix: tuple[str, ...]) -> None:
+            for name, child in self._subparser_choices(current).items():
+                path = (*prefix, name)
+                result.add(path)
+                visit(child, path)
 
-    def visit(current: argparse.ArgumentParser, prefix: tuple[str, ...]) -> None:
-        for name, child in _subparser_choices(current).items():
-            path = (*prefix, name)
-            result.add(path)
-            visit(child, path)
+        visit(parser, ())
+        return result
 
-    visit(parser, ())
-    return result
+    # Purpose: Implement leaf paths for TestNsamdrCli.
+    # Called by: External callers and the owning workflow.
+    # Calls: _subparser_choices
+    def _leaf_paths(self, parser: argparse.ArgumentParser) -> set[tuple[str, ...]]:
+        result: set[tuple[str, ...]] = set()
 
+        def visit(current: argparse.ArgumentParser, prefix: tuple[str, ...]) -> None:
+            children = self._subparser_choices(current)
+            if prefix and not children:
+                result.add(prefix)
+            for name, child in children.items():
+                visit(child, (*prefix, name))
 
-def _leaf_paths(parser: argparse.ArgumentParser) -> set[tuple[str, ...]]:
-    result: set[tuple[str, ...]] = set()
+        visit(parser, ())
+        return result
 
-    def visit(current: argparse.ArgumentParser, prefix: tuple[str, ...]) -> None:
-        children = _subparser_choices(current)
-        if prefix and not children:
-            result.add(prefix)
-        for name, child in children.items():
-            visit(child, (*prefix, name))
-
-    visit(parser, ())
-    return result
+_test_nsamdr_cli = TestNsamdrCli()
+_subparser_choices = _test_nsamdr_cli._subparser_choices
+_registered_paths = _test_nsamdr_cli._registered_paths
+_leaf_paths = _test_nsamdr_cli._leaf_paths
 
 
 class ParserSmokeTests(unittest.TestCase):
+    # Purpose: Implement test public command inventory matches cleaned parser for ParserSmokeTests.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def test_public_command_inventory_matches_cleaned_parser(self) -> None:
         self.assertEqual(PUBLIC_COMMAND_PATHS, _registered_paths(CLI.build_parser()))
 
+    # Purpose: Implement test every leaf parses without launching work for ParserSmokeTests.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def test_every_leaf_parses_without_launching_work(self) -> None:
         parser = CLI.build_parser()
         self.assertEqual(set(MINIMAL_LEAF_ARGV), _leaf_paths(parser))
@@ -112,6 +131,9 @@ class ParserSmokeTests(unittest.TestCase):
                 namespace = parser.parse_args(argv)
                 self.assertTrue(callable(namespace.handler))
 
+    # Purpose: Implement test every public command path prints help for ParserSmokeTests.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def test_every_public_command_path_prints_help(self) -> None:
         parser = CLI.build_parser()
         for path in [(), *sorted(PUBLIC_COMMAND_PATHS)]:
@@ -123,6 +145,9 @@ class ParserSmokeTests(unittest.TestCase):
                 self.assertEqual(0, raised.exception.code)
                 self.assertIn("usage:", output.getvalue().lower())
 
+    # Purpose: Implement test script help works outside repository for ParserSmokeTests.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def test_script_help_works_outside_repository(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             completed = subprocess.run(
@@ -138,6 +163,9 @@ class ParserSmokeTests(unittest.TestCase):
 
 
 class DispatcherRoutingTests(unittest.TestCase):
+    # Purpose: Implement test raven quick is only quick workflow mode for DispatcherRoutingTests.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def test_raven_quick_is_only_quick_workflow_mode(self) -> None:
         with mock.patch.object(CLI, "_command_workflow", return_value=73) as backend:
             result = CLI.main(["raven-quick"])
@@ -145,6 +173,9 @@ class DispatcherRoutingTests(unittest.TestCase):
         backend.assert_called_once()
         self.assertEqual("quick", backend.call_args.args[1])
 
+    # Purpose: Implement test full train is only full workflow mode for DispatcherRoutingTests.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def test_full_train_is_only_full_workflow_mode(self) -> None:
         with mock.patch.object(CLI, "_command_workflow", return_value=74) as backend:
             result = CLI.main(["full-train"])
@@ -152,6 +183,9 @@ class DispatcherRoutingTests(unittest.TestCase):
         backend.assert_called_once()
         self.assertEqual("full", backend.call_args.args[1])
 
+    # Purpose: Implement test preview routes only to qualified experiment previewer for DispatcherRoutingTests.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def test_preview_routes_only_to_qualified_experiment_previewer(self) -> None:
         with mock.patch.object(CLI, "_python_script", return_value=29) as backend:
             result = CLI.main(["preview", "EXP_0042", "--target-size", "2048", "--device", "cpu"])
@@ -170,12 +204,18 @@ class DispatcherRoutingTests(unittest.TestCase):
             ],
         )
 
+    # Purpose: Implement test contract route uses canonical contract script for DispatcherRoutingTests.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def test_contract_route_uses_canonical_contract_script(self) -> None:
         with mock.patch.object(CLI, "_python_script", return_value=19) as backend:
             result = CLI.main(["test", "contract"])
         self.assertEqual(19, result)
         backend.assert_called_once_with("tools/nsamdr/neural/test_nsamdr_v9_contract.py", [])
 
+    # Purpose: Implement test validate layout only does not launch training for DispatcherRoutingTests.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def test_validate_layout_only_does_not_launch_training(self) -> None:
         with mock.patch.object(CLI, "validate_layout", return_value=0) as validate:
             with mock.patch.object(CLI, "_command_test") as tests:
@@ -184,6 +224,9 @@ class DispatcherRoutingTests(unittest.TestCase):
         validate.assert_called_once_with()
         tests.assert_not_called()
 
+    # Purpose: Implement test cleanup rejects unknown options before deleting for DispatcherRoutingTests.
+    # Called by: External callers and the owning workflow.
+    # Calls: No same-class helper methods.
     def test_cleanup_rejects_unknown_options_before_deleting(self) -> None:
         with mock.patch.object(CLI.shutil, "rmtree") as remove_tree:
             result = CLI.main(["cleanup", "--definitely-not-valid"])
