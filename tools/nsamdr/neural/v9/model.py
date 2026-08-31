@@ -14,6 +14,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.utils.checkpoint import checkpoint
 
 from .config import V9Config
 from .redistance import redistance_zero_contour, sdf_gradient_components
@@ -1378,9 +1379,55 @@ class FidelityResidualNetV9(nn.Module):
             "teacherRendererTarget": "training-only GT-SDF forced-gate forced-hardness Panel-2 evidence",
         }
 
+    # Purpose: Detect whether a nested component input carries an autograd dependency.
+    # Called by: _run_training_component
+    # Calls: _contains_grad_tensor
+    @staticmethod
+    def _contains_grad_tensor(value: object) -> bool:
+        if isinstance(value, torch.Tensor):
+            return bool(value.requires_grad)
+        if isinstance(value, dict):
+            return any(FidelityResidualNetV9._contains_grad_tensor(item) for item in value.values())
+        if isinstance(value, (tuple, list)):
+            return any(FidelityResidualNetV9._contains_grad_tensor(item) for item in value)
+        return False
+
+    # Purpose: Execute one production component with activation recomputation during training.
+    # Called by: _forward_impl, _training_render_sdf_teacher
+    # Calls: _contains_grad_tensor
+    def _run_training_component(
+        self,
+        module: nn.Module,
+        *args: object,
+        **kwargs: object,
+    ):
+        checkpoint_enabled = bool(
+            getattr(self.config, "training_activation_checkpointing", True)
+        )
+        if not checkpoint_enabled or not self.training or not torch.is_grad_enabled():
+            return module(*args, **kwargs)
+
+        parameter_grad = any(parameter.requires_grad for parameter in module.parameters())
+        input_grad = any(self._contains_grad_tensor(value) for value in args) or any(
+            self._contains_grad_tensor(value) for value in kwargs.values()
+        )
+        if not parameter_grad and not input_grad:
+            return module(*args, **kwargs)
+
+        # Non-reentrant checkpointing preserves the exact forward topology and
+        # output structure while discarding internal saved activations until
+        # backward recomputes them. Parameters/state_dict are unchanged.
+        return checkpoint(
+            module,
+            *args,
+            use_reentrant=False,
+            preserve_rng_state=True,
+            **kwargs,
+        )
+
     # Purpose: Implement training render sdf teacher for FidelityResidualNetV9.
     # Called by: External callers and the owning workflow.
-    # Calls: Same-class helpers where required.
+    # Calls: _run_training_component and same-class helpers where required.
     def _training_render_sdf_teacher(
         self,
         inputs: torch.Tensor,
@@ -1400,21 +1447,24 @@ class FidelityResidualNetV9(nn.Module):
             sdf_override = F.interpolate(sdf_override, size=baseline_albedo.shape[-2:], mode="bilinear", align_corners=False)
         zeros = torch.zeros_like(sdf_override)
         ones = torch.ones_like(sdf_override)
-        teacher_albedo, boundary = self.boundary_renderer(
+        teacher_albedo, boundary = self._run_training_component(
+            self.boundary_renderer,
             baseline_albedo, sdf_override, zeros, zeros, zeros, ones,
             enabled=True, plateau_evidence=evidence_albedo,
             source_value_lr=source_albedo, forced_gate=gate_override,
             forced_hardness=hardness_override, metricize_sdf=False,
         )
         metric_pixels = boundary["sdf_pixels_metric"]
-        teacher_normal, _ = self.boundary_renderer(
+        teacher_normal, _ = self._run_training_component(
+            self.boundary_renderer,
             baseline_normal, sdf_override, zeros, zeros, zeros, ones,
             enabled=True, plateau_evidence=baseline_normal,
             source_value_lr=source_normal, forced_gate=gate_override,
             forced_hardness=hardness_override, metricize_sdf=False,
             precomputed_metric_sdf_pixels=metric_pixels,
         )
-        teacher_material, _ = self.boundary_renderer(
+        teacher_material, _ = self._run_training_component(
+            self.boundary_renderer,
             baseline_material, sdf_override, zeros, zeros, zeros, ones,
             enabled=True, plateau_evidence=baseline_material,
             source_value_lr=source_material, forced_gate=gate_override,
@@ -1563,7 +1613,7 @@ class FidelityResidualNetV9(nn.Module):
         baseline_normal = self._normalize_xy(F.interpolate(source_normal, scale_factor=UPSCALE_FACTOR, mode="bilinear", align_corners=False))
         baseline_material = F.interpolate(source_material, scale_factor=UPSCALE_FACTOR, mode="nearest")
 
-        geometry = self.geometry_net(inputs)
+        geometry = self._run_training_component(self.geometry_net, inputs)
         hardness = torch.sigmoid(geometry["hardness_logits"].float())
         if hardness_override is not None:
             hardness = hardness_override.to(device=inputs.device, dtype=torch.float32, non_blocking=True).clamp(0.0, 1.0)
@@ -1590,7 +1640,8 @@ class FidelityResidualNetV9(nn.Module):
         # First build the ungated physical candidate and expose its solved side
         # plateaus. V10 applies specialist coverage and selector authority only
         # after this deterministic reconstruction exists.
-        _initial_albedo, boundary = self.boundary_renderer(
+        _initial_albedo, boundary = self._run_training_component(
+            self.boundary_renderer,
             baseline_albedo, render_sdf, geometry["edge_logits"], geometry["hardness_logits"],
             geometry["boundary_gate_logits"], observed_support_hr,
             enabled=True, plateau_evidence=plateau_evidence_albedo,
@@ -1620,7 +1671,8 @@ class FidelityResidualNetV9(nn.Module):
             boundary["boundary_normal"], initial_coverage, boundary["plateau_confidence"],
             observed_support_hr, edge_probability,
         )
-        specialist = self.boundary_specialist(
+        specialist = self._run_training_component(
+            self.boundary_specialist,
             specialist_features, initial_coverage, band_weight
         )
         refined_coverage = specialist["coverage"].float()
@@ -1631,7 +1683,8 @@ class FidelityResidualNetV9(nn.Module):
 
         # Solve normal/material plateaus once, then reuse the exact same refined
         # coverage so all physical maps share one geometry.
-        _normal_initial, normal_boundary = self.boundary_renderer(
+        _normal_initial, normal_boundary = self._run_training_component(
+            self.boundary_renderer,
             baseline_normal, render_sdf, geometry["edge_logits"], geometry["hardness_logits"],
             geometry["boundary_gate_logits"], observed_support_hr,
             enabled=True, plateau_evidence=baseline_normal, source_value_lr=source_normal,
@@ -1642,7 +1695,8 @@ class FidelityResidualNetV9(nn.Module):
             normal_boundary["negative_side"].float() * refined_coverage
             + normal_boundary["positive_side"].float() * (1.0 - refined_coverage)
         ).to(baseline_normal.dtype))
-        _material_initial, material_boundary = self.boundary_renderer(
+        _material_initial, material_boundary = self._run_training_component(
+            self.boundary_renderer,
             baseline_material, render_sdf, geometry["edge_logits"], geometry["hardness_logits"],
             geometry["boundary_gate_logits"], observed_support_hr,
             enabled=True, plateau_evidence=baseline_material, source_value_lr=source_material,
@@ -1687,7 +1741,8 @@ class FidelityResidualNetV9(nn.Module):
         # cannot move the parametric contour; Stage-B still has to pass SDF topology,
         # jitter and roughness gates independently.
         profile_confidence = specialist["confidence"].float()
-        seam = self.seam_restorer(
+        seam = self._run_training_component(
+            self.seam_restorer,
             boundary_albedo, boundary_normal_out, boundary_material,
             sdf_pixels=metric_pixels, coverage=refined_coverage,
             profile_confidence=profile_confidence, edge_probability=edge_probability,
@@ -1714,7 +1769,8 @@ class FidelityResidualNetV9(nn.Module):
             hardness.float(),
             profile_confidence,
         ), dim=1).detach()
-        detail = self.detail_net(
+        detail = self._run_training_component(
+            self.detail_net,
             inputs,
             boundary_albedo.detach(),
             boundary_normal_out.detach(),
@@ -1744,7 +1800,9 @@ class FidelityResidualNetV9(nn.Module):
             refined_coverage, profile_confidence, observed_support_hr, edge_probability,
             detail_confidence, detail_regret,
         )
-        selector_logits = self.benefit_selector(selector_features)
+        selector_logits = self._run_training_component(
+            self.benefit_selector, selector_features
+        )
         selector_probability = torch.sigmoid(selector_logits.float())
         # Selector, confidence and regret always jointly own final authority.
         confidence_support = ((detail_confidence - 0.50) / 0.35).clamp(0.0, 1.0)

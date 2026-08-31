@@ -569,8 +569,9 @@ class V9Config:
     reactive_vram_release_cache: bool = True
 
     # Strict coexistence envelope. Training only enters a batch when the
-    # predicted V9 transient requirement plus this foreground-application
-    # reserve fits in physical VRAM. The reserve is intentionally large.
+    # predicted transient requirement plus this foreground-application reserve
+    # fits in physical VRAM. Actual NSAMDR residency is controlled separately by
+    # activation checkpointing/offload and the execution-memory target below.
     reactive_vram_burst_reserve_fraction: float = 0.15
     reactive_vram_stability_samples: int = 3
     reactive_vram_stability_interval_seconds: float = 0.20
@@ -579,6 +580,13 @@ class V9Config:
     # can trigger false OOM while device-wide VRAM is still available.
     reactive_vram_dynamic_allocator_ceiling: bool = False
     reactive_vram_start_in_offload: bool = True
+    # Keep the low-memory execution path stable by default. High-VRAM users can
+    # explicitly opt back into GPU-resident saved activations.
+    reactive_vram_allow_gpu_promotion: bool = False
+    # Runtime-only memory controls. They alter activation residency/recomputation,
+    # never model parameters, topology, losses or checkpoint compatibility.
+    training_activation_checkpointing: bool = True
+    training_vram_budget_gib: float = 8.0
 
     # Host-memory safety for CPU-saved autograd activations. The old 20/25%
     # free-RAM guard deadlocked on Windows because the process working set may
@@ -948,6 +956,9 @@ class V9Config:
                 "reactiveVramStabilityIntervalSeconds": "reactive_vram_stability_interval_seconds",
                 "reactiveVramDynamicAllocatorCeiling": "reactive_vram_dynamic_allocator_ceiling",
                 "reactiveVramStartInOffload": "reactive_vram_start_in_offload",
+                "reactiveVramAllowGpuPromotion": "reactive_vram_allow_gpu_promotion",
+                "trainingActivationCheckpointing": "training_activation_checkpointing",
+                "trainingVramBudgetGiB": "training_vram_budget_gib",
                 "reactiveHostPauseFreeFraction": "reactive_host_pause_free_fraction",
                 "reactiveHostResumeFreeFraction": "reactive_host_resume_free_fraction",
                 "lodBiasMin": "lod_bias_min", "lodBiasMax": "lod_bias_max",
@@ -1365,6 +1376,15 @@ class V9Config:
         )
         self.reactive_vram_start_in_offload = bool(
             self.reactive_vram_start_in_offload
+        )
+        self.reactive_vram_allow_gpu_promotion = bool(
+            self.reactive_vram_allow_gpu_promotion
+        )
+        self.training_activation_checkpointing = bool(
+            self.training_activation_checkpointing
+        )
+        self.training_vram_budget_gib = float(
+            min(max(self.training_vram_budget_gib, 4.0), 64.0)
         )
         self.reactive_host_pause_free_fraction = float(
             min(max(self.reactive_host_pause_free_fraction, 0.03), 0.50)

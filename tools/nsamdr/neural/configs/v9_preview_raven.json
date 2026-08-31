@@ -266,5 +266,8 @@
   "strokeCenterlineCenterWeight": 12.0,
   "strokeCenterlineWidthWeight": 6.0,
   "strokeCenterlineTangentWeight": 0.75,
-  "strokeCenterlineRenderWeight": 2.5
+  "strokeCenterlineRenderWeight": 2.5,
+  "reactiveVramAllowGpuPromotion": false,
+  "trainingActivationCheckpointing": true,
+  "trainingVramBudgetGiB": 8.0
 }

@@ -2751,6 +2751,11 @@ class TrainingService:
             if memory_governor.enabled:
                 self._status("CUDA memory policy      : elastic/reactive sharing")
                 self._status(
+                    f"Training VRAM target     : <= {config.training_vram_budget_gib:.2f} GiB; "
+                    f"activation checkpointing={config.training_activation_checkpointing}; "
+                    f"GPU promotion={config.reactive_vram_allow_gpu_promotion}"
+                )
+                self._status(
                     f"VRAM target / pause      : "
                     f"{config.reactive_vram_target_free_fraction * 100.0:.0f}% / "
                     f"{config.reactive_vram_pause_free_fraction * 100.0:.0f}% free"
@@ -3041,6 +3046,12 @@ class TrainingService:
                                     ):
                                         losses = compute_losses(outputs, batch, config, phase)
 
+                                # The scalar objective graph now owns every tensor
+                                # needed by backward. Drop the large production-output
+                                # dictionary immediately so unused 4x telemetry and
+                                # candidate tensors do not remain resident on CUDA.
+                                outputs = None
+
                                 if not self._finite_tensor(losses["total"]):
                                     self._abort_nonfinite(
                                         output_dir,
@@ -3153,6 +3164,9 @@ class TrainingService:
                                 scaler.step(optimizer)
 
                             scaler.update()
+                            # Gradient evidence has already been captured. Release
+                            # parameter-gradient storage before the next VRAM gate.
+                            optimizer.zero_grad(set_to_none=True)
                             step_completed = True
                             break
 
@@ -3191,6 +3205,12 @@ class TrainingService:
                         "V9 training step completed without a loss payload"
                     )
 
+                # Copy detached scalar telemetry, then release the loss dictionary
+                # before post-step memory accounting. Backward has completed and no
+                # training semantics depend on retaining its graph between batches.
+                totals.add(losses)
+                losses = None
+
                 step_peak_bytes, step_free_bytes = memory_governor.after_step(
                     memory_mode,
                     allocated_before,
@@ -3215,7 +3235,6 @@ class TrainingService:
                             output_dir, epoch=epoch, phase=phase, batch_index=batch_index,
                             stage="parameters", details={"badParameters": self._bad_parameter_names(model)},
                             model=model, batch=batch)
-                totals.add(losses)
                 if (
                     batch_index == 1
                     or batch_index % max(1, epoch_batch_count // 8) == 0
@@ -4436,6 +4455,9 @@ _RUNTIME_ONLY_CONFIG_FIELDS = {
     "reactive_vram_stability_interval_seconds",
     "reactive_vram_dynamic_allocator_ceiling",
     "reactive_vram_start_in_offload",
+    "reactive_vram_allow_gpu_promotion",
+    "training_activation_checkpointing",
+    "training_vram_budget_gib",
     "reactive_host_pause_free_fraction",
     "reactive_host_resume_free_fraction",
     "channels_last",
@@ -4664,6 +4686,10 @@ class _ReactiveCudaMemoryGovernor:
         # optimizer step completes successfully. This prevents the safety gate
         # from immediately promoting the failed retry back to GPU mode.
         self.force_offload_retry = False
+        self.allow_gpu_promotion = bool(
+            getattr(config, "reactive_vram_allow_gpu_promotion", False)
+        )
+        self.process_budget_bytes = 0
 
         # Conservative initial estimate of how much additional transient VRAM a
         # normal GPU-resident step may need beyond its idle allocations. The
@@ -4673,6 +4699,10 @@ class _ReactiveCudaMemoryGovernor:
 
         if self.enabled:
             self.total_bytes = int(torch.cuda.get_device_properties(device).total_memory)
+            requested_budget = int(
+                float(getattr(config, "training_vram_budget_gib", 8.0)) * (1024 ** 3)
+            )
+            self.process_budget_bytes = min(self.total_bytes, requested_budget)
             self.target_free_bytes = int(
                 self.total_bytes * float(config.reactive_vram_target_free_fraction)
             )
@@ -4776,7 +4806,16 @@ class _ReactiveCudaMemoryGovernor:
         """
         persistent_live = self._our_allocated_bytes()
         maximum_possible_free = max(0, self.total_bytes - persistent_live)
-        return int(required_free_bytes) <= int(maximum_possible_free)
+        predicted_process_peak = persistent_live + self.estimated_gpu_step_extra
+        budget_safe = (
+            self.process_budget_bytes <= 0
+            or predicted_process_peak <= self.process_budget_bytes
+        )
+        return (
+            bool(self.allow_gpu_promotion)
+            and budget_safe
+            and int(required_free_bytes) <= int(maximum_possible_free)
+        )
 
     # Purpose: Implement stable resource snapshot for _ReactiveCudaMemoryGovernor.
     # Called by: before_step
@@ -4906,7 +4945,9 @@ class _ReactiveCudaMemoryGovernor:
             free_bytes = self._free_bytes()
 
             enough_for_gpu = (
-                full_required is not None and free_bytes >= full_required
+                self.allow_gpu_promotion
+                and full_required is not None
+                and free_bytes >= full_required
             )
             enough_for_offload = (
                 free_bytes >= self.resume_free_bytes
@@ -4917,7 +4958,11 @@ class _ReactiveCudaMemoryGovernor:
 
         self.stable_recovery_steps = 0
         self._last_reported_mode = ""
-        if full_required is not None and free_bytes >= full_required:
+        if (
+            self.allow_gpu_promotion
+            and full_required is not None
+            and free_bytes >= full_required
+        ):
             self.mode = "gpu"
             self._set_mode(
                 "gpu",
@@ -5132,6 +5177,15 @@ class _ReactiveCudaMemoryGovernor:
         if mode == "offload":
             self.offload_has_succeeded = True
 
+        if self.process_budget_bytes > 0 and peak > self.process_budget_bytes:
+            _status(
+                f"  [VRAM] observed process peak {self._gib(peak):.2f} GiB exceeds "
+                f"the {self._gib(self.process_budget_bytes):.2f} GiB execution target; "
+                "activation-offload remains pinned and GPU promotion stays disabled"
+            )
+            self.mode = "offload"
+            self.stable_recovery_steps = 0
+
         if self.force_offload_retry and mode == "offload":
             # The exact failed batch has now completed in the low-memory mode.
             # Remain in offload mode; normal hysteresis may restore GPU mode only
@@ -5220,9 +5274,15 @@ class _ReactiveCudaMemoryGovernor:
             return "fixed"
         free_bytes = self._free_bytes()
         retry = " retry=offload" if self.force_offload_retry else ""
+        budget = (
+            f" budget={self._gib(self.process_budget_bytes):.2f}GiB"
+            if self.process_budget_bytes > 0
+            else ""
+        )
         return (
             f"{self.mode} free={self._gib(free_bytes):.2f}GiB"
-            f" reserve={self._gib(self.burst_reserve_bytes):.2f}GiB{retry}"
+            f" reserve={self._gib(self.burst_reserve_bytes):.2f}GiB"
+            f"{budget}{retry}"
         )
 
 
