@@ -75,6 +75,7 @@ class EvolutionaryRecoveryController:
             "[evolution] "
             f"g={result.generation} c={result.index} fitness={result.fitness:+.4f} "
             f"gain={result.relative_gain:+.2%} signReg={result.sign_regression:+.3f} "
+            f"topoReg={result.topology_regression_fraction:.1%} "
             f"learn={result.train_loss_before:.4f}->{result.train_loss_after:.4f} "
             f"{'PASS' if result.passed_microproof else 'reject'}",
             flush=True,
@@ -101,10 +102,16 @@ class EvolutionaryRecoveryController:
         if passed_results:
             winner_result = max(passed_results, key=lambda item: item.fitness)
             passed = True
-            reason = "at least one production-supernet candidate passed the real-Raven capacity microproof"
+            reason = (
+                "at least one production-supernet candidate passed the real-Raven "
+                "capacity proof and permanent 29-case topology audit"
+            )
         else:
             passed = False
-            reason = "no bounded genome passed the real-Raven capacity microproof"
+            reason = (
+                "no bounded genome passed both the real-Raven capacity proof and "
+                "permanent 29-case topology audit"
+            )
         return EvolutionResult(
             parent=parent,
             winner=winner_result.genome.bounded(),

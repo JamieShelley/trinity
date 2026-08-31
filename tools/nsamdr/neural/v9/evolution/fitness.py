@@ -82,6 +82,7 @@ class StructuralFitness:
         *,
         train_loss_before: float,
         train_loss_after: float,
+        topology_regression_fraction: float,
     ) -> dict[str, float | bool]:
         """Measure hard checks and scalar fitness for a trained candidate.
 
@@ -130,6 +131,7 @@ class StructuralFitness:
             sign_regression,
             grad_mae,
             correction_rms,
+            topology_regression_fraction,
         ))
         learning_gain = (
             (train_loss_before - train_loss_after) / max(abs(train_loss_before), 1.0e-6)
@@ -140,6 +142,7 @@ class StructuralFitness:
             - 2.5 * max(sign_regression, 0.0)
             - 0.12 * grad_mae
             - 0.015 * correction_rms
+            - 8.0 * max(topology_regression_fraction, 0.0)
         )
 
         # The microproof is a capacity check, not a tiny-training-speed benchmark.
@@ -152,6 +155,7 @@ class StructuralFitness:
             and learning_gain > 0.0
             and gain > 0.0
             and sign_regression <= 0.025
+            and topology_regression_fraction <= 0.0
         )
         return {
             "finite": finite,
@@ -161,6 +165,7 @@ class StructuralFitness:
             "sign_regression": sign_regression,
             "gradient_mae": grad_mae,
             "correction_rms": correction_rms,
+            "topology_regression_fraction": float(topology_regression_fraction),
             "fitness": fitness,
             "passed": passed,
         }

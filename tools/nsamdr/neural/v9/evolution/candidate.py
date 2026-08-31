@@ -122,6 +122,54 @@ class CandidateEvaluator:
             after = float(loss.detach().item())
         return before, after
 
+    def _measure_permanent_topology(
+        self,
+        model: Any,
+        max_distance: float,
+    ) -> float:
+        """Measure regression on the same permanent topology proof used by B1/B2.
+
+        Purpose:
+            Reject genomes that improve one Raven crop while damaging connected-component
+            or hole topology on the permanent production structural proof family.
+        Called by:
+            CandidateEvaluator._measure_candidate().
+        Calls:
+            SyntheticGeometryValidationDataset(), batch_to_device(),
+            sdf_topology_mismatch(), model.geometry_net().
+        """
+        from ..dataset import SyntheticGeometryValidationDataset
+        from ..geometry_metrics import sdf_topology_mismatch
+
+        proof_count = max(29, int(getattr(self.config, "sdf_synthetic_validation_tiles", 29)))
+        proof_seed = int(getattr(self.config, "seed", self.seed)) + 9_911
+        dataset = SyntheticGeometryValidationDataset(
+            self.config, proof_count, seed=proof_seed
+        )
+        device = next(model.parameters()).device
+        regressions = 0
+        model.eval()
+        with torch.inference_mode():
+            for case_index in range(proof_count):
+                batch = batch_to_device(dict(dataset[case_index]), device)
+                geometry = model.geometry_net(batch["input"])
+                predicted = (
+                    geometry["primitive_phi_pixels"][0, 0]
+                    .detach().float().cpu().numpy()
+                )
+                source = (
+                    geometry["source_sdf_prior_pixels"][0, 0]
+                    .detach().float().cpu().numpy()
+                )
+                target = (
+                    batch["target_sdf"][0, 0].detach().float().cpu().numpy()
+                    * float(max_distance)
+                )
+                source_topology = float(sdf_topology_mismatch(source, target))
+                predicted_topology = float(sdf_topology_mismatch(predicted, target))
+                regressions += int(predicted_topology > source_topology)
+        return float(regressions) / float(max(proof_count, 1))
+
     def _measure_candidate(
         self,
         model: Any,
@@ -138,9 +186,10 @@ class CandidateEvaluator:
         Called by:
             CandidateEvaluator.evaluate().
         Calls:
-            StructuralFitness.measure().
+            CandidateEvaluator._measure_permanent_topology(), StructuralFitness.measure().
         """
         model.eval()
+        topology_regression_fraction = self._measure_permanent_topology(model, max_distance)
         with torch.inference_mode():
             geometry = model.geometry_net(validation_batch["input"])
             predicted = geometry["primitive_phi_pixels"].float()
@@ -152,6 +201,7 @@ class CandidateEvaluator:
                 source,
                 train_loss_before=train_loss_before,
                 train_loss_after=train_loss_after,
+                topology_regression_fraction=topology_regression_fraction,
             )
 
     def _error_result(
@@ -188,6 +238,7 @@ class CandidateEvaluator:
             gradient_mae=math.inf,
             correction_rms=math.inf,
             fitness=-math.inf,
+            topology_regression_fraction=math.inf,
             elapsed_seconds=time.perf_counter() - started,
             passed_microproof=False,
             error=f"{type(error).__name__}: {error}",
@@ -258,6 +309,7 @@ class CandidateEvaluator:
             gradient_mae=float(evidence["gradient_mae"]),
             correction_rms=float(evidence["correction_rms"]),
             fitness=float(evidence["fitness"]),
+            topology_regression_fraction=float(evidence["topology_regression_fraction"]),
             elapsed_seconds=time.perf_counter() - started,
             passed_microproof=bool(evidence["passed"]),
         )

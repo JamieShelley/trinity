@@ -165,3 +165,26 @@ class TestPassDrivenPipelineContract:
         assert 'if not topology_bootstrapped:' in block
         assert block.index('if not topology_bootstrapped:') < block.index('best_b1a_path')
         assert 'topology checkpoint locked for sdf-proof' in block
+
+    def test_evolution_requires_permanent_topology_audit(self) -> None:
+        """Prevent one-crop evolutionary fitness from bypassing production topology.
+
+        Purpose:
+            Require candidate acceptance to use the permanent 29-case proof family and
+            the same connected-component/hole topology mismatch used by B1/B2.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource().
+        """
+        from v9.evolution.candidate import CandidateEvaluator
+        from v9.evolution.fitness import StructuralFitness
+
+        topology_source = inspect.getsource(CandidateEvaluator._measure_permanent_topology)
+        fitness_source = inspect.getsource(StructuralFitness.measure)
+        assert 'SyntheticGeometryValidationDataset' in topology_source
+        assert 'max(29' in topology_source
+        assert '+ 9_911' in topology_source
+        assert 'sdf_topology_mismatch' in topology_source
+        assert 'predicted_topology > source_topology' in topology_source
+        assert 'topology_regression_fraction <= 0.0' in fitness_source

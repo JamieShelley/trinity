@@ -149,6 +149,7 @@ class CandidateResult:
     fitness: float
     elapsed_seconds: float
     passed_microproof: bool
+    topology_regression_fraction: float = 0.0
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
