@@ -2925,6 +2925,13 @@ class TrainingService:
                 else:
                     self._status("  WARNING: no explicit best detail checkpoint found before selector training.")
             model.set_phase(phase)
+            local_structure_phase = bool(
+                phase == "sdf-proof"
+                and hasattr(model.geometry_net, "production_structure")
+            )
+            if local_structure_phase:
+                b1b_classifier_qualified = True
+                b1b_parameters_qualified = True
             b1b_substage = (
                 self._parametric_b1b_substage(b1b_classifier_qualified, b1b_parameters_qualified)
                 if phase == "sdf-proof" else None
@@ -2973,11 +2980,17 @@ class TrainingService:
                 torch.cuda.reset_peak_memory_stats(device)
             self._status(f"Epoch {epoch:03d}/{config.total_epochs:03d} phase={phase} lr={learning_rate:.7f}")
             if phase == "sdf-proof":
-                self._status(
-                    "  B1b learned production primitive proof: "
-                    f"substage={b1b_substage} stageEpoch={b1b_stage_epoch}; "
-                    "classifier, regressor and analytic render loss have authority"
-                )
+                if local_structure_phase:
+                    self._status(
+                        "  B1 local-boundary production proof: full production "
+                        "geometry + same-renderer losses have authority"
+                    )
+                else:
+                    self._status(
+                        "  B1b learned production primitive proof: "
+                        f"substage={b1b_substage} stageEpoch={b1b_stage_epoch}; "
+                        "classifier, regressor and analytic render loss have authority"
+                    )
             self._status(
                 f"  Starting DataLoader: {workers} worker(s), "
                 f"{epoch_batch_count} training batch(es). Waiting for first batch..."
@@ -3029,15 +3042,12 @@ class TrainingService:
                                     dtype=amp_dtype,
                                     enabled=use_amp,
                                 ):
-                                    if phase == "sdf-proof":
-                                        # B1b is an isolated compact supervised problem.
-                                        # The expensive full-model/BoundaryRenderer graph is
-                                        # reserved for held-out B2 validation after the epoch.
+                                    if phase == "sdf-proof" and not local_structure_phase:
                                         outputs = None
-                                        losses = self._parametric_b1b_train_losses(model, batch, config, substage=str(b1b_substage))
+                                        losses = self._parametric_b1b_train_losses(
+                                            model, batch, config, substage=str(b1b_substage)
+                                        )
                                     else:
-                                        # Training and validation consume the same learned
-                                        # production geometry used by inference.
                                         outputs = self._forward_for_phase(model, batch, phase, config)
                                 if losses is None:
                                     with torch.autocast(
@@ -3817,13 +3827,21 @@ class TrainingService:
                             )
 
                     elif b1b_substage == "integration":
-                        b1b_classifier_qualified = primitive_class_accuracy >= class_required
-                        b1b_parameters_qualified = primitive_teacher_param_mae <= param_required
-                        self._status(
-                            "  B1b canonical integration prerequisites: "
-                            f"classifier={'PASS' if b1b_classifier_qualified else 'HOLD'} "
-                            f"parameters={'PASS' if b1b_parameters_qualified else 'HOLD'}"
-                        )
+                        if local_structure_phase:
+                            b1b_classifier_qualified = True
+                            b1b_parameters_qualified = True
+                            self._status(
+                                "  B1 local-boundary prerequisites: retired whole-tile "
+                                "classifier/parameter gates bypassed"
+                            )
+                        else:
+                            b1b_classifier_qualified = primitive_class_accuracy >= class_required
+                            b1b_parameters_qualified = primitive_teacher_param_mae <= param_required
+                            self._status(
+                                "  B1b canonical integration prerequisites: "
+                                f"classifier={'PASS' if b1b_classifier_qualified else 'HOLD'} "
+                                f"parameters={'PASS' if b1b_parameters_qualified else 'HOLD'}"
+                            )
 
                     # Integrated geometry is evaluated every epoch, but it may only
                     # qualify after both independent prerequisites have passed.
@@ -3836,7 +3854,11 @@ class TrainingService:
                             "schema": MODEL_SCHEMA, "config": config.to_dict(), "phase": "sdf-proof",
                             "epoch": epoch, "validation_total": structure_score,
                             "selection_rank": list(structure_rank),
-                            "selection_kind": "v1079-b1b-integrated-parametric-primitive",
+                            "selection_kind": (
+                                "v114-b1-local-boundary"
+                                if local_structure_phase
+                                else "v1079-b1b-integrated-parametric-primitive"
+                            ),
                             "b1b_substage": b1b_substage,
                             "hard_structure_gate": bool(hard_structure_gate),
                             "synthetic_sdf_validation": synthetic_sdf_metrics,

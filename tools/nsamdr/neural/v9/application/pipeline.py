@@ -170,10 +170,13 @@ class PassDrivenPipeline:
 
         current_resume = bool(resume_now)
         while True:
+            trainer_stop_phase = (
+                "sdf-proof" if definition.phase == "sdf-bootstrap" else definition.phase
+            )
             latest = self._invoke(
                 context,
                 resume=current_resume,
-                stop_after_phase=definition.phase,
+                stop_after_phase=trainer_stop_phase,
             )
             current_resume = True
 

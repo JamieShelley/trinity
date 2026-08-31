@@ -14,7 +14,7 @@ if str(NEURAL) not in sys.path:
 
 class TestPassDrivenPipelineContract:
     def test_stage_order_is_local_then_full_production_downstream(self) -> None:
-        """Verify explicit StagePlan order and absence of retired sdf-proof execution.
+        """Verify explicit StagePlan order while B1/B2 executes through sdf-proof.
 
         Purpose:
             Preserve the current local-boundary curriculum across OOP decomposition.
@@ -54,7 +54,8 @@ class TestPassDrivenPipelineContract:
         final = inspect.getsource(PassDrivenPipeline._run_final)
         invoke = inspect.getsource(PassDrivenPipeline._invoke)
         assert "self._invoke" in stage
-        assert "stop_after_phase=definition.phase" in stage
+        assert '"sdf-proof" if definition.phase == "sdf-bootstrap"' in stage
+        assert "stop_after_phase=trainer_stop_phase" in stage
         assert "self._invoke" in final
         assert "stop_after_phase=None" in final
         assert "self.backend.run" in invoke
@@ -109,3 +110,22 @@ class TestPassDrivenPipelineContract:
         callback = training._training_service._explicit_primitive_structure_microproof
         assert "<locals>" not in callback.__qualname__
         pickle.dumps(training._data_worker_init)
+
+    def test_v114_sdf_proof_uses_live_local_production_graph(self) -> None:
+        """Prevent the retired B1b loss from replacing V11.4 gradients.
+
+        Purpose:
+            Keep sdf-proof on the current production_structure while retaining the
+            legacy compact loss only for schemas without that structure.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource().
+        """
+        from v9.training import TrainingService
+
+        source = inspect.getsource(TrainingService.train_v9)
+        assert 'hasattr(model.geometry_net, "production_structure")' in source
+        assert 'phase == "sdf-proof" and not local_structure_phase' in source
+        assert 'b1b_classifier_qualified = True' in source
+        assert 'b1b_parameters_qualified = True' in source
