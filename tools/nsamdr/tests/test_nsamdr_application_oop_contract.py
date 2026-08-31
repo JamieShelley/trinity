@@ -152,5 +152,23 @@ class TestNsamdrApplicationOopContract:
                 if isinstance(node, ast.ClassDef):
                     assert node.bases == [], (path, node.name)
 
+    def test_terminal_lifecycle_recovers_missing_experiment_manifest(self) -> None:
+        """Do not let rejection/failure handling mask the original run outcome.
+
+        Purpose:
+            Require terminal lifecycle writes to reconstruct a minimal valid manifest
+            if experiment.json is unexpectedly absent after training/recovery.
+        Called by:
+            pytest.
+        Calls:
+            Path.read_text().
+        """
+        source = (APPLICATION / "experiment.py").read_text(encoding="utf-8")
+        assert "def _terminal_manifest(" in source
+        assert '"manifestRecovered": True' in source
+        assert 'failed = self._terminal_manifest(context)' in source
+        assert 'manifest = self._terminal_manifest(context)' in source
+
+
 _test_nsamdr_application_oop_contract = TestNsamdrApplicationOopContract()
 _implementation_files = _test_nsamdr_application_oop_contract._implementation_files

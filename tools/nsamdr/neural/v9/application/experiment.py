@@ -12,6 +12,7 @@ from ..config import V9Config
 from ..experiments import (
     DEFAULT_TUNING_ASSET_NAME,
     DEFAULT_TUNING_ASSET_QUERY,
+    EXPERIMENT_SCHEMA,
     experiment_dir,
     finalise_experiment,
     initialise_experiment,
@@ -82,6 +83,50 @@ class ExperimentService:
         """
         path = Path(config.dataset_manifest)
         return path if path.is_absolute() else self.repo_root / path
+
+    def _terminal_manifest(
+        self,
+        context: ExperimentContext,
+    ) -> dict[str, Any]:
+        """Load terminal lifecycle state without masking the original outcome.
+
+        Purpose:
+            Preserve rejection/failure reporting if ``experiment.json`` has been
+            lost during a long multi-attempt run; terminal handling must still
+            produce a valid manifest instead of throwing a second exception.
+        Called by:
+            ExperimentService.mark_failed(), ExperimentService.reject().
+        Calls:
+            load_experiment_manifest(), json.loads().
+        """
+        try:
+            return load_experiment_manifest(self.repo_root, context.experiment_id)
+        except RuntimeError as error:
+            manifest_path = context.directory / "experiment.json"
+            if manifest_path.is_file() or "experiment manifest is missing" not in str(error):
+                raise
+
+        requested_path = context.directory / "config.json"
+        requested: dict[str, Any] = {}
+        if requested_path.is_file():
+            try:
+                value = json.loads(requested_path.read_text(encoding="utf-8"))
+                if isinstance(value, dict):
+                    requested = value
+            except (OSError, json.JSONDecodeError):
+                requested = {}
+        requested.update(
+            {
+                "schema": EXPERIMENT_SCHEMA,
+                "experiment": context.experiment_id,
+                "trainingMode": self.options.training_mode,
+                "modelScope": "production",
+                "fullProduction": True,
+                "manifestRecovered": True,
+                "manifestRecoveryReason": "missing experiment.json during terminal lifecycle update",
+            }
+        )
+        return requested
 
     def _allocate_new(
         self,
@@ -297,7 +342,7 @@ class ExperimentService:
             encoding="utf-8",
         )
 
-        failed = load_experiment_manifest(self.repo_root, context.experiment_id)
+        failed = self._terminal_manifest(context)
         failed.update(
             {
                 "status": "interrupted-or-failed",
@@ -326,7 +371,7 @@ class ExperimentService:
         Calls:
             load_experiment_manifest(), write_experiment_manifest(), ResultWriter.write().
         """
-        manifest = load_experiment_manifest(self.repo_root, context.experiment_id)
+        manifest = self._terminal_manifest(context)
         manifest.update(
             {
                 "status": "training-rejected",
