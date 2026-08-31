@@ -3768,15 +3768,22 @@ class TrainingService:
                         predicted_missing <= source_missing + float(config.sdf_missing_contour_tolerance)
                         and topology_regression == 0.0
                     )
-                    self._atomic_torch_save({
-                        "schema": MODEL_SCHEMA, "config": config.to_dict(), "phase": "sdf-bootstrap",
-                        "epoch": epoch, "metrics": synthetic_sdf_metrics,
-                        "qualified": bool(topology_ok),
-                        "state_dict": {key: value.detach().cpu() for key, value in model.state_dict().items()},
-                    }, best_b1a_path)
-                    if topology_ok and not topology_bootstrapped:
-                        topology_bootstrapped = True
-                        self._status(f"  B1a TOPOLOGY BOOTSTRAP PASSED at epoch {epoch:03d}; topology freezes now.")
+                    # Once topology qualifies, preserve that exact checkpoint. Later
+                    # bootstrap epochs may explore, but they must not overwrite the
+                    # topology-safe state that sdf-proof restores.
+                    if not topology_bootstrapped:
+                        self._atomic_torch_save({
+                            "schema": MODEL_SCHEMA, "config": config.to_dict(), "phase": "sdf-bootstrap",
+                            "epoch": epoch, "metrics": synthetic_sdf_metrics,
+                            "qualified": bool(topology_ok),
+                            "state_dict": {key: value.detach().cpu() for key, value in model.state_dict().items()},
+                        }, best_b1a_path)
+                        if topology_ok:
+                            topology_bootstrapped = True
+                            self._status(
+                                f"  B1a TOPOLOGY BOOTSTRAP PASSED at epoch {epoch:03d}; "
+                                "topology checkpoint locked for sdf-proof."
+                            )
                 elif phase == "sdf-proof":
                     # V10.7.9 is pass-driven. Each subproblem owns its checkpoint
                     # and cannot be skipped by exhausting an arbitrary epoch count.

@@ -145,3 +145,23 @@ class TestPassDrivenPipelineContract:
 
         source = inspect.getsource(TrainingService.train_v9)
         assert 'train_loader if local_structure_phase else parametric_train_loader' in source
+
+    def test_b1a_topology_checkpoint_locks_after_first_pass(self) -> None:
+        """Prevent later bootstrap epochs from replacing qualified B1a topology.
+
+        Purpose:
+            Keep the first topology-safe B1a checkpoint authoritative for sdf-proof.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource().
+        """
+        from v9.training import TrainingService
+
+        source = inspect.getsource(TrainingService.train_v9)
+        block = source.split(
+            '# B1a qualifies topology only; smoothness belongs exclusively to B1b.', 1
+        )[1].split('elif phase == "sdf-proof":', 1)[0]
+        assert 'if not topology_bootstrapped:' in block
+        assert block.index('if not topology_bootstrapped:') < block.index('best_b1a_path')
+        assert 'topology checkpoint locked for sdf-proof' in block
