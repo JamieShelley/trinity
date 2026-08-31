@@ -232,7 +232,7 @@ class LocalBoundaryProductionContract:
 
     # Purpose: Implement geometry query from outputs for LocalBoundaryProductionContract.
     # Called by: External callers and the owning workflow.
-    # Calls: No same-class helper methods.
+    # Calls: LocalBoundaryProductionStructure._apply_query_genome.
     def _geometry_query_from_outputs(
         self: Any,
         outputs: dict[str, torch.Tensor],
@@ -259,7 +259,8 @@ class LocalBoundaryProductionContract:
             "distance_delta_pixels": outputs["parametric_distance_delta_pixels"],
             "junction_hint": branch_activation[:, 1:].amax(dim=1, keepdim=True),
         }
-        return self.production_structure.decoder.query(context, query_grid)
+        field = self.production_structure.decoder.query(context, query_grid)
+        return self.production_structure._apply_query_genome(field)
 
     # Purpose: Implement set phase for LocalBoundaryProductionContract.
     # Called by: External callers and the owning workflow.
@@ -615,9 +616,30 @@ class LocalBoundaryProductionStructure(nn.Module):
         index = EVOLUTION_GENOME_NAMES.index(name)
         return self.evolution_genome[index].float()
 
+    # Purpose: Apply the checkpointed evolution genome to one queried structural field.
+    # Called by: forward, LocalBoundaryProductionContract._geometry_query_from_outputs
+    # Calls: _genome_value
+    def _apply_query_genome(
+        self,
+        field: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Apply the same final correction authority to every continuous query path."""
+        correction_scale = self._genome_value("correction_scale").to(
+            field["phi_pixels"].device
+        )
+        sampled_source = field["warped_source_pixels"].float()
+        evolved_phi = sampled_source + (
+            field["phi_pixels"].float() - sampled_source
+        ) * correction_scale
+        field["phi_pixels"] = evolved_phi
+        field["primitive_phi_pixels"] = evolved_phi
+        field["direct_delta_pixels"] = evolved_phi - sampled_source
+        field["residual_pixels"] = evolved_phi - sampled_source
+        return field
+
     # Purpose: Implement forward for LocalBoundaryProductionStructure.
     # Called by: External callers and the owning workflow.
-    # Calls: _genome_value
+    # Calls: _apply_query_genome, _genome_value
     def forward(
         self,
         decoded_feature: torch.Tensor,
@@ -673,14 +695,9 @@ class LocalBoundaryProductionStructure(nn.Module):
             * self._genome_value("csg_logit_scale").to(source_control.device)
         )
 
-        field = self.decoder.query(context, query_grid)
-        correction_scale = self._genome_value("correction_scale").to(field["phi_pixels"].device)
-        sampled_source = field["warped_source_pixels"].float()
-        evolved_phi = sampled_source + (field["phi_pixels"].float() - sampled_source) * correction_scale
-        field["phi_pixels"] = evolved_phi
-        field["primitive_phi_pixels"] = evolved_phi
-        field["direct_delta_pixels"] = evolved_phi - sampled_source
-        field["residual_pixels"] = evolved_phi - sampled_source
+        field = self._apply_query_genome(
+            self.decoder.query(context, query_grid)
+        )
         return {
             "feature_grid": feature_grid,
             "context": context,
