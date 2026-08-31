@@ -1,0 +1,84 @@
+name: Temporary NSAMDR sdf-proof antiscallop
+
+on:
+  push:
+    branches:
+      - nsamdr-sdf-proof-antiscallop-temp
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out NSAMDR
+        uses: actions/checkout@v4
+        with:
+          ref: NSAMDR
+          fetch-depth: 0
+
+      - name: Patch and validate V11.4 sdf-proof quality authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "3bba68d5700ab1a8ab8dd88d209764c95c995c38"
+          python - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('tools/nsamdr/neural/v9/local_boundary_production_contract.py')
+          source = source_path.read_text(encoding='utf-8')
+          old = '''        # Same-renderer teacher is a direct structural signal, not a separate\n        # candidate path. Keep its configured proof authority bounded.\n        if "sdf_teacher_render" in losses:\n            total = total + losses["sdf_teacher_render"] * float(config.sdf_proof_renderer_weight)\n        losses["total"] = total.float()\n'''
+          new = '''        # B1a establishes topology. B1b/sdf-proof must then spend explicit\n        # authority on the subpixel defects that the promotion gate measures.\n        # These losses already exist in the canonical objective; V11.4 previously\n        # computed them only as telemetry, leaving low-angle stair steps and radial\n        # scalloping without a direct differentiable training signal.\n        if phase == "sdf-proof":\n            total = total + (\n                losses["implicit_subpixel_surface"] * float(config.sdf_surface_weight)\n                + losses["implicit_subpixel_gradient"] * float(config.sdf_metric_gradient_weight)\n                + losses["implicit_subpixel_eikonal"] * float(config.sdf_eikonal_weight)\n                + losses["sdf_curvature"] * float(config.sdf_curvature_weight)\n            )\n            if "sdf_teacher_gradient" in losses:\n                total = total + losses["sdf_teacher_gradient"] * float(\n                    config.sdf_teacher_gradient_weight\n                )\n            if "sdf_teacher_profile" in losses:\n                total = total + losses["sdf_teacher_profile"] * float(\n                    config.sdf_teacher_profile_weight\n                )\n\n        # Same-renderer teacher is a direct structural signal, not a separate\n        # candidate path. Keep its configured proof authority bounded.\n        if "sdf_teacher_render" in losses:\n            total = total + losses["sdf_teacher_render"] * float(config.sdf_proof_renderer_weight)\n        losses["total"] = total.float()\n'''
+          if source.count(old) != 1:
+              raise SystemExit('local compute-loss proof anchor not unique')
+          source = source.replace(old, new, 1)
+          source_path.write_text(source, encoding='utf-8')
+
+          test_path = Path('tools/nsamdr/tests/test_pass_driven_pipeline_contract.py')
+          test_text = test_path.read_text(encoding='utf-8').rstrip()
+          test_method = '''\n\n    def test_v114_sdf_proof_trains_subpixel_quality_terms(self) -> None:\n        \"\"\"Keep B1b authority on the defects judged by the structural gate.\n\n        Purpose:\n            Prevent V11.4 sdf-proof from computing anti-staircase, radial-smoothness,\n            and same-renderer profile evidence only as detached diagnostics.\n        Called by:\n            pytest.\n        Calls:\n            inspect.getsource().\n        \"\"\"\n        from v9.local_boundary_production_contract import LocalBoundaryProductionContract\n\n        source = inspect.getsource(LocalBoundaryProductionContract._local_compute_losses)\n        proof = source.split('if phase == "sdf-proof":', 1)[1]\n        assert 'losses["implicit_subpixel_surface"]' in proof\n        assert 'losses["implicit_subpixel_gradient"]' in proof\n        assert 'losses["implicit_subpixel_eikonal"]' in proof\n        assert 'losses["sdf_curvature"]' in proof\n        assert 'losses["sdf_teacher_gradient"]' in proof\n        assert 'losses["sdf_teacher_profile"]' in proof\n'''
+          if 'test_v114_sdf_proof_trains_subpixel_quality_terms' not in test_text:
+              test_text += test_method
+          test_path.write_text(test_text.rstrip() + '\n', encoding='utf-8')
+          PY
+
+          python -m py_compile \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/tests/test_pass_driven_pipeline_contract.py
+          python tools/nsamdr/neural/nsamdr_readability_contract.py
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('tools/nsamdr/neural/v9/local_boundary_production_contract.py').read_text(encoding='utf-8')
+          anchor = source.split('def _local_compute_losses(', 1)[1].split('def install_local_boundary_model_contract', 1)[0]
+          proof = anchor.split('if phase == "sdf-proof":', 1)[1]
+          for token in (
+              'implicit_subpixel_surface',
+              'implicit_subpixel_gradient',
+              'implicit_subpixel_eikonal',
+              'sdf_curvature',
+              'sdf_teacher_gradient',
+              'sdf_teacher_profile',
+          ):
+              assert token in proof, token
+          assert 'config.sdf_surface_weight' in proof
+          assert 'config.sdf_metric_gradient_weight' in proof
+          assert 'config.sdf_eikonal_weight' in proof
+          assert 'config.sdf_curvature_weight' in proof
+          assert 'config.sdf_teacher_gradient_weight' in proof
+          assert 'config.sdf_teacher_profile_weight' in proof
+          print('V11.4 sdf-proof anti-scallop authority regression PASS')
+          PY
+          git diff --check
+
+      - name: Commit source repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "ChatGPT NSAMDR Repair"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/tests/test_pass_driven_pipeline_contract.py
+          git commit -m "Train V11.4 sdf proof on subpixel quality"
+          git push origin HEAD:NSAMDR
