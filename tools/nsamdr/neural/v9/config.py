@@ -571,7 +571,7 @@ class V9Config:
     # Strict coexistence envelope. Training only enters a batch when the
     # predicted V9 transient requirement plus this foreground-application
     # reserve fits in physical VRAM. The reserve is intentionally large.
-    reactive_vram_burst_reserve_fraction: float = 0.35
+    reactive_vram_burst_reserve_fraction: float = 0.15
     reactive_vram_stability_samples: int = 3
     reactive_vram_stability_interval_seconds: float = 0.20
     # Legacy compatibility switch. Hard PyTorch per-process ceilings are no

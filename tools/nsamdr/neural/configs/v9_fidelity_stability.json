@@ -128,7 +128,7 @@
   "physicalFinetuneEpochs": 1,
   "reactiveHostPauseFreeFraction": 0.05,
   "reactiveHostResumeFreeFraction": 0.08,
-  "reactiveVramBurstReserveFraction": 0.35,
+  "reactiveVramBurstReserveFraction": 0.15,
   "reactiveVramDynamicAllocatorCeiling": false,
   "reactiveVramEnabled": true,
   "reactiveVramExpandHysteresisFraction": 0.05,
