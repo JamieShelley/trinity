@@ -1,0 +1,67 @@
+name: Temporary NSAMDR V11.4 sdf-proof batch routing fix 2
+
+on:
+  push:
+    branches:
+      - nsamdr-sdf-proof-v114-fix-temp
+    paths:
+      - .github/workflows/nsamdr-v114-sdf-proof-batch-fix2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out NSAMDR
+        uses: actions/checkout@v4
+        with:
+          ref: NSAMDR
+          fetch-depth: 0
+
+      - name: Patch and validate production batch routing
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "ebafdafeb67c63afd4695ba92fa59fccbb5d6dbc"
+          python - <<'PY'
+          from pathlib import Path
+
+          training = Path('tools/nsamdr/neural/v9/training.py')
+          text = training.read_text(encoding='utf-8')
+          old = '''            if phase == "sdf-proof":\n                epoch_loader = parametric_train_loader\n            elif phase == "seam-proof":\n'''
+          new = '''            if phase == "sdf-proof":\n                # V11.4 local-boundary proof trains the full production graph, so it\n                # must use the canonical batch-size=1 production loader. The legacy\n                # batch-8 parametric loader is only valid for the retired compact field.\n                epoch_loader = (\n                    train_loader if local_structure_phase else parametric_train_loader\n                )\n            elif phase == "seam-proof":\n'''
+          if text.count(old) != 1:
+              raise SystemExit('sdf-proof loader anchor not unique')
+          training.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          test_path = Path('tools/nsamdr/tests/test_pass_driven_pipeline_contract.py')
+          text = test_path.read_text(encoding='utf-8').rstrip()
+          append = '''\n\n    def test_v114_sdf_proof_uses_production_batch_loader(self) -> None:\n        \"\"\"Keep the full V11.4 graph off the retired batch-8 primitive loader.\n\n        Purpose:\n            Ensure local-boundary sdf-proof uses the canonical production loader so\n            the full 128-to-512 graph remains batch-size 1 for bounded VRAM/RAM use.\n        Called by:\n            pytest.\n        Calls:\n            inspect.getsource().\n        \"\"\"\n        from v9.training import TrainingService\n\n        source = inspect.getsource(TrainingService.train_v9)\n        assert 'train_loader if local_structure_phase else parametric_train_loader' in source\n'''
+          if 'test_v114_sdf_proof_uses_production_batch_loader' not in text:
+              text += append
+          test_path.write_text(text.rstrip() + '\n', encoding='utf-8')
+          PY
+
+          python -m py_compile tools/nsamdr/neural/v9/training.py tools/nsamdr/tests/test_pass_driven_pipeline_contract.py
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('tools/nsamdr/neural/v9/training.py').read_text(encoding='utf-8')
+          assert 'train_loader if local_structure_phase else parametric_train_loader' in source
+          assert source.count('epoch_loader = parametric_train_loader') == 0
+          print('V11.4 sdf-proof batch routing regression PASS')
+          PY
+          python tools/nsamdr/neural/nsamdr_readability_contract.py
+          git diff --check
+
+      - name: Commit source repair
+        shell: bash
+        run: |
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' tools/nsamdr/neural/v9/training.py tools/nsamdr/tests/test_pass_driven_pipeline_contract.py | sort)"
+          test "$changed" = "$expected"
+          git config user.name "ChatGPT NSAMDR Repair"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/nsamdr/neural/v9/training.py tools/nsamdr/tests/test_pass_driven_pipeline_contract.py
+          git commit -m "Use production batch size for V11.4 sdf proof"
+          git push origin HEAD:NSAMDR
