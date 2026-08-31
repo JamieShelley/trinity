@@ -1,0 +1,106 @@
+name: Temporary NSAMDR V11.4 sdf-proof routing fix
+
+on:
+  push:
+    branches:
+      - nsamdr-sdf-proof-v114-fix-temp
+    paths:
+      - .github/workflows/nsamdr-sdf-proof-v114-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out NSAMDR
+        uses: actions/checkout@v4
+        with:
+          ref: NSAMDR
+          fetch-depth: 0
+
+      - name: Patch V11.4 structural proof routing
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          training = Path('tools/nsamdr/neural/v9/training.py')
+          text = training.read_text(encoding='utf-8')
+
+          old = '''            model.set_phase(phase)\n            b1b_substage = (\n                self._parametric_b1b_substage(b1b_classifier_qualified, b1b_parameters_qualified)\n                if phase == "sdf-proof" else None\n            )\n'''
+          new = '''            model.set_phase(phase)\n            local_structure_phase = bool(\n                phase == "sdf-proof"\n                and hasattr(model.geometry_net, "production_structure")\n            )\n            if local_structure_phase:\n                b1b_classifier_qualified = True\n                b1b_parameters_qualified = True\n            b1b_substage = (\n                self._parametric_b1b_substage(b1b_classifier_qualified, b1b_parameters_qualified)\n                if phase == "sdf-proof" else None\n            )\n'''
+          if text.count(old) != 1: raise SystemExit('phase setup anchor not unique')
+          text = text.replace(old, new, 1)
+
+          old = '''            if phase == "sdf-proof":\n                self._status(\n                    "  B1b learned production primitive proof: "\n                    f"substage={b1b_substage} stageEpoch={b1b_stage_epoch}; "\n                    "classifier, regressor and analytic render loss have authority"\n                )\n'''
+          new = '''            if phase == "sdf-proof":\n                if local_structure_phase:\n                    self._status(\n                        "  B1 local-boundary production proof: full production "\n                        "geometry + same-renderer losses have authority"\n                    )\n                else:\n                    self._status(\n                        "  B1b learned production primitive proof: "\n                        f"substage={b1b_substage} stageEpoch={b1b_stage_epoch}; "\n                        "classifier, regressor and analytic render loss have authority"\n                    )\n'''
+          if text.count(old) != 1: raise SystemExit('status anchor not unique')
+          text = text.replace(old, new, 1)
+
+          old = '''                                    if phase == "sdf-proof":\n                                        # B1b is an isolated compact supervised problem.\n                                        # The expensive full-model/BoundaryRenderer graph is\n                                        # reserved for held-out B2 validation after the epoch.\n                                        outputs = None\n                                        losses = self._parametric_b1b_train_losses(model, batch, config, substage=str(b1b_substage))\n                                    else:\n                                        # Training and validation consume the same learned\n                                        # production geometry used by inference.\n                                        outputs = self._forward_for_phase(model, batch, phase, config)\n'''
+          new = '''                                    if phase == "sdf-proof" and not local_structure_phase:\n                                        outputs = None\n                                        losses = self._parametric_b1b_train_losses(\n                                            model, batch, config, substage=str(b1b_substage)\n                                        )\n                                    else:\n                                        outputs = self._forward_for_phase(model, batch, phase, config)\n'''
+          if text.count(old) != 1: raise SystemExit('loss routing anchor not unique')
+          text = text.replace(old, new, 1)
+
+          old = '''                    elif b1b_substage == "integration":\n                        b1b_classifier_qualified = primitive_class_accuracy >= class_required\n                        b1b_parameters_qualified = primitive_teacher_param_mae <= param_required\n                        self._status(\n                            "  B1b canonical integration prerequisites: "\n                            f"classifier={'PASS' if b1b_classifier_qualified else 'HOLD'} "\n                            f"parameters={'PASS' if b1b_parameters_qualified else 'HOLD'}"\n                        )\n'''
+          new = '''                    elif b1b_substage == "integration":\n                        if local_structure_phase:\n                            b1b_classifier_qualified = True\n                            b1b_parameters_qualified = True\n                            self._status(\n                                "  B1 local-boundary prerequisites: retired whole-tile "\n                                "classifier/parameter gates bypassed"\n                            )\n                        else:\n                            b1b_classifier_qualified = primitive_class_accuracy >= class_required\n                            b1b_parameters_qualified = primitive_teacher_param_mae <= param_required\n                            self._status(\n                                "  B1b canonical integration prerequisites: "\n                                f"classifier={'PASS' if b1b_classifier_qualified else 'HOLD'} "\n                                f"parameters={'PASS' if b1b_parameters_qualified else 'HOLD'}"\n                            )\n'''
+          if text.count(old) != 1: raise SystemExit('integration anchor not unique')
+          text = text.replace(old, new, 1)
+
+          old = '                            "selection_kind": "v1079-b1b-integrated-parametric-primitive",\n'
+          new = '''                            "selection_kind": (\n                                "v114-b1-local-boundary"\n                                if local_structure_phase\n                                else "v1079-b1b-integrated-parametric-primitive"\n                            ),\n'''
+          if text.count(old) != 1: raise SystemExit('selection kind anchor not unique')
+          text = text.replace(old, new, 1)
+          training.write_text(text, encoding='utf-8')
+
+          pipeline = Path('tools/nsamdr/neural/v9/application/pipeline.py')
+          text = pipeline.read_text(encoding='utf-8')
+          old = '''            latest = self._invoke(\n                context,\n                resume=current_resume,\n                stop_after_phase=definition.phase,\n            )\n'''
+          new = '''            trainer_stop_phase = (\n                "sdf-proof" if definition.phase == "sdf-bootstrap" else definition.phase\n            )\n            latest = self._invoke(\n                context,\n                resume=current_resume,\n                stop_after_phase=trainer_stop_phase,\n            )\n'''
+          if text.count(old) != 1: raise SystemExit('pipeline anchor not unique')
+          text = text.replace(old, new, 1)
+          pipeline.write_text(text, encoding='utf-8')
+
+          test_path = Path('tools/nsamdr/tests/test_pass_driven_pipeline_contract.py')
+          text = test_path.read_text(encoding='utf-8')
+          text = text.replace(
+              '"""Verify explicit StagePlan order and absence of retired sdf-proof execution.',
+              '"""Verify explicit StagePlan order while B1/B2 executes through sdf-proof.',
+              1,
+          )
+          old = '''        assert "self._invoke" in stage\n        assert "stop_after_phase=definition.phase" in stage\n'''
+          new = '''        assert "self._invoke" in stage\n        assert '"sdf-proof" if definition.phase == "sdf-bootstrap"' in stage\n        assert "stop_after_phase=trainer_stop_phase" in stage\n'''
+          if text.count(old) != 1: raise SystemExit('test anchor not unique')
+          text = text.replace(old, new, 1)
+          append = '''\n    def test_v114_sdf_proof_uses_live_local_production_graph(self) -> None:\n        \"\"\"Prevent the retired B1b loss from replacing V11.4 gradients.\"\"\"\n        from v9.training import TrainingService\n\n        source = inspect.getsource(TrainingService.train_v9)\n        assert 'hasattr(model.geometry_net, "production_structure")' in source\n        assert 'phase == "sdf-proof" and not local_structure_phase' in source\n        assert 'b1b_classifier_qualified = True' in source\n        assert 'b1b_parameters_qualified = True' in source\n'''
+          if 'test_v114_sdf_proof_uses_live_local_production_graph' not in text:
+              text = text.rstrip() + '\n' + append
+          test_path.write_text(text, encoding='utf-8')
+          PY
+
+          python -m py_compile tools/nsamdr/neural/v9/training.py tools/nsamdr/neural/v9/application/pipeline.py tools/nsamdr/tests/test_pass_driven_pipeline_contract.py
+          python - <<'PY'
+          from pathlib import Path
+          training = Path('tools/nsamdr/neural/v9/training.py').read_text(encoding='utf-8')
+          pipeline = Path('tools/nsamdr/neural/v9/application/pipeline.py').read_text(encoding='utf-8')
+          assert 'phase == "sdf-proof" and not local_structure_phase' in training
+          assert 'v114-b1-local-boundary' in training
+          assert '"sdf-proof" if definition.phase == "sdf-bootstrap"' in pipeline
+          print('V11.4 sdf-proof routing regression PASS')
+          PY
+          python tools/nsamdr/neural/nsamdr_readability_contract.py
+          git diff --check
+
+      - name: Commit source repair
+        shell: bash
+        run: |
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' tools/nsamdr/neural/v9/application/pipeline.py tools/nsamdr/neural/v9/training.py tools/nsamdr/tests/test_pass_driven_pipeline_contract.py | sort)"
+          test "$changed" = "$expected"
+          git config user.name "ChatGPT NSAMDR Repair"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/nsamdr/neural/v9/training.py tools/nsamdr/neural/v9/application/pipeline.py tools/nsamdr/tests/test_pass_driven_pipeline_contract.py
+          git commit -m "Route V11.4 structural proof through production geometry"
+          git push origin HEAD:NSAMDR
