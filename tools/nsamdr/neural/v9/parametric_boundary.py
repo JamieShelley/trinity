@@ -132,65 +132,131 @@ supersample_coverage = _parametric_boundary_service.supersample_coverage
 
 
 class PrimitiveParameterHead(nn.Module):
-    """Predict three local primitives and a compact CSG composition.
+    """Predict continuous geometry and topology through independent feature heads.
 
-    Each branch predicts an analytic centre surface plus a soft half-space /
-    ribbon mode.  Ribbon mode represents the two sides of a thin authored line
-    with one coherent primitive, so opposite SDF normals cannot fight each
-    other.  Three ribbon branches combined by smooth union represent Y/T
-    junctions without giving the network independent per-pixel SDF authority.
+    B1a trains both branches. B1b freezes the topology branch completely while the
+    continuous branch retains enough hidden capacity to de-rasterise anchor, normal,
+    curvature, ribbon width and confidence without changing branch/CSG decisions.
     """
 
     BRANCH_STRIDE = 6
     OUTPUTS = 24
+    TOPOLOGY_CHANNELS = (5, 11, 17, 18, 19, 20, 21, 22)
+    GEOMETRY_CHANNELS = (0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 23)
 
-    # Purpose: Implement init for PrimitiveParameterHead.
-    # Called by: External callers and the owning workflow.
-    # Calls: No same-class helper methods.
-    def __init__(self, in_channels: int, hidden_channels: int) -> None:
-        super().__init__()
-        hidden = max(24, int(hidden_channels))
-        self.net = nn.Sequential(
+    # Purpose: Build one independent parameter-prediction branch.
+    # Called by: __init__.
+    # Calls: torch.nn.Conv2d(), torch.nn.GELU().
+    @staticmethod
+    def _make_branch(in_channels: int, hidden: int, outputs: int) -> nn.Sequential:
+        return nn.Sequential(
             nn.Conv2d(in_channels, hidden, 3, padding=1),
             nn.GELU(),
             nn.Conv2d(hidden, hidden, 3, padding=1),
             nn.GELU(),
-            nn.Conv2d(hidden, self.OUTPUTS, 1),
+            nn.Conv2d(hidden, outputs, 1),
         )
-        nn.init.zeros_(self.net[-1].weight)
-        nn.init.zeros_(self.net[-1].bias)
-        # Start as one ordinary boundary primitive.  The logits are kept
-        # deliberately unsaturated so thin-line / junction evidence can turn
-        # on ribbon branches early in training.
-        with torch.no_grad():
-            for branch in range(3):
-                self.net[-1].bias[branch * self.BRANCH_STRIDE + 5] = -1.5  # ribbon mode
-            self.net[-1].bias[18:20].fill_(-1.5)  # extra-branch activation
-            self.net[-1].bias[20] = 1.5           # single
-            self.net[-1].bias[21] = -1.5          # union
-            self.net[-1].bias[22] = -1.5          # intersection
 
-    # Purpose: Implement forward for PrimitiveParameterHead.
-    # Called by: External callers and the owning workflow.
+    # Purpose: Implement init for PrimitiveParameterHead.
+    # Called by: LocalParametricBoundaryDecoder.__init__.
+    # Calls: _make_branch.
+    def __init__(self, in_channels: int, hidden_channels: int) -> None:
+        super().__init__()
+        hidden = max(24, int(hidden_channels))
+        self.geometry_net = self._make_branch(
+            in_channels, hidden, len(self.GEOMETRY_CHANNELS)
+        )
+        self.topology_net = self._make_branch(
+            in_channels, hidden, len(self.TOPOLOGY_CHANNELS)
+        )
+        nn.init.zeros_(self.geometry_net[-1].weight)
+        nn.init.zeros_(self.geometry_net[-1].bias)
+        nn.init.zeros_(self.topology_net[-1].weight)
+        nn.init.zeros_(self.topology_net[-1].bias)
+        with torch.no_grad():
+            self.topology_net[-1].bias[0:5].fill_(-1.5)
+            self.topology_net[-1].bias[5] = 1.5
+            self.topology_net[-1].bias[6:8].fill_(-1.5)
+        self._topology_locked = False
+
+    # Purpose: Merge independent geometry/topology channels into the public 24-channel layout.
+    # Called by: forward.
+    # Calls: torch.cat().
+    def _merge_outputs(
+        self,
+        geometry: torch.Tensor,
+        topology: torch.Tensor,
+    ) -> torch.Tensor:
+        geometry_parts = {
+            channel: geometry[:, index:index + 1]
+            for index, channel in enumerate(self.GEOMETRY_CHANNELS)
+        }
+        topology_parts = {
+            channel: topology[:, index:index + 1]
+            for index, channel in enumerate(self.TOPOLOGY_CHANNELS)
+        }
+        return torch.cat(
+            [
+                topology_parts[channel]
+                if channel in topology_parts
+                else geometry_parts[channel]
+                for channel in range(self.OUTPUTS)
+            ],
+            dim=1,
+        )
+
+    # Purpose: Freeze the complete topology predictor after B1a qualification.
+    # Called by: LocalBoundaryProductionStructure.lock_topology_for_proof.
+    # Calls: torch.Tensor.requires_grad_().
+    def lock_topology(self) -> None:
+        self._topology_locked = True
+        for parameter in self.topology_net.parameters():
+            parameter.requires_grad_(False)
+
+    # Purpose: Restore topology trainability for a fresh B1a bootstrap.
+    # Called by: LocalBoundaryProductionStructure.unlock_topology_for_bootstrap.
+    # Calls: torch.Tensor.requires_grad_().
+    def unlock_topology(self) -> None:
+        self._topology_locked = False
+        for parameter in self.topology_net.parameters():
+            parameter.requires_grad_(True)
+
+    # Purpose: Preserve the legacy trainer callback after the heads are physically split.
+    # Called by: LocalBoundaryProductionStructure.restore_locked_topology_parameters.
     # Calls: No same-class helper methods.
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        raw = self.net(x)
+    def restore_locked_topology_parameters(self) -> None:
+        return None
+
+    # Purpose: Predict and merge continuous geometry with independent topology controls.
+    # Called by: LocalParametricBoundaryDecoder.build_context.
+    # Calls: _merge_outputs.
+    def forward(
+        self,
+        x: torch.Tensor,
+        topology_x: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if topology_x is None:
+            topology_x = x
+        geometry_raw = self.geometry_net(x)
+        topology_raw = self.topology_net(topology_x)
+        raw = self._merge_outputs(geometry_raw, topology_raw)
         smooth = F.avg_pool2d(raw, kernel_size=3, stride=1, padding=1)
-        # CSG/mode/activation logits must retain their initialization at the
-        # image boundary; smoothing a constant bias with zero padding would
-        # alter it. Smooth only geometric residuals (d,nx,ny,kappa,width).
         parts = []
         for branch in range(3):
-            start = branch * self.BRANCH_STRIDE
-            geom = 0.45 * raw[:, start:start + 5] + 0.55 * smooth[:, start:start + 5]
-            parts.append(torch.cat((geom, raw[:, start + 5:start + 6]), dim=1))
+            offset = branch * self.BRANCH_STRIDE
+            analytic = raw[:, offset:offset + 4]
+            width = (
+                0.45 * raw[:, offset + 4:offset + 5]
+                + 0.55 * smooth[:, offset + 4:offset + 5]
+            )
+            geom = torch.cat((analytic, width), dim=1)
+            parts.append(torch.cat((geom, raw[:, offset + 5:offset + 6]), dim=1))
         tail = raw[:, 18:]
-        geom = torch.cat(parts, dim=1)
-        return torch.cat((geom, tail), dim=1)
+        return torch.cat((*parts, tail), dim=1)
 
 
 class LocalParametricBoundaryDecoder(nn.Module):
-    """Continuous metric SDF assembled from local analytic line/arc primitives."""
+    """Continuous metric SDF reconstructed from coherent topology-controlled scalar fields."""
 
     # Purpose: Implement init for LocalParametricBoundaryDecoder.
     # Called by: External callers and the owning workflow.
@@ -217,6 +283,44 @@ class LocalParametricBoundaryDecoder(nn.Module):
         self.control_scale = max(1, int(control_scale))
         self.output_scale = max(1, int(output_scale))
         self.parameter_head = PrimitiveParameterHead(feature_channels + 4, hidden_channels)
+
+    # Purpose: Smooth a control-lattice geometry field without biasing an ideal affine line.
+    # Called by: _coherent_branch_geometry.
+    # Calls: torch.nn.functional.conv2d(), torch.nn.functional.pad().
+    @staticmethod
+    def _smooth_geometry_field(value: torch.Tensor) -> torch.Tensor:
+        channels = int(value.shape[1])
+        binomial = value.new_tensor((1.0, 4.0, 6.0, 4.0, 1.0)) / 16.0
+        kernel_x = binomial.view(1, 1, 1, 5).repeat(channels, 1, 1, 1)
+        kernel_y = binomial.view(1, 1, 5, 1).repeat(channels, 1, 1, 1)
+        result = F.conv2d(
+            F.pad(value.float(), (2, 2, 0, 0), mode="replicate"),
+            kernel_x,
+            groups=channels,
+        )
+        return F.conv2d(
+            F.pad(result, (0, 0, 2, 2), mode="replicate"),
+            kernel_y,
+            groups=channels,
+        )
+
+    # Purpose: Convert learned anchor distances into one spatially coherent analytic field.
+    # Called by: build_context.
+    # Calls: _smooth_geometry_field, _central_difference.
+    def _coherent_branch_geometry(
+        self,
+        distance: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        coherent_distance = self._smooth_geometry_field(distance)
+        gx, gy = _central_difference(coherent_distance)
+        norm = torch.sqrt(gx.square() + gy.square() + 1.0e-6)
+        nx, ny = gx / norm, gy / norm
+        nx_x, _ = _central_difference(nx)
+        _, ny_y = _central_difference(ny)
+        curvature = self._smooth_geometry_field(
+            (nx_x + ny_y) / float(self.output_scale)
+        )
+        return coherent_distance, nx, ny, curvature
 
     # Purpose: Implement branch parameters for LocalParametricBoundaryDecoder.
     # Called by: build_context
@@ -257,13 +361,23 @@ class LocalParametricBoundaryDecoder(nn.Module):
         self,
         feature_grid: torch.Tensor,
         source_sdf_normalized: torch.Tensor,
+        topology_feature_grid: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         source = source_sdf_normalized.float().clamp(-1.0, 1.0)
         source_pixels = source * self.max_distance_pixels
-        # The source prior initializes geometry but is not the learned contour.
-        # Mild local fitting removes quantized plateaus before parameterization.
-        source_fit = 0.40 * source_pixels + 0.60 * F.avg_pool2d(
-            source_pixels, kernel_size=3, stride=1, padding=1
+        # The LR prior is evidence, not the desired contour. Build a phase-neutral
+        # local polynomial basis before deriving anchor normals/curvature so one LR
+        # staircase cannot become the analytic tangent field. A separable 5-tap
+        # binomial filter removes Nyquist raster phase while preserving lines/arcs
+        # and keeps the learned bounded residual responsible for exact placement.
+        binomial = source_pixels.new_tensor((1.0, 4.0, 6.0, 4.0, 1.0)) / 16.0
+        kernel_x = binomial.view(1, 1, 1, 5)
+        kernel_y = binomial.view(1, 1, 5, 1)
+        source_fit = F.conv2d(
+            F.pad(source_pixels, (2, 2, 0, 0), mode="replicate"), kernel_x
+        )
+        source_fit = F.conv2d(
+            F.pad(source_fit, (0, 0, 2, 2), mode="replicate"), kernel_y
         )
         gx, gy = _central_difference(source_fit)
         grad = torch.sqrt(gx.square() + gy.square() + 1.0e-6)
@@ -272,23 +386,31 @@ class LocalParametricBoundaryDecoder(nn.Module):
         _, ny_y = _central_difference(base_ny)
         base_curvature = (nx_x + ny_y) / float(self.output_scale)
 
-        head_input = torch.cat((
-            feature_grid.float(),
+        if topology_feature_grid is None:
+            topology_feature_grid = feature_grid
+        common_evidence = (
             (source_fit / max(self.max_distance_pixels, 1.0e-6)).clamp(-1.0, 1.0),
             base_nx,
             base_ny,
             (base_curvature / max(self.max_curvature_per_pixel, 1.0e-6)).clamp(-1.0, 1.0),
-        ), dim=1)
-        raw = self.parameter_head(head_input)
+        )
+        geometry_head_input = torch.cat((feature_grid.float(), *common_evidence), dim=1)
+        topology_head_input = torch.cat(
+            (topology_feature_grid.float(), *common_evidence), dim=1
+        )
+        raw = self.parameter_head(geometry_head_input, topology_head_input)
 
         branch_data = [
             self._branch_parameters(raw, base_nx, base_ny, base_curvature, source_fit, i)
             for i in range(3)
         ]
-        branch_distance = torch.cat([v[0] for v in branch_data], dim=1)
-        branch_normal_x = torch.cat([v[1] for v in branch_data], dim=1)
-        branch_normal_y = torch.cat([v[2] for v in branch_data], dim=1)
-        branch_curvature = torch.cat([v[3] for v in branch_data], dim=1)
+        raw_branch_distance = torch.cat([v[0] for v in branch_data], dim=1)
+        (
+            branch_distance,
+            branch_normal_x,
+            branch_normal_y,
+            branch_curvature,
+        ) = self._coherent_branch_geometry(raw_branch_distance)
         branch_half_width = torch.cat([v[4] for v in branch_data], dim=1)
         branch_ribbon_mode = torch.cat([v[5] for v in branch_data], dim=1)
         # Primary always active; extra branches learn activation only where a
@@ -351,16 +473,23 @@ class LocalParametricBoundaryDecoder(nn.Module):
 
     # Purpose: Implement query for LocalParametricBoundaryDecoder.
     # Called by: forward
-    # Calls: _smooth_max, _smooth_min
+    # Calls: _central_difference, _gather_control, _sample, _smooth_max, _smooth_min
     def query(
         self,
         context: dict[str, torch.Tensor],
         query_grid: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
         d_field = context["branch_anchor_distance_pixels"]
-        nx_field = context["branch_normal_x"]
-        ny_field = context["branch_normal_y"]
-        k_field = context["branch_curvature_per_pixel"]
+        # Distance is the sole geometry authority. Reconstruct local Hermite jets
+        # from derivatives of that one control-lattice scalar field; predicted
+        # normal/curvature channels cannot move the rendered zero-set.
+        gx_field, gy_field = _central_difference(d_field)
+        grad_norm = torch.sqrt(gx_field.square() + gy_field.square() + 1.0e-6)
+        nx_field, ny_field = gx_field / grad_norm, gy_field / grad_norm
+        nx_x_field, _ = _central_difference(nx_field)
+        _, ny_y_field = _central_difference(ny_field)
+        lattice_spacing = float(self.output_scale) / float(self.control_scale)
+        k_field = (nx_x_field + ny_y_field) / max(lattice_spacing, 1.0e-6)
         half_width_field = context["branch_half_width_pixels"]
         ribbon_mode_field = context["branch_ribbon_mode"]
         activation_field = context["branch_activation"]
@@ -444,10 +573,25 @@ class LocalParametricBoundaryDecoder(nn.Module):
         )
 
         sampled_source = _sample(source, query_grid) * self.max_distance_pixels
-        # Local primitives own the entire renderer-relevant contour tube. The
-        # source prior is only a far-field sign/distance fallback; partially
-        # mixing quantized LR distance inside the proof band would reintroduce
-        # the very staircase the parametric representation removes.
+        # The analytic field owns the central contour band so it can replace LR
+        # stair steps with one continuous subpixel line/arc. Outside a narrow free
+        # band, preserve the source sign as a fail-closed topology envelope: B1b may
+        # move and smooth the zero crossing, but it may not erase it altogether.
+        zero_crossing_guard = 2.0
+        zero_crossing_epsilon = 0.05
+        phi_param = torch.where(
+            sampled_source >= zero_crossing_guard,
+            phi_param.clamp_min(zero_crossing_epsilon),
+            phi_param,
+        )
+        phi_param = torch.where(
+            sampled_source <= -zero_crossing_guard,
+            phi_param.clamp_max(-zero_crossing_epsilon),
+            phi_param,
+        )
+        # Outside the renderer-relevant contour tube, retain the source as the
+        # far-field sign/distance fallback without blending its raster phase into
+        # the central de-rasterisation band.
         inner_radius = 8.0
         outer_radius = 12.0
         u = ((outer_radius - sampled_source.abs()) / (outer_radius - inner_radius)).clamp(0.0, 1.0)

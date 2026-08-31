@@ -262,6 +262,20 @@ class LocalBoundaryProductionContract:
         field = self.production_structure.decoder.query(context, query_grid)
         return self.production_structure._apply_query_genome(field)
 
+    # Purpose: Freeze the B1a topology producer while retaining geometric refinement.
+    # Called by: _set_phase.
+    # Calls: LocalBoundaryProductionStructure.lock_topology_for_proof().
+    def _lock_proof_topology(self, model: Any) -> None:
+        structure = model.geometry_net.production_structure
+        structure.lock_topology_for_proof()
+        for module in (
+            model.geometry_net.stem,
+            model.geometry_net.encoders,
+            model.geometry_net.downsamples,
+            model.geometry_net.decoders,
+        ):
+            model._set_trainable(module, False)
+
     # Purpose: Implement set phase for LocalBoundaryProductionContract.
     # Called by: External callers and the owning workflow.
     # Calls: No same-class helper methods.
@@ -274,7 +288,9 @@ class LocalBoundaryProductionContract:
         self._set_trainable(self.geometry_net.production_structure, False)
         if phase in {"sdf-bootstrap", "sdf-proof"}:
             self._set_trainable(self.geometry_net.production_structure, True)
-            # Geometry context is learned jointly with the local analytic actuator.
+            # Geometry context is learned jointly with the local analytic actuator
+            # during B1a. B1b keeps the qualified topology-producing feature path
+            # fixed and refines only continuous geometric output rows.
             self._set_trainable(self.geometry_net.stem, True)
             self._set_trainable(self.geometry_net.encoders, True)
             self._set_trainable(self.geometry_net.downsamples, True)
@@ -285,6 +301,10 @@ class LocalBoundaryProductionContract:
             self._set_trainable(self.geometry_net.orientation_head, True)
             self._set_trainable(self.geometry_net.edge_head, True)
             self._set_trainable(self.geometry_net.hardness_head, True)
+            if phase == "sdf-bootstrap":
+                self.geometry_net.production_structure.unlock_topology_for_bootstrap()
+            else:
+                _local_boundary_production_contract._lock_proof_topology(self)
 
     # Purpose: Implement set parametric substage for LocalBoundaryProductionContract.
     # Called by: External callers and the owning workflow.
@@ -296,7 +316,8 @@ class LocalBoundaryProductionContract:
         if substage not in {"classifier", "parameters", "integration", "local"}:
             raise ValueError(f"unsupported local-boundary substage: {substage}")
         self._set_trainable(self.geometry_net.parametric_primitive_field, False)
-        self._set_trainable(self.geometry_net.production_structure, True)
+        if not self.geometry_net.production_structure.topology_locked():
+            self._set_trainable(self.geometry_net.production_structure, True)
 
     # Purpose: Implement architecture contract for LocalBoundaryProductionContract.
     # Called by: External callers and the owning workflow.
@@ -434,6 +455,69 @@ class LocalBoundaryProductionContract:
         losses = _ORIGINAL_COMPUTE_LOSSES(outputs, batch, config, phase)
         if phase not in {"sdf-bootstrap", "sdf-proof"}:
             return losses
+
+        if phase == "sdf-proof":
+            anchor = outputs.get("parametric_anchor_distance_pixels")
+            source_prior_pixels = outputs.get("source_sdf_prior_pixels")
+            target_sdf = batch.get("target_sdf")
+            if anchor is None or source_prior_pixels is None or target_sdf is None:
+                raise RuntimeError(
+                    "V11.4 sdf-proof requires analytic anchor, source prior and target SDF"
+                )
+            max_distance = float(config.contour_sdf_max_distance_pixels)
+            raw_target_pixels = target_sdf.float() * max_distance
+            source_prior_pixels = source_prior_pixels.float()
+            if bool(config.sdf_sign_gauge_invariant):
+                band = max(float(config.sdf_metric_band_pixels), 1.0e-3)
+                gauge_weight = torch.exp(
+                    -raw_target_pixels.abs() / max(band * 0.55, 1.0e-3)
+                )
+                gauge_denom = gauge_weight.sum(
+                    dim=(1, 2, 3), keepdim=True
+                ).clamp_min(1.0)
+                positive = (
+                    (source_prior_pixels - raw_target_pixels).abs() * gauge_weight
+                ).sum(dim=(1, 2, 3), keepdim=True) / gauge_denom
+                negative = (
+                    (source_prior_pixels + raw_target_pixels).abs() * gauge_weight
+                ).sum(dim=(1, 2, 3), keepdim=True) / gauge_denom
+                polarity = torch.where(
+                    positive <= negative,
+                    torch.ones_like(positive),
+                    -torch.ones_like(negative),
+                ).detach()
+            else:
+                polarity = torch.ones(
+                    (raw_target_pixels.shape[0], 1, 1, 1),
+                    device=raw_target_pixels.device, dtype=raw_target_pixels.dtype,
+                )
+            target_control = F.interpolate(
+                (raw_target_pixels * polarity).detach(),
+                size=anchor.shape[-2:], mode="bilinear", align_corners=False,
+            )
+            anchor_error = anchor.float() - target_control
+            error_dx = anchor_error[:, :, :, 1:] - anchor_error[:, :, :, :-1]
+            error_dy = anchor_error[:, :, 1:, :] - anchor_error[:, :, :-1, :]
+            target_x = 0.5 * (
+                target_control[:, :, :, 1:].abs()
+                + target_control[:, :, :, :-1].abs()
+            )
+            target_y = 0.5 * (
+                target_control[:, :, 1:, :].abs()
+                + target_control[:, :, :-1, :].abs()
+            )
+            weight_x = (0.15 + 1.85 * torch.exp(-target_x / 4.0)).detach()
+            weight_y = (0.15 + 1.85 * torch.exp(-target_y / 4.0)).detach()
+            smooth_x = F.smooth_l1_loss(
+                error_dx, torch.zeros_like(error_dx), beta=0.12, reduction="none"
+            )
+            smooth_y = F.smooth_l1_loss(
+                error_dy, torch.zeros_like(error_dy), beta=0.12, reduction="none"
+            )
+            losses["parametric_offset_smoothness"] = 0.5 * (
+                (smooth_x * weight_x).sum() / weight_x.sum().clamp_min(1.0)
+                + (smooth_y * weight_y).sum() / weight_y.sum().clamp_min(1.0)
+            )
 
         # These terms already exist in the canonical loss implementation. V11.4
         # makes them authoritative because the active structural representation is
@@ -583,17 +667,29 @@ class LocalBoundaryProductionStructure(nn.Module):
     the one declared production structure and is invoked through ``__call__``.
     """
 
-    # Purpose: Implement init for LocalBoundaryProductionStructure.
-    # Called by: External callers and the owning workflow.
-    # Calls: No same-class helper methods.
-    def __init__(self, config: Any, decoded_channels: int) -> None:
-        super().__init__()
-        feature_channels = int(getattr(config, "topology_field_feature_channels", 64))
-        self.feature_project = nn.Sequential(
+    # Purpose: Build one independent local structural feature projector.
+    # Called by: __init__.
+    # Calls: torch.nn.Conv2d(), torch.nn.GELU(), ResidualBlock().
+    @staticmethod
+    def _make_feature_project(decoded_channels: int, feature_channels: int) -> nn.Sequential:
+        return nn.Sequential(
             nn.Conv2d(int(decoded_channels) + 16, feature_channels, 3, padding=1),
             nn.GELU(),
             _model.ResidualBlock(feature_channels),
             _model.ResidualBlock(feature_channels, dilation=2),
+        )
+
+    # Purpose: Implement init for LocalBoundaryProductionStructure.
+    # Called by: External callers and the owning workflow.
+    # Calls: _make_feature_project.
+    def __init__(self, config: Any, decoded_channels: int) -> None:
+        super().__init__()
+        feature_channels = int(getattr(config, "topology_field_feature_channels", 64))
+        self.geometry_feature_project = self._make_feature_project(
+            int(decoded_channels), feature_channels
+        )
+        self.topology_feature_project = self._make_feature_project(
+            int(decoded_channels), feature_channels
         )
         initial_genome = torch.tensor(
             [float(_ACTIVE_EVOLUTION_GENOME[name]) for name in EVOLUTION_GENOME_NAMES],
@@ -614,6 +710,39 @@ class LocalBoundaryProductionStructure(nn.Module):
             control_scale=int(getattr(config, "parametric_boundary_control_scale", 1)),
             output_scale=int(getattr(config, "target_scale", _model.UPSCALE_FACTOR)),
         )
+
+    # Purpose: Report whether B1a topology is locked for proof.
+    # Called by: LocalBoundaryProductionContract._set_parametric_substage.
+    # Calls: No same-class helper methods.
+    def topology_locked(self) -> bool:
+        return bool(self.decoder.parameter_head._topology_locked)
+
+    # Purpose: Restore full structural trainability for B1a topology bootstrap.
+    # Called by: LocalBoundaryProductionContract._set_phase.
+    # Calls: PrimitiveParameterHead.unlock_topology().
+    def unlock_topology_for_bootstrap(self) -> None:
+        self.decoder.parameter_head.unlock_topology()
+        for parameter in self.parameters():
+            parameter.requires_grad_(True)
+
+    # Purpose: Preserve B1a topology while exposing continuous B1b geometry rows.
+    # Called by: LocalBoundaryProductionContract._lock_proof_topology.
+    # Calls: PrimitiveParameterHead.lock_topology().
+    def lock_topology_for_proof(self) -> None:
+        head = self.decoder.parameter_head
+        head.lock_topology()
+        for parameter in self.topology_feature_project.parameters():
+            parameter.requires_grad_(False)
+        for parameter in self.geometry_feature_project.parameters():
+            parameter.requires_grad_(True)
+        for parameter in head.geometry_net.parameters():
+            parameter.requires_grad_(True)
+
+    # Purpose: Persist the phase-local topology lock into actual model parameters.
+    # Called by: TrainingService.train_v9 after each sdf-proof optimizer step.
+    # Calls: PrimitiveParameterHead.restore_locked_topology_parameters().
+    def restore_locked_topology_parameters(self) -> None:
+        self.decoder.parameter_head.restore_locked_topology_parameters()
 
     # Purpose: Implement genome dict for LocalBoundaryProductionStructure.
     # Called by: External callers and the owning workflow.
@@ -671,10 +800,15 @@ class LocalBoundaryProductionStructure(nn.Module):
         feature_gain = self._genome_value("feature_gain").to(decoded_feature.device)
         evidence_gain = self._genome_value("evidence_gain").to(decoded_feature.device)
         direct_evidence = inputs[:, 0:16].to(decoded_feature.dtype) * evidence_gain.to(decoded_feature.dtype)
-        feature_grid = self.feature_project(
-            torch.cat((decoded_feature * feature_gain.to(decoded_feature.dtype), direct_evidence), dim=1)
+        projected_input = torch.cat(
+            (decoded_feature * feature_gain.to(decoded_feature.dtype), direct_evidence), dim=1
         )
-        context = self.decoder.build_context(feature_grid, source_prior_lr)
+        geometry_feature_grid = self.geometry_feature_project(projected_input)
+        topology_feature_grid = self.topology_feature_project(projected_input)
+        context = self.decoder.build_context(
+            geometry_feature_grid, source_prior_lr,
+            topology_feature_grid=topology_feature_grid,
+        )
 
         # The supernet topology is fixed; the genome only scales bounded
         # authorities within that topology. This keeps one checkpoint schema.
@@ -720,7 +854,7 @@ class LocalBoundaryProductionStructure(nn.Module):
             self.decoder.query(context, query_grid)
         )
         return {
-            "feature_grid": feature_grid,
+            "feature_grid": geometry_feature_grid,
             "context": context,
             "field": field,
             "genome": self.evolution_genome,

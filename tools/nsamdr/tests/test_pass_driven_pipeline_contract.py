@@ -144,7 +144,10 @@ class TestPassDrivenPipelineContract:
         from v9.training import TrainingService
 
         source = inspect.getsource(TrainingService.train_v9)
-        assert 'train_loader if local_structure_phase else parametric_train_loader' in source
+        assert 'local_structure_train_loader' in source
+        assert 'if local_structure_phase' in source
+        assert 'else parametric_train_loader' in source
+        assert 'batch_size=config.batch_size' in source
 
     def test_b1a_topology_checkpoint_locks_after_first_pass(self) -> None:
         """Prevent later bootstrap epochs from replacing qualified B1a topology.
@@ -229,3 +232,470 @@ class TestPassDrivenPipelineContract:
         assert 'phase = "sdf-proof"' in source
         assert 'reallocating remaining' in source
         assert 'bootstrap epoch to V11.4 sdf-proof quality training' in source
+
+    def test_v114_sdf_proof_locks_b1a_topology_controls(self) -> None:
+        """Keep B1b from rewriting branch/ribbon/CSG topology decisions.
+
+        Purpose:
+            Require V11.4 sdf-proof to retain the qualified B1a topology producer
+            while continuous distance/normal/curvature/width rows remain trainable.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource().
+        """
+        from v9.local_boundary_production_contract import LocalBoundaryProductionContract
+        from v9.parametric_boundary import PrimitiveParameterHead
+
+        assert PrimitiveParameterHead.TOPOLOGY_CHANNELS == (5, 11, 17, 18, 19, 20, 21, 22)
+        phase_source = inspect.getsource(LocalBoundaryProductionContract._set_phase)
+        lock_source = inspect.getsource(LocalBoundaryProductionContract._lock_proof_topology)
+        assert 'unlock_topology_for_bootstrap()' in phase_source
+        assert '_lock_proof_topology(self)' in phase_source
+        assert 'model.geometry_net.stem' in lock_source
+        assert 'model.geometry_net.decoders' in lock_source
+
+    def test_v114_topology_lock_is_structurally_independent(self) -> None:
+        """Keep B1a topology immutable while B1b retains hidden geometry capacity.
+
+        Purpose:
+            Prevent the continuous geometry optimizer from sharing mutable hidden
+            features or output parameters with ribbon/branch/CSG topology.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource().
+        """
+        from v9.local_boundary_production_contract import LocalBoundaryProductionStructure
+        from v9.parametric_boundary import PrimitiveParameterHead
+
+        init_source = inspect.getsource(PrimitiveParameterHead.__init__)
+        lock_source = inspect.getsource(PrimitiveParameterHead.lock_topology)
+        structure_lock = inspect.getsource(LocalBoundaryProductionStructure.lock_topology_for_proof)
+        assert 'self.geometry_net = self._make_branch' in init_source
+        assert 'self.topology_net = self._make_branch' in init_source
+        assert 'self.topology_net.parameters()' in lock_source
+        assert 'parameter.requires_grad_(False)' in lock_source
+        assert 'self.topology_feature_project.parameters()' in structure_lock
+        assert 'self.geometry_feature_project.parameters()' in structure_lock
+        assert 'head.geometry_net.parameters()' in structure_lock
+
+    def test_v114_sdf_proof_uses_batch_one_analytic_teacher_bank(self) -> None:
+        """Keep V11.4 quality proof on analytic teachers without restoring batch inflation.
+
+        Purpose:
+            Require the full V11.4 sdf-proof graph to use a class-balanced analytic
+            complete-teacher loader at the canonical production batch size.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource().
+        """
+        from v9.training import TrainingService
+
+        source = inspect.getsource(TrainingService.train_v9)
+        assert 'local_structure_train_dataset = ParametricPrimitiveTrainingDataset(' in source
+        assert 'batch_size=config.batch_size' in source
+        proof = source.split('if phase == "sdf-proof":', 1)[1]
+        loader_block = proof.split('elif phase == "seam-proof":', 1)[0]
+        assert 'local_structure_train_loader' in loader_block
+        assert 'train_loader if local_structure_phase' not in loader_block
+        assert '(int(config.tiles_per_epoch) + PRIMITIVE_COUNT - 1)' in source
+
+    def test_v114_sdf_proof_cancels_raster_phase_in_final_geometry(self) -> None:
+        """Train the final analytic geometry rather than smoothing source-relative residuals.
+
+        Purpose:
+            Prevent shallow lines and curves from preserving amplified LR raster phase
+            when B1a topology is locked and sdf-proof refines continuous geometry.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource().
+        """
+        from v9.local_boundary_production_contract import LocalBoundaryProductionContract
+        from v9.parametric_boundary import LocalParametricBoundaryDecoder, PrimitiveParameterHead
+
+        head_source = inspect.getsource(PrimitiveParameterHead.forward)
+        init_source = inspect.getsource(PrimitiveParameterHead.__init__)
+        assert 'geometry_raw = self.geometry_net(x)' in head_source
+        assert 'topology_raw = self.topology_net(topology_x)' in head_source
+        assert 'self.geometry_net = self._make_branch' in init_source
+        assert 'self.topology_net = self._make_branch' in init_source
+
+        context_source = inspect.getsource(LocalParametricBoundaryDecoder.build_context)
+        assert 'topology_feature_grid: torch.Tensor | None = None' in context_source
+        assert 'self.parameter_head(geometry_head_input, topology_head_input)' in context_source
+        assert 'binomial = source_pixels.new_tensor' in context_source
+        assert 'kernel_x = binomial.view(1, 1, 1, 5)' in context_source
+        assert 'kernel_y = binomial.view(1, 1, 5, 1)' in context_source
+        assert '0.40 * source_pixels' not in context_source
+
+        loss_source = inspect.getsource(LocalBoundaryProductionContract._local_compute_losses)
+        assert 'anchor_error = anchor.float() - target_control' in loss_source
+        assert 'error_dx = anchor_error' in loss_source
+        assert 'error_dy = anchor_error' in loss_source
+        assert 'losses["parametric_offset_smoothness"] = 0.5 * (' in loss_source
+
+    def test_v114_continuous_geometry_is_coherent_and_zero_crossing_safe(self) -> None:
+        """Smooth analytic geometry while preventing B1b from deleting the contour.
+
+        Purpose:
+            Require the continuous representation to preserve affine lines, derive
+            normal/curvature from one coherent anchor field and keep a source-sign
+            envelope outside the free subpixel reconstruction band.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource(), torch.allclose().
+        """
+        import torch
+        from v9.parametric_boundary import LocalParametricBoundaryDecoder
+
+        smooth_source = inspect.getsource(
+            LocalParametricBoundaryDecoder._smooth_geometry_field
+        )
+        coherent_source = inspect.getsource(
+            LocalParametricBoundaryDecoder._coherent_branch_geometry
+        )
+        build_source = inspect.getsource(LocalParametricBoundaryDecoder.build_context)
+        query_source = inspect.getsource(LocalParametricBoundaryDecoder.query)
+        assert 'binomial = value.new_tensor((1.0, 4.0, 6.0, 4.0, 1.0))' in smooth_source
+        assert 'coherent_distance = self._smooth_geometry_field(distance)' in coherent_source
+        assert 'nx, ny = gx / norm, gy / norm' in coherent_source
+        assert 'curvature = self._smooth_geometry_field(' in coherent_source
+        assert 'self._coherent_branch_geometry(raw_branch_distance)' in build_source
+        assert 'zero_crossing_guard = 2.0' in query_source
+        assert 'gx_field, gy_field = _central_difference(d_field)' in query_source
+        assert 'context["branch_normal_x"]' not in query_source
+        assert 'context["branch_curvature_per_pixel"]' not in query_source
+        assert 'phi_param.clamp_min(zero_crossing_epsilon)' in query_source
+        assert 'phi_param.clamp_max(-zero_crossing_epsilon)' in query_source
+
+        yy, xx = torch.meshgrid(
+            torch.arange(20, dtype=torch.float32),
+            torch.arange(24, dtype=torch.float32),
+            indexing='ij',
+        )
+        affine = (0.13 * xx + 0.07 * yy - 2.0).unsqueeze(0).unsqueeze(0)
+        smoothed = LocalParametricBoundaryDecoder._smooth_geometry_field(affine)
+        assert torch.allclose(
+            smoothed[:, :, 2:-2, 2:-2], affine[:, :, 2:-2, 2:-2], atol=1.0e-5
+        )
+
+    def test_v114_analytic_bank_uses_active_structural_budget_only(self) -> None:
+        """Do not inflate the full production proof with the retired compact-bank floor.
+
+        Purpose:
+            Keep V11.4 class-balanced analytic proof at the active epoch budget while
+            preserving batch-one memory behaviour and the held-out 29-case ladder.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource().
+        """
+        from v9.training import TrainingService
+
+        source = inspect.getsource(TrainingService.train_v9)
+        budget = source.split('local_structure_train_tiles =', 1)[1].split(
+            'local_structure_train_dataset =', 1
+        )[0]
+        assert 'parametric_primitive_train_tiles_per_epoch' not in budget
+        assert 'PRIMITIVE_COUNT' in budget
+        loader = source.split('local_structure_train_loader = self._build_loader(', 1)[1].split(
+            'validation_loader =', 1
+        )[0]
+        assert 'batch_size=config.batch_size' in loader
+
+    def test_v114_outer_forward_exposes_analytic_anchor_for_sdf_proof(self) -> None:
+        """Keep the V11.4 target-relative anchor proof connected to production output.
+
+        Purpose:
+            Require FidelityResidualNetV9 to propagate GeometryNet's live analytic
+            control-lattice anchor into the dictionary consumed by sdf-proof losses.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource().
+        """
+        from v9.model import FidelityResidualNetV9
+
+        source = inspect.getsource(FidelityResidualNetV9._forward_impl)
+        assert (
+            '"parametric_anchor_distance_pixels": '
+            'geometry["parametric_anchor_distance_pixels"]'
+        ) in source
+
+def test_v114_connected_scalar_field_query_contract() -> None:
+    """V11.4 reconstructs each branch from one distance-authoritative Hermite field."""
+    import inspect
+    import math
+
+    import torch
+
+    from v9.parametric_boundary import (
+        LocalParametricBoundaryDecoder,
+        PrimitiveParameterHead,
+        make_query_grid,
+    )
+
+    source = inspect.getsource(LocalParametricBoundaryDecoder.query)
+    assert "gx_field, gy_field = _central_difference(d_field)" in source
+    assert "_gather_control(d_field" in source
+    assert "centre_surface = d +" in source
+    assert 'context["branch_normal_x"]' not in source
+    assert 'context["branch_normal_y"]' not in source
+    assert 'context["branch_curvature_per_pixel"]' not in source
+    assert "zero_crossing_guard = 2.0" in source
+
+    h, w = 14, 18
+    scale = 4.0
+    p_y = (torch.arange(h, dtype=torch.float32) + 0.5) * scale
+    p_x = (torch.arange(w, dtype=torch.float32) + 0.5) * scale
+    py, px = torch.meshgrid(p_y, p_x, indexing="ij")
+    angle = math.radians(3.0)
+    nx, ny = -math.sin(angle), math.cos(angle)
+    primary = (
+        nx * (px - float(w) * scale * 0.5)
+        + ny * (py - float(h) * scale * 0.5)
+    ).unsqueeze(0).unsqueeze(0)
+    inactive = torch.full_like(primary, 16.0)
+    branches = torch.cat((primary, inactive, inactive), dim=1)
+    zeros3 = torch.zeros_like(branches)
+    activation = torch.cat(
+        (torch.ones_like(primary), torch.zeros_like(primary), torch.zeros_like(primary)),
+        dim=1,
+    )
+    csg = torch.cat(
+        (
+            torch.full_like(primary, 12.0),
+            torch.full_like(primary, -12.0),
+            torch.full_like(primary, -12.0),
+        ),
+        dim=1,
+    )
+    context = {
+        "source_sdf_prior_lr": (primary / 16.0).clamp(-1.0, 1.0),
+        "branch_anchor_distance_pixels": branches,
+        "branch_normal_x": zeros3,
+        "branch_normal_y": zeros3,
+        "branch_curvature_per_pixel": zeros3,
+        "branch_half_width_pixels": zeros3,
+        "branch_ribbon_mode": zeros3,
+        "branch_activation": activation,
+        "csg_logits": csg,
+        "confidence": torch.ones_like(primary),
+        "distance_delta_pixels": torch.zeros_like(primary),
+    }
+    decoder = LocalParametricBoundaryDecoder(
+        1,
+        24,
+        max_distance_pixels=16.0,
+        control_scale=1,
+        output_scale=4,
+    )
+    grid = make_query_grid(1, h * 4, w * 4, device=primary.device)
+    actual = decoder.query(context, grid)["primitive_phi_pixels"]
+
+    field = actual[0, 0]
+    crosses = ((field[:-1, :] <= 0.0) != (field[1:, :] <= 0.0)).any(dim=0)
+    assert float(crosses.float().mean()) >= 0.95
+
+    # Query-time normal/curvature tensors are telemetry only. Deliberately corrupt
+    # them and prove that the rendered zero-set remains controlled by branch distance.
+    adversarial = dict(context)
+    adversarial["branch_normal_x"] = torch.full_like(zeros3, 99.0)
+    adversarial["branch_normal_y"] = torch.full_like(zeros3, -77.0)
+    adversarial["branch_curvature_per_pixel"] = torch.full_like(zeros3, 12.0)
+    adversarial_actual = decoder.query(adversarial, grid)["primitive_phi_pixels"]
+    assert torch.allclose(actual, adversarial_actual, atol=1.0e-6, rtol=0.0)
+
+    head = PrimitiveParameterHead(8, 24)
+    before = tuple(head.state_dict().keys())
+    assert head.OUTPUTS == 24
+    assert head.TOPOLOGY_CHANNELS == (5, 11, 17, 18, 19, 20, 21, 22)
+    assert head.GEOMETRY_CHANNELS == (
+        0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 23
+    )
+    head.lock_topology()
+    assert all(not p.requires_grad for p in head.topology_net.parameters())
+    assert all(p.requires_grad for p in head.geometry_net.parameters())
+    assert tuple(head.state_dict().keys()) == before
+
+
+def test_v114_distance_derived_hermite_passes_representation_microproof() -> None:
+    """The production reconstruction must satisfy the unchanged strict geometry gate."""
+    import torch
+
+    from v9.training import TrainingService
+
+    before, after, line_jitter, curve_rough = (
+        TrainingService()._parametric_structure_microproof(torch.device("cpu"))
+    )
+    assert after <= 0.02
+    assert after < before * 0.08
+    assert line_jitter <= 0.05
+    assert curve_rough <= 0.08
+
+
+def test_v114_connected_circle_and_ellipse_remain_closed() -> None:
+    """Bicubic connected branch fields keep closed analytic contours closed."""
+    import numpy as np
+    import torch
+
+    from v9.geometry_metrics import GeometryMetrics
+    from v9.parametric_boundary import LocalParametricBoundaryDecoder, make_query_grid
+
+    metrics = GeometryMetrics()
+    h = w = 32
+    yy, xx = torch.meshgrid(
+        torch.arange(h, dtype=torch.float32),
+        torch.arange(w, dtype=torch.float32),
+        indexing="ij",
+    )
+    cx = cy = 15.5
+    fields = (
+        torch.sqrt((xx - cx).square() + (yy - cy).square() + 1.0e-6) - 9.0,
+        torch.sqrt(
+            ((xx - cx) / 1.35).square()
+            + ((yy - cy) / 0.72).square()
+            + 1.0e-6
+        ) - 8.0,
+    )
+    decoder = LocalParametricBoundaryDecoder(
+        1,
+        24,
+        max_distance_pixels=16.0,
+        control_scale=1,
+        output_scale=4,
+    )
+    for field in fields:
+        primary = field.unsqueeze(0).unsqueeze(0)
+        inactive = torch.full_like(primary, 16.0)
+        branches = torch.cat((primary, inactive, inactive), dim=1)
+        zeros3 = torch.zeros_like(branches)
+        activation = torch.cat(
+            (torch.ones_like(primary), torch.zeros_like(primary), torch.zeros_like(primary)),
+            dim=1,
+        )
+        csg = torch.cat(
+            (
+                torch.full_like(primary, 12.0),
+                torch.full_like(primary, -12.0),
+                torch.full_like(primary, -12.0),
+            ),
+            dim=1,
+        )
+        context = {
+            "source_sdf_prior_lr": (primary / 16.0).clamp(-1.0, 1.0),
+            "branch_anchor_distance_pixels": branches,
+            "branch_normal_x": zeros3,
+            "branch_normal_y": zeros3,
+            "branch_curvature_per_pixel": zeros3,
+            "branch_half_width_pixels": zeros3,
+            "branch_ribbon_mode": zeros3,
+            "branch_activation": activation,
+            "csg_logits": csg,
+            "confidence": torch.ones_like(primary),
+            "distance_delta_pixels": torch.zeros_like(primary),
+        }
+        grid = make_query_grid(1, h * 4, w * 4, device=primary.device)
+        value = decoder.query(context, grid)["primitive_phi_pixels"][0, 0]
+        value = value.detach().cpu().numpy()
+        assert value[value.shape[0] // 2, value.shape[1] // 2] < 0.0
+        assert np.all(value[0, :] > 0.0)
+        assert np.all(value[-1, :] > 0.0)
+        assert np.all(value[:, 0] > 0.0)
+        assert np.all(value[:, -1] > 0.0)
+        assert metrics._binary_topology_signature(value < 0.0) == (1, 0)
+
+
+def test_v114_staircase_recovery_rejects_fragmented_contours() -> None:
+    """A missing/broken line cannot score as successful staircase removal."""
+    import numpy as np
+
+    from v9.geometry_metrics import GeometryMetrics
+
+    metrics = GeometryMetrics()
+    h, w = 96, 128
+    yy, xx = np.indices((h, w), dtype=np.float32)
+    slope = 0.15
+    centre = 38.0 + slope * xx
+    target = np.abs(yy - centre) / np.sqrt(1.0 + slope * slope) - 2.0
+
+    fragmented = target.copy()
+    fragmented[:, 52:76] = np.maximum(fragmented[:, 52:76], 4.0)
+    assert metrics.sdf_topology_mismatch(fragmented, target) == 1.0
+    assert metrics.line_staircase_recovery(target, fragmented, target) == 0.0
+
+    missing = np.full_like(target, 4.0)
+    assert metrics.line_staircase_recovery(target, missing, target) == 0.0
+
+
+def test_v114_two_pixel_sign_guard_is_hard_at_runtime() -> None:
+    """Stable source signs survive outside the quantised-prior uncertainty band."""
+    import torch
+    from torch.nn import functional as F
+
+    from v9.parametric_boundary import LocalParametricBoundaryDecoder, make_query_grid
+
+    h = w = 18
+    yy, _xx = torch.meshgrid(
+        torch.arange(h, dtype=torch.float32),
+        torch.arange(w, dtype=torch.float32),
+        indexing="ij",
+    )
+    source_pixels = (yy - 8.25).unsqueeze(0).unsqueeze(0)
+    primary = -source_pixels
+    inactive = torch.full_like(primary, 16.0)
+    branches = torch.cat((primary, inactive, inactive), dim=1)
+    zeros3 = torch.zeros_like(branches)
+    activation = torch.cat(
+        (torch.ones_like(primary), torch.zeros_like(primary), torch.zeros_like(primary)),
+        dim=1,
+    )
+    csg = torch.cat(
+        (
+            torch.full_like(primary, 12.0),
+            torch.full_like(primary, -12.0),
+            torch.full_like(primary, -12.0),
+        ),
+        dim=1,
+    )
+    source_normalized = (source_pixels / 16.0).clamp(-1.0, 1.0)
+    context = {
+        "source_sdf_prior_lr": source_normalized,
+        "branch_anchor_distance_pixels": branches,
+        "branch_normal_x": zeros3,
+        "branch_normal_y": zeros3,
+        "branch_curvature_per_pixel": zeros3,
+        "branch_half_width_pixels": zeros3,
+        "branch_ribbon_mode": zeros3,
+        "branch_activation": activation,
+        "csg_logits": csg,
+        "confidence": torch.ones_like(primary),
+        "distance_delta_pixels": torch.zeros_like(primary),
+    }
+    decoder = LocalParametricBoundaryDecoder(
+        1,
+        24,
+        max_distance_pixels=16.0,
+        control_scale=1,
+        output_scale=4,
+    )
+    grid = make_query_grid(1, h * 4, w * 4, device=primary.device)
+    predicted = decoder.query(context, grid)["primitive_phi_pixels"]
+    sampled_source = F.grid_sample(
+        source_normalized,
+        grid,
+        mode="bilinear",
+        padding_mode="border",
+        align_corners=False,
+    ) * 16.0
+
+    stable_positive = sampled_source >= 2.0
+    stable_negative = sampled_source <= -2.0
+    assert bool(torch.any(stable_positive))
+    assert bool(torch.any(stable_negative))
+    assert torch.all(predicted[stable_positive] >= 0.05)
+    assert torch.all(predicted[stable_negative] <= -0.05)

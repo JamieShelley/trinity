@@ -1852,6 +1852,10 @@ class FidelityResidualNetV9(nn.Module):
             "source_sdf_prior_pixels": geometry["source_sdf_prior_pixels"],
             "implicit_feature_grid": geometry["implicit_feature_grid"],
             "implicit_source_sdf_prior_lr": geometry["implicit_source_sdf_prior_lr"],
+            # V11.4 sdf-proof supervises the final analytic control-lattice anchor.
+            # GeometryNet already produces this field; expose it through the single
+            # production output dictionary so the proof loss sees the live graph.
+            "parametric_anchor_distance_pixels": geometry["parametric_anchor_distance_pixels"],
             "parametric_primitive_active": geometry["parametric_primitive_active"],
             "primitive_class_logits": geometry["primitive_class_logits"],
             "primitive_class_index": geometry["primitive_class_index"],

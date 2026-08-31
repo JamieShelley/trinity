@@ -483,16 +483,77 @@ class GeometryMetrics:
             return float("inf")
         return float(np.mean(energies))
 
+    # Purpose: Require the predicted line contour to remain globally connected.
+    # Called by: line_staircase_recovery
+    # Calls: sdf_topology_mismatch, zero_crossing_points
+    def _line_contour_continuity(
+        self,
+        predicted_field: np.ndarray,
+        target_field: np.ndarray,
+        *,
+        tangent_bin_pixels: float = 2.0,
+        minimum_coverage: float = 0.90,
+    ) -> bool:
+        """Reject fragmented/missing strokes before measuring staircase energy."""
+        if self.sdf_topology_mismatch(predicted_field, target_field) != 0.0:
+            return False
+        predicted = self.zero_crossing_points(predicted_field)
+        target = self.zero_crossing_points(target_field)
+        if len(predicted) < 12 or len(target) < 12:
+            return False
+
+        centre = target.mean(axis=0)
+        centered = target - centre[None, :]
+        covariance = centered.T @ centered / max(len(target), 1)
+        eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+        tangent = eigenvectors[:, int(np.argmax(eigenvalues))]
+        target_t = centered @ tangent
+        predicted_t = (predicted - centre[None, :]) @ tangent
+        lo = float(np.min(target_t))
+        hi = float(np.max(target_t))
+        span = hi - lo
+        bin_width = max(float(tangent_bin_pixels), 0.5)
+        if span < 4.0 * bin_width:
+            return False
+
+        bin_count = max(1, int(np.ceil(span / bin_width)))
+        target_bins = np.floor((target_t - lo) / bin_width).astype(np.int32)
+        target_bins = np.clip(target_bins, 0, bin_count - 1)
+        inside = (predicted_t >= lo) & (predicted_t <= hi)
+        if not np.any(inside):
+            return False
+        predicted_bins = np.floor(
+            (predicted_t[inside] - lo) / bin_width
+        ).astype(np.int32)
+        predicted_bins = np.clip(predicted_bins, 0, bin_count - 1)
+
+        required = np.unique(target_bins)
+        occupied = np.isin(required, np.unique(predicted_bins))
+        if len(required) == 0 or float(np.mean(occupied)) < float(minimum_coverage):
+            return False
+
+        longest_gap = 0
+        current_gap = 0
+        for present in occupied:
+            if bool(present):
+                current_gap = 0
+            else:
+                current_gap += 1
+                longest_gap = max(longest_gap, current_gap)
+        return longest_gap <= 2
+
     # Purpose: Implement line staircase recovery for GeometryMetrics.
     # Called by: External callers and the owning workflow.
-    # Calls: line_staircase_energy_pixels
+    # Calls: _line_contour_continuity, line_staircase_energy_pixels
     def line_staircase_recovery(
         self,
         source_field: np.ndarray,
         predicted_field: np.ndarray,
         target_field: np.ndarray,
     ) -> float:
-        """Fraction of LR staircase energy removed relative to the target geometry."""
+        """Fraction of LR staircase energy removed after continuity qualification."""
+        if not self._line_contour_continuity(predicted_field, target_field):
+            return 0.0
         source_energy = self.line_staircase_energy_pixels(source_field, target_field)
         predicted_energy = self.line_staircase_energy_pixels(predicted_field, target_field)
         target_energy = self.line_staircase_energy_pixels(target_field, target_field)

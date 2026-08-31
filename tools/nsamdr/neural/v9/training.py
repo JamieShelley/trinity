@@ -2544,6 +2544,26 @@ class TrainingService:
             persistent_workers=config.data_loader_persistent_workers,
             rolling_epoch_indices=False,
         )
+        # V11.4 uses the fixed complete-teacher analytic curriculum at the
+        # current structural epoch budget. Round up only to preserve complete
+        # seven-class balance; the legacy compact B1b bank size is not a floor for
+        # this full production graph. The permanent 29-case ladder remains held out.
+        local_structure_train_tiles = (
+            (int(config.tiles_per_epoch) + PRIMITIVE_COUNT - 1)
+            // PRIMITIVE_COUNT
+        ) * PRIMITIVE_COUNT
+        local_structure_train_dataset = ParametricPrimitiveTrainingDataset(
+            config, local_structure_train_tiles, seed=config.seed + 71_337
+        )
+        local_structure_train_loader = self._build_loader(
+            local_structure_train_dataset,
+            batch_size=config.batch_size,
+            device=device,
+            workers=workers,
+            prefetch_factor=config.data_loader_prefetch_factor,
+            persistent_workers=config.data_loader_persistent_workers,
+            rolling_epoch_indices=False,
+        )
         validation_loader = self._build_loader(
             validation_dataset,
             batch_size=1,
@@ -2974,11 +2994,14 @@ class TrainingService:
                 group["lr"] = learning_rate * float(group.get("lr_scale", 1.0))
             totals = _MetricAccumulator()
             if phase == "sdf-proof":
-                # V11.4 local-boundary proof trains the full production graph, so it
-                # must use the canonical batch-size=1 production loader. The legacy
-                # batch-8 parametric loader is only valid for the retired compact field.
+                # V11.4 local-boundary proof needs the fixed complete-teacher
+                # analytic bank that its held-out B1/B2 ladder evaluates, but the
+                # full production graph must stay at the canonical batch size. The
+                # legacy compact field keeps its configured micro-batch loader.
                 epoch_loader = (
-                    train_loader if local_structure_phase else parametric_train_loader
+                    local_structure_train_loader
+                    if local_structure_phase
+                    else parametric_train_loader
                 )
             elif phase == "seam-proof":
                 epoch_loader = seam_proof_train_loader
@@ -2998,7 +3021,9 @@ class TrainingService:
                 if local_structure_phase:
                     self._status(
                         "  B1 local-boundary production proof: full production "
-                        "geometry + same-renderer losses have authority"
+                        "geometry + same-renderer losses have authority; "
+                        f"analytic complete-teacher bank={len(local_structure_train_dataset)} "
+                        f"batch={int(local_structure_train_loader.batch_size or 1)}"
                     )
                 else:
                     self._status(
@@ -3189,6 +3214,14 @@ class TrainingService:
                                 scaler.step(optimizer)
 
                             scaler.update()
+                            if local_structure_phase:
+                                # V11.4 topology and continuous geometry share one
+                                # final Conv parameter. AdamW weight decay applies to
+                                # the whole tensor, including zero-gradient topology
+                                # rows, so restore the qualified B1a rows immediately
+                                # after each proof step. The saved state_dict then
+                                # exactly matches the live topology-locked forward.
+                                model.geometry_net.production_structure.restore_locked_topology_parameters()
                             # Gradient evidence has already been captured. Release
                             # parameter-gradient storage before the next VRAM gate.
                             optimizer.zero_grad(set_to_none=True)
