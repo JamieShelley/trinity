@@ -188,3 +188,25 @@ class TestPassDrivenPipelineContract:
         assert 'sdf_topology_mismatch' in topology_source
         assert 'predicted_topology > source_topology' in topology_source
         assert 'topology_regression_fraction <= 0.0' in fitness_source
+
+    def test_v114_sdf_proof_trains_subpixel_quality_terms(self) -> None:
+        """Keep B1b authority on the defects judged by the structural gate.
+
+        Purpose:
+            Prevent V11.4 sdf-proof from computing anti-staircase, radial-smoothness,
+            and same-renderer profile evidence only as detached diagnostics.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource().
+        """
+        from v9.local_boundary_production_contract import LocalBoundaryProductionContract
+
+        source = inspect.getsource(LocalBoundaryProductionContract._local_compute_losses)
+        proof = source.split('if phase == "sdf-proof":', 1)[1]
+        assert 'losses["implicit_subpixel_surface"]' in proof
+        assert 'losses["implicit_subpixel_gradient"]' in proof
+        assert 'losses["implicit_subpixel_eikonal"]' in proof
+        assert 'losses["sdf_curvature"]' in proof
+        assert 'losses["sdf_teacher_gradient"]' in proof
+        assert 'losses["sdf_teacher_profile"]' in proof

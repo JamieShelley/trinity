@@ -454,6 +454,27 @@ class LocalBoundaryProductionContract:
             + losses["orientation"] * float(config.orientation_weight)
             + losses["hardness"] * float(config.boundary_hardness_weight)
         )
+        # B1a establishes topology. B1b/sdf-proof must then spend explicit
+        # authority on the subpixel defects that the promotion gate measures.
+        # These losses already exist in the canonical objective; V11.4 previously
+        # computed them only as telemetry, leaving low-angle stair steps and radial
+        # scalloping without a direct differentiable training signal.
+        if phase == "sdf-proof":
+            total = total + (
+                losses["implicit_subpixel_surface"] * float(config.sdf_surface_weight)
+                + losses["implicit_subpixel_gradient"] * float(config.sdf_metric_gradient_weight)
+                + losses["implicit_subpixel_eikonal"] * float(config.sdf_eikonal_weight)
+                + losses["sdf_curvature"] * float(config.sdf_curvature_weight)
+            )
+            if "sdf_teacher_gradient" in losses:
+                total = total + losses["sdf_teacher_gradient"] * float(
+                    config.sdf_teacher_gradient_weight
+                )
+            if "sdf_teacher_profile" in losses:
+                total = total + losses["sdf_teacher_profile"] * float(
+                    config.sdf_teacher_profile_weight
+                )
+
         # Same-renderer teacher is a direct structural signal, not a separate
         # candidate path. Keep its configured proof authority bounded.
         if "sdf_teacher_render" in losses:
