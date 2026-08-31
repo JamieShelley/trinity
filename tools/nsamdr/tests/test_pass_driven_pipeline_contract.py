@@ -210,3 +210,22 @@ class TestPassDrivenPipelineContract:
         assert 'losses["sdf_curvature"]' in proof
         assert 'losses["sdf_teacher_gradient"]' in proof
         assert 'losses["sdf_teacher_profile"]' in proof
+
+    def test_v114_reuses_remaining_bootstrap_budget_for_sdf_proof(self) -> None:
+        """Do not discard structural epochs after B1a topology qualifies.
+
+        Purpose:
+            Keep the fixed Quick/Full structural budget pass-driven so remaining
+            nominal bootstrap epochs train V11.4 contour/profile quality.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource().
+        """
+        from v9.training import TrainingService
+
+        source = inspect.getsource(TrainingService.train_v9)
+        assert 'planned_phase == "sdf-bootstrap" and topology_bootstrapped' in source
+        assert 'phase = "sdf-proof"' in source
+        assert 'reallocating remaining' in source
+        assert 'bootstrap epoch to V11.4 sdf-proof quality training' in source

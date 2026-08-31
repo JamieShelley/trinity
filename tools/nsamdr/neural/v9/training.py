@@ -2846,6 +2846,16 @@ class TrainingService:
         for epoch in range(start_epoch, config.total_epochs + 1):
             planned_phase = self._phase_for_epoch(epoch, config)
             phase = planned_phase
+            # V11.4 is pass-driven inside the fixed structural work budget. Once
+            # B1a has qualified topology, later nominal bootstrap epochs must stop
+            # mutating a state that will be discarded and immediately spend their
+            # remaining budget on the live sdf-proof quality objective instead.
+            if planned_phase == "sdf-bootstrap" and topology_bootstrapped:
+                phase = "sdf-proof"
+                self._status(
+                    "  B1a already topology-qualified; reallocating remaining "
+                    "bootstrap epoch to V11.4 sdf-proof quality training."
+                )
             # V10.7.9 structural proof: B1a topology is frozen before B1b. B2 is
             # evaluation-only and uses the exact same deterministic renderer as Panel 2.
             if planned_phase == "sdf-proof" and not topology_bootstrapped:
