@@ -129,3 +129,19 @@ class TestPassDrivenPipelineContract:
         assert 'phase == "sdf-proof" and not local_structure_phase' in source
         assert 'b1b_classifier_qualified = True' in source
         assert 'b1b_parameters_qualified = True' in source
+
+    def test_v114_sdf_proof_uses_production_batch_loader(self) -> None:
+        """Keep the full V11.4 graph off the retired batch-8 primitive loader.
+
+        Purpose:
+            Ensure local-boundary sdf-proof uses the canonical production loader so
+            the full 128-to-512 graph remains batch-size 1 for bounded VRAM/RAM use.
+        Called by:
+            pytest.
+        Calls:
+            inspect.getsource().
+        """
+        from v9.training import TrainingService
+
+        source = inspect.getsource(TrainingService.train_v9)
+        assert 'train_loader if local_structure_phase else parametric_train_loader' in source

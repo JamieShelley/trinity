@@ -2964,7 +2964,12 @@ class TrainingService:
                 group["lr"] = learning_rate * float(group.get("lr_scale", 1.0))
             totals = _MetricAccumulator()
             if phase == "sdf-proof":
-                epoch_loader = parametric_train_loader
+                # V11.4 local-boundary proof trains the full production graph, so it
+                # must use the canonical batch-size=1 production loader. The legacy
+                # batch-8 parametric loader is only valid for the retired compact field.
+                epoch_loader = (
+                    train_loader if local_structure_phase else parametric_train_loader
+                )
             elif phase == "seam-proof":
                 epoch_loader = seam_proof_train_loader
             elif phase in {"seam-authority", "gate-proof", "detail-reconstruction", "boundary-hardening", "physical-finetune"}:
