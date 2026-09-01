@@ -561,29 +561,45 @@ class LocalBoundaryProductionContract:
         # These terms already exist in the canonical loss implementation. V11.4
         # makes them authoritative because the active structural representation is
         # now the local analytic actuator that those losses were written for.
-        total = (
-            losses["sdf_surface"] * float(config.sdf_surface_weight)
-            + losses["sdf_sign"] * float(config.sdf_sign_weight)
-            + losses["sdf_topology_sign"] * float(config.sdf_topology_weight)
-            + losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)
-            + losses["spline_graph_topology_control"] * float(config.spline_graph_topology_control_weight)
-            + losses["spline_graph_topology_sign"] * float(config.spline_graph_topology_sign_weight)
-            + losses["spline_graph_point"] * float(config.spline_graph_point_weight)
-            + losses["spline_graph_tangent"] * float(config.spline_graph_tangent_weight)
-            + losses["spline_graph_span_smoothness"] * float(config.spline_graph_span_smoothness_weight)
-            + losses["spline_graph_span_tangent"] * float(config.spline_graph_span_tangent_weight)
-            + losses["spline_graph_span_separation"] * float(config.spline_graph_span_separation_weight)
-            + losses["spline_graph_sdf"] * float(config.spline_graph_sdf_weight)
-            + losses["spline_graph_gradient"] * float(config.spline_graph_gradient_weight)
-            + losses["spline_graph_eikonal"] * float(config.spline_graph_eikonal_weight)
-            + losses["spline_graph_curvature"] * float(config.spline_graph_curvature_weight)
-            + losses["spline_metric_offset"] * float(config.spline_metric_offset_weight)
-            + losses["spline_metric_eikonal_near"] * float(config.spline_metric_eikonal_near_weight)
-            + losses["edge"] * float(config.edge_weight)
-            + losses["edge_sdf_consistency"] * float(config.boundary_edge_sdf_consistency_weight)
-            + losses["orientation"] * float(config.orientation_weight)
-            + losses["hardness"] * float(config.boundary_hardness_weight)
-        )
+        if phase == "sdf-bootstrap":
+            # B1a trains only the differentiable topology/control field plus the
+            # final sign/surface checks needed by its topology gate. Node motion,
+            # tangent fitting, span regularity and metric refinement belong to B1b.
+            total = (
+                losses["sdf_surface"] * float(config.sdf_surface_weight)
+                + losses["sdf_sign"] * float(config.sdf_sign_weight)
+                + losses["sdf_topology_sign"] * float(config.sdf_topology_weight)
+                + losses["spline_graph_topology_control"] * float(config.spline_graph_topology_control_weight)
+                + losses["spline_graph_topology_sign"] * float(config.spline_graph_topology_sign_weight)
+                + losses["edge"] * float(config.edge_weight)
+                + losses["edge_sdf_consistency"] * float(config.boundary_edge_sdf_consistency_weight)
+                + losses["orientation"] * float(config.orientation_weight)
+                + losses["hardness"] * float(config.boundary_hardness_weight)
+            )
+        else:
+            total = (
+                losses["sdf_surface"] * float(config.sdf_surface_weight)
+                + losses["sdf_sign"] * float(config.sdf_sign_weight)
+                + losses["sdf_topology_sign"] * float(config.sdf_topology_weight)
+                + losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)
+                + losses["spline_graph_topology_control"] * float(config.spline_graph_topology_control_weight)
+                + losses["spline_graph_topology_sign"] * float(config.spline_graph_topology_sign_weight)
+                + losses["spline_graph_point"] * float(config.spline_graph_point_weight)
+                + losses["spline_graph_tangent"] * float(config.spline_graph_tangent_weight)
+                + losses["spline_graph_span_smoothness"] * float(config.spline_graph_span_smoothness_weight)
+                + losses["spline_graph_span_tangent"] * float(config.spline_graph_span_tangent_weight)
+                + losses["spline_graph_span_separation"] * float(config.spline_graph_span_separation_weight)
+                + losses["spline_graph_sdf"] * float(config.spline_graph_sdf_weight)
+                + losses["spline_graph_gradient"] * float(config.spline_graph_gradient_weight)
+                + losses["spline_graph_eikonal"] * float(config.spline_graph_eikonal_weight)
+                + losses["spline_graph_curvature"] * float(config.spline_graph_curvature_weight)
+                + losses["spline_metric_offset"] * float(config.spline_metric_offset_weight)
+                + losses["spline_metric_eikonal_near"] * float(config.spline_metric_eikonal_near_weight)
+                + losses["edge"] * float(config.edge_weight)
+                + losses["edge_sdf_consistency"] * float(config.boundary_edge_sdf_consistency_weight)
+                + losses["orientation"] * float(config.orientation_weight)
+                + losses["hardness"] * float(config.boundary_hardness_weight)
+            )
         # B1a establishes topology. B1b/sdf-proof must then spend explicit
         # authority on the subpixel defects that the promotion gate measures.
         # These losses already exist in the canonical objective; V11.4 previously
@@ -757,6 +773,7 @@ class LocalBoundaryProductionStructure(nn.Module):
             output_scale=int(getattr(config, "target_scale", _model.UPSCALE_FACTOR)),
         )
         self.spline_graph = ConnectedSplineGraph(feature_channels, config)
+        self._topology_bootstrap_only = False
 
     # Purpose: Report whether B1a topology is locked for proof.
     # Called by: LocalBoundaryProductionContract._set_parametric_substage.
@@ -768,15 +785,25 @@ class LocalBoundaryProductionStructure(nn.Module):
     # Called by: LocalBoundaryProductionContract._set_phase.
     # Calls: PrimitiveParameterHead.unlock_topology().
     def unlock_topology_for_bootstrap(self) -> None:
-        self.decoder.parameter_head.unlock_topology()
+        # B1a is a topology proof, not an early geometry-refinement phase. Keep
+        # continuous node/tangent degrees of freedom exactly at the source crossing
+        # geometry until topology is accepted; B1b receives those degrees of freedom.
+        self._topology_bootstrap_only = True
         self.spline_graph.unlock_topology()
-        for parameter in self.parameters():
+        for parameter in self.topology_feature_project.parameters():
             parameter.requires_grad_(True)
+        for parameter in self.geometry_feature_project.parameters():
+            parameter.requires_grad_(False)
+        for parameter in self.decoder.parameters():
+            parameter.requires_grad_(False)
+        for parameter in self.spline_graph.geometry_head.parameters():
+            parameter.requires_grad_(False)
 
     # Purpose: Preserve B1a topology while exposing continuous B1b geometry rows.
     # Called by: LocalBoundaryProductionContract._lock_proof_topology.
     # Calls: PrimitiveParameterHead.lock_topology().
     def lock_topology_for_proof(self) -> None:
+        self._topology_bootstrap_only = False
         head = self.decoder.parameter_head
         head.lock_topology()
         self.spline_graph.lock_topology()
@@ -886,13 +913,18 @@ class LocalBoundaryProductionStructure(nn.Module):
         ) * distance_scale
         context["distance_delta_pixels"] = context["anchor_distance_pixels"] - source_control
 
+        geometry_scale = (
+            source_control.new_zeros(())
+            if self._topology_bootstrap_only
+            else self._genome_value("correction_scale").to(source_control.device)
+        )
         spline = self.spline_graph(
             topology_feature_grid,
             geometry_feature_grid,
             source_prior_lr,
             query_grid,
             topology_scale=distance_scale,
-            displacement_scale=self._genome_value("correction_scale").to(source_control.device),
+            displacement_scale=geometry_scale,
         )
         field = self._apply_query_genome(spline["field"])
         return {

@@ -212,14 +212,14 @@ class ConnectedSplineGraph(nn.Module):
         tangent_h = F.normalize(
             tangent_h
             + torch.tanh(raw_h[:, 4:6]).permute(0, 2, 3, 1)
-            * self.max_tangent_residual,
+            * self.max_tangent_residual * scale,
             dim=-1,
             eps=1.0e-6,
         )
         tangent_v = F.normalize(
             tangent_v
             + torch.tanh(raw_v[:, 6:8]).permute(0, 2, 3, 1)
-            * self.max_tangent_residual,
+            * self.max_tangent_residual * scale,
             dim=-1,
             eps=1.0e-6,
         )
@@ -316,15 +316,46 @@ class ConnectedSplineGraph(nn.Module):
             batch, *ix.shape[1:], *tail
         )
 
+    @staticmethod
+    def _sample_control_normals(
+        control_phi: torch.Tensor,
+        points: torch.Tensor,
+    ) -> torch.Tensor:
+        """Sample the positive-side level-set normal at shared source crossings."""
+        gx, gy = _central_difference(control_phi)
+        _batch, _channels, height, width = control_phi.shape
+        grid = torch.stack(
+            (
+                2.0 * (points[..., 0].float() + 0.5) / float(max(width, 1)) - 1.0,
+                2.0 * (points[..., 1].float() + 0.5) / float(max(height, 1)) - 1.0,
+            ),
+            dim=-1,
+        )
+        sampled = F.grid_sample(
+            torch.cat((gx, gy), dim=1),
+            grid,
+            mode="bilinear",
+            padding_mode="border",
+            align_corners=False,
+        ).permute(0, 2, 3, 1)
+        return F.normalize(sampled, dim=-1, eps=1.0e-6)
+
     def _cell_spans(
         self,
         graph: dict[str, torch.Tensor],
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
+        torch.Tensor, torch.Tensor, torch.Tensor,
+    ]:
         control_phi = graph["spline_graph_control_phi_pixels"].float()
         point_h = graph["spline_control_point_h_lr"].float()
         point_v = graph["spline_control_point_v_lr"].float()
+        source_h = graph["spline_source_control_point_h_lr"].float()
+        source_v = graph["spline_source_control_point_v_lr"].float()
         tangent_h = graph["spline_control_tangent_h"].float()
         tangent_v = graph["spline_control_tangent_v"].float()
+        normal_h = self._sample_control_normals(control_phi, source_h)
+        normal_v = self._sample_control_normals(control_phi, source_v)
         mask_h = graph["spline_graph_mask_h"][:, 0] > 0.5
         mask_v = graph["spline_graph_mask_v"][:, 0] > 0.5
         batch, _channels, height, width = control_phi.shape
@@ -339,6 +370,12 @@ class ConnectedSplineGraph(nn.Module):
             tangent_v[:, :, 1:],
             tangent_h[:, 1:],
             tangent_v[:, :, :-1],
+        )
+        normals = (
+            normal_h[:, :-1],
+            normal_v[:, :, 1:],
+            normal_h[:, 1:],
+            normal_v[:, :, :-1],
         )
         cross = torch.stack(
             (
@@ -365,6 +402,8 @@ class ConnectedSplineGraph(nn.Module):
         p1 = control_phi.new_zeros(shape)
         t0 = control_phi.new_zeros(shape)
         t1 = control_phi.new_zeros(shape)
+        n0 = control_phi.new_zeros(shape)
+        n1 = control_phi.new_zeros(shape)
         active = torch.zeros(
             (batch, height - 1, width - 1, 2),
             device=control_phi.device,
@@ -391,6 +430,12 @@ class ConnectedSplineGraph(nn.Module):
             t1[..., 0, :] = torch.where(
                 selected[..., None], tangents[b_index], t1[..., 0, :]
             )
+            n0[..., 0, :] = torch.where(
+                selected[..., None], normals[a_index], n0[..., 0, :]
+            )
+            n1[..., 0, :] = torch.where(
+                selected[..., None], normals[b_index], n1[..., 0, :]
+            )
             active[..., 0] = active[..., 0] | selected
         for slot, a_index, b_index, selected in (
             (0, 0, 1, pair_a),
@@ -410,8 +455,29 @@ class ConnectedSplineGraph(nn.Module):
             t1[..., slot, :] = torch.where(
                 selected[..., None], tangents[b_index], t1[..., slot, :]
             )
+            n0[..., slot, :] = torch.where(
+                selected[..., None], normals[a_index], n0[..., slot, :]
+            )
+            n1[..., slot, :] = torch.where(
+                selected[..., None], normals[b_index], n1[..., slot, :]
+            )
             active[..., slot] = active[..., slot] | selected
-        return p0, p1, t0, t1, active
+
+        # Tangent supervision is intentionally orientation-invariant, but cubic
+        # Hermite evaluation is not. Orient each tangent line along its span so a
+        # sign flip cannot create an artificial loop/scallop inside one cell.
+        chord = p1 - p0
+        t0 = t0 * torch.where(
+            (t0 * chord).sum(dim=-1, keepdim=True) < 0.0,
+            -torch.ones_like(t0[..., :1]),
+            torch.ones_like(t0[..., :1]),
+        )
+        t1 = t1 * torch.where(
+            (t1 * chord).sum(dim=-1, keepdim=True) < 0.0,
+            -torch.ones_like(t1[..., :1]),
+            torch.ones_like(t1[..., :1]),
+        )
+        return p0, p1, t0, t1, n0, n1, active
 
     def _unsigned_distance_chunk(
         self,
@@ -419,6 +485,8 @@ class ConnectedSplineGraph(nn.Module):
         p1: torch.Tensor,
         t0: torch.Tensor,
         t1: torch.Tensor,
+        n0: torch.Tensor,
+        n1: torch.Tensor,
         active: torch.Tensor,
         query_x: torch.Tensor,
         query_y: torch.Tensor,
@@ -427,9 +495,15 @@ class ConnectedSplineGraph(nn.Module):
         control_h: int,
         control_w: int,
     ) -> torch.Tensor:
-        """Evaluate one bounded query-row chunk with the exact production metric."""
+        """Evaluate signed distance to the nearest cubic span for one row chunk.
+
+        The historical method name is retained for checkpoint/test compatibility.
+        Sign now comes from the positive-side control normal at the closest spline
+        point, so the zero-set is the cubic graph itself rather than the bilinear
+        control-field sign contour.
+        """
         batch, query_h, query_w = query_x.shape
-        min_distance = torch.full(
+        best_signed = torch.full(
             (batch, query_h, query_w),
             1.0e6,
             device=query_x.device,
@@ -444,6 +518,8 @@ class ConnectedSplineGraph(nn.Module):
                 cell_p1 = self._gather_cell(p1, ix, iy)
                 cell_t0 = self._gather_cell(t0, ix, iy)
                 cell_t1 = self._gather_cell(t1, ix, iy)
+                cell_n0 = self._gather_cell(n0, ix, iy)
+                cell_n1 = self._gather_cell(n1, ix, iy)
                 cell_active = self._gather_cell(active, ix, iy)
                 chord = torch.linalg.vector_norm(
                     cell_p1 - cell_p0, dim=-1, keepdim=True
@@ -451,7 +527,8 @@ class ConnectedSplineGraph(nn.Module):
                 m0 = cell_t0 * chord
                 m1 = cell_t1 * chord
                 previous = cell_p0
-                local_distance = torch.full(
+                previous_normal = cell_n0
+                local_signed = torch.full(
                     cell_active.shape,
                     1.0e6,
                     device=query_x.device,
@@ -466,26 +543,46 @@ class ConnectedSplineGraph(nn.Module):
                         + (-2.0 * s3 + 3.0 * s2) * cell_p1
                         + (s3 - s2) * m1
                     )
+                    current_normal = F.normalize(
+                        (1.0 - s) * cell_n0 + s * cell_n1,
+                        dim=-1,
+                        eps=1.0e-6,
+                    )
                     segment = current - previous
                     projection = (
                         ((query - previous) * segment).sum(dim=-1)
                         / segment.square().sum(dim=-1).clamp_min(1.0e-8)
                     ).clamp(0.0, 1.0)
                     closest = previous + projection[..., None] * segment
+                    closest_normal = F.normalize(
+                        previous_normal
+                        + projection[..., None] * (current_normal - previous_normal),
+                        dim=-1,
+                        eps=1.0e-6,
+                    )
                     distance = torch.linalg.vector_norm(
                         query - closest, dim=-1
                     ) * self.spacing_pixels
-                    distance = torch.where(
+                    side = ((query - closest) * closest_normal).sum(dim=-1)
+                    signed = torch.where(side >= 0.0, distance, -distance)
+                    signed = torch.where(
                         cell_active,
-                        distance,
-                        torch.full_like(distance, 1.0e6),
+                        signed,
+                        torch.full_like(signed, 1.0e6),
                     )
-                    local_distance = torch.minimum(local_distance, distance)
+                    local_signed = torch.where(
+                        signed.abs() < local_signed.abs(), signed, local_signed
+                    )
                     previous = current
-                min_distance = torch.minimum(
-                    min_distance, local_distance.min(dim=-1).values
+                    previous_normal = current_normal
+                local_index = local_signed.abs().argmin(dim=-1, keepdim=True)
+                local_best = torch.gather(
+                    local_signed, dim=-1, index=local_index
+                ).squeeze(-1)
+                best_signed = torch.where(
+                    local_best.abs() < best_signed.abs(), local_best, best_signed
                 )
-        return min_distance
+        return best_signed
 
     def query(
         self,
@@ -507,16 +604,16 @@ class ConnectedSplineGraph(nn.Module):
         base_x = torch.floor(query_x).long()
         base_y = torch.floor(query_y).long()
 
-        p0, p1, t0, t1, active = self._cell_spans(graph)
+        p0, p1, t0, t1, n0, n1, active = self._cell_spans(graph)
         chunk_rows = max(
             1,
             min(query_h, self.query_chunk_pixels // max(query_w, 1)),
         )
-        distance_chunks: list[torch.Tensor] = []
+        signed_chunks: list[torch.Tensor] = []
         checkpoint_distance = (
             self.training
             and torch.is_grad_enabled()
-            and any(value.requires_grad for value in (p0, p1, t0, t1))
+            and any(value.requires_grad for value in (p0, p1, t0, t1, n0, n1))
         )
         for row_start in range(0, query_h, chunk_rows):
             row_end = min(query_h, row_start + chunk_rows)
@@ -525,39 +622,24 @@ class ConnectedSplineGraph(nn.Module):
             bx = base_x[:, row_start:row_end]
             by = base_y[:, row_start:row_end]
             if checkpoint_distance:
-                distance = checkpoint(
-                    lambda cp0, cp1, ct0, ct1, cqx, cqy, cbx, cby: (
+                signed = checkpoint(
+                    lambda cp0, cp1, ct0, ct1, cn0, cn1, cqx, cqy, cbx, cby: (
                         self._unsigned_distance_chunk(
-                            cp0, cp1, ct0, ct1, active, cqx, cqy, cbx, cby,
-                            control_h, control_w,
+                            cp0, cp1, ct0, ct1, cn0, cn1, active,
+                            cqx, cqy, cbx, cby, control_h, control_w,
                         )
                     ),
-                    p0, p1, t0, t1, qx, qy, bx, by,
+                    p0, p1, t0, t1, n0, n1, qx, qy, bx, by,
                     use_reentrant=False,
                 )
             else:
-                distance = self._unsigned_distance_chunk(
-                    p0, p1, t0, t1, active, qx, qy, bx, by, control_h, control_w
+                signed = self._unsigned_distance_chunk(
+                    p0, p1, t0, t1, n0, n1, active,
+                    qx, qy, bx, by, control_h, control_w,
                 )
-            distance_chunks.append(distance)
-        min_distance = torch.cat(distance_chunks, dim=1)
+            signed_chunks.append(signed)
+        graph_phi = torch.cat(signed_chunks, dim=1)
 
-        control_grid = torch.stack(
-            (
-                2.0 * (query_x + 0.5) / float(max(control_w, 1)) - 1.0,
-                2.0 * (query_y + 0.5) / float(max(control_h, 1)) - 1.0,
-            ),
-            dim=-1,
-        )
-        sampled_control = F.grid_sample(
-            control_phi,
-            control_grid,
-            mode="bilinear",
-            padding_mode="border",
-            align_corners=False,
-        )[:, 0]
-        graph_sign = torch.where(sampled_control >= 0.0, 1.0, -1.0)
-        graph_phi = graph_sign * min_distance
         sampled_source = F.grid_sample(
             source,
             query_grid.float(),
@@ -565,7 +647,7 @@ class ConnectedSplineGraph(nn.Module):
             padding_mode="border",
             align_corners=False,
         )[:, 0] * self.max_distance_pixels
-        has_graph = min_distance < 1.0e5
+        has_graph = graph_phi.abs() < 1.0e5
         inner = max(2.0, self.edit_band_pixels * (2.0 / 3.0))
         outer = max(inner + 1.0, self.edit_band_pixels)
         authority = (
@@ -586,7 +668,7 @@ class ConnectedSplineGraph(nn.Module):
         return {
             "phi_pixels": phi_field,
             # Public structural geometry must be the bounded production field.
-            # graph_phi carries a 1e6 no-span sentinel internally and must never
+            # graph_phi carries a +/-1e6 no-span sentinel internally and must never
             # escape into training/evolution/topology consumers.
             "primitive_phi_pixels": phi_field,
             "primitive_normal": normal,

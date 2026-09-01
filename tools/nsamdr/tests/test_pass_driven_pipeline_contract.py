@@ -950,7 +950,7 @@ def test_v115_spline_query_bounds_training_autograd_memory() -> None:
     assert 'chunk_rows = max(' in source
     assert 'checkpoint(' in source
     assert 'use_reentrant=False' in source
-    assert 'distance_chunks.append(distance)' in source
+    assert 'signed_chunks.append(signed)' in source
     assert 'for offset_y in range(-self.neighbour_radius' in helper
     assert 'for sample_index in range(1, self.samples_per_span + 1)' in helper
 
@@ -1109,7 +1109,27 @@ def test_v115_production_forward_keeps_connected_spline_supervision_live() -> No
         if parameter.grad is not None
     )
     assert topology_grad > 0.0
-    assert geometry_grad > 0.0
+    assert geometry_grad == 0.0
+
+    # B1b must invert that ownership: accepted topology is frozen while shared
+    # node displacement/tangent geometry receives the live spline objective.
+    model.zero_grad(set_to_none=True)
+    model.set_phase("sdf-proof")
+    outputs = model(batch["input"])
+    proof_losses = training.compute_losses(outputs, batch, config, "sdf-proof")
+    proof_losses["total"].backward()
+    proof_topology_grad = sum(
+        float(parameter.grad.detach().abs().sum())
+        for parameter in model.geometry_net.production_structure.spline_graph.topology_head.parameters()
+        if parameter.grad is not None
+    )
+    proof_geometry_grad = sum(
+        float(parameter.grad.detach().abs().sum())
+        for parameter in model.geometry_net.production_structure.spline_graph.geometry_head.parameters()
+        if parameter.grad is not None
+    )
+    assert proof_topology_grad == 0.0
+    assert proof_geometry_grad > 0.0
 
 
 def test_v115_b1_missing_spline_outputs_is_fatal() -> None:
@@ -1160,3 +1180,124 @@ def test_v115_optimizer_applies_configured_spline_learning_rate_multiplier() -> 
     ]
     assert len(spline_groups) == 1
     assert float(spline_groups[0]["lr_scale"]) == 4.0
+
+
+
+def test_v115_signed_zero_set_moves_with_cubic_graph_not_control_sign() -> None:
+    """Moving shared spline nodes must move the actual sign-changing zero contour."""
+    import torch
+    from types import SimpleNamespace
+
+    from v9.parametric_boundary import make_query_grid
+    from v9.spline_graph import ConnectedSplineGraph
+
+    config = SimpleNamespace(
+        spline_graph_hidden_channels=24,
+        spline_graph_control_scale=2,
+        target_scale=4,
+        contour_sdf_max_distance_pixels=24.0,
+        spline_graph_max_topology_delta_pixels=8.0,
+        spline_graph_topology_edit_band_pixels=4.0,
+        spline_graph_max_displacement_pixels=4.0,
+        spline_graph_max_tangent_residual=0.75,
+        spline_graph_edit_band_pixels=12.0,
+        spline_graph_neighbour_radius=1,
+        spline_graph_samples_per_span=4,
+        spline_graph_query_chunk_pixels=4096,
+    )
+    decoder = ConnectedSplineGraph(4, config).eval()
+    feature = torch.zeros((1, 4, 24, 24), dtype=torch.float32)
+    y_lr, x_lr = torch.meshgrid(
+        torch.arange(24, dtype=torch.float32),
+        torch.arange(24, dtype=torch.float32),
+        indexing='ij',
+    )
+    x_phys = 2.0 + 4.0 * x_lr
+    source = ((x_phys - 48.0) / 24.0).clamp(-1.0, 1.0).unsqueeze(0).unsqueeze(0)
+    grid = make_query_grid(1, 96, 96, device=torch.device('cpu'))
+    graph = decoder.build_graph(feature, feature, source)
+
+    def crossing(field: torch.Tensor) -> float:
+        row = field[0, 0, 48]
+        indices = torch.nonzero((row[:-1] >= 0.0) != (row[1:] >= 0.0)).flatten()
+        assert indices.numel() == 1
+        i = int(indices[0])
+        a, b = float(row[i].detach()), float(row[i + 1].detach())
+        return i + 0.5 + abs(a) / max(abs(a) + abs(b), 1.0e-8)
+
+    before = crossing(decoder.query(graph, grid)['phi_pixels'])
+    shifted = dict(graph)
+    delta = torch.tensor([1.0, 0.0])
+    shifted['spline_control_point_h_lr'] = graph['spline_control_point_h_lr'] + delta
+    shifted['spline_control_point_v_lr'] = graph['spline_control_point_v_lr'] + delta
+    after = crossing(decoder.query(shifted, grid)['phi_pixels'])
+    # One control-lattice unit is exactly two HR pixels in production.
+    assert after - before > 1.5
+    assert abs((after - before) - 2.0) < 0.35
+
+
+def test_v115_span_tangent_lines_are_oriented_for_hermite_parameterization() -> None:
+    """Unoriented tangent supervision must not produce backwards Hermite derivatives."""
+    import torch
+    from types import SimpleNamespace
+
+    from v9.spline_graph import ConnectedSplineGraph
+
+    config = SimpleNamespace(
+        spline_graph_hidden_channels=24,
+        spline_graph_control_scale=2,
+        target_scale=4,
+        contour_sdf_max_distance_pixels=24.0,
+        spline_graph_max_topology_delta_pixels=8.0,
+        spline_graph_topology_edit_band_pixels=4.0,
+        spline_graph_max_displacement_pixels=4.0,
+        spline_graph_max_tangent_residual=0.75,
+        spline_graph_edit_band_pixels=12.0,
+        spline_graph_neighbour_radius=1,
+        spline_graph_samples_per_span=4,
+    )
+    decoder = ConnectedSplineGraph(4, config)
+    feature = torch.zeros((1, 4, 12, 12), dtype=torch.float32)
+    yy, xx = torch.meshgrid(
+        torch.arange(12, dtype=torch.float32),
+        torch.arange(12, dtype=torch.float32),
+        indexing='ij',
+    )
+    source = ((yy - 0.37 * xx - 4.0) / 24.0).unsqueeze(0).unsqueeze(0)
+    graph = decoder.build_graph(feature, feature, source)
+    p0, p1, t0, t1, _n0, _n1, active = decoder._cell_spans(graph)
+    chord = p1 - p0
+    active_mask = active[..., None]
+    assert torch.all((t0 * chord).sum(dim=-1, keepdim=True)[active_mask] >= -1.0e-6)
+    assert torch.all((t1 * chord).sum(dim=-1, keepdim=True)[active_mask] >= -1.0e-6)
+
+
+def test_v115_b1a_is_topology_only_and_b1b_owns_continuous_geometry() -> None:
+    """Bootstrap cannot move spline nodes/tangent residuals before topology qualifies."""
+    import inspect
+
+    from v9.local_boundary_production_contract import (
+        LocalBoundaryProductionContract,
+        LocalBoundaryProductionStructure,
+    )
+    from v9.spline_graph import ConnectedSplineGraph
+
+    unlock = inspect.getsource(LocalBoundaryProductionStructure.unlock_topology_for_bootstrap)
+    forward = inspect.getsource(LocalBoundaryProductionStructure.forward)
+    proof = inspect.getsource(LocalBoundaryProductionStructure.lock_topology_for_proof)
+    losses = inspect.getsource(LocalBoundaryProductionContract._local_compute_losses)
+    edge = inspect.getsource(ConnectedSplineGraph._edge_graph)
+
+    assert 'self._topology_bootstrap_only = True' in unlock
+    assert 'self.geometry_feature_project.parameters()' in unlock
+    assert 'parameter.requires_grad_(False)' in unlock
+    assert 'self.spline_graph.geometry_head.parameters()' in unlock
+    assert 'if self._topology_bootstrap_only' in forward
+    assert 'self._topology_bootstrap_only = False' in proof
+    assert 'if phase == "sdf-bootstrap":' in losses
+    bootstrap_total = losses.split('if phase == "sdf-bootstrap":', 1)[1].split('else:', 1)[0]
+    assert 'spline_graph_topology_control' in bootstrap_total
+    assert 'spline_graph_topology_sign' in bootstrap_total
+    assert 'spline_graph_point' not in bootstrap_total
+    assert 'spline_metric_offset' not in bootstrap_total
+    assert '* self.max_tangent_residual * scale' in edge
