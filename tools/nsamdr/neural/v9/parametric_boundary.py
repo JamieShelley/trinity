@@ -457,6 +457,77 @@ class LocalParametricBoundaryDecoder(nn.Module):
             "junction_hint": up(torch.maximum(branch_activation[:, 1:2], branch_activation[:, 2:3])),
         }
 
+    # Purpose: Sample one control-lattice scalar field as a globally stitched C1 surface.
+    # Called by: query.
+    # Calls: _central_difference, _gather_control.
+    @staticmethod
+    def _hermite_sample_scalar(
+        field: torch.Tensor,
+        query_grid: torch.Tensor,
+    ) -> torch.Tensor:
+        _batch, _channels, height, width = field.shape
+        if height < 2 or width < 2:
+            return F.grid_sample(
+                field.float(), query_grid.float(), mode="bilinear",
+                padding_mode="border", align_corners=False,
+            )
+
+        # One scalar lattice owns values and every derivative. Shared node jets make
+        # adjacent bicubic cells agree in both value and first derivative (C1).
+        fx, fy = _central_difference(field)
+        fx = fx.clone()
+        fy = fy.clone()
+        fx[:, :, :, 0] = field[:, :, :, 1] - field[:, :, :, 0]
+        fx[:, :, :, -1] = field[:, :, :, -1] - field[:, :, :, -2]
+        fy[:, :, 0, :] = field[:, :, 1, :] - field[:, :, 0, :]
+        fy[:, :, -1, :] = field[:, :, -1, :] - field[:, :, -2, :]
+        _unused_fxx, fxy = _central_difference(fx)
+        fxy = fxy.clone()
+        fxy[:, :, 0, :] = fx[:, :, 1, :] - fx[:, :, 0, :]
+        fxy[:, :, -1, :] = fx[:, :, -1, :] - fx[:, :, -2, :]
+
+        gx = query_grid[..., 0].float()
+        gy = query_grid[..., 1].float()
+        cx = (gx + 1.0) * (float(width) * 0.5) - 0.5
+        cy = (gy + 1.0) * (float(height) * 0.5) - 0.5
+        x0 = torch.floor(cx).long().clamp(0, width - 2)
+        y0 = torch.floor(cy).long().clamp(0, height - 2)
+        x1 = x0 + 1
+        y1 = y0 + 1
+        tx = cx - x0.float()
+        ty = cy - y0.float()
+
+        def basis(t: torch.Tensor) -> tuple[torch.Tensor, ...]:
+            t2 = t * t
+            t3 = t2 * t
+            return (
+                2.0 * t3 - 3.0 * t2 + 1.0,
+                t3 - 2.0 * t2 + t,
+                -2.0 * t3 + 3.0 * t2,
+                t3 - t2,
+            )
+
+        hx00, hx10, hx01, hx11 = [v.unsqueeze(1) for v in basis(tx)]
+        hy00, hy10, hy01, hy11 = [v.unsqueeze(1) for v in basis(ty)]
+
+        def gather(value: torch.Tensor, ix: torch.Tensor, iy: torch.Tensor) -> torch.Tensor:
+            return _gather_control(value, ix, iy)
+
+        f00, f10 = gather(field, x0, y0), gather(field, x1, y0)
+        f01, f11 = gather(field, x0, y1), gather(field, x1, y1)
+        fx00, fx10 = gather(fx, x0, y0), gather(fx, x1, y0)
+        fx01, fx11 = gather(fx, x0, y1), gather(fx, x1, y1)
+        fy00, fy10 = gather(fy, x0, y0), gather(fy, x1, y0)
+        fy01, fy11 = gather(fy, x0, y1), gather(fy, x1, y1)
+        fxy00, fxy10 = gather(fxy, x0, y0), gather(fxy, x1, y0)
+        fxy01, fxy11 = gather(fxy, x0, y1), gather(fxy, x1, y1)
+
+        row0 = hx00 * f00 + hx10 * fx00 + hx01 * f10 + hx11 * fx10
+        row1 = hx00 * f01 + hx10 * fx01 + hx01 * f11 + hx11 * fx11
+        dy0 = hx00 * fy00 + hx10 * fxy00 + hx01 * fy10 + hx11 * fxy10
+        dy1 = hx00 * fy01 + hx10 * fxy01 + hx01 * fy11 + hx11 * fxy11
+        return hy00 * row0 + hy10 * dy0 + hy01 * row1 + hy11 * dy1
+
     # Purpose: Implement smooth min for LocalParametricBoundaryDecoder.
     # Called by: query
     # Calls: No same-class helper methods.
@@ -474,22 +545,15 @@ class LocalParametricBoundaryDecoder(nn.Module):
     # Purpose: Implement query for LocalParametricBoundaryDecoder.
     # Called by: forward
     # Calls: _central_difference, _gather_control, _sample, _smooth_max, _smooth_min
+    # Purpose: Query the shared C1 topology-branch scalar fields.
+    # Called by: forward.
+    # Calls: _hermite_sample_scalar, _sample, _central_difference, _smooth_max, _smooth_min.
     def query(
         self,
         context: dict[str, torch.Tensor],
         query_grid: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
         d_field = context["branch_anchor_distance_pixels"]
-        # Distance is the sole geometry authority. Reconstruct local Hermite jets
-        # from derivatives of that one control-lattice scalar field; predicted
-        # normal/curvature channels cannot move the rendered zero-set.
-        gx_field, gy_field = _central_difference(d_field)
-        grad_norm = torch.sqrt(gx_field.square() + gy_field.square() + 1.0e-6)
-        nx_field, ny_field = gx_field / grad_norm, gy_field / grad_norm
-        nx_x_field, _ = _central_difference(nx_field)
-        _, ny_y_field = _central_difference(ny_field)
-        lattice_spacing = float(self.output_scale) / float(self.control_scale)
-        k_field = (nx_x_field + ny_y_field) / max(lattice_spacing, 1.0e-6)
         half_width_field = context["branch_half_width_pixels"]
         ribbon_mode_field = context["branch_ribbon_mode"]
         activation_field = context["branch_activation"]
@@ -497,65 +561,22 @@ class LocalParametricBoundaryDecoder(nn.Module):
         confidence_field = context["confidence"]
         source = context["source_sdf_prior_lr"]
 
-        b, branches, hc, wc = d_field.shape
+        b, _branches, _hc, _wc = d_field.shape
         hq, wq = query_grid.shape[1:3]
-        gx = query_grid[..., 0].float()
-        gy = query_grid[..., 1].float()
-        cx = (gx + 1.0) * (float(wc) * 0.5) - 0.5
-        cy = (gy + 1.0) * (float(hc) * 0.5) - 0.5
-        qx = (gx + 1.0) * (float(wq) * 0.5) - 0.5
-        qy = (gy + 1.0) * (float(hq) * 0.5) - 0.5
-        x0, y0 = torch.floor(cx).long(), torch.floor(cy).long()
-        wx, wy = (cx - x0.float()).clamp(0.0, 1.0), (cy - y0.float()).clamp(0.0, 1.0)
-        sx, sy = float(wq) / float(wc), float(hq) / float(hc)
 
-        branch_phi = torch.zeros((b, branches, hq, wq), device=query_grid.device)
-        branch_nx = torch.zeros_like(branch_phi)
-        branch_ny = torch.zeros_like(branch_phi)
-        branch_k = torch.zeros_like(branch_phi)
-        branch_half_width = torch.zeros_like(branch_phi)
-        branch_ribbon_mode = torch.zeros_like(branch_phi)
-        branch_activation = torch.zeros_like(branch_phi)
-        csg_logits = torch.zeros((b, 3, hq, wq), device=query_grid.device)
-        confidence = torch.zeros((b, 1, hq, wq), device=query_grid.device)
-
-        for ox, oy, weight in (
-            (0, 0, (1.0 - wx) * (1.0 - wy)),
-            (1, 0, wx * (1.0 - wy)),
-            (0, 1, (1.0 - wx) * wy),
-            (1, 1, wx * wy),
-        ):
-            ix, iy = x0 + ox, y0 + oy
-            d = _gather_control(d_field, ix, iy)
-            nx = _gather_control(nx_field, ix, iy)
-            ny = _gather_control(ny_field, ix, iy)
-            kappa = _gather_control(k_field, ix, iy)
-            half_width = _gather_control(half_width_field, ix, iy)
-            ribbon_mode = _gather_control(ribbon_mode_field, ix, iy)
-            act = _gather_control(activation_field, ix, iy)
-            ops = _gather_control(csg_field, ix, iy)
-            conf = _gather_control(confidence_field, ix, iy)
-            anchor_x = (ix.float() + 0.5) * sx - 0.5
-            anchor_y = (iy.float() + 0.5) * sy - 0.5
-            dx = (qx - anchor_x).unsqueeze(1)
-            dy = (qy - anchor_y).unsqueeze(1)
-            tangent = -ny * dx + nx * dy
-            centre_surface = d + nx * dx + ny * dy + 0.5 * kappa * tangent.square()
-            ribbon_surface = centre_surface.abs() - half_width
-            primitive = centre_surface * (1.0 - ribbon_mode) + ribbon_surface * ribbon_mode
-            w = weight.unsqueeze(1)
-            branch_phi = branch_phi + w * primitive
-            branch_nx = branch_nx + w * nx
-            branch_ny = branch_ny + w * ny
-            branch_k = branch_k + w * kappa
-            branch_half_width = branch_half_width + w * half_width
-            branch_ribbon_mode = branch_ribbon_mode + w * ribbon_mode
-            branch_activation = branch_activation + w * act
-            csg_logits = csg_logits + w * ops
-            confidence = confidence + w * conf
-
-        nrm = torch.sqrt(branch_nx.square() + branch_ny.square() + 1.0e-6)
-        branch_nx, branch_ny = branch_nx / nrm, branch_ny / nrm
+        # Geometry is one stitched C1 scalar surface per topology branch. No local
+        # primitive owns an independent query-time tangent, curvature or zero-set.
+        branch_center = self._hermite_sample_scalar(d_field, query_grid)
+        branch_half_width = _sample(half_width_field, query_grid)
+        branch_ribbon_mode = _sample(ribbon_mode_field, query_grid)
+        branch_activation = _sample(activation_field, query_grid)
+        csg_logits = _sample(csg_field, query_grid)
+        confidence = _sample(confidence_field, query_grid)
+        ribbon_surface = branch_center.abs() - branch_half_width
+        branch_phi = (
+            branch_center * (1.0 - branch_ribbon_mode)
+            + ribbon_surface * branch_ribbon_mode
+        )
 
         inactive_penalty = 16.0
         union_values = branch_phi.clone()
@@ -573,10 +594,9 @@ class LocalParametricBoundaryDecoder(nn.Module):
         )
 
         sampled_source = _sample(source, query_grid) * self.max_distance_pixels
-        # The analytic field owns the central contour band so it can replace LR
-        # stair steps with one continuous subpixel line/arc. Outside a narrow free
-        # band, preserve the source sign as a fail-closed topology envelope: B1b may
-        # move and smooth the zero crossing, but it may not erase it altogether.
+        # A 4x-quantised LR prior has roughly a two-pixel contour uncertainty band.
+        # The learned C1 field owns that band; stable source signs outside it remain
+        # a fail-closed topology envelope.
         zero_crossing_guard = 2.0
         zero_crossing_epsilon = 0.05
         phi_param = torch.where(
@@ -589,15 +609,19 @@ class LocalParametricBoundaryDecoder(nn.Module):
             phi_param.clamp_max(-zero_crossing_epsilon),
             phi_param,
         )
-        # Outside the renderer-relevant contour tube, retain the source as the
-        # far-field sign/distance fallback without blending its raster phase into
-        # the central de-rasterisation band.
         inner_radius = 8.0
         outer_radius = 12.0
         u = ((outer_radius - sampled_source.abs()) / (outer_radius - inner_radius)).clamp(0.0, 1.0)
         authority = u * u * (3.0 - 2.0 * u)
         phi = sampled_source * (1.0 - authority) + phi_param * authority
 
+        # Normals/curvature are telemetry derived from that exact sampled surface.
+        gx_hr, gy_hr = _central_difference(branch_center)
+        grad_norm = torch.sqrt(gx_hr.square() + gy_hr.square() + 1.0e-6)
+        branch_nx, branch_ny = gx_hr / grad_norm, gy_hr / grad_norm
+        nx_x, _ = _central_difference(branch_nx)
+        _, ny_y = _central_difference(branch_ny)
+        branch_k = nx_x + ny_y
         primary_normal = torch.cat((branch_nx[:, 0:1], branch_ny[:, 0:1]), dim=1)
         source_primary = _sample(context["distance_delta_pixels"], query_grid)
         return {

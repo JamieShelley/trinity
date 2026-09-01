@@ -3537,6 +3537,9 @@ class TrainingService:
                 topology_regression = float(
                     synthetic_sdf_metrics.get("sdf_stageb_topology_regression_fraction", 1.0)
                 )
+                rendered_topology_regression = float(
+                    synthetic_sdf_metrics.get("sdf_stageb_rendered_topology_regression_fraction", 1.0)
+                )
                 profile_ratio = float(
                     synthetic_sdf_metrics.get("sdf_stageb_profile_width_ratio_mean", 999.0)
                 )
@@ -3577,6 +3580,7 @@ class TrainingService:
                     and predicted_missing <= source_missing + float(config.sdf_missing_contour_tolerance)
                     and contour_chamfer <= float(config.sdf_catastrophic_chamfer_pixels)
                     and topology_regression == 0.0
+                    and rendered_topology_regression == 0.0
                     and primitive_gate
                     and line_jitter <= float(config.structural_line_jitter_required_pixels)
                     and curve_roughness <= float(config.structural_curve_roughness_required_pixels)
@@ -3611,6 +3615,7 @@ class TrainingService:
                     + 0.20 * max(0.0, line_jitter - float(config.structural_line_jitter_required_pixels))
                     + 0.20 * max(0.0, curve_roughness - float(config.structural_curve_roughness_required_pixels))
                     + 5.0 * topology_regression
+                    + 5.0 * rendered_topology_regression
                     + (0.0 if hard_structure_gate else 2.0)
                 )
                 structure_rank = self._structure_selection_rank(
@@ -3645,6 +3650,7 @@ class TrainingService:
                     f"pTeach={primitive_teacher_param_mae:.4f} pInt={primitive_integrated_param_mae:.4f} "
                     f"stairRec={staircase_recovery:+.1%} "
                     f"topologyReg={topology_regression*100.0:.1f}% "
+                    f"renderedTopologyReg={rendered_topology_regression*100.0:.1f}% "
                     f"gate={('CANDIDATE_PASS' if hard_candidate_gate else 'HOLD') if phase == 'gate-proof' else ('STRUCTURE_PASS' if hard_structure_gate else 'HOLD')} "
                     f"score={(sdf_score if phase == 'gate-proof' else structure_score):.3f}"
                 )
@@ -3712,6 +3718,9 @@ class TrainingService:
                 topology_regression = float(
                     synthetic_sdf_metrics.get("sdf_stageb_topology_regression_fraction", 1.0)
                 )
+                rendered_topology_regression = float(
+                    synthetic_sdf_metrics.get("sdf_stageb_rendered_topology_regression_fraction", 1.0)
+                )
                 profile_ratio = float(
                     synthetic_sdf_metrics.get("sdf_stageb_profile_width_ratio_mean", 999.0)
                 )
@@ -3751,6 +3760,7 @@ class TrainingService:
                     and predicted_missing <= source_missing + float(config.sdf_missing_contour_tolerance)
                     and contour_chamfer <= float(config.sdf_catastrophic_chamfer_pixels)
                     and topology_regression == 0.0
+                    and rendered_topology_regression == 0.0
                     and primitive_gate
                     and line_jitter <= float(config.structural_line_jitter_required_pixels)
                     and curve_roughness <= float(config.structural_curve_roughness_required_pixels)
@@ -3785,6 +3795,7 @@ class TrainingService:
                     + 0.20 * max(0.0, line_jitter - float(config.structural_line_jitter_required_pixels))
                     + 0.20 * max(0.0, curve_roughness - float(config.structural_curve_roughness_required_pixels))
                     + 5.0 * topology_regression
+                    + 5.0 * rendered_topology_regression
                     + (0.0 if hard_structure_gate else 2.0)
                 )
                 structure_rank = self._structure_selection_rank(
@@ -3810,6 +3821,7 @@ class TrainingService:
                     topology_ok = (
                         predicted_missing <= source_missing + float(config.sdf_missing_contour_tolerance)
                         and topology_regression == 0.0
+                        and rendered_topology_regression == 0.0
                     )
                     # Once topology qualifies, preserve that exact checkpoint. Later
                     # bootstrap epochs may explore, but they must not overwrite the

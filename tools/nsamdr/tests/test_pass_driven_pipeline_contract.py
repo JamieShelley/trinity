@@ -366,7 +366,8 @@ class TestPassDrivenPipelineContract:
         assert 'curvature = self._smooth_geometry_field(' in coherent_source
         assert 'self._coherent_branch_geometry(raw_branch_distance)' in build_source
         assert 'zero_crossing_guard = 2.0' in query_source
-        assert 'gx_field, gy_field = _central_difference(d_field)' in query_source
+        assert 'branch_center = self._hermite_sample_scalar(d_field, query_grid)' in query_source
+        assert 'centre_surface = d +' not in query_source
         assert 'context["branch_normal_x"]' not in query_source
         assert 'context["branch_curvature_per_pixel"]' not in query_source
         assert 'phi_param.clamp_min(zero_crossing_epsilon)' in query_source
@@ -440,9 +441,11 @@ def test_v114_connected_scalar_field_query_contract() -> None:
     )
 
     source = inspect.getsource(LocalParametricBoundaryDecoder.query)
-    assert "gx_field, gy_field = _central_difference(d_field)" in source
-    assert "_gather_control(d_field" in source
-    assert "centre_surface = d +" in source
+    hermite_source = inspect.getsource(LocalParametricBoundaryDecoder._hermite_sample_scalar)
+    assert "branch_center = self._hermite_sample_scalar(d_field, query_grid)" in source
+    assert "centre_surface = d +" not in source
+    assert "_gather_control(value, ix, iy)" in hermite_source
+    assert "2.0 * t3 - 3.0 * t2 + 1.0" in hermite_source
     assert 'context["branch_normal_x"]' not in source
     assert 'context["branch_normal_y"]' not in source
     assert 'context["branch_curvature_per_pixel"]' not in source
@@ -523,7 +526,7 @@ def test_v114_connected_scalar_field_query_contract() -> None:
     assert tuple(head.state_dict().keys()) == before
 
 
-def test_v114_distance_derived_hermite_passes_representation_microproof() -> None:
+def test_v114_c1_hermite_passes_representation_microproof() -> None:
     """The production reconstruction must satisfy the unchanged strict geometry gate."""
     import torch
 
@@ -539,7 +542,7 @@ def test_v114_distance_derived_hermite_passes_representation_microproof() -> Non
 
 
 def test_v114_connected_circle_and_ellipse_remain_closed() -> None:
-    """Bicubic connected branch fields keep closed analytic contours closed."""
+    """C1 Hermite branch fields keep closed analytic contours closed."""
     import numpy as np
     import torch
 
@@ -699,3 +702,46 @@ def test_v114_two_pixel_sign_guard_is_hard_at_runtime() -> None:
     assert bool(torch.any(stable_negative))
     assert torch.all(predicted[stable_positive] >= 0.05)
     assert torch.all(predicted[stable_negative] <= -0.05)
+
+def test_v114_c1_hermite_reproduces_affine_field_to_float_precision() -> None:
+    """A shallow affine contour crosses cell seams without interpolation phase error."""
+    import torch
+
+    from v9.parametric_boundary import LocalParametricBoundaryDecoder, make_query_grid
+
+    h = w = 24
+    yy, xx = torch.meshgrid(
+        torch.arange(h, dtype=torch.float32),
+        torch.arange(w, dtype=torch.float32),
+        indexing="ij",
+    )
+    lattice = (0.37 * xx + 0.19 * yy - 5.0).unsqueeze(0).unsqueeze(0)
+    decoder = LocalParametricBoundaryDecoder(
+        1, 24, max_distance_pixels=24.0, control_scale=1, output_scale=4
+    )
+    grid = make_query_grid(1, 96, 96, device=lattice.device)
+    actual = decoder._hermite_sample_scalar(lattice, grid)
+    qy, qx = torch.meshgrid(
+        torch.arange(96, dtype=torch.float32),
+        torch.arange(96, dtype=torch.float32),
+        indexing="ij",
+    )
+    exact = (
+        0.37 * ((qx + 0.5) / 4.0 - 0.5)
+        + 0.19 * ((qy + 0.5) / 4.0 - 0.5)
+        - 5.0
+    ).unsqueeze(0).unsqueeze(0)
+    assert float((actual - exact).abs().max()) <= 2.0e-5
+
+
+def test_v114_structural_gate_rejects_rendered_topology_regression() -> None:
+    """Raw-SDF topology cannot hide a topology regression introduced by rendering."""
+    import inspect
+
+    from v9.training import TrainingService
+
+    source = inspect.getsource(TrainingService.train_v9)
+    assert 'sdf_stageb_rendered_topology_regression_fraction' in source
+    assert 'rendered_topology_regression == 0.0' in source
+    bootstrap = source.split('topology_ok = (', 1)[1].split('# Once topology qualifies', 1)[0]
+    assert 'rendered_topology_regression == 0.0' in bootstrap
