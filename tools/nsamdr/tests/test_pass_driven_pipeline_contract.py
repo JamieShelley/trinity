@@ -745,3 +745,127 @@ def test_v114_structural_gate_rejects_rendered_topology_regression() -> None:
     assert 'rendered_topology_regression == 0.0' in source
     bootstrap = source.split('topology_ok = (', 1)[1].split('# Once topology qualifies', 1)[0]
     assert 'rendered_topology_regression == 0.0' in bootstrap
+
+
+def test_v115_connected_spline_graph_is_the_renderer_geometry_authority() -> None:
+    """Final geometry comes from shared graph nodes, not the compatibility scalar field."""
+    import inspect
+
+    from v9.local_boundary_production_contract import (
+        LocalBoundaryProductionContract,
+        LocalBoundaryProductionStructure,
+    )
+    from v9.spline_graph import ConnectedSplineGraph
+
+    structure = inspect.getsource(LocalBoundaryProductionStructure.forward)
+    query = inspect.getsource(LocalBoundaryProductionContract._geometry_query_from_outputs)
+    cell_spans = inspect.getsource(ConnectedSplineGraph._cell_spans)
+    assert 'spline = self.spline_graph(' in structure
+    assert 'self.decoder.query(' not in structure
+    assert '"spline_graph": spline["graph"]' in structure
+    assert 'self.production_structure.spline_graph.query(graph, query_grid)' in query
+    assert 'count == 2' in cell_spans
+    assert 'count == 4' in cell_spans
+    assert 'pair_a' in cell_spans and 'pair_b' in cell_spans
+
+
+def test_v115_canonical_spline_losses_are_training_authority() -> None:
+    """The existing graph/node/tangent losses must be in the actual B1 total."""
+    import inspect
+
+    from v9.local_boundary_production_contract import LocalBoundaryProductionContract
+
+    source = inspect.getsource(LocalBoundaryProductionContract._local_compute_losses)
+    for name in (
+        'spline_graph_topology_control', 'spline_graph_topology_sign',
+        'spline_graph_point', 'spline_graph_tangent',
+        'spline_graph_span_smoothness', 'spline_graph_span_tangent',
+        'spline_graph_span_separation', 'spline_graph_sdf',
+        'spline_graph_gradient', 'spline_graph_eikonal',
+        'spline_graph_curvature', 'spline_metric_offset',
+        'spline_metric_eikonal_near',
+    ):
+        assert f'losses["{name}"]' in source
+
+
+def test_v115_spline_graph_representation_removes_shallow_line_and_circle_faceting() -> None:
+    """Untrained graph geometry itself is smooth at the exact production 24->96 scale."""
+    import math
+    from types import SimpleNamespace
+
+    import numpy as np
+    import torch
+    from torch.nn import functional as F
+
+    from v9.parametric_boundary import make_query_grid
+    from v9.spline_graph import ConnectedSplineGraph
+
+    config = SimpleNamespace(
+        spline_graph_hidden_channels=24,
+        spline_graph_control_scale=2,
+        target_scale=4,
+        contour_sdf_max_distance_pixels=24.0,
+        spline_graph_max_topology_delta_pixels=8.0,
+        spline_graph_topology_edit_band_pixels=4.0,
+        spline_graph_max_displacement_pixels=4.0,
+        spline_graph_max_tangent_residual=0.75,
+        spline_graph_edit_band_pixels=12.0,
+        spline_graph_neighbour_radius=2,
+        spline_graph_samples_per_span=4,
+    )
+    decoder = ConnectedSplineGraph(4, config)
+    feature = torch.zeros((1, 4, 24, 24), dtype=torch.float32)
+    y_lr, x_lr = torch.meshgrid(
+        torch.arange(24, dtype=torch.float32),
+        torch.arange(24, dtype=torch.float32),
+        indexing='ij',
+    )
+    x_phys = 2.0 + 4.0 * x_lr
+    y_phys = 2.0 + 4.0 * y_lr
+    grid = make_query_grid(1, 96, 96, device=torch.device('cpu'))
+
+    slope = math.tan(math.radians(1.0))
+    source_line = (
+        (y_phys - (40.0 + slope * x_phys)) / math.sqrt(1.0 + slope * slope)
+    ).clamp(-24.0, 24.0).unsqueeze(0).unsqueeze(0) / 24.0
+    line = decoder(feature, feature, source_line, grid)["field"]["phi_pixels"][0, 0]
+    line_np = line.detach().numpy()
+    crossings = []
+    for x in range(96):
+        column = line_np[:, x]
+        indices = np.where((column[:-1] >= 0.0) != (column[1:] >= 0.0))[0]
+        assert len(indices) == 1
+        y0 = int(indices[0])
+        a, b = float(column[y0]), float(column[y0 + 1])
+        t = abs(a) / max(abs(a) + abs(b), 1.0e-12)
+        crossings.append(y0 + 0.5 + t)
+    exact = 40.0 + slope * (np.arange(96, dtype=np.float32) + 0.5)
+    line_jitter = float(np.std(np.asarray(crossings) - exact))
+    assert line_jitter <= 0.05
+
+    source_circle = (
+        torch.sqrt((x_phys - 48.0).square() + (y_phys - 48.0).square() + 1.0e-8)
+        - 30.0
+    ).clamp(-24.0, 24.0).unsqueeze(0).unsqueeze(0) / 24.0
+    circle = decoder(feature, feature, source_circle, grid)["field"]["phi_pixels"]
+    angles = torch.linspace(0.0, 2.0 * math.pi, 721)[:-1]
+    radii = torch.linspace(26.0, 34.0, 129)
+    sample_x = 48.0 + torch.cos(angles)[:, None] * radii[None, :]
+    sample_y = 48.0 + torch.sin(angles)[:, None] * radii[None, :]
+    radial_grid = torch.stack(
+        (2.0 * sample_x / 96.0 - 1.0, 2.0 * sample_y / 96.0 - 1.0), dim=-1
+    ).unsqueeze(0)
+    radial = F.grid_sample(
+        circle.float(), radial_grid, mode='bilinear', padding_mode='border', align_corners=False
+    )[0, 0].detach().numpy()
+    recovered = []
+    radius_np = radii.numpy()
+    for row in radial:
+        indices = np.where((row[:-1] < 0.0) & (row[1:] >= 0.0))[0]
+        assert len(indices) >= 1
+        index = int(indices[0])
+        a, b = float(row[index]), float(row[index + 1])
+        t = abs(a) / max(abs(a) + abs(b), 1.0e-12)
+        recovered.append(radius_np[index] + t * (radius_np[index + 1] - radius_np[index]))
+    curve_roughness = float(np.std(np.asarray(recovered)))
+    assert curve_roughness <= 0.08

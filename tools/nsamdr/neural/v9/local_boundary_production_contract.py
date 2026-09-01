@@ -6,13 +6,12 @@ boundary specialist, the selector, or the public ``model(inputs)`` graph.
 
 The only semantic change is structural representation:
 
-    old: one whole-tile seven-way primitive classifier/regressor
-    new: one local analytic line/arc/CSG field per LR control location
+    old: independently learned local scalar/analytic cells
+    new: hard-connectivity marching-squares graph with shared movable nodes
 
-The local field is the existing :class:`LocalParametricBoundaryDecoder` already
-shipped in the production source tree.  It predicts local anchor distance,
-normal, curvature, ribbon width/mode and compact CSG composition and is queried
-continuously at output/subpixel coordinates.
+Topology is a bounded 2x control field. Every crossed control edge owns one
+shared node/tangent, neighbouring cells reuse that exact node, and deterministic
+cubic-Hermite spans are the sole rendered zero-set authority.
 """
 from __future__ import annotations
 
@@ -25,8 +24,9 @@ from torch.nn import functional as F
 
 from . import model as _model
 from .parametric_boundary import LocalParametricBoundaryDecoder, make_query_grid
+from .spline_graph import ConnectedSplineGraph
 
-SCHEMA = "NSAMDR_RAVEN_PRODUCTION_EVOLVABLE_LOCAL_BOUNDARY_4X_V11_4_0"
+SCHEMA = "NSAMDR_RAVEN_PRODUCTION_CONNECTED_SPLINE_GRAPH_4X_V11_5_0"
 
 _INSTALLED = False
 _ORIGINAL_GEOMETRY_INIT: Callable[..., None] | None = None
@@ -142,6 +142,7 @@ class LocalBoundaryProductionContract:
         )
         feature_grid = structure["feature_grid"]
         local_context = structure["context"]
+        spline_graph = structure["spline_graph"]
         field = structure["field"]
 
         final_pixels = field["phi_pixels"].float()
@@ -177,6 +178,23 @@ class LocalBoundaryProductionContract:
         params_by_class = final_pixels.new_zeros(
             (inputs.shape[0], class_count, param_dim)
         )
+        spline_keys = (
+            "spline_graph_control_phi_pixels",
+            "spline_graph_source_control_phi_pixels",
+            "spline_control_point_h_lr",
+            "spline_control_point_v_lr",
+            "spline_source_control_point_h_lr",
+            "spline_source_control_point_v_lr",
+            "spline_control_tangent_h",
+            "spline_control_tangent_v",
+            "spline_control_displacement_h_lr",
+            "spline_control_displacement_v_lr",
+            "spline_graph_mask_h",
+            "spline_graph_mask_v",
+        )
+        spline_outputs = {
+            key: spline_graph[key].to(aux.dtype) for key in spline_keys
+        }
 
         return {
             "sdf": sdf.to(aux.dtype),
@@ -185,6 +203,7 @@ class LocalBoundaryProductionContract:
             "source_sdf_prior_pixels": source_prior_pixels.to(aux.dtype),
             "implicit_feature_grid": feature_grid,
             "implicit_source_sdf_prior_lr": context["source_sdf_prior_lr"],
+            **spline_outputs,
             "primitive_normal": primitive_normal.to(aux.dtype),
             "primitive_curvature_hr": curvature.to(aux.dtype),
             "primitive_phi_pixels": field["primitive_phi_pixels"].to(aux.dtype),
@@ -230,37 +249,30 @@ class LocalBoundaryProductionContract:
             "boundary_gate_logits": zero_gate.to(aux.dtype),
         }
 
-    # Purpose: Implement geometry query from outputs for LocalBoundaryProductionContract.
-    # Called by: External callers and the owning workflow.
-    # Calls: LocalBoundaryProductionStructure._apply_query_genome.
+    # Purpose: Query the exact checkpointed connected spline graph.
+    # Called by: Boundary supersampling and production redraw.
+    # Calls: ConnectedSplineGraph.query.
     def _geometry_query_from_outputs(
         self: Any,
         outputs: dict[str, torch.Tensor],
         query_grid: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
-        branch_activation = outputs["local_branch_activation"]
-        context = {
+        graph = {
+            "spline_graph_control_phi_pixels": outputs["spline_graph_control_phi_pixels"],
+            "spline_graph_source_control_phi_pixels": outputs["spline_graph_source_control_phi_pixels"],
+            "spline_control_point_h_lr": outputs["spline_control_point_h_lr"],
+            "spline_control_point_v_lr": outputs["spline_control_point_v_lr"],
+            "spline_source_control_point_h_lr": outputs["spline_source_control_point_h_lr"],
+            "spline_source_control_point_v_lr": outputs["spline_source_control_point_v_lr"],
+            "spline_control_tangent_h": outputs["spline_control_tangent_h"],
+            "spline_control_tangent_v": outputs["spline_control_tangent_v"],
+            "spline_control_displacement_h_lr": outputs["spline_control_displacement_h_lr"],
+            "spline_control_displacement_v_lr": outputs["spline_control_displacement_v_lr"],
+            "spline_graph_mask_h": outputs["spline_graph_mask_h"],
+            "spline_graph_mask_v": outputs["spline_graph_mask_v"],
             "source_sdf_prior_lr": outputs["implicit_source_sdf_prior_lr"],
-            "branch_anchor_distance_pixels": outputs["local_branch_anchor_distance_pixels"],
-            "branch_normal_x": outputs["local_branch_normal_x"],
-            "branch_normal_y": outputs["local_branch_normal_y"],
-            "branch_curvature_per_pixel": outputs["local_branch_curvature_per_pixel"],
-            "branch_half_width_pixels": outputs["local_branch_half_width_pixels"],
-            "branch_ribbon_mode": outputs["local_branch_ribbon_mode"],
-            "branch_activation": branch_activation,
-            "csg_logits": outputs["local_csg_logits"],
-            "confidence": outputs["local_parametric_confidence"],
-            "anchor_distance_pixels": outputs["parametric_anchor_distance_pixels"],
-            "normal_x": outputs["local_branch_normal_x"][:, 0:1],
-            "normal_y": outputs["local_branch_normal_y"][:, 0:1],
-            "curvature_per_pixel": outputs["local_branch_curvature_per_pixel"][:, 0:1],
-            "ribbon_half_width_pixels": outputs["local_branch_half_width_pixels"][:, 0:1],
-            "ribbon_mode": outputs["local_branch_ribbon_mode"][:, 0:1],
-            "distance_delta_pixels": outputs["parametric_distance_delta_pixels"],
-            "junction_hint": branch_activation[:, 1:].amax(dim=1, keepdim=True),
         }
-        field = self.production_structure.decoder.query(context, query_grid)
-        return self.production_structure._apply_query_genome(field)
+        return self.production_structure.spline_graph.query(graph, query_grid)
 
     # Purpose: Freeze the B1a topology producer while retaining geometric refinement.
     # Called by: _set_phase.
@@ -328,18 +340,20 @@ class LocalBoundaryProductionContract:
         contract.update({
             "schema": SCHEMA,
             "geometryPrediction": (
-                "local LR-lattice analytic line/arc/ribbon primitives with compact CSG, "
-                "queried continuously as one metric SDF"
+                "bounded 2x topology field -> shared edge-crossing nodes -> "
+                "connected cubic-Hermite contour graph -> metric SDF"
             ),
-            "reconstructionPrimitive": "local analytic line/arc/ribbon CSG field",
-            "b1bObjective": "direct local metric SDF, anchor, normal, curvature and same-renderer reconstruction",
+            "reconstructionPrimitive": "connected marching-squares cubic-Hermite spline graph",
+            "b1bObjective": "shared graph-node, tangent, span-smoothness, metric-SDF and same-renderer reconstruction",
             "geometryOutputs": (
-                "source_sdf_prior", "local_parametric_boundary_geometry", "edge", "orientation", "hardness"
+                "source_sdf_prior", "connected_spline_graph", "edge", "orientation", "hardness"
             ),
             "topologyGeometryFeatureSplit": True,
             "finiteWidthStrokeRepresentation": (
-                "local ribbon mode with up to three analytic branches and union/intersection composition"
+                "paired connected material-boundary spline branches; topology is structural"
             ),
+            "connectedSplineGraphAuthority": True,
+            "splineGraphControlScale": int(getattr(self.config, "spline_graph_control_scale", 2)),
             "wholeTilePrimitiveClassifierAuthority": False,
             "localBoundaryControlScale": int(getattr(self.config, "parametric_boundary_control_scale", 1)),
             "evolutionaryRecovery": "training-only bounded genome over one fixed production supernet",
@@ -354,7 +368,7 @@ class LocalBoundaryProductionContract:
         # downstream B3/B4/detail/selector stages.
         stages = list(contract.get("stagedProofs") or ())
         stages = [
-            "B1-local-parametric-boundary" if str(item) == "B1b-parametric-primitive" else item
+            "B1-connected-spline-graph" if str(item) == "B1b-parametric-primitive" else item
             for item in stages
         ]
         contract["stagedProofs"] = tuple(stages)
@@ -526,13 +540,20 @@ class LocalBoundaryProductionContract:
             losses["sdf_surface"] * float(config.sdf_surface_weight)
             + losses["sdf_sign"] * float(config.sdf_sign_weight)
             + losses["sdf_topology_sign"] * float(config.sdf_topology_weight)
-            + losses["sdf_eikonal"] * float(config.sdf_eikonal_weight)
-            + losses["sdf_metric_gradient"] * float(config.sdf_metric_gradient_weight)
             + losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)
-            + losses["parametric_anchor"] * float(config.parametric_boundary_anchor_weight)
-            + losses["parametric_normal"] * float(config.parametric_boundary_normal_weight)
-            + losses["parametric_curvature"] * float(config.parametric_boundary_curvature_weight)
-            + losses["parametric_offset_smoothness"] * float(config.parametric_boundary_offset_smoothness_weight)
+            + losses["spline_graph_topology_control"] * float(config.spline_graph_topology_control_weight)
+            + losses["spline_graph_topology_sign"] * float(config.spline_graph_topology_sign_weight)
+            + losses["spline_graph_point"] * float(config.spline_graph_point_weight)
+            + losses["spline_graph_tangent"] * float(config.spline_graph_tangent_weight)
+            + losses["spline_graph_span_smoothness"] * float(config.spline_graph_span_smoothness_weight)
+            + losses["spline_graph_span_tangent"] * float(config.spline_graph_span_tangent_weight)
+            + losses["spline_graph_span_separation"] * float(config.spline_graph_span_separation_weight)
+            + losses["spline_graph_sdf"] * float(config.spline_graph_sdf_weight)
+            + losses["spline_graph_gradient"] * float(config.spline_graph_gradient_weight)
+            + losses["spline_graph_eikonal"] * float(config.spline_graph_eikonal_weight)
+            + losses["spline_graph_curvature"] * float(config.spline_graph_curvature_weight)
+            + losses["spline_metric_offset"] * float(config.spline_metric_offset_weight)
+            + losses["spline_metric_eikonal_near"] * float(config.spline_metric_eikonal_near_weight)
             + losses["edge"] * float(config.edge_weight)
             + losses["edge_sdf_consistency"] * float(config.boundary_edge_sdf_consistency_weight)
             + losses["orientation"] * float(config.orientation_weight)
@@ -710,18 +731,20 @@ class LocalBoundaryProductionStructure(nn.Module):
             control_scale=int(getattr(config, "parametric_boundary_control_scale", 1)),
             output_scale=int(getattr(config, "target_scale", _model.UPSCALE_FACTOR)),
         )
+        self.spline_graph = ConnectedSplineGraph(feature_channels, config)
 
     # Purpose: Report whether B1a topology is locked for proof.
     # Called by: LocalBoundaryProductionContract._set_parametric_substage.
     # Calls: No same-class helper methods.
     def topology_locked(self) -> bool:
-        return bool(self.decoder.parameter_head._topology_locked)
+        return bool(self.spline_graph._topology_locked)
 
     # Purpose: Restore full structural trainability for B1a topology bootstrap.
     # Called by: LocalBoundaryProductionContract._set_phase.
     # Calls: PrimitiveParameterHead.unlock_topology().
     def unlock_topology_for_bootstrap(self) -> None:
         self.decoder.parameter_head.unlock_topology()
+        self.spline_graph.unlock_topology()
         for parameter in self.parameters():
             parameter.requires_grad_(True)
 
@@ -731,11 +754,14 @@ class LocalBoundaryProductionStructure(nn.Module):
     def lock_topology_for_proof(self) -> None:
         head = self.decoder.parameter_head
         head.lock_topology()
+        self.spline_graph.lock_topology()
         for parameter in self.topology_feature_project.parameters():
             parameter.requires_grad_(False)
         for parameter in self.geometry_feature_project.parameters():
             parameter.requires_grad_(True)
         for parameter in head.geometry_net.parameters():
+            parameter.requires_grad_(True)
+        for parameter in self.spline_graph.geometry_head.parameters():
             parameter.requires_grad_(True)
 
     # Purpose: Persist the phase-local topology lock into actual model parameters.
@@ -743,6 +769,7 @@ class LocalBoundaryProductionStructure(nn.Module):
     # Calls: PrimitiveParameterHead.restore_locked_topology_parameters().
     def restore_locked_topology_parameters(self) -> None:
         self.decoder.parameter_head.restore_locked_topology_parameters()
+        self.spline_graph.restore_locked_topology_parameters()
 
     # Purpose: Implement genome dict for LocalBoundaryProductionStructure.
     # Called by: External callers and the owning workflow.
@@ -773,7 +800,9 @@ class LocalBoundaryProductionStructure(nn.Module):
         self,
         field: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
-        """Apply the same final correction authority to every continuous query path."""
+        """Apply legacy field correction only to the retired scalar query path."""
+        if "spline_graph_authority" in field:
+            return field
         correction_scale = self._genome_value("correction_scale").to(
             field["phi_pixels"].device
         )
@@ -787,9 +816,9 @@ class LocalBoundaryProductionStructure(nn.Module):
         field["residual_pixels"] = evolved_phi - sampled_source
         return field
 
-    # Purpose: Implement forward for LocalBoundaryProductionStructure.
-    # Called by: External callers and the owning workflow.
-    # Calls: _apply_query_genome, _genome_value
+    # Purpose: Build and query the connected production spline graph.
+    # Called by: GeometryNet.forward.
+    # Calls: ConnectedSplineGraph.forward, LocalParametricBoundaryDecoder.build_context.
     def forward(
         self,
         decoded_feature: torch.Tensor,
@@ -799,19 +828,24 @@ class LocalBoundaryProductionStructure(nn.Module):
     ) -> dict[str, Any]:
         feature_gain = self._genome_value("feature_gain").to(decoded_feature.device)
         evidence_gain = self._genome_value("evidence_gain").to(decoded_feature.device)
-        direct_evidence = inputs[:, 0:16].to(decoded_feature.dtype) * evidence_gain.to(decoded_feature.dtype)
+        direct_evidence = (
+            inputs[:, 0:16].to(decoded_feature.dtype)
+            * evidence_gain.to(decoded_feature.dtype)
+        )
         projected_input = torch.cat(
-            (decoded_feature * feature_gain.to(decoded_feature.dtype), direct_evidence), dim=1
+            (decoded_feature * feature_gain.to(decoded_feature.dtype), direct_evidence),
+            dim=1,
         )
         geometry_feature_grid = self.geometry_feature_project(projected_input)
         topology_feature_grid = self.topology_feature_project(projected_input)
+
+        # Retain the V11.4 local context only for checkpoint/public telemetry. It has
+        # no query-time authority after V11.5.
         context = self.decoder.build_context(
-            geometry_feature_grid, source_prior_lr,
+            geometry_feature_grid,
+            source_prior_lr,
             topology_feature_grid=topology_feature_grid,
         )
-
-        # The supernet topology is fixed; the genome only scales bounded
-        # authorities within that topology. This keeps one checkpoint schema.
         max_distance = float(self.decoder.max_distance_pixels)
         control_size = context["branch_anchor_distance_pixels"].shape[-2:]
         source_control = F.interpolate(
@@ -825,37 +859,21 @@ class LocalBoundaryProductionStructure(nn.Module):
         context["anchor_distance_pixels"] = source_control + (
             context["anchor_distance_pixels"] - source_control
         ) * distance_scale
-        context["distance_delta_pixels"] = (
-            context["anchor_distance_pixels"] - source_control
-        )
-        context["branch_curvature_per_pixel"] = (
-            context["branch_curvature_per_pixel"]
-            * self._genome_value("curvature_scale").to(source_control.device)
-        )
-        context["curvature_per_pixel"] = context["branch_curvature_per_pixel"][:, 0:1]
-        context["branch_half_width_pixels"] = (
-            context["branch_half_width_pixels"]
-            * self._genome_value("ribbon_scale").to(source_control.device)
-        ).clamp_min(0.0)
-        context["ribbon_half_width_pixels"] = context["branch_half_width_pixels"][:, 0:1]
-        extra_gain = self._genome_value("extra_branch_gain").to(source_control.device)
-        context["branch_activation"] = torch.cat((
-            context["branch_activation"][:, 0:1],
-            (context["branch_activation"][:, 1:2] * extra_gain).clamp(0.0, 1.0),
-            (context["branch_activation"][:, 2:3] * extra_gain).clamp(0.0, 1.0),
-        ), dim=1)
-        context["junction_hint"] = context["branch_activation"][:, 1:].amax(dim=1, keepdim=True)
-        context["csg_logits"] = (
-            context["csg_logits"]
-            * self._genome_value("csg_logit_scale").to(source_control.device)
-        )
+        context["distance_delta_pixels"] = context["anchor_distance_pixels"] - source_control
 
-        field = self._apply_query_genome(
-            self.decoder.query(context, query_grid)
+        spline = self.spline_graph(
+            topology_feature_grid,
+            geometry_feature_grid,
+            source_prior_lr,
+            query_grid,
+            topology_scale=distance_scale,
+            displacement_scale=self._genome_value("correction_scale").to(source_control.device),
         )
+        field = self._apply_query_genome(spline["field"])
         return {
             "feature_grid": geometry_feature_grid,
             "context": context,
+            "spline_graph": spline["graph"],
             "field": field,
             "genome": self.evolution_genome,
         }
