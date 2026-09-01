@@ -1001,3 +1001,29 @@ def test_reactive_vram_predictor_never_learns_more_than_physical_vram() -> None:
     source = inspect.getsource(_ReactiveCudaMemoryGovernor.after_step)
     assert 'predictor_peak = min(peak, self.total_bytes)' in source
     assert 'extra = max(0, predictor_peak - int(allocated_before))' in source
+
+
+def test_training_status_does_not_crash_on_invalid_gui_stdout(monkeypatch) -> None:
+    """A dead/invalid GUI stdout pipe is telemetry loss, not a training failure."""
+    import builtins
+
+    from v9.training import TrainingService
+
+    def invalid_stdout(*_args, **_kwargs):
+        raise OSError(22, 'Invalid argument')
+
+    monkeypatch.setattr(builtins, 'print', invalid_stdout)
+    TrainingService()._status('VRAM status line')
+
+
+def test_training_status_does_not_crash_on_closed_stdout(monkeypatch) -> None:
+    """Closed text streams may raise ValueError rather than OSError."""
+    import builtins
+
+    from v9.training import TrainingService
+
+    def closed_stdout(*_args, **_kwargs):
+        raise ValueError('I/O operation on closed file')
+
+    monkeypatch.setattr(builtins, 'print', closed_stdout)
+    TrainingService()._status('training status line')

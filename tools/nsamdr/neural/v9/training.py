@@ -60,8 +60,14 @@ class TrainingService:
     # Called by: _validate, train_v9
     # Calls: No same-class helper methods.
     def _status(self, message: str = "") -> None:
-        """Emit one training status line immediately, including under GUI pipes."""
-        print(message, flush=True)
+        """Emit status when possible, but never let a dead GUI pipe stop training."""
+        try:
+            print(message, flush=True)
+        except (OSError, ValueError):
+            # On Windows a GUI/subprocess stdout handle can become invalid while
+            # the training process is still alive (for example Errno 22). Status
+            # output is diagnostic only and must never abort an optimizer run.
+            return
 
     # Purpose: Implement render profile metrics numpy for TrainingService.
     # Called by: _oracle_render_match_numpy
