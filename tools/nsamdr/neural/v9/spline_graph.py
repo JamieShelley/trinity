@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.utils.checkpoint import checkpoint
 
 
 def _central_difference(value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -48,6 +49,14 @@ class ConnectedSplineGraph(nn.Module):
         self.edit_band_pixels = float(getattr(config, "spline_graph_edit_band_pixels", 12.0))
         self.neighbour_radius = max(1, int(getattr(config, "spline_graph_neighbour_radius", 2)))
         self.samples_per_span = max(2, int(getattr(config, "spline_graph_samples_per_span", 4)))
+        # Bound the number of query pixels whose full nearest-span autograd graph
+        # may exist at once. The old whole-frame loop retained every neighbour /
+        # span / sample candidate until backward and reached tens of GiB for one
+        # 512x512 training tile. Row chunks preserve identical forward geometry;
+        # checkpointing makes backward recompute one bounded chunk at a time.
+        self.query_chunk_pixels = max(1024, int(
+            getattr(config, "spline_graph_query_chunk_pixels", 16384)
+        ))
         self.topology_head = nn.Sequential(
             nn.Conv2d(feature_channels, hidden, 3, padding=1),
             nn.GELU(),
@@ -404,31 +413,26 @@ class ConnectedSplineGraph(nn.Module):
             active[..., slot] = active[..., slot] | selected
         return p0, p1, t0, t1, active
 
-    def query(
+    def _unsigned_distance_chunk(
         self,
-        graph: dict[str, torch.Tensor],
-        query_grid: torch.Tensor,
-    ) -> dict[str, torch.Tensor]:
-        control_phi = graph["spline_graph_control_phi_pixels"].float()
-        source = graph["source_sdf_prior_lr"].float()
-        batch, _channels, control_h, control_w = control_phi.shape
-        query_h, query_w = query_grid.shape[1:3]
-        physical_x = (
-            query_grid[..., 0].float() + 1.0
-        ) * (float(query_w) * 0.5)
-        physical_y = (
-            query_grid[..., 1].float() + 1.0
-        ) * (float(query_h) * 0.5)
-        query_x = (physical_x - self.origin_pixels) / self.spacing_pixels
-        query_y = (physical_y - self.origin_pixels) / self.spacing_pixels
-        base_x = torch.floor(query_x).long()
-        base_y = torch.floor(query_y).long()
-
-        p0, p1, t0, t1, active = self._cell_spans(graph)
+        p0: torch.Tensor,
+        p1: torch.Tensor,
+        t0: torch.Tensor,
+        t1: torch.Tensor,
+        active: torch.Tensor,
+        query_x: torch.Tensor,
+        query_y: torch.Tensor,
+        base_x: torch.Tensor,
+        base_y: torch.Tensor,
+        control_h: int,
+        control_w: int,
+    ) -> torch.Tensor:
+        """Evaluate one bounded query-row chunk with the exact production metric."""
+        batch, query_h, query_w = query_x.shape
         min_distance = torch.full(
             (batch, query_h, query_w),
             1.0e6,
-            device=query_grid.device,
+            device=query_x.device,
             dtype=torch.float32,
         )
         query = torch.stack((query_x, query_y), dim=-1).unsqueeze(-2)
@@ -450,7 +454,7 @@ class ConnectedSplineGraph(nn.Module):
                 local_distance = torch.full(
                     cell_active.shape,
                     1.0e6,
-                    device=query_grid.device,
+                    device=query_x.device,
                     dtype=torch.float32,
                 )
                 for sample_index in range(1, self.samples_per_span + 1):
@@ -481,6 +485,62 @@ class ConnectedSplineGraph(nn.Module):
                 min_distance = torch.minimum(
                     min_distance, local_distance.min(dim=-1).values
                 )
+        return min_distance
+
+    def query(
+        self,
+        graph: dict[str, torch.Tensor],
+        query_grid: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        control_phi = graph["spline_graph_control_phi_pixels"].float()
+        source = graph["source_sdf_prior_lr"].float()
+        batch, _channels, control_h, control_w = control_phi.shape
+        query_h, query_w = query_grid.shape[1:3]
+        physical_x = (
+            query_grid[..., 0].float() + 1.0
+        ) * (float(query_w) * 0.5)
+        physical_y = (
+            query_grid[..., 1].float() + 1.0
+        ) * (float(query_h) * 0.5)
+        query_x = (physical_x - self.origin_pixels) / self.spacing_pixels
+        query_y = (physical_y - self.origin_pixels) / self.spacing_pixels
+        base_x = torch.floor(query_x).long()
+        base_y = torch.floor(query_y).long()
+
+        p0, p1, t0, t1, active = self._cell_spans(graph)
+        chunk_rows = max(
+            1,
+            min(query_h, self.query_chunk_pixels // max(query_w, 1)),
+        )
+        distance_chunks: list[torch.Tensor] = []
+        checkpoint_distance = (
+            self.training
+            and torch.is_grad_enabled()
+            and any(value.requires_grad for value in (p0, p1, t0, t1))
+        )
+        for row_start in range(0, query_h, chunk_rows):
+            row_end = min(query_h, row_start + chunk_rows)
+            qx = query_x[:, row_start:row_end]
+            qy = query_y[:, row_start:row_end]
+            bx = base_x[:, row_start:row_end]
+            by = base_y[:, row_start:row_end]
+            if checkpoint_distance:
+                distance = checkpoint(
+                    lambda cp0, cp1, ct0, ct1, cqx, cqy, cbx, cby: (
+                        self._unsigned_distance_chunk(
+                            cp0, cp1, ct0, ct1, active, cqx, cqy, cbx, cby,
+                            control_h, control_w,
+                        )
+                    ),
+                    p0, p1, t0, t1, qx, qy, bx, by,
+                    use_reentrant=False,
+                )
+            else:
+                distance = self._unsigned_distance_chunk(
+                    p0, p1, t0, t1, active, qx, qy, bx, by, control_h, control_w
+                )
+            distance_chunks.append(distance)
+        min_distance = torch.cat(distance_chunks, dim=1)
 
         control_grid = torch.stack(
             (

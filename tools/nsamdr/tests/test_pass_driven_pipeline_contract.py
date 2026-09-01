@@ -934,3 +934,70 @@ def test_reactive_vram_governor_separates_feasibility_from_promotion_policy() ->
     governor.estimated_gpu_step_extra = 5 * 1024 ** 3
     governor._our_allocated_bytes = lambda: 1 * 1024 ** 3
     assert governor._gpu_mode_feasible(int(7.8 * 1024 ** 3))
+
+
+def test_v115_spline_query_bounds_training_autograd_memory() -> None:
+    """The connected spline metric must not retain a whole 512x512 candidate graph."""
+    import inspect
+    import torch
+
+    from v9.spline_graph import ConnectedSplineGraph
+
+    source = inspect.getsource(ConnectedSplineGraph.query)
+    helper = inspect.getsource(ConnectedSplineGraph._unsigned_distance_chunk)
+    init_source = inspect.getsource(ConnectedSplineGraph.__init__)
+    assert 'spline_graph_query_chunk_pixels' in init_source
+    assert 'chunk_rows = max(' in source
+    assert 'checkpoint(' in source
+    assert 'use_reentrant=False' in source
+    assert 'distance_chunks.append(distance)' in source
+    assert 'for offset_y in range(-self.neighbour_radius' in helper
+    assert 'for sample_index in range(1, self.samples_per_span + 1)' in helper
+
+    class Config:
+        spline_graph_hidden_channels = 24
+        spline_graph_control_scale = 2
+        target_scale = 4
+        contour_sdf_max_distance_pixels = 12.0
+        spline_graph_max_topology_delta_pixels = 8.0
+        spline_graph_topology_edit_band_pixels = 4.0
+        spline_graph_max_displacement_pixels = 4.0
+        spline_graph_max_tangent_residual = 0.75
+        spline_graph_edit_band_pixels = 12.0
+        spline_graph_neighbour_radius = 1
+        spline_graph_samples_per_span = 2
+        spline_graph_query_chunk_pixels = 64
+
+    model = ConnectedSplineGraph(8, Config()).train()
+    h = w = 8
+    features = torch.randn(1, 8, h, w, requires_grad=True)
+    geometry = torch.randn(1, 8, h, w, requires_grad=True)
+    yy, xx = torch.meshgrid(
+        torch.arange(h, dtype=torch.float32),
+        torch.arange(w, dtype=torch.float32),
+        indexing='ij',
+    )
+    source_sdf = ((xx - 3.5) / 12.0).unsqueeze(0).unsqueeze(0)
+    qh = qw = h * 4
+    qy, qx = torch.meshgrid(
+        torch.linspace(-1.0 + 1.0 / qh, 1.0 - 1.0 / qh, qh),
+        torch.linspace(-1.0 + 1.0 / qw, 1.0 - 1.0 / qw, qw),
+        indexing='ij',
+    )
+    grid = torch.stack((qx, qy), dim=-1).unsqueeze(0)
+    out = model(features, geometry, source_sdf, grid)
+    loss = out['field']['phi_pixels'].abs().mean()
+    loss.backward()
+    assert torch.isfinite(loss)
+    assert features.grad is not None and torch.isfinite(features.grad).all()
+    assert geometry.grad is not None and torch.isfinite(geometry.grad).all()
+
+
+def test_reactive_vram_predictor_never_learns_more_than_physical_vram() -> None:
+    """WDDM virtual allocator peaks must not become impossible free-VRAM demands."""
+    import inspect
+    from v9.training import _ReactiveCudaMemoryGovernor
+
+    source = inspect.getsource(_ReactiveCudaMemoryGovernor.after_step)
+    assert 'predictor_peak = min(peak, self.total_bytes)' in source
+    assert 'extra = max(0, predictor_peak - int(allocated_before))' in source

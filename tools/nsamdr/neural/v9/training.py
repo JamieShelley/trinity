@@ -5267,11 +5267,16 @@ class _ReactiveCudaMemoryGovernor:
             return peak, 0
 
         peak = int(torch.cuda.max_memory_allocated(self.device))
-        extra = max(0, peak - int(allocated_before))
+        # WDDM can report a CUDA allocator virtual high-water mark larger than
+        # physical VRAM when allocations have spilled into system memory. Never
+        # feed such a value back into the physical-VRAM predictor: doing so once
+        # taught a 15.9-GiB RTX 5080 that it needed 45 GiB free forever.
+        predictor_peak = min(peak, self.total_bytes)
+        extra = max(0, predictor_peak - int(allocated_before))
 
         if mode == "gpu":
-            # Safety high-watermark: once a larger transient requirement has
-            # been observed, never predict less during this process lifetime.
+            # Safety high-watermark: once a larger physically possible transient
+            # requirement has been observed, never predict less in this process.
             self.estimated_gpu_step_extra = max(
                 self.estimated_gpu_step_extra,
                 int(extra * 1.18),
