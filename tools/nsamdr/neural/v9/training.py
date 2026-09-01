@@ -4900,9 +4900,12 @@ class _ReactiveCudaMemoryGovernor:
             self.process_budget_bytes <= 0
             or predicted_process_peak <= self.process_budget_bytes
         )
+        # Physical feasibility is independent of promotion policy.  The
+        # allow_gpu_promotion flag controls routine offload->GPU expansion, not
+        # whether GPU execution is a valid emergency fallback when host RAM is
+        # too pressured for activation offload.
         return (
-            bool(self.allow_gpu_promotion)
-            and budget_safe
+            budget_safe
             and int(required_free_bytes) <= int(maximum_possible_free)
         )
 
@@ -5147,8 +5150,24 @@ class _ReactiveCudaMemoryGovernor:
                         self.mode = "yield"
             elif self.mode == "offload":
                 if not offload_safe:
-                    self.mode = "yield"
-                elif gpu_safe:
+                    self.stable_recovery_steps = 0
+                    if gpu_safe:
+                        # Host RAM pressure makes save_on_cpu unsafe, but that is
+                        # not a reason to stall when the device-wide GPU envelope
+                        # is already satisfied.  This is a safety fallback, not a
+                        # normal promotion, so it remains available even when
+                        # reactive_vram_allow_gpu_promotion is False.
+                        self._set_mode(
+                            "gpu",
+                            free_bytes=free_bytes,
+                            reason=(
+                                "host RAM below activation-offload safety floor; "
+                                "GPU-resident safety envelope is satisfied"
+                            ),
+                        )
+                    else:
+                        self.mode = "yield"
+                elif self.allow_gpu_promotion and gpu_safe:
                     self.stable_recovery_steps += 1
                     if self.stable_recovery_steps >= int(
                         self.config.reactive_vram_expand_stable_steps

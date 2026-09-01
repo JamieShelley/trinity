@@ -907,3 +907,30 @@ def test_v115_spline_graph_never_exports_no_span_distance_sentinel() -> None:
         torch.full_like(field["primitive_phi_pixels"], 12.0),
         atol=1.0e-5,
     )
+
+
+def test_reactive_vram_governor_separates_feasibility_from_promotion_policy() -> None:
+    """Low host RAM may fall back to safe GPU execution even when routine promotion is disabled."""
+    import inspect
+
+    from v9.training import _ReactiveCudaMemoryGovernor
+
+    feasible_source = inspect.getsource(_ReactiveCudaMemoryGovernor._gpu_mode_feasible)
+    before_source = inspect.getsource(_ReactiveCudaMemoryGovernor.before_step)
+    assert 'bool(self.allow_gpu_promotion)' not in feasible_source
+
+    offload_block = before_source.split('elif self.mode == "offload":', 1)[1].split(
+        'else:\n                # yield', 1
+    )[0]
+    assert 'if not offload_safe:' in offload_block
+    assert 'if gpu_safe:' in offload_block
+    assert 'host RAM below activation-offload safety floor' in offload_block
+    assert 'elif self.allow_gpu_promotion and gpu_safe:' in offload_block
+
+    governor = object.__new__(_ReactiveCudaMemoryGovernor)
+    governor.allow_gpu_promotion = False
+    governor.total_bytes = 16 * 1024 ** 3
+    governor.process_budget_bytes = 8 * 1024 ** 3
+    governor.estimated_gpu_step_extra = 5 * 1024 ** 3
+    governor._our_allocated_bytes = lambda: 1 * 1024 ** 3
+    assert governor._gpu_mode_feasible(int(7.8 * 1024 ** 3))
