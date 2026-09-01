@@ -466,6 +466,31 @@ class LocalBoundaryProductionContract:
         phase: str,
     ) -> dict[str, torch.Tensor]:
         assert _ORIGINAL_COMPUTE_LOSSES is not None
+        if phase in {"sdf-bootstrap", "sdf-proof"}:
+            required_spline_outputs = (
+                "spline_graph_control_phi_pixels",
+                "spline_graph_source_control_phi_pixels",
+                "spline_control_point_h_lr",
+                "spline_control_point_v_lr",
+                "spline_source_control_point_h_lr",
+                "spline_source_control_point_v_lr",
+                "spline_control_tangent_h",
+                "spline_control_tangent_v",
+                "spline_control_displacement_h_lr",
+                "spline_control_displacement_v_lr",
+                "spline_graph_mask_h",
+                "spline_graph_mask_v",
+            )
+            missing_spline_outputs = [
+                key for key in required_spline_outputs if key not in outputs
+            ]
+            if missing_spline_outputs:
+                raise RuntimeError(
+                    "V11.5 connected-spline B1 supervision is disconnected from "
+                    "the production forward; missing outputs="
+                    f"{missing_spline_outputs}"
+                )
+
         losses = _ORIGINAL_COMPUTE_LOSSES(outputs, batch, config, phase)
         if phase not in {"sdf-bootstrap", "sdf-proof"}:
             return losses

@@ -1108,10 +1108,13 @@ class TrainingService:
             "betas": (config.optimizer_beta1, config.optimizer_beta2),
         }
         parametric_parameters = []
+        spline_parameters = []
         seam_parameters = []
         other_parameters = []
         for name, parameter in model.named_parameters():
-            if "geometry_net.parametric_primitive_field" in name:
+            if "geometry_net.production_structure.spline_graph" in name:
+                spline_parameters.append(parameter)
+            elif "geometry_net.parametric_primitive_field" in name:
                 parametric_parameters.append(parameter)
             elif "seam_restorer" in name:
                 seam_parameters.append(parameter)
@@ -1120,6 +1123,7 @@ class TrainingService:
         parameter_groups = [
             {"params": other_parameters, "lr_scale": 1.0},
             {"params": parametric_parameters, "lr_scale": float(getattr(config, "parametric_primitive_lr_multiplier", 8.0))},
+            {"params": spline_parameters, "lr_scale": float(getattr(config, "spline_graph_lr_multiplier", 4.0))},
             {"params": seam_parameters, "lr_scale": float(getattr(config, "seam_lr_multiplier", 2.0))},
         ]
         optimizer_class = torch.optim.AdamW if config.optimizer_name == "adamw" else torch.optim.Adam

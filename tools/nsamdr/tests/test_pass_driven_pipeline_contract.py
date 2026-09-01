@@ -1027,3 +1027,136 @@ def test_training_status_does_not_crash_on_closed_stdout(monkeypatch) -> None:
 
     monkeypatch.setattr(builtins, 'print', closed_stdout)
     TrainingService()._status('training status line')
+
+
+def test_v115_production_forward_keeps_connected_spline_supervision_live() -> None:
+    """The real model forward must expose graph tensors and produce live B1 graph loss."""
+    import torch
+
+    from v9.application.backend import TrainingBackend
+    from v9.config import V9Config
+    from v9.dataset import ParametricPrimitiveTrainingDataset
+    from v9.model import FidelityResidualNetV9
+    import v9.training as training
+
+    TrainingBackend()
+    config = V9Config(
+        tile_size=32,
+        widths=(32, 32, 32, 32),
+        blocks_per_level=(1, 1, 1, 1),
+        decoder_blocks=(1, 1, 1),
+        attention_heads=4,
+        topology_field_feature_channels=24,
+        topology_field_hidden_channels=32,
+        spline_graph_feature_channels=24,
+        spline_graph_hidden_channels=32,
+        detail_feature_channels=24,
+        detail_mid_channels=20,
+        detail_hr_channels=16,
+        seam_directional_channels=8,
+        seam_phase_sr_channels=16,
+        spline_graph_neighbour_radius=1,
+        spline_graph_samples_per_span=2,
+    )
+    config.validate()
+    sample = ParametricPrimitiveTrainingDataset(config, 1, seed=1234)[0]
+    batch = {
+        key: (value.unsqueeze(0) if isinstance(value, torch.Tensor) else value)
+        for key, value in sample.items()
+    }
+
+    model = FidelityResidualNetV9(config).train()
+    model.set_phase("sdf-bootstrap")
+    outputs = model(batch["input"])
+    required = (
+        "spline_graph_control_phi_pixels",
+        "spline_graph_source_control_phi_pixels",
+        "spline_control_point_h_lr",
+        "spline_control_point_v_lr",
+        "spline_source_control_point_h_lr",
+        "spline_source_control_point_v_lr",
+        "spline_control_tangent_h",
+        "spline_control_tangent_v",
+        "spline_control_displacement_h_lr",
+        "spline_control_displacement_v_lr",
+        "spline_graph_mask_h",
+        "spline_graph_mask_v",
+    )
+    assert all(key in outputs for key in required)
+
+    losses = training.compute_losses(outputs, batch, config, "sdf-bootstrap")
+    graph_terms = (
+        "spline_graph_topology_control",
+        "spline_graph_topology_sign",
+        "spline_graph_point",
+        "spline_graph_tangent",
+        "spline_graph_sdf",
+        "spline_graph_gradient",
+        "spline_metric_offset",
+    )
+    assert all(torch.isfinite(losses[key]) for key in graph_terms)
+    assert any(float(losses[key].detach()) > 1.0e-7 for key in graph_terms)
+
+    losses["total"].backward()
+    topology_grad = sum(
+        float(parameter.grad.detach().abs().sum())
+        for parameter in model.geometry_net.production_structure.spline_graph.topology_head.parameters()
+        if parameter.grad is not None
+    )
+    geometry_grad = sum(
+        float(parameter.grad.detach().abs().sum())
+        for parameter in model.geometry_net.production_structure.spline_graph.geometry_head.parameters()
+        if parameter.grad is not None
+    )
+    assert topology_grad > 0.0
+    assert geometry_grad > 0.0
+
+
+def test_v115_b1_missing_spline_outputs_is_fatal() -> None:
+    """Never silently turn the authoritative V11.5 graph objective into zero telemetry."""
+    import pytest
+
+    from v9.application.backend import TrainingBackend
+    from v9.config import V9Config
+    from v9.local_boundary_production_contract import LocalBoundaryProductionContract
+
+    TrainingBackend()
+    with pytest.raises(RuntimeError, match="connected-spline B1 supervision is disconnected"):
+        LocalBoundaryProductionContract()._local_compute_losses(
+            {}, {}, V9Config(), "sdf-bootstrap"
+        )
+
+
+def test_v115_optimizer_applies_configured_spline_learning_rate_multiplier() -> None:
+    """The live spline module, not only the retired primitive field, gets its B1 LR scale."""
+    import torch
+
+    from v9.config import V9Config
+    from v9.training import TrainingService
+
+    class TinyModel(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.geometry_net = torch.nn.Module()
+            self.geometry_net.production_structure = torch.nn.Module()
+            self.geometry_net.production_structure.spline_graph = torch.nn.Linear(2, 2)
+            self.geometry_net.parametric_primitive_field = torch.nn.Linear(2, 2)
+            self.seam_restorer = torch.nn.Linear(2, 2)
+            self.other = torch.nn.Linear(2, 2)
+
+    config = V9Config()
+    config.spline_graph_lr_multiplier = 4.0
+    model = TinyModel()
+    optimizer, _mode = TrainingService()._build_optimizer(
+        model, config, torch.device("cpu")
+    )
+    spline_ids = {
+        id(parameter)
+        for parameter in model.geometry_net.production_structure.spline_graph.parameters()
+    }
+    spline_groups = [
+        group for group in optimizer.param_groups
+        if any(id(parameter) in spline_ids for parameter in group["params"])
+    ]
+    assert len(spline_groups) == 1
+    assert float(spline_groups[0]["lr_scale"]) == 4.0

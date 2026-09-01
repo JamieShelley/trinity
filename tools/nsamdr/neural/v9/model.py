@@ -1852,6 +1852,22 @@ class FidelityResidualNetV9(nn.Module):
             "source_sdf_prior_pixels": geometry["source_sdf_prior_pixels"],
             "implicit_feature_grid": geometry["implicit_feature_grid"],
             "implicit_source_sdf_prior_lr": geometry["implicit_source_sdf_prior_lr"],
+            # V11.5 connected-spline supervision must survive the canonical
+            # FidelityResidualNetV9.forward() boundary.  GeometryNet owns these
+            # tensors; dropping them here silently zeroed every graph-specific B1
+            # loss even though the spline graph was the renderer authority.
+            "spline_graph_control_phi_pixels": geometry["spline_graph_control_phi_pixels"],
+            "spline_graph_source_control_phi_pixels": geometry["spline_graph_source_control_phi_pixels"],
+            "spline_control_point_h_lr": geometry["spline_control_point_h_lr"],
+            "spline_control_point_v_lr": geometry["spline_control_point_v_lr"],
+            "spline_source_control_point_h_lr": geometry["spline_source_control_point_h_lr"],
+            "spline_source_control_point_v_lr": geometry["spline_source_control_point_v_lr"],
+            "spline_control_tangent_h": geometry["spline_control_tangent_h"],
+            "spline_control_tangent_v": geometry["spline_control_tangent_v"],
+            "spline_control_displacement_h_lr": geometry["spline_control_displacement_h_lr"],
+            "spline_control_displacement_v_lr": geometry["spline_control_displacement_v_lr"],
+            "spline_graph_mask_h": geometry["spline_graph_mask_h"],
+            "spline_graph_mask_v": geometry["spline_graph_mask_v"],
             # V11.4 sdf-proof supervises the final analytic control-lattice anchor.
             # GeometryNet already produces this field; expose it through the single
             # production output dictionary so the proof loss sees the live graph.
