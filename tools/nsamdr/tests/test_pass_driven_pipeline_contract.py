@@ -869,3 +869,41 @@ def test_v115_spline_graph_representation_removes_shallow_line_and_circle_faceti
         recovered.append(radius_np[index] + t * (radius_np[index + 1] - radius_np[index]))
     curve_roughness = float(np.std(np.asarray(recovered)))
     assert curve_roughness <= 0.08
+
+
+def test_v115_spline_graph_never_exports_no_span_distance_sentinel() -> None:
+    """Training/evolution must receive the bounded production SDF, never raw 1e6 graph distance."""
+    from types import SimpleNamespace
+
+    import torch
+
+    from v9.parametric_boundary import make_query_grid
+    from v9.spline_graph import ConnectedSplineGraph
+
+    config = SimpleNamespace(
+        spline_graph_hidden_channels=24,
+        spline_graph_control_scale=2,
+        target_scale=4,
+        contour_sdf_max_distance_pixels=24.0,
+        spline_graph_max_topology_delta_pixels=8.0,
+        spline_graph_topology_edit_band_pixels=4.0,
+        spline_graph_max_displacement_pixels=4.0,
+        spline_graph_max_tangent_residual=0.75,
+        spline_graph_edit_band_pixels=12.0,
+        spline_graph_neighbour_radius=2,
+        spline_graph_samples_per_span=4,
+    )
+    decoder = ConnectedSplineGraph(4, config)
+    feature = torch.zeros((1, 4, 24, 24), dtype=torch.float32)
+    source = torch.full((1, 1, 24, 24), 0.5, dtype=torch.float32)
+    grid = make_query_grid(1, 96, 96, device=torch.device('cpu'))
+    field = decoder(feature, feature, source, grid)["field"]
+
+    assert torch.allclose(field["primitive_phi_pixels"], field["phi_pixels"])
+    assert torch.isfinite(field["primitive_phi_pixels"]).all()
+    assert float(field["primitive_phi_pixels"].detach().abs().max()) <= 24.0
+    assert torch.allclose(
+        field["primitive_phi_pixels"],
+        torch.full_like(field["primitive_phi_pixels"], 12.0),
+        atol=1.0e-5,
+    )

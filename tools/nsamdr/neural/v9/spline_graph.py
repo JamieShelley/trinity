@@ -515,7 +515,6 @@ class ConnectedSplineGraph(nn.Module):
         authority = authority * has_graph.float()
         phi = sampled_source * (1.0 - authority) + graph_phi * authority
         phi_field = phi.unsqueeze(1)
-        graph_field = graph_phi.unsqueeze(1)
 
         gx, gy = _central_difference(phi_field)
         norm = torch.sqrt(gx.square() + gy.square() + 1.0e-6)
@@ -526,7 +525,10 @@ class ConnectedSplineGraph(nn.Module):
         source_field = sampled_source.unsqueeze(1)
         return {
             "phi_pixels": phi_field,
-            "primitive_phi_pixels": graph_field,
+            # Public structural geometry must be the bounded production field.
+            # graph_phi carries a 1e6 no-span sentinel internally and must never
+            # escape into training/evolution/topology consumers.
+            "primitive_phi_pixels": phi_field,
             "primitive_normal": normal,
             "primitive_curvature": curvature,
             "primitive_confidence": authority.unsqueeze(1),
