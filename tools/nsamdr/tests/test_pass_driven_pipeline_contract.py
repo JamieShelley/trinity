@@ -163,7 +163,7 @@ class TestPassDrivenPipelineContract:
 
         source = inspect.getsource(TrainingService.train_v9)
         block = source.split(
-            '# B1a qualifies topology only; smoothness belongs exclusively to B1b.', 1
+            '# B1a qualifies the learned control-field topology only.', 1
         )[1].split('elif phase == "sdf-proof":', 1)[0]
         assert 'if not topology_bootstrapped:' in block
         assert block.index('if not topology_bootstrapped:') < block.index('best_b1a_path')
@@ -744,7 +744,11 @@ def test_v114_structural_gate_rejects_rendered_topology_regression() -> None:
     assert 'sdf_stageb_rendered_topology_regression_fraction' in source
     assert 'rendered_topology_regression == 0.0' in source
     bootstrap = source.split('topology_ok = (', 1)[1].split('# Once topology qualifies', 1)[0]
-    assert 'rendered_topology_regression == 0.0' in bootstrap
+    assert 'rendered_topology_regression == 0.0' not in bootstrap
+    hard_gate = source.split('hard_structure_gate = (', 1)[1].split(
+        'legacy_profile_render_gate = (', 1
+    )[0]
+    assert 'rendered_topology_regression == 0.0' in hard_gate
 
 
 def test_v115_connected_spline_graph_is_the_renderer_geometry_authority() -> None:
@@ -1301,3 +1305,25 @@ def test_v115_b1a_is_topology_only_and_b1b_owns_continuous_geometry() -> None:
     assert 'spline_graph_point' not in bootstrap_total
     assert 'spline_metric_offset' not in bootstrap_total
     assert '* self.max_tangent_residual * scale' in edge
+
+
+def test_v115_b1a_gate_qualifies_topology_before_geometry_renderer() -> None:
+    """B1a must not require B1b's deliberately frozen renderer geometry to qualify."""
+    import inspect
+
+    from v9.training import TrainingService
+
+    source = inspect.getsource(TrainingService.train_v9)
+    marker = '# B1a qualifies the learned control-field topology only.'
+    assert marker in source
+    b1a = source.split(marker, 1)[1].split('elif phase == "sdf-proof":', 1)[0]
+    assert 'and topology_regression == 0.0' in b1a
+    assert 'rendered_topology_regression == 0.0' not in b1a
+
+    # This is stage separation, not a weaker final structural gate. B1b still
+    # requires both the control graph and its same-renderer raster topology to pass.
+    hard_gate = source.split('hard_structure_gate = (', 1)[1].split(
+        'legacy_profile_render_gate = (', 1
+    )[0]
+    assert 'and topology_regression == 0.0' in hard_gate
+    assert 'and rendered_topology_regression == 0.0' in hard_gate

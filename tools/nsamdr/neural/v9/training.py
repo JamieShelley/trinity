@@ -3827,11 +3827,14 @@ class TrainingService:
                     + (0.0 if hard_candidate_gate else 2.0)
                 )
                 if phase == "sdf-bootstrap":
-                    # B1a qualifies topology only; smoothness belongs exclusively to B1b.
+                    # B1a qualifies the learned control-field topology only. Continuous
+                    # spline node/tangent geometry is intentionally frozen in this phase,
+                    # so same-renderer topology and smoothness cannot be prerequisites for
+                    # entering B1b. B1b's hard_structure_gate still requires BOTH raw and
+                    # rendered topology regression to be exactly zero before promotion.
                     topology_ok = (
                         predicted_missing <= source_missing + float(config.sdf_missing_contour_tolerance)
                         and topology_regression == 0.0
-                        and rendered_topology_regression == 0.0
                     )
                     # Once topology qualifies, preserve that exact checkpoint. Later
                     # bootstrap epochs may explore, but they must not overwrite the
