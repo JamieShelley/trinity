@@ -301,6 +301,16 @@ class App:
                 "--target-size", self._value("target"),
                 "--device", self._value("device"),
             ]
+        if (
+            stage_id in {"quick", "train"}
+            and self.vars.get("live_preview") is not None
+            and bool(self.vars["live_preview"].get())
+        ):
+            args += [
+                "--live-preview-during-training",
+                "--live-preview-target-size",
+                self._value("live_target", "1024"),
+            ]
         return args
 
     # Purpose: Implement dispatcher argv for App.
@@ -409,6 +419,8 @@ class App:
             self._row("Training control", "control", "auto", ("auto", "resume"))
             self._row("Preview target", "target", "4096", ("1024", "2048", "4096"))
             self._row("Preview device", "device", "cuda", ("cuda", "cpu", "auto"))
+            self._check("Live EVE A/B preview while training", "live_preview", True)
+            self._row("Live preview target", "live_target", "1024", ("512", "1024", "2048"))
             self._training_performance_rows(default_workers="4")
         elif stage_id == "train":
             experiments = ["new", *self._experiment_ids()]
@@ -420,6 +432,8 @@ class App:
             self._row("Training control", "control", "auto", ("auto", "resume"))
             self._row("Preview target", "target", "4096", ("1024", "2048", "4096"))
             self._row("Preview device", "device", "cuda", ("cuda", "cpu", "auto"))
+            self._check("Live EVE A/B preview while training", "live_preview", True)
+            self._row("Live preview target", "live_target", "1024", ("512", "1024", "2048"))
             self._training_performance_rows(default_workers="8")
         elif stage_id == "preview":
             completed = list(reversed(self._previewable_experiment_ids()))

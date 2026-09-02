@@ -128,26 +128,44 @@ void PreviewPanel::Draw(
     ImGui::Begin("NSAMDR Real EVE Ship Controls");
 
     ImGui::TextUnformatted("NSAMDR — Neural Stretch-Aware Material Detail Reconstruction");
-    ImGui::TextWrapped("Fixed production comparison: A RAW SOURCE and B NSAMDR FINAL. Both panes use the source mesh, one camera, one material shader and the same 16x anisotropic sampler at zero LOD bias. The renderer does not sharpen, denoise or otherwise alter the final candidate.");
-
     const std::string previewExperiment = ReadEnvironmentVariable("NSAMDR_PREVIEW_EXPERIMENT");
     const std::string previewCheckpoint = ReadEnvironmentVariable("NSAMDR_PREVIEW_CHECKPOINT");
     const std::string previewCheckpointSha = ReadEnvironmentVariable("NSAMDR_PREVIEW_CHECKPOINT_SHA256");
     const std::string previewAuthority = ReadEnvironmentVariable("NSAMDR_PREVIEW_AUTHORITY");
+    const bool liveTrainingPreview = previewAuthority == "training-intermediate";
     const CandidateAssetGpu& finalCandidate = candidates.candidate;
-    const bool provenanceVerified =
-        ReadEnvironmentVariable("NSAMDR_PROVENANCE_STATUS") == "VERIFIED" &&
-        finalCandidate.available;
+    ImGui::TextWrapped(
+        liveTrainingPreview
+            ? "Live training comparison: A RAW SOURCE and B CURRENT NSAMDR EPOCH. Both panes keep the same EVE mesh, camera, lighting, background, material shader and sampler while only B hot-reloads after a completed epoch."
+            : "Fixed production comparison: A RAW SOURCE and B NSAMDR FINAL. Both panes use the source mesh, one camera, one material shader and the same 16x anisotropic sampler at zero LOD bias. The renderer does not sharpen, denoise or otherwise alter the final candidate.");
+
     ImGui::Separator();
-    ImGui::TextUnformatted("Immutable final provenance");
-    ImGui::TextColored(
-        provenanceVerified ? ImVec4(0.35f, 1.0f, 0.45f, 1.0f) : ImVec4(1.0f, 0.28f, 0.22f, 1.0f),
-        "Native provenance gate: %s",
-        provenanceVerified ? "VERIFIED" : "BLOCKED");
-    ImGui::Text("Experiment: %s", previewExperiment.empty() ? "UNSET" : previewExperiment.c_str());
-    ImGui::TextWrapped("Checkpoint: %s", previewCheckpoint.empty() ? "UNSET" : previewCheckpoint.c_str());
-    ImGui::TextWrapped("Checkpoint SHA-256: %s", previewCheckpointSha.empty() ? "UNSET" : previewCheckpointSha.c_str());
-    ImGui::Text("Authority: %s", previewAuthority.empty() ? "UNSET" : previewAuthority.c_str());
+    if (liveTrainingPreview)
+    {
+        ImGui::TextColored(
+            ImVec4(1.0f, 0.78f, 0.20f, 1.0f),
+            "LIVE TRAINING PREVIEW — UNQUALIFIED INTERMEDIATE");
+        ImGui::Text("Experiment: %s", previewExperiment.empty() ? "UNSET" : previewExperiment.c_str());
+        ImGui::Text("Authority: training-intermediate (never promotable as a final)");
+        ImGui::TextWrapped("Current B state: %s",
+            finalCandidate.status.empty() ? "waiting for first completed epoch" : finalCandidate.status.c_str());
+        ImGui::TextWrapped("To stop on a bad visual regression, use Stop current process in the NSAMDR Workflow window.");
+    }
+    else
+    {
+        const bool provenanceVerified =
+            ReadEnvironmentVariable("NSAMDR_PROVENANCE_STATUS") == "VERIFIED" &&
+            finalCandidate.available;
+        ImGui::TextUnformatted("Immutable final provenance");
+        ImGui::TextColored(
+            provenanceVerified ? ImVec4(0.35f, 1.0f, 0.45f, 1.0f) : ImVec4(1.0f, 0.28f, 0.22f, 1.0f),
+            "Native provenance gate: %s",
+            provenanceVerified ? "VERIFIED" : "BLOCKED");
+        ImGui::Text("Experiment: %s", previewExperiment.empty() ? "UNSET" : previewExperiment.c_str());
+        ImGui::TextWrapped("Checkpoint: %s", previewCheckpoint.empty() ? "UNSET" : previewCheckpoint.c_str());
+        ImGui::TextWrapped("Checkpoint SHA-256: %s", previewCheckpointSha.empty() ? "UNSET" : previewCheckpointSha.c_str());
+        ImGui::Text("Authority: %s", previewAuthority.empty() ? "UNSET" : previewAuthority.c_str());
+    }
     ImGui::Separator();
     ImGui::BeginChild("NSAMDRScrollableControls", ImVec2(0.0f, 0.0f), false);
 
@@ -220,13 +238,20 @@ void PreviewPanel::Draw(
     DrawShipSelector(catalog, hwnd);
 
     ImGui::Separator();
-    ImGui::TextUnformatted("NSAMDR FINAL candidate");
+    ImGui::TextUnformatted(liveTrainingPreview ? "NSAMDR LIVE training candidate" : "NSAMDR FINAL candidate");
     if (finalCandidate.available)
     {
-        ImGui::Text("Loaded and provenance-gated | %u x %u | %zu material draws",
-            finalCandidate.maximumTextureWidth,
-            finalCandidate.maximumTextureHeight,
-            finalCandidate.areaMaterials.size());
+        if (liveTrainingPreview)
+            ImGui::Text("Hot-reloaded completed epoch | %u x %u | %zu material draws",
+                finalCandidate.maximumTextureWidth,
+                finalCandidate.maximumTextureHeight,
+                finalCandidate.areaMaterials.size());
+        else
+            ImGui::Text("Loaded and provenance-gated | %u x %u | %zu material draws",
+                finalCandidate.maximumTextureWidth,
+                finalCandidate.maximumTextureHeight,
+                finalCandidate.areaMaterials.size());
+        if (liveTrainingPreview) ImGui::TextWrapped("%s", finalCandidate.status.c_str());
         ImGui::TextWrapped("OBJ manifest source: %s", finalCandidate.objPath.c_str());
         ImGui::TextWrapped("Materials: %s", finalCandidate.materialManifestPath.c_str());
     }
@@ -239,11 +264,14 @@ void PreviewPanel::Draw(
     }
 
     ImGui::Separator();
-    ImGui::TextUnformatted("Production A/B comparison");
+    ImGui::TextUnformatted(liveTrainingPreview ? "Live epoch A/B comparison" : "Production A/B comparison");
     ImGui::Checkbox("Vertical panes", &state.splitVertical);
     ImGui::SameLine();
     ImGui::Checkbox("Swap A and B", &state.swapSplitSides);
-    ImGui::TextWrapped("A RAW SOURCE and B NSAMDR FINAL are always visible. Both panes use the same source vertex/index buffers, camera, transform, lighting, environment, material shader, gradient sampling and 16x anisotropic sampler at zero LOD bias.");
+    ImGui::TextWrapped(
+        liveTrainingPreview
+            ? "A RAW SOURCE stays fixed while B CURRENT NSAMDR EPOCH hot-reloads. Camera, transform, lighting, EVE environment, shader and sampler remain identical, so visual changes on the right are training changes."
+            : "A RAW SOURCE and B NSAMDR FINAL are always visible. Both panes use the same source vertex/index buffers, camera, transform, lighting, environment, material shader, gradient sampling and 16x anisotropic sampler at zero LOD bias.");
 
     const AreaMaterialGpu* baselineProofMaterial = nullptr;
     const AreaMaterialGpu* candidateProofMaterial = nullptr;
@@ -280,16 +308,19 @@ void PreviewPanel::Draw(
             isolated ? "PASS" : "FAIL");
     }
 
-    const std::string provenanceSource = ReadEnvironmentVariable("NSAMDR_PROVENANCE_SOURCE");
-    const std::string provenanceSourceSha = ReadEnvironmentVariable("NSAMDR_PROVENANCE_SOURCE_SHA");
-    const std::string provenanceCandidate = ReadEnvironmentVariable("NSAMDR_PROVENANCE_CANDIDATE");
-    const std::string provenanceCandidateSha = ReadEnvironmentVariable("NSAMDR_PROVENANCE_CANDIDATE_SHA");
-    const std::string provenanceFile = ReadEnvironmentVariable("NSAMDR_PROVENANCE_FILE");
-    if (!provenanceSource.empty()) ImGui::TextWrapped("A source: %s", provenanceSource.c_str());
-    if (!provenanceSourceSha.empty()) ImGui::TextWrapped("A SHA-256: %s", provenanceSourceSha.c_str());
-    if (!provenanceCandidate.empty()) ImGui::TextWrapped("B final: %s", provenanceCandidate.c_str());
-    if (!provenanceCandidateSha.empty()) ImGui::TextWrapped("B SHA-256: %s", provenanceCandidateSha.c_str());
-    if (!provenanceFile.empty()) ImGui::TextWrapped("Evidence: %s", provenanceFile.c_str());
+    if (!liveTrainingPreview)
+    {
+        const std::string provenanceSource = ReadEnvironmentVariable("NSAMDR_PROVENANCE_SOURCE");
+        const std::string provenanceSourceSha = ReadEnvironmentVariable("NSAMDR_PROVENANCE_SOURCE_SHA");
+        const std::string provenanceCandidate = ReadEnvironmentVariable("NSAMDR_PROVENANCE_CANDIDATE");
+        const std::string provenanceCandidateSha = ReadEnvironmentVariable("NSAMDR_PROVENANCE_CANDIDATE_SHA");
+        const std::string provenanceFile = ReadEnvironmentVariable("NSAMDR_PROVENANCE_FILE");
+        if (!provenanceSource.empty()) ImGui::TextWrapped("A source: %s", provenanceSource.c_str());
+        if (!provenanceSourceSha.empty()) ImGui::TextWrapped("A SHA-256: %s", provenanceSourceSha.c_str());
+        if (!provenanceCandidate.empty()) ImGui::TextWrapped("B final: %s", provenanceCandidate.c_str());
+        if (!provenanceCandidateSha.empty()) ImGui::TextWrapped("B SHA-256: %s", provenanceCandidateSha.c_str());
+        if (!provenanceFile.empty()) ImGui::TextWrapped("Evidence: %s", provenanceFile.c_str());
+    }
 
     ImGui::Separator();
     ImGui::TextUnformatted("EVE environment and inspection lighting");

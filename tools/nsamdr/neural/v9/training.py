@@ -264,6 +264,58 @@ class TrainingService:
         ratio = config.scheduler_min_lr_ratio + (1.0 - config.scheduler_min_lr_ratio) * cosine
         return base * ratio
 
+    # Purpose: Publish a stable per-epoch checkpoint for the live EVE preview.
+    # Called by: train_v9
+    # Calls: _atomic_json
+    def _publish_live_preview_checkpoint(
+        self,
+        state_path: Path,
+        output_dir: Path,
+        *,
+        epoch: int,
+        phase: str,
+    ) -> None:
+        if os.environ.get("NSAMDR_LIVE_PREVIEW_CHECKPOINTS", "").strip().casefold() not in {"1", "true", "yes", "on"}:
+            return
+        if not state_path.is_file():
+            return
+        live_root = output_dir / "previews" / "live"
+        checkpoint_root = live_root / "checkpoints"
+        checkpoint_root.mkdir(parents=True, exist_ok=True)
+        checkpoint_path = checkpoint_root / f"epoch_{int(epoch):04d}.pt"
+        temporary_path = checkpoint_root / f".epoch_{int(epoch):04d}.{os.getpid()}.tmp"
+        temporary_path.unlink(missing_ok=True)
+        checkpoint_path.unlink(missing_ok=True)
+        try:
+            # On NTFS this is an O(1) immutable snapshot: the next atomic state
+            # replace changes the training-state directory entry, while this hard
+            # link continues to reference the just-completed epoch.
+            os.link(state_path, temporary_path)
+        except OSError:
+            shutil.copy2(state_path, temporary_path)
+        os.replace(temporary_path, checkpoint_path)
+        self._atomic_json(
+            {
+                "schema": "NSAMDR_LIVE_TRAINING_CHECKPOINT_V1",
+                "epoch": int(epoch),
+                "phase": str(phase),
+                "checkpoint": str(checkpoint_path.resolve()),
+                "resolvedConfig": str((output_dir / "resolved_config.json").resolve()),
+                "authority": "training-intermediate",
+                "qualified": False,
+            },
+            live_root / "checkpoint_ready.json",
+        )
+        # Keep a small safety window for a preview worker that is still reading
+        # an older epoch.  Failed deletes are harmless (notably on Windows when
+        # a file handle is still open).
+        checkpoints = sorted(checkpoint_root.glob("epoch_*.pt"))
+        for old_path in checkpoints[:-3]:
+            try:
+                old_path.unlink()
+            except OSError:
+                pass
+
     # Purpose: Implement atomic torch save for TrainingService.
     # Called by: _abort_nonfinite, train_v9
     # Calls: No same-class helper methods.
@@ -4150,6 +4202,9 @@ class TrainingService:
                 "architecture_participation": architecture_participation,
                 "cache_equivalence": cache_equivalence,
             }, state_path)
+            self._publish_live_preview_checkpoint(
+                state_path, output_dir, epoch=epoch, phase=phase
+            )
 
             if phase == "physical-finetune" and early_stop_patience is not None and early_stop_patience > 0:
                 current_validation = float(validation_metrics["total"])

@@ -30,6 +30,42 @@ bool IsReadableFile(const std::string& path)
     return !path.empty() && static_cast<bool>(std::ifstream(path, std::ios::binary));
 }
 
+struct LiveCandidatePointer
+{
+    std::string token;
+    std::string epoch;
+    std::string phase;
+    std::string checkpointSha;
+    std::string candidateObj;
+    std::string candidateMaterials;
+};
+
+bool ReadLiveCandidatePointer(const std::string& path, LiveCandidatePointer& pointer)
+{
+    std::ifstream input(path, std::ios::binary);
+    if (!input) return false;
+    std::string line;
+    if (!std::getline(input, line)) return false;
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (line != "NSAMDR_LIVE_CANDIDATE_POINTER_V1") return false;
+    while (std::getline(input, line))
+    {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const size_t split = line.find('=');
+        if (split == std::string::npos) continue;
+        const std::string key = line.substr(0, split);
+        const std::string value = line.substr(split + 1U);
+        if (key == "token") pointer.token = value;
+        else if (key == "epoch") pointer.epoch = value;
+        else if (key == "phase") pointer.phase = value;
+        else if (key == "checkpointSha256") pointer.checkpointSha = value;
+        else if (key == "candidateObj") pointer.candidateObj = value;
+        else if (key == "candidateMaterials") pointer.candidateMaterials = value;
+    }
+    return !pointer.token.empty() && !pointer.candidateObj.empty() &&
+        !pointer.candidateMaterials.empty();
+}
+
 bool ValidationPassed(const std::string& path)
 {
     std::ifstream input(path, std::ios::binary);
@@ -136,6 +172,11 @@ bool PreviewProcessing::LoadCandidates(
     FinalCandidateSet& candidates)
 {
     CandidateAssetGpu& candidate = candidates.candidate;
+    if (ToLowerAscii(GetEnvironmentString("NSAMDR_PREVIEW_AUTHORITY")) == "training-intermediate")
+    {
+        candidate.status = "waiting for the first completed live training epoch";
+        return RefreshLiveCandidate(device, context, resources, rawAlbedoPath, candidates);
+    }
     if (!m_assetProcessor.LoadCandidateAsset(
             device,
             context,
@@ -157,6 +198,57 @@ bool PreviewProcessing::LoadCandidates(
         candidate.available = false;
         candidate.status = "provenance gate blocked NSAMDR FINAL: " + provenanceFailure;
     }
+    return true;
+}
+
+bool PreviewProcessing::RefreshLiveCandidate(
+    ID3D11Device* device,
+    ID3D11DeviceContext* context,
+    const PreviewResources& resources,
+    const std::string& rawAlbedoPath,
+    FinalCandidateSet& candidates)
+{
+    if (ToLowerAscii(GetEnvironmentString("NSAMDR_PREVIEW_AUTHORITY")) != "training-intermediate")
+        return true;
+    const std::string pointerPath = GetEnvironmentString("NSAMDR_LIVE_CANDIDATE_POINTER");
+    if (pointerPath.empty()) return true;
+
+    LiveCandidatePointer pointer;
+    if (!ReadLiveCandidatePointer(pointerPath, pointer)) return true;
+    if (pointer.token == m_liveCandidateToken) return true;
+
+    CandidateAssetGpu nextCandidate;
+    const std::string label = "NSAMDR LIVE epoch " + pointer.epoch + " | " + pointer.phase;
+    if (!m_assetProcessor.LoadCandidateAsset(
+            device,
+            context,
+            label,
+            pointer.candidateObj,
+            pointer.candidateMaterials,
+            nextCandidate))
+    {
+        std::printf("NSAMDR live preview: candidate GPU load failed for token %s\n", pointer.token.c_str());
+        return true;
+    }
+    if (!nextCandidate.available)
+    {
+        std::printf("NSAMDR live preview: candidate unavailable for token %s: %s\n",
+            pointer.token.c_str(), nextCandidate.status.c_str());
+        return true;
+    }
+    if (!CandidateUsesSourceDrawRanges(resources, nextCandidate))
+    {
+        std::printf("NSAMDR live preview: rejected token %s because draw ranges differ from source\n",
+            pointer.token.c_str());
+        return true;
+    }
+
+    nextCandidate.status = "UNQUALIFIED INTERMEDIATE | epoch=" + pointer.epoch +
+        " | phase=" + pointer.phase + " | checkpoint=" +
+        (pointer.checkpointSha.empty() ? std::string("unknown") : pointer.checkpointSha.substr(0U, 12U));
+    candidates.candidate = std::move(nextCandidate);
+    m_liveCandidateToken = pointer.token;
+    std::printf("NSAMDR live preview: hot-reloaded %s\n", candidates.candidate.status.c_str());
     return true;
 }
 

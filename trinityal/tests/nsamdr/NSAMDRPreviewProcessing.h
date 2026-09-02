@@ -19,6 +19,12 @@ public:
         const PreviewResources& resources,
         const std::string& rawAlbedoPath,
         FinalCandidateSet& candidates);
+    bool RefreshLiveCandidate(
+        ID3D11Device* device,
+        ID3D11DeviceContext* context,
+        const PreviewResources& resources,
+        const std::string& rawAlbedoPath,
+        FinalCandidateSet& candidates);
     bool InitializeState(
         PreviewState& state,
         ID3D11Device* device,
@@ -41,5 +47,6 @@ private:
     PreviewRenderer& m_renderer;
     AssetProcessor& m_assetProcessor;
     SceneController& m_sceneController;
+    std::string m_liveCandidateToken;
 };
 } // namespace nsamdr

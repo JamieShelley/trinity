@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -38,9 +39,16 @@ class RavenTunePreviewApplication:
     # Purpose: Implement run for RavenTunePreviewApplication.
     # Called by: _prepare_dataset, main
     # Calls: No same-class helper methods.
-    def _run(self, command: list[str], *, cwd: Path, label: str) -> None:
+    def _run(
+        self,
+        command: list[str],
+        *,
+        cwd: Path,
+        label: str,
+        env: dict[str, str] | None = None,
+    ) -> None:
         print(f"[workflow] {label}: " + subprocess.list2cmdline(command), flush=True)
-        completed = subprocess.run(command, cwd=str(cwd), check=False)
+        completed = subprocess.run(command, cwd=str(cwd), env=env, check=False)
         if completed.returncode != 0:
             raise RuntimeError(f"{label} failed with exit code {completed.returncode}")
 
@@ -91,6 +99,12 @@ class RavenTunePreviewApplication:
         parser.add_argument("--early-stop-min-delta", type=float, default=0.0005)
         parser.add_argument("--preview-target-size", type=int, default=4096)
         parser.add_argument("--preview-device", choices=("cuda", "cpu", "auto"), default="cuda")
+        parser.add_argument(
+            "--live-preview-during-training",
+            action="store_true",
+            help="open the real EVE A/B renderer and hot-reload completed training epochs",
+        )
+        parser.add_argument("--live-preview-target-size", type=int, default=1024)
         parser.add_argument("--skip-preview", action="store_true", help="qualify without opening the native viewer")
         return parser
 
@@ -182,6 +196,59 @@ class RavenTunePreviewApplication:
         if args.validation_tiles is not None:
             command += ["--validation-tiles", str(args.validation_tiles)]
         return command
+
+    # Purpose: Start the non-authoritative EVE live-preview worker.
+    # Called by: main
+    # Calls: No same-class helper methods.
+    def _start_live_preview(
+        self,
+        args: argparse.Namespace,
+        root: Path,
+        python: str,
+        experiment: str,
+    ) -> subprocess.Popen[str]:
+        command = [
+            python,
+            "-u",
+            str(root / "tools/nsamdr/neural/live_preview_nsamdr_v9_training.py"),
+            "--repo-root",
+            str(root),
+            "--experiment",
+            experiment,
+            "--shared-cache",
+            args.shared_cache,
+            "--target-size",
+            str(int(args.live_preview_target_size)),
+            "--device",
+            args.preview_device,
+        ]
+        print("[workflow] live EVE training preview: " + subprocess.list2cmdline(command), flush=True)
+        return subprocess.Popen(command, cwd=str(root), text=True)
+
+    # Purpose: Stop the live worker and its native renderer as one process tree.
+    # Called by: main
+    # Calls: No same-class helper methods.
+    def _stop_live_preview(self, process: subprocess.Popen[str] | None) -> None:
+        if process is None or process.poll() is not None:
+            return
+        try:
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    capture_output=True,
+                    check=False,
+                )
+            else:
+                process.terminate()
+                try:
+                    process.wait(timeout=5.0)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+        except OSError:
+            try:
+                process.terminate()
+            except OSError:
+                pass
 
     # Purpose: Implement diagnostics for RavenTunePreviewApplication.
     # Called by: main
@@ -284,7 +351,22 @@ class RavenTunePreviewApplication:
             self._prepare_dataset(args, root, python, base_config, raven_config)
             if status != "trained-pending-qualification":
                 result_file.unlink(missing_ok=True)
-                self._run(train_command, cwd=root, label="train complete production model")
+                training_env = os.environ.copy()
+                live_preview_process: subprocess.Popen[str] | None = None
+                if args.live_preview_during_training:
+                    training_env["NSAMDR_LIVE_PREVIEW_CHECKPOINTS"] = "1"
+                    live_preview_process = self._start_live_preview(
+                        args, root, python, experiment
+                    )
+                try:
+                    self._run(
+                        train_command,
+                        cwd=root,
+                        label="train complete production model",
+                        env=training_env,
+                    )
+                finally:
+                    self._stop_live_preview(live_preview_process)
                 trained = self._read_json(result_file)
                 if str(trained.get("experiment") or "").upper() != experiment:
                     raise RuntimeError("trainer changed the allocated experiment identity")

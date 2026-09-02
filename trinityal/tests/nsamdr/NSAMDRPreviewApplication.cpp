@@ -43,9 +43,13 @@ void PreviewApplication::Run()
     const std::string environmentPath = environmentPaths.empty() ? std::string() : environmentPaths.front();
     const std::string materialManifestPath = GetEnvironmentString("NSAMDR_MATERIALS");
 
+    const bool liveTrainingPreview =
+        ToLowerAscii(GetEnvironmentString("NSAMDR_PREVIEW_AUTHORITY")) == "training-intermediate";
     SetWindowTextW(
         m_host.window,
-        L"NSAMDR \u2014 Neural Stretch-Aware Material Detail Reconstruction | Real EVE Ship Preview");
+        liveTrainingPreview
+            ? L"NSAMDR \u2014 Real EVE Ship Preview | LIVE TRAINING A/B"
+            : L"NSAMDR \u2014 Neural Stretch-Aware Material Detail Reconstruction | Real EVE Ship Preview");
     ASSERT_TRUE(m_host.resize(1440U, 900U));
     WindowIcon windowIcon;
     std::string windowIconError;
@@ -107,6 +111,7 @@ void PreviewApplication::Run()
 
     const auto startTime = std::chrono::steady_clock::now();
     auto previousFrame = startTime;
+    float nextLiveCandidatePollSeconds = 0.0f;
 
     auto frame = [&]() {
         const auto now = std::chrono::steady_clock::now();
@@ -128,6 +133,12 @@ void PreviewApplication::Run()
         }
 
         m_inputController.RefreshFocus();
+        if (liveTrainingPreview && elapsedSeconds >= nextLiveCandidatePollSeconds)
+        {
+            nextLiveCandidatePollSeconds = elapsedSeconds + 0.5f;
+            m_processing.RefreshLiveCandidate(
+                m_host.device, m_host.context, resources, albedoPath, candidates);
+        }
 
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
