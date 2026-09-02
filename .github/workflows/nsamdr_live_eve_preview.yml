@@ -1,0 +1,79 @@
+name: NSAMDR live EVE training preview validation
+
+on:
+  push:
+    branches:
+      - nsamdr-live-eve-preview-temp
+
+permissions:
+  contents: write
+
+jobs:
+  validate-publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply feature to clean NSAMDR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .github/nsamdr_apply_live_eve_preview.py /tmp/nsamdr_apply_live_eve_preview.py
+          git fetch origin NSAMDR
+          git reset --hard origin/NSAMDR
+          python /tmp/nsamdr_apply_live_eve_preview.py
+
+      - name: Install focused dependencies
+        run: python -m pip install --disable-pip-version-check --quiet pytest
+
+      - name: Validate live EVE preview contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            tools/nsamdr/neural/v9/training.py \
+            tools/nsamdr/generate_strategy_candidates.py \
+            tools/nsamdr/neural/live_preview_nsamdr_v9_experiment.py \
+            tools/nsamdr/nsamdr_cli.py \
+            tools/nsamdr/gui/nsamdr_v9_workflow_gui.py \
+            tools/nsamdr/tests/test_nsamdr_cli.py \
+            tools/nsamdr/tests/test_live_eve_training_preview_contract.py
+          python -m pytest -q \
+            tools/nsamdr/tests/test_nsamdr_cli.py \
+            tools/nsamdr/tests/test_live_eve_training_preview_contract.py
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            tools/nsamdr/neural/v9/training.py \
+            tools/nsamdr/generate_strategy_candidates.py \
+            tools/nsamdr/neural/live_preview_nsamdr_v9_experiment.py \
+            tools/nsamdr/nsamdr_cli.py \
+            tools/nsamdr/gui/nsamdr_v9_workflow_gui.py \
+            trinityal/tests/nsamdr/NSAMDRPreviewApplication.cpp \
+            trinityal/tests/nsamdr/NSAMDRPreviewProcessing.cpp \
+            trinityal/tests/nsamdr/NSAMDRPreviewPanel.cpp \
+            tools/nsamdr/tests/test_nsamdr_cli.py \
+            tools/nsamdr/tests/test_live_eve_training_preview_contract.py | sort)"
+          test "$changed" = "$expected"
+
+      - name: Publish clean validated commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "ChatGPT NSAMDR Repair"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/nsamdr/neural/v9/training.py \
+            tools/nsamdr/generate_strategy_candidates.py \
+            tools/nsamdr/neural/live_preview_nsamdr_v9_experiment.py \
+            tools/nsamdr/nsamdr_cli.py \
+            tools/nsamdr/gui/nsamdr_v9_workflow_gui.py \
+            trinityal/tests/nsamdr/NSAMDRPreviewApplication.cpp \
+            trinityal/tests/nsamdr/NSAMDRPreviewProcessing.cpp \
+            trinityal/tests/nsamdr/NSAMDRPreviewPanel.cpp \
+            tools/nsamdr/tests/test_nsamdr_cli.py \
+            tools/nsamdr/tests/test_live_eve_training_preview_contract.py
+          git commit -m "Preview live training epochs in the EVE renderer"
+          git push origin HEAD:nsamdr-live-eve-preview-temp --force
