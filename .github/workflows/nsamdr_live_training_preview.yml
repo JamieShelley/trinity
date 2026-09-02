@@ -1,0 +1,50 @@
+name: NSAMDR live training preview validation
+
+on:
+  push:
+    branches:
+      - nsamdr-live-training-preview-temp
+
+permissions:
+  contents: write
+
+jobs:
+  validate-publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply repair to clean NSAMDR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .github/nsamdr_apply_live_training_preview.py /tmp/nsamdr_apply_live_training_preview.py
+          git fetch origin NSAMDR
+          git reset --hard origin/NSAMDR
+          python /tmp/nsamdr_apply_live_training_preview.py
+
+      - name: Install focused test dependency
+        run: python -m pip install --disable-pip-version-check --quiet pytest
+
+      - name: Validate live preview contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/nsamdr/gui/nsamdr_v9_workflow_gui.py tools/nsamdr/tests/test_live_training_preview_gui_contract.py
+          python -m pytest -q tools/nsamdr/tests/test_live_training_preview_gui_contract.py
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' tools/nsamdr/gui/nsamdr_v9_workflow_gui.py tools/nsamdr/tests/test_live_training_preview_gui_contract.py | sort)"
+          test "$changed" = "$expected"
+
+      - name: Publish clean validated commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "ChatGPT NSAMDR Repair"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/nsamdr/gui/nsamdr_v9_workflow_gui.py tools/nsamdr/tests/test_live_training_preview_gui_contract.py
+          git commit -m "Show same-renderer evidence during training"
+          git push origin HEAD:nsamdr-live-training-preview-temp --force
