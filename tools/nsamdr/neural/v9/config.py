@@ -287,7 +287,10 @@ class V9Config:
     spline_graph_max_topology_delta_pixels: float = 8.0
     spline_graph_topology_edit_band_pixels: float = 4.0
     spline_graph_max_displacement_pixels: float = 4.0
-    spline_graph_max_tangent_residual: float = 0.75
+    # B1b must be able to replace a raster-derived tangent entirely. A residual
+    # cap below 1.0 mathematically leaves the quantised control-field tangent
+    # authoritative for near-orthogonal staircase errors.
+    spline_graph_max_tangent_residual: float = 2.0
     spline_graph_edit_band_pixels: float = 12.0
     spline_graph_neighbour_radius: int = 2
     spline_graph_samples_per_span: int = 4
@@ -341,14 +344,18 @@ class V9Config:
     spline_geometry_fixed_bank_tiles: int = 128
     spline_graph_topology_control_weight: float = 96.0
     spline_graph_topology_sign_weight: float = 24.0
-    spline_graph_point_weight: float = 10.0
-    spline_graph_tangent_weight: float = 2.0
+    # Direct shared-node/tangent teachers are the primary B1b geometry authority.
+    # EXP_0001_DIAGNOSTICS(7) showed dense metric losses moving the graph while
+    # point error stayed flat; keep direct geometry at least as strong as the
+    # dense metric field so optimisation cannot preserve LR staircase phase.
+    spline_graph_point_weight: float = 96.0
+    spline_graph_tangent_weight: float = 48.0
     spline_graph_sdf_weight: float = 48.0
     spline_graph_gradient_weight: float = 24.0
     spline_graph_eikonal_weight: float = 4.0
     spline_graph_curvature_weight: float = 10.0
     spline_graph_span_smoothness_weight: float = 28.0
-    spline_graph_span_tangent_weight: float = 12.0
+    spline_graph_span_tangent_weight: float = 24.0
     spline_graph_span_separation_weight: float = 18.0
     # V10.6 makes ordered contour branches the geometry authority.  Metric
     # calibration stays disabled until the branch geometry itself satisfies the

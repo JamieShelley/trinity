@@ -1327,3 +1327,39 @@ def test_v115_b1a_gate_qualifies_topology_before_geometry_renderer() -> None:
     )[0]
     assert 'and topology_regression == 0.0' in hard_gate
     assert 'and rendered_topology_regression == 0.0' in hard_gate
+
+
+def test_v115_b1b_direct_graph_teacher_outranks_dense_metric_field() -> None:
+    """B1b must move shared nodes toward GT instead of preserving the LR staircase."""
+    from v9.config import V9Config
+
+    config = V9Config()
+    assert config.spline_graph_point_weight >= config.spline_metric_offset_weight
+    assert config.spline_graph_tangent_weight >= config.spline_graph_gradient_weight
+    assert config.spline_graph_span_tangent_weight >= 24.0
+
+
+def test_v115_b1b_tangent_can_fully_override_quantised_control_tangent() -> None:
+    """A near-orthogonal LR tangent must not remain an unavoidable HR prior."""
+    import math
+
+    import torch
+
+    from v9.config import V9Config
+    from v9.spline_graph import ConnectedSplineGraph
+
+    config = V9Config()
+    assert config.spline_graph_max_tangent_residual > 1.0
+    spline = ConnectedSplineGraph(4, config)
+    # x-gradient => base contour tangent points along +y. The learned residual
+    # cancels that y component and supplies +x, proving full-direction authority.
+    control_phi = torch.tensor([[[[-1.0, 1.0], [-1.0, 1.0]]]])
+    geometry_raw = torch.zeros((1, 8, 2, 2), dtype=torch.float32)
+    geometry_raw[:, 4].fill_(math.atanh(0.75))
+    geometry_raw[:, 5].fill_(math.atanh(-0.5))
+    graph = spline._edge_graph(control_phi, geometry_raw, 1.0)
+    active = graph["spline_graph_mask_h"][:, 0] > 0.5
+    tangent = graph["spline_control_tangent_h"][active]
+    assert tangent.numel() > 0
+    assert bool(torch.all(tangent[:, 0].abs() > 0.999).item())
+    assert bool(torch.all(tangent[:, 1].abs() < 1.0e-3).item())
