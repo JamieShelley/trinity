@@ -76,8 +76,6 @@ jobs:
 
       - name: Diff hygiene and production scope
         run: |
-          # The driver creates these two files. Intent-to-add makes them part of the
-          # exact base-relative diff without creating a temp-branch production commit.
           git add -N \
             tools/nsamdr/NSAMDR_BASELINE_RELATIVE_DESIGN.md \
             tools/nsamdr/tests/test_v117_baseline_relative_contract.py
@@ -113,6 +111,11 @@ jobs:
       - name: Build one clean commit from exact production base
         run: |
           git diff --binary "$BASE_SHA" -- . ':(exclude).github/**' > /tmp/v117-production.patch
+          # The runner intentionally modified the temp patch driver and production
+          # worktree. The verified patch is now outside the repository, so restore a
+          # pristine checkout before constructing the one-commit production branch.
+          git reset --hard HEAD
+          git clean -fd
           git switch --detach "$BASE_SHA"
           git branch -D "$CLEAN_BRANCH" 2>/dev/null || true
           git switch -c "$CLEAN_BRANCH"
