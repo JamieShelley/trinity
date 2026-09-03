@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live EVE A/B preview of completed, unqualified NSAMDR training epochs."""
+"""Live EVE A/B/C preview of deterministic baseline and completed NSAMDR stages."""
 from __future__ import annotations
 
 import argparse
@@ -95,11 +95,12 @@ class LiveTrainingPreviewApplication:
         comments: list[str],
         replacements: Mapping[Path, Path],
         source_dir: Path,
+        physical_candidate: str = "NSAMDR_TRAINING_INTERMEDIATE_UNQUALIFIED",
     ) -> None:
         output.parent.mkdir(parents=True, exist_ok=True)
         with output.open("w", encoding="utf-8", newline="") as handle:
             handle.write("# NSAMDR_MATERIALS_V7\n")
-            handle.write("# PHYSICAL_CANDIDATE NSAMDR_TRAINING_INTERMEDIATE_UNQUALIFIED\n")
+            handle.write(f"# PHYSICAL_CANDIDATE {physical_candidate}\n")
             for comment in comments:
                 if comment.startswith("#") and "NSAMDR_MATERIALS" not in comment and "PHYSICAL_CANDIDATE" not in comment:
                     handle.write(comment + "\n")
@@ -241,6 +242,7 @@ class LiveTrainingPreviewApplication:
         self._write_material_manifest(
             helper, baseline_materials, fields, rows, comments,
             baseline_replacements, materials.parent,
+            physical_candidate="NSAMDR_DETERMINISTIC_4X_BASELINE",
         )
         candidate_materials = output_root / "live.materials.tsv"
         self._write_material_manifest(

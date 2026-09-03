@@ -138,7 +138,7 @@ class InferenceService:
                 align_corners=False,
             )
             normal_length = torch.sqrt(
-                baseline_normal.square().sum(dim=1, keepdim=True) + 1.0e-8
+                baseline_normal.square().sum(dim=1, keepdim=True) + 1.0e-6
             )
             baseline_normal = baseline_normal / torch.maximum(
                 torch.ones_like(normal_length), normal_length / 0.999

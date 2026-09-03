@@ -167,9 +167,10 @@ void RenderPipeline::RenderShip(
     const uint32_t sceneX = std::min(state.sceneViewportX, resources.width > 1U ? resources.width - 1U : 0U);
     const uint32_t sceneWidth = std::max(1U, resources.width - sceneX);
     const uint32_t sceneHeight = std::max(1U, resources.height);
-    // Scientific comparison is deliberately only two panes:
-    // A) untouched source, and B) the NSAMDR candidate. Both use the exact
-    // same high-quality sampler, camera, lighting, geometry and material shader.
+    // Scientific comparison is A authored source / B deterministic 4x baseline /
+    // C current learned stage during live training, while immutable final preview
+    // remains A source / C final. Every pane uses the same sampler, camera,
+    // lighting, geometry and material shader.
 
     struct PaneRect
     {

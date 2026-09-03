@@ -3091,8 +3091,9 @@ class TrainingService:
                 epoch_tile_count = structural_smoke_batch_limit * epoch_batch_size
                 self._status(
                     f"  B1b QUICK SMOKE: {structural_smoke_batch_limit} batch(es) "
-                    "(2/class) before the full connected-spline bank."
+                    "(2/class) before the full connected-spline bank; promotion disabled."
                 )
+            structural_smoke_epoch = structural_smoke_batch_limit is not None
             epoch_workers = workers
             epoch_started = time.perf_counter()
             if device.type == "cuda":
@@ -4002,7 +4003,16 @@ class TrainingService:
                     # Integrated geometry is evaluated every epoch, but it may only
                     # qualify after both independent prerequisites have passed.
                     integration_ready = bool(b1b_parameters_qualified)
-                    select_structure = integration_ready and structure_rank < best_structure_rank
+                    if structural_smoke_epoch:
+                        self._status(
+                            "  B1b QUICK SMOKE validation only: B1/B2 promotion is disabled "
+                            "until a full-bank sdf-proof epoch."
+                        )
+                    select_structure = (
+                        not structural_smoke_epoch
+                        and integration_ready
+                        and structure_rank < best_structure_rank
+                    )
                     if select_structure:
                         best_structure_rank = structure_rank
                         best_structure_score = structure_score
@@ -4030,10 +4040,15 @@ class TrainingService:
                             f"teacherMAE={primitive_teacher_param_mae:.4f} "
                             f"P3/P2={oracle_render_mae:.4f} qualified={'YES' if hard_structure_gate else 'NO'}"
                         )
-                    if integration_ready and hard_structure_gate and not structure_qualified:
+                    if (
+                        not structural_smoke_epoch
+                        and integration_ready
+                        and hard_structure_gate
+                        and not structure_qualified
+                    ):
                         structure_qualified = True
                         self._status(f"  B1b PARAMETRIC PRIMITIVE PROOF PASSED at epoch {epoch:03d}.")
-                    if integration_ready and hard_render_gate:
+                    if not structural_smoke_epoch and integration_ready and hard_render_gate:
                         if not render_qualified:
                             self._status(
                                 f"  B2 SAME-RENDERER REDRAW PASSED at epoch {epoch:03d}; "

@@ -21,4 +21,4 @@ Training is useful only when C improves on B while moving toward A. Production-f
 
 ## Quick feedback contract
 
-The first Quick B1b epoch is a two-examples-per-primitive smoke pass. It is not a promotion proof. If C is visibly/quantitatively worse than B, stop there. Later B1b epochs retain the complete training bank and all existing hard qualification gates.
+The first Quick B1b epoch is a two-examples-per-primitive smoke pass. It is validation-only and cannot promote B1/B2 even if its held-out metrics happen to pass. If C is visibly/quantitatively worse than B, stop there. Later B1b epochs retain the complete training bank and all existing hard qualification gates.
