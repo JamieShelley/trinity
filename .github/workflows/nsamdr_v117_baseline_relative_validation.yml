@@ -32,17 +32,25 @@ jobs:
           python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
           python -m pip install numpy opencv-python-headless pytest pillow
 
-      - name: Repair temporary patch-driver parser
+      - name: Repair temporary patch driver
         run: |
           python - <<'PY'
           from pathlib import Path
           path = Path('.github/nsamdr_apply_v117_baseline_relative.py')
           text = path.read_text(encoding='utf-8')
-          old = r"r'struct LiveCandidatePointer\n\{.*?\n\}\n\nbool ReadLiveCandidatePointer\(.*?\n\}\n\nbool ValidationPassed'"
-          new = r"r'struct LiveCandidatePointer\n\{.*?\n\};\n\nbool ReadLiveCandidatePointer\(.*?\n\}\n\nbool ValidationPassed'"
-          if old not in text:
+
+          old_sub = 'updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)'
+          new_sub = 'updated, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=re.S)'
+          if old_sub not in text:
+              raise SystemExit('expected regex_once implementation not found')
+          text = text.replace(old_sub, new_sub, 1)
+
+          old_struct = r"r'struct LiveCandidatePointer\n\{.*?\n\}\n\nbool ReadLiveCandidatePointer\(.*?\n\}\n\nbool ValidationPassed'"
+          new_struct = r"r'struct LiveCandidatePointer\n\{.*?\n\};\n\nbool ReadLiveCandidatePointer\(.*?\n\}\n\nbool ValidationPassed'"
+          if old_struct not in text:
               raise SystemExit('expected temporary LiveCandidatePointer regex not found')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          text = text.replace(old_struct, new_struct, 1)
+          path.write_text(text, encoding='utf-8')
           PY
 
       - name: Apply V11.7 redesign
