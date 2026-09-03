@@ -1,0 +1,129 @@
+name: NSAMDR native preview Windows smoke
+
+on:
+  push:
+    branches:
+      - nsamdr-v117-native-preview-ci-temp
+  workflow_dispatch:
+
+jobs:
+  native-preview:
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact branch with dependencies
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          & .\vendor\github.com\microsoft\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install isolated preview dependencies
+        shell: pwsh
+        run: |
+          $vcpkg = Join-Path $env:GITHUB_WORKSPACE 'vendor\github.com\microsoft\vcpkg\vcpkg.exe'
+          & $vcpkg install 'gtest:x64-windows' 'imgui[dx11-binding,win32-binding]:x64-windows' --clean-after-build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Generate isolated native smoke project
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\nsamdr\native-ci'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          @'
+          cmake_minimum_required(VERSION 3.24)
+          project(NSAMDRNativePreviewSmoke LANGUAGES CXX)
+
+          if(NOT DEFINED TRINITY_ROOT)
+              message(FATAL_ERROR "TRINITY_ROOT is required")
+          endif()
+
+          set(NSAMDR_DIR "${TRINITY_ROOT}/trinityal/tests/nsamdr")
+          set(NSAMDR_STANDALONE_DIR "${NSAMDR_DIR}/standalone")
+          set(NSAMDR_SHADER "${NSAMDR_DIR}/NSAMDRPreview.hlsl")
+
+          find_package(imgui CONFIG REQUIRED)
+          find_package(GTest CONFIG REQUIRED)
+
+          add_executable(NSAMDRPreview_dx11
+              "${NSAMDR_STANDALONE_DIR}/NSAMDRStandalonePreview.cpp"
+              "${NSAMDR_DIR}/NSAMDRPreviewTypes.cpp"
+              "${NSAMDR_DIR}/NSAMDRPreviewUtilities.cpp"
+              "${NSAMDR_DIR}/NSAMDRCameraController.cpp"
+              "${NSAMDR_DIR}/NSAMDRMeshProcessor.cpp"
+              "${NSAMDR_DIR}/NSAMDRInputController.cpp"
+              "${NSAMDR_DIR}/NSAMDRShaderLibrary.cpp"
+              "${NSAMDR_DIR}/NSAMDRAssetProcessor.cpp"
+              "${NSAMDR_DIR}/NSAMDRSceneController.cpp"
+              "${NSAMDR_DIR}/NSAMDRRenderPipeline.cpp"
+              "${NSAMDR_DIR}/NSAMDRPreviewRenderer.cpp"
+              "${NSAMDR_DIR}/NSAMDRPreviewProcessing.cpp"
+              "${NSAMDR_DIR}/NSAMDRPreviewPanel.cpp"
+              "${NSAMDR_DIR}/NSAMDRPreviewApplication.cpp"
+              "${NSAMDR_DIR}/NSAMDRWindowIcon.cpp")
+
+          target_include_directories(NSAMDRPreview_dx11 BEFORE PRIVATE
+              "${NSAMDR_STANDALONE_DIR}"
+              "${NSAMDR_DIR}")
+
+          file(TO_CMAKE_PATH "${NSAMDR_SHADER}" NSAMDR_SHADER_PATH)
+          target_compile_definitions(NSAMDRPreview_dx11 PRIVATE
+              WIN32_LEAN_AND_MEAN
+              NOMINMAX
+              TRINITY_PLATFORM=2
+              TRINITY_DIRECTX11=2
+              NSAMDR_OBJ_PREVIEW=1
+              NSAMDR_PREVIEW_SHADER_PATH="${NSAMDR_SHADER_PATH}")
+
+          target_compile_features(NSAMDRPreview_dx11 PRIVATE cxx_std_17)
+          target_link_libraries(NSAMDRPreview_dx11 PRIVATE
+              imgui::imgui
+              GTest::gtest
+              GTest::gtest_main
+              d3d11
+              dxgi
+              dxguid
+              d3dcompiler
+              windowscodecs
+              ole32
+              user32
+              gdi32
+              shell32)
+          '@ | Set-Content -Encoding UTF8 (Join-Path $dir 'CMakeLists.txt')
+
+      - name: Configure isolated DX11 preview
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:GITHUB_WORKSPACE 'artifacts\nsamdr\native-ci'
+          $build = Join-Path $env:GITHUB_WORKSPACE 'artifacts\nsamdr\native-ci-build'
+          $toolchain = Join-Path $env:GITHUB_WORKSPACE 'vendor\github.com\microsoft\vcpkg\scripts\buildsystems\vcpkg.cmake'
+          cmake -S $source -B $build -A x64 `
+            -DTRINITY_ROOT="$env:GITHUB_WORKSPACE" `
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile exact NSAMDR preview sources
+        shell: pwsh
+        run: |
+          $build = Join-Path $env:GITHUB_WORKSPACE 'artifacts\nsamdr\native-ci-build'
+          cmake --build $build --config Release --target NSAMDRPreview_dx11 --parallel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify executable loads and exposes the renderer test
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'artifacts\nsamdr\native-ci-build\Release\NSAMDRPreview_dx11.exe'
+          if (-not (Test-Path $exe)) { throw "Missing native preview executable: $exe" }
+          $vcpkgBin = Join-Path $env:GITHUB_WORKSPACE 'vendor\github.com\microsoft\vcpkg\installed\x64-windows\bin'
+          $env:PATH = "$vcpkgBin;$env:PATH"
+          $listing = & $exe --gtest_list_tests 2>&1 | Out-String
+          $listing | Write-Host
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($listing -notmatch 'NSAMDRRendering') { throw 'NSAMDRRendering test suite was not registered' }
