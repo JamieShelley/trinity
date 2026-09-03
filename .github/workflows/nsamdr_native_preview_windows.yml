@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - nsamdr-v117-native-preview-ci-temp
+  pull_request:
+    branches:
+      - NSAMDR
   workflow_dispatch:
 
 jobs:
