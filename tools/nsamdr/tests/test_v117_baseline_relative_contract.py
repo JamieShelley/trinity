@@ -101,6 +101,13 @@ def test_live_preview_is_authored_baseline_stage_not_raw_vs_final():
     assert 'A AUTHORED SOURCE' in panel
     assert 'B 4X BASELINE' in panel
     assert 'C NSAMDR LIVE STAGE' in panel
+    assert 'Current C state:' in panel
+    assert 'Live epoch A/B/C comparison' in panel
+    assert 'Swap A and C' in panel
+    assert 'A/C texture resource isolation' in panel
+    assert 'Live comparison is A AUTHORED SOURCE' in panel
+    assert 'Current B state:' not in panel
+    assert 'Live epoch A/B comparison' not in panel
 
 
 def test_quick_first_b1b_is_balanced_smoke_and_cannot_promote():

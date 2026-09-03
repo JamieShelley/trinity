@@ -147,7 +147,7 @@ void PreviewPanel::Draw(
             "LIVE TRAINING PREVIEW — UNQUALIFIED INTERMEDIATE");
         ImGui::Text("Experiment: %s", previewExperiment.empty() ? "UNSET" : previewExperiment.c_str());
         ImGui::Text("Authority: training-intermediate (never promotable as a final)");
-        ImGui::TextWrapped("Current B state: %s",
+        ImGui::TextWrapped("Current C state: %s",
             finalCandidate.status.empty() ? "waiting for first completed epoch" : finalCandidate.status.c_str());
         ImGui::TextWrapped("To stop on a bad visual regression, use Stop current process in the NSAMDR Workflow window.");
     }
@@ -187,7 +187,7 @@ void PreviewPanel::Draw(
         }
         else
         {
-            ImGui::TextWrapped("Raw source material: INCOMPLETE (%d unresolved inputs). The A/B layout remains visible for diagnosis.", resources.baselineUnresolvedCount);
+            ImGui::TextWrapped("Raw source material: INCOMPLETE (%d unresolved inputs). The comparison layout remains visible for diagnosis.", resources.baselineUnresolvedCount);
         }
         if (ImGui::TreeNode("Per-area baseline diagnostics"))
         {
@@ -264,10 +264,10 @@ void PreviewPanel::Draw(
     }
 
     ImGui::Separator();
-    ImGui::TextUnformatted(liveTrainingPreview ? "Live epoch A/B comparison" : "Production A/B comparison");
+    ImGui::TextUnformatted(liveTrainingPreview ? "Live epoch A/B/C comparison" : "Production A/B comparison");
     ImGui::Checkbox("Vertical panes", &state.splitVertical);
     ImGui::SameLine();
-    ImGui::Checkbox("Swap A and B", &state.swapSplitSides);
+    ImGui::Checkbox(liveTrainingPreview ? "Swap A and C" : "Swap A and B", &state.swapSplitSides);
     ImGui::TextWrapped(
         liveTrainingPreview
             ? "A AUTHORED SOURCE stays fixed. B is the deterministic 4x baseline from the same degraded LR evidence. C is the current stage output and hot-reloads. Training is useful only when C improves on B while moving toward A."
@@ -304,7 +304,7 @@ void PreviewPanel::Draw(
         const bool isolated = differentPath && differentSrv;
         ImGui::TextColored(
             isolated ? ImVec4(0.35f, 1.0f, 0.45f, 1.0f) : ImVec4(1.0f, 0.28f, 0.22f, 1.0f),
-            "A/B texture resource isolation: %s",
+            liveTrainingPreview ? "A/C texture resource isolation: %s" : "A/B texture resource isolation: %s",
             isolated ? "PASS" : "FAIL");
     }
 
@@ -423,7 +423,10 @@ void PreviewPanel::Draw(
     ImGui::TextUnformatted("Mouse: RMB orbit | MMB or LMB+RMB pan | Shift+pan fine | wheel zoom-to-cursor | Ctrl+wheel fine zoom");
     ImGui::TextUnformatted("Double-click a hull panel to make it the orbit and zoom focus point.");
     ImGui::TextUnformatted("Keys: [ / ] backgrounds | F/Home frame ship | V flip UV | R reset | F9 capture | Esc exit");
-    ImGui::TextWrapped("The comparison is fixed to A RAW SOURCE and B NSAMDR FINAL under one shared renderer and sampler.");
+    ImGui::TextWrapped(
+        liveTrainingPreview
+            ? "Live comparison is A AUTHORED SOURCE, B DETERMINISTIC 4X BASELINE, and C CURRENT TRAINED STAGE under one shared renderer and sampler."
+            : "The comparison is fixed to A RAW SOURCE and B NSAMDR FINAL under one shared renderer and sampler.");
 
     ImGui::EndChild();
 
