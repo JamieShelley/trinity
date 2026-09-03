@@ -2,7 +2,16 @@
 from .config import V9Config
 from .model import FidelityResidualNetV9
 from . import model as _model
+from . import edge_constrained_spline_graph as _edge_constrained_spline
+
+# V11.6 constrains every marching-squares crossing to its owning edge, replaces
+# the B1b node teacher with the target zero crossing on that same edge, and
+# vectorises the existing Hermite distance query. Install it before the local
+# production contract captures the spline/loss callables.
+_edge_constrained_spline.install()
+
 from . import local_boundary_production_contract as _local_boundary
+_edge_constrained_spline.install_schema(_local_boundary)
 
 # The local-boundary contract is object-owned, but several of its methods are
 # installed as extension methods on GeometryNet/FidelityResidualNetV9.  Those
