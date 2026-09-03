@@ -32,6 +32,19 @@ jobs:
           python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
           python -m pip install numpy opencv-python-headless pytest pillow
 
+      - name: Repair temporary patch-driver parser
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/nsamdr_apply_v117_baseline_relative.py')
+          text = path.read_text(encoding='utf-8')
+          old = r"r'struct LiveCandidatePointer\n\{.*?\n\}\n\nbool ReadLiveCandidatePointer\(.*?\n\}\n\nbool ValidationPassed'"
+          new = r"r'struct LiveCandidatePointer\n\{.*?\n\};\n\nbool ReadLiveCandidatePointer\(.*?\n\}\n\nbool ValidationPassed'"
+          if old not in text:
+              raise SystemExit('expected temporary LiveCandidatePointer regex not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
       - name: Apply V11.7 redesign
         run: python .github/nsamdr_apply_v117_baseline_relative.py
 
