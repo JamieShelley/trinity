@@ -350,7 +350,12 @@ void PreviewProcessing::PrintDiagnostics(
     else
         std::printf("  sofMaterials=<global texture fallback> (groups=%zu)\n", mesh.drawRanges.size());
 
-    std::printf("  comparison=A_RAW_SOURCE_vs_B_NSAMDR_FINAL sharedMesh=true sharedCamera=true sharedShader=true sharedSampler=true\n");
+    const bool liveTrainingPreview =
+        ToLowerAscii(GetEnvironmentString("NSAMDR_PREVIEW_AUTHORITY")) == "training-intermediate";
+    std::printf(
+        liveTrainingPreview
+            ? "  comparison=A_AUTHORED_SOURCE_vs_B_DETERMINISTIC_4X_BASELINE_vs_C_CURRENT_TRAINED_STAGE sharedMesh=true sharedCamera=true sharedShader=true sharedSampler=true\n"
+            : "  comparison=A_RAW_SOURCE_vs_B_NSAMDR_FINAL sharedMesh=true sharedCamera=true sharedShader=true sharedSampler=true\n");
     PrintCandidate(candidates.candidate);
 
     if (resources.hasEnvironment)
@@ -364,7 +369,7 @@ void PreviewProcessing::PrintCandidate(const CandidateAssetGpu& candidate) const
 {
     if (candidate.available)
     {
-        std::printf("  finalCandidate=loaded provenance=verified texture=%ux%u draws=%zu obj=%s\n",
+        std::printf("  candidate=loaded texture=%ux%u draws=%zu obj=%s\n",
             candidate.maximumTextureWidth,
             candidate.maximumTextureHeight,
             candidate.areaMaterials.size(),
@@ -372,7 +377,7 @@ void PreviewProcessing::PrintCandidate(const CandidateAssetGpu& candidate) const
     }
     else
     {
-        std::printf("  finalCandidate=unavailable reason=%s\n", candidate.status.c_str());
+        std::printf("  candidate=unavailable reason=%s\n", candidate.status.c_str());
     }
 }
 
