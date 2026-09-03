@@ -1253,6 +1253,21 @@ class V9Config:
         self.boundary_renderer_plateau_stability_scale = float(min(max(self.boundary_renderer_plateau_stability_scale, 1.0), 80.0))
         self.geometry_regret_margin = float(min(max(self.geometry_regret_margin, 0.0), 0.25))
         self.edge_regret_multiplier = float(min(max(self.edge_regret_multiplier, 0.0), 12.0))
+        # V11.5 connected-spline weights intentionally exceed the historical generic
+        # 60x loss cap. Keep their production JSON authority intact after validate(),
+        # otherwise the direct shared-node teacher is silently weakened below the
+        # 72x metric-offset term and B1b returns to raster-phase optimisation.
+        for name in (
+            "spline_graph_topology_control_weight", "spline_graph_topology_sign_weight",
+            "spline_graph_point_weight", "spline_graph_tangent_weight",
+            "spline_graph_sdf_weight", "spline_graph_gradient_weight",
+            "spline_graph_eikonal_weight", "spline_graph_curvature_weight",
+            "spline_graph_span_smoothness_weight", "spline_graph_span_tangent_weight",
+            "spline_graph_span_separation_weight",
+            "spline_graph_render_weight", "spline_graph_render_gradient_weight",
+            "spline_graph_render_profile_weight",
+        ):
+            setattr(self, name, float(min(max(getattr(self, name), 0.0), 256.0)))
         for name in (
             "albedo_weight", "albedo_gradient_weight", "albedo_pyramid_weight", "normal_weight",
             "normal_gradient_weight", "roughness_weight", "emissive_weight", "material_weight",
@@ -1285,14 +1300,6 @@ class V9Config:
             "topology_field_gradient_weight", "topology_field_eikonal_weight",
             "topology_field_curvature_weight", "topology_field_render_weight",
             "topology_field_render_gradient_weight", "topology_field_render_profile_weight",
-            "spline_graph_topology_control_weight", "spline_graph_topology_sign_weight",
-            "spline_graph_point_weight", "spline_graph_tangent_weight",
-            "spline_graph_sdf_weight", "spline_graph_gradient_weight",
-            "spline_graph_eikonal_weight", "spline_graph_curvature_weight",
-            "spline_graph_span_smoothness_weight", "spline_graph_span_tangent_weight",
-            "spline_graph_span_separation_weight",
-            "spline_graph_render_weight", "spline_graph_render_gradient_weight",
-            "spline_graph_render_profile_weight",
             "edge_crossing_fraction_weight", "edge_crossing_sdf_weight",
             "edge_crossing_gradient_weight", "edge_crossing_eikonal_weight",
             "edge_crossing_curvature_weight", "edge_crossing_render_weight",

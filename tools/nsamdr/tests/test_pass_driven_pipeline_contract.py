@@ -1363,3 +1363,18 @@ def test_v115_b1b_tangent_can_fully_override_quantised_control_tangent() -> None
     assert tangent.numel() > 0
     assert bool(torch.all(tangent[:, 0].abs() > 0.999).item())
     assert bool(torch.all(tangent[:, 1].abs() < 1.0e-3).item())
+
+
+def test_v115_production_config_preserves_connected_spline_authority() -> None:
+    """Real config loading must not clip V11.5 graph authority back to the legacy 60x cap."""
+    from v9.config import V9Config
+
+    config = V9Config.load(ROOT / "tools/nsamdr/neural/configs/v9_fidelity_full.json")
+    assert config.spline_graph_topology_control_weight == 96.0
+    assert config.spline_graph_point_weight == 96.0
+    assert config.spline_graph_tangent_weight == 48.0
+    assert config.spline_graph_span_tangent_weight == 24.0
+    assert config.spline_graph_render_weight == 96.0
+    assert config.spline_graph_render_profile_weight == 64.0
+    assert config.spline_metric_offset_weight == 72.0
+    assert config.spline_graph_point_weight >= config.spline_metric_offset_weight
