@@ -97,6 +97,8 @@ def test_live_preview_is_authored_baseline_stage_not_raw_vs_final():
     assert 'CandidateAssetGpu baseline;' in types
     assert 'pointer.baselineMaterials' in processing
     assert 'candidates.baseline = std::move(nextBaseline)' in processing
+    assert 'A_AUTHORED_SOURCE_vs_B_DETERMINISTIC_4X_BASELINE_vs_C_CURRENT_TRAINED_STAGE' in processing
+    assert 'finalCandidate=loaded provenance=verified' not in processing
     assert 'const bool threeWay = deterministicBaseline.available;' in render
     assert 'A AUTHORED SOURCE' in panel
     assert 'B 4X BASELINE' in panel
