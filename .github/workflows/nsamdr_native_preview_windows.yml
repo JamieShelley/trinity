@@ -31,7 +31,7 @@ jobs:
         shell: pwsh
         run: |
           $vcpkg = Join-Path $env:GITHUB_WORKSPACE 'vendor\github.com\microsoft\vcpkg\vcpkg.exe'
-          & $vcpkg install 'gtest:x64-windows' 'imgui[dx11-binding,win32-binding]:x64-windows' --clean-after-build
+          & $vcpkg install 'gtest:x64-windows' 'imgui[dx11-binding,win32-binding]:x64-windows' --classic --clean-after-build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Generate isolated native smoke project
