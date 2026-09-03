@@ -46,8 +46,9 @@ jobs:
           if(NOT DEFINED TRINITY_ROOT)
               message(FATAL_ERROR "TRINITY_ROOT is required")
           endif()
+          file(TO_CMAKE_PATH "${TRINITY_ROOT}" TRINITY_ROOT_CMAKE)
 
-          set(NSAMDR_DIR "${TRINITY_ROOT}/trinityal/tests/nsamdr")
+          set(NSAMDR_DIR "${TRINITY_ROOT_CMAKE}/trinityal/tests/nsamdr")
           set(NSAMDR_STANDALONE_DIR "${NSAMDR_DIR}/standalone")
           set(NSAMDR_SHADER "${NSAMDR_DIR}/NSAMDRPreview.hlsl")
 
