@@ -3074,6 +3074,25 @@ class TrainingService:
             epoch_batch_size = max(1, int(epoch_loader.batch_size or 1))
             epoch_batch_count = len(epoch_loader) * seam_proof_passes
             epoch_tile_count = len(epoch_loader.dataset) * seam_proof_passes
+            # Quick's first connected-spline geometry epoch is a complete-class
+            # smoke proof, not a promotion epoch. Two examples per primitive family
+            # give an early A/B/C result before paying for the full 70-tile bank.
+            # Full runs and every later B1b epoch retain the complete training bank.
+            structural_smoke_batch_limit = None
+            if (
+                local_structure_phase
+                and b1b_stage_epoch == 1
+                and int(config.tiles_per_epoch) <= 64
+            ):
+                structural_smoke_batch_limit = min(
+                    epoch_batch_count, max(PRIMITIVE_COUNT * 2, PRIMITIVE_COUNT)
+                )
+                epoch_batch_count = structural_smoke_batch_limit
+                epoch_tile_count = structural_smoke_batch_limit * epoch_batch_size
+                self._status(
+                    f"  B1b QUICK SMOKE: {structural_smoke_batch_limit} batch(es) "
+                    "(2/class) before the full connected-spline bank."
+                )
             epoch_workers = workers
             epoch_started = time.perf_counter()
             if device.type == "cuda":
@@ -3121,6 +3140,11 @@ class TrainingService:
             )
             epoch_peak_bytes = 0
             for batch_index, batch in enumerate(train_batches, 1):
+                if (
+                    structural_smoke_batch_limit is not None
+                    and batch_index > structural_smoke_batch_limit
+                ):
+                    break
                 step_completed = False
                 losses = None
                 step_peak_bytes = 0
@@ -3752,7 +3776,7 @@ class TrainingService:
                 "phase": phase,
                 "b1bSubstage": b1b_substage,
                 "seconds": seconds,
-                "batches": len(epoch_loader),
+                "batches": int(epoch_batch_count),
                 "tiles": config.tiles_per_epoch,
                 "tiles_per_second": tiles_per_second,
                 "train": train_metrics,

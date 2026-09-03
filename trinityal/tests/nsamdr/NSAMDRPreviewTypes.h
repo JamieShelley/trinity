@@ -318,6 +318,7 @@ struct CandidateAssetGpu
 
 struct FinalCandidateSet
 {
+    CandidateAssetGpu baseline;
     CandidateAssetGpu candidate;
 };
 

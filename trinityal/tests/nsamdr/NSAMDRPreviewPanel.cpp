@@ -136,7 +136,7 @@ void PreviewPanel::Draw(
     const CandidateAssetGpu& finalCandidate = candidates.candidate;
     ImGui::TextWrapped(
         liveTrainingPreview
-            ? "Live training comparison: A RAW SOURCE and B CURRENT NSAMDR EPOCH. Both panes keep the same EVE mesh, camera, lighting, background, material shader and sampler while only B hot-reloads after a completed epoch."
+            ? "Live training comparison: A AUTHORED SOURCE, B DETERMINISTIC 4X BASELINE, and C CURRENT TRAINED STAGE. All panes keep the same EVE mesh, camera, lighting, background, material shader and sampler."
             : "Fixed production comparison: A RAW SOURCE and B NSAMDR FINAL. Both panes use the source mesh, one camera, one material shader and the same 16x anisotropic sampler at zero LOD bias. The renderer does not sharpen, denoise or otherwise alter the final candidate.");
 
     ImGui::Separator();
@@ -270,7 +270,7 @@ void PreviewPanel::Draw(
     ImGui::Checkbox("Swap A and B", &state.swapSplitSides);
     ImGui::TextWrapped(
         liveTrainingPreview
-            ? "A RAW SOURCE stays fixed while B CURRENT NSAMDR EPOCH hot-reloads. Camera, transform, lighting, EVE environment, shader and sampler remain identical, so visual changes on the right are training changes."
+            ? "A AUTHORED SOURCE stays fixed. B is the deterministic 4x baseline from the same degraded LR evidence. C is the current stage output and hot-reloads. Training is useful only when C improves on B while moving toward A."
             : "A RAW SOURCE and B NSAMDR FINAL are always visible. Both panes use the same source vertex/index buffers, camera, transform, lighting, environment, material shader, gradient sampling and 16x anisotropic sampler at zero LOD bias.");
 
     const AreaMaterialGpu* baselineProofMaterial = nullptr;
@@ -449,69 +449,91 @@ void PreviewPanel::DrawSplitCompareOverlay(
     const float sceneWidth = std::max(1.0f, static_cast<float>(resources.width) - sceneX);
     const float sceneHeight = std::max(1.0f, static_cast<float>(resources.height));
     ImDrawList* draw = ImGui::GetForegroundDrawList();
+    const bool liveTrainingPreview =
+        ReadEnvironmentVariable("NSAMDR_PREVIEW_AUTHORITY") == "training-intermediate";
+    const bool threeWay = liveTrainingPreview && candidates.baseline.available;
 
-    auto addLabel = [&](const ImVec2& paneMin, const char* label)
+    auto addLabel = [&](const ImVec2& paneMin, const std::string& label)
     {
         const ImVec2 textPos(paneMin.x + 12.0f, paneMin.y + 12.0f);
-        const ImVec2 textSize = ImGui::CalcTextSize(label);
+        const ImVec2 textSize = ImGui::CalcTextSize(label.c_str());
         draw->AddRectFilled(
             ImVec2(textPos.x - 6.0f, textPos.y - 4.0f),
             ImVec2(textPos.x + textSize.x + 6.0f, textPos.y + textSize.y + 4.0f),
-            IM_COL32(0, 0, 0, 190),
-            4.0f);
-        draw->AddText(textPos, IM_COL32(255, 255, 255, 255), label);
+            IM_COL32(0, 0, 0, 190), 4.0f);
+        draw->AddText(textPos, IM_COL32(255, 255, 255, 255), label.c_str());
     };
 
-    ImVec2 firstMin(sceneX, 0.0f);
-    ImVec2 firstMax(sceneX + sceneWidth, sceneHeight);
-    ImVec2 secondMin = firstMin;
-    ImVec2 secondMax = firstMax;
-    ImVec2 dividerA;
-    ImVec2 dividerB;
-    if (state.splitVertical)
+    struct Pane { ImVec2 min; ImVec2 max; };
+    Pane raw{{sceneX, 0.0f}, {sceneX + sceneWidth, sceneHeight}};
+    Pane baseline = raw;
+    Pane candidate = raw;
+    if (threeWay)
     {
-        const float divider = sceneX + std::floor(sceneWidth * 0.5f);
-        firstMax.x = divider;
-        secondMin.x = divider;
-        dividerA = ImVec2(divider, 0.0f);
-        dividerB = ImVec2(divider, sceneHeight);
+        if (state.splitVertical)
+        {
+            const float d1 = sceneX + std::floor(sceneWidth / 3.0f);
+            const float d2 = sceneX + std::floor(sceneWidth * 2.0f / 3.0f);
+            raw = {{sceneX, 0.0f}, {d1, sceneHeight}};
+            baseline = {{d1, 0.0f}, {d2, sceneHeight}};
+            candidate = {{d2, 0.0f}, {sceneX + sceneWidth, sceneHeight}};
+            draw->AddLine({d1, 0.0f}, {d1, sceneHeight}, IM_COL32(255,255,255,210), 2.0f);
+            draw->AddLine({d2, 0.0f}, {d2, sceneHeight}, IM_COL32(255,255,255,210), 2.0f);
+        }
+        else
+        {
+            const float d1 = std::floor(sceneHeight / 3.0f);
+            const float d2 = std::floor(sceneHeight * 2.0f / 3.0f);
+            raw = {{sceneX, 0.0f}, {sceneX + sceneWidth, d1}};
+            baseline = {{sceneX, d1}, {sceneX + sceneWidth, d2}};
+            candidate = {{sceneX, d2}, {sceneX + sceneWidth, sceneHeight}};
+            draw->AddLine({sceneX, d1}, {sceneX + sceneWidth, d1}, IM_COL32(255,255,255,210), 2.0f);
+            draw->AddLine({sceneX, d2}, {sceneX + sceneWidth, d2}, IM_COL32(255,255,255,210), 2.0f);
+        }
+        if (state.swapSplitSides) std::swap(raw, candidate);
+        addLabel(raw.min, "A AUTHORED SOURCE - 16x AF / LOD 0");
+        addLabel(baseline.min, "B 4X BASELINE - SAME LR EVIDENCE");
+        addLabel(candidate.min, "C NSAMDR LIVE STAGE - UNQUALIFIED");
     }
     else
     {
-        const float divider = std::floor(sceneHeight * 0.5f);
-        firstMax.y = divider;
-        secondMin.y = divider;
-        dividerA = ImVec2(sceneX, divider);
-        dividerB = ImVec2(sceneX + sceneWidth, divider);
+        if (state.splitVertical)
+        {
+            const float divider = sceneX + std::floor(sceneWidth * 0.5f);
+            raw = {{sceneX, 0.0f}, {divider, sceneHeight}};
+            candidate = {{divider, 0.0f}, {sceneX + sceneWidth, sceneHeight}};
+            draw->AddLine({divider, 0.0f}, {divider, sceneHeight}, IM_COL32(255,255,255,210), 2.0f);
+        }
+        else
+        {
+            const float divider = std::floor(sceneHeight * 0.5f);
+            raw = {{sceneX, 0.0f}, {sceneX + sceneWidth, divider}};
+            candidate = {{sceneX, divider}, {sceneX + sceneWidth, sceneHeight}};
+            draw->AddLine({sceneX, divider}, {sceneX + sceneWidth, divider}, IM_COL32(255,255,255,210), 2.0f);
+        }
+        if (state.swapSplitSides) std::swap(raw, candidate);
+        addLabel(raw.min, liveTrainingPreview
+            ? "A AUTHORED SOURCE - 16x AF / LOD 0"
+            : "A RAW SOURCE - 16x AF / LOD 0");
+        addLabel(candidate.min, liveTrainingPreview
+            ? "C NSAMDR LIVE STAGE - UNQUALIFIED"
+            : "B NSAMDR FINAL - 16x AF / LOD 0");
     }
-
-    const ImVec2 rawMin = state.swapSplitSides ? secondMin : firstMin;
-    const ImVec2 finalMin = state.swapSplitSides ? firstMin : secondMin;
-    const ImVec2 finalMax = state.swapSplitSides ? firstMax : secondMax;
-    draw->AddLine(dividerA, dividerB, IM_COL32(255, 255, 255, 210), 2.0f);
-    addLabel(rawMin, "A RAW SOURCE - 16x AF / LOD 0");
-    addLabel(finalMin, "B NSAMDR FINAL - 16x AF / LOD 0");
 
     const CandidateAssetGpu& finalCandidate = candidates.candidate;
     if (!finalCandidate.available)
     {
-        const char* warning = "B BLOCKED - immutable final provenance not verified";
-        const ImVec2 warningPos(finalMin.x + 12.0f, finalMin.y + 48.0f);
+        const char* warning = liveTrainingPreview
+            ? "C WAITING - no completed stage candidate"
+            : "B BLOCKED - immutable final provenance not verified";
+        const ImVec2 warningPos(candidate.min.x + 12.0f, candidate.min.y + 48.0f);
         const ImVec2 warningSize = ImGui::CalcTextSize(warning);
-        draw->AddRectFilled(finalMin, finalMax, IM_COL32(80, 0, 0, 78));
+        draw->AddRectFilled(candidate.min, candidate.max, IM_COL32(80, 0, 0, 78));
         draw->AddRectFilled(
             ImVec2(warningPos.x - 6.0f, warningPos.y - 4.0f),
             ImVec2(warningPos.x + warningSize.x + 6.0f, warningPos.y + warningSize.y + 4.0f),
-            IM_COL32(130, 0, 0, 230),
-            4.0f);
+            IM_COL32(130, 0, 0, 230), 4.0f);
         draw->AddText(warningPos, IM_COL32(255, 235, 235, 255), warning);
-        if (!finalCandidate.status.empty())
-        {
-            draw->AddText(
-                ImVec2(finalMin.x + 12.0f, finalMin.y + 76.0f),
-                IM_COL32(255, 210, 210, 255),
-                finalCandidate.status.c_str());
-        }
     }
 }
 

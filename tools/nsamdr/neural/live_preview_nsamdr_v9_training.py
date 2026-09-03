@@ -119,6 +119,16 @@ class LiveTrainingPreviewApplication:
                         adjusted[semantic] = str(replacements[source].resolve())
                 writer.writerow(adjusted)
 
+    def _stage_output_variant(self, phase: str) -> str:
+        phase = str(phase).strip().casefold()
+        if phase in {"sdf-bootstrap", "sdf-proof"}:
+            return "structural"
+        if phase in {"seam-proof", "seam-authority", "gate-proof"}:
+            return "seam"
+        if phase == "detail-reconstruction":
+            return "detail"
+        return "final"
+
     def _generate_candidate(
         self,
         *,
@@ -145,18 +155,21 @@ class LiveTrainingPreviewApplication:
         if not contexts:
             raise RuntimeError("live EVE material manifest contains no albedo contexts")
         source_before = helper._source_snapshot(usages.keys())
+        stage_variant = self._stage_output_variant(phase)
 
         output_root = directory / "previews" / "live" / "candidates" / f"epoch_{epoch:04d}"
         if output_root.exists():
             shutil.rmtree(output_root)
         output_root.mkdir(parents=True, exist_ok=True)
-        canvases: dict[Path, Any] = {}
-        generated_semantics: dict[Path, set[str]] = {}
+        stage_canvases: dict[Path, Any] = {}
+        baseline_canvases: dict[Path, Any] = {}
+        stage_semantics: dict[Path, set[str]] = {}
+        baseline_semantics: dict[Path, set[str]] = {}
         inference_records: list[dict[str, Any]] = []
         for index, (albedo, context) in enumerate(sorted(contexts.items(), key=lambda item: str(item[0]).casefold()), start=1):
             source = helper._read_bgra(albedo)
             width, height = helper._output_size(source, target_size)
-            maps, diagnostics = helper._direct_maps(
+            baseline_maps, baseline_diagnostics = helper._direct_maps(
                 albedo=albedo,
                 context=context,
                 model=model,
@@ -164,49 +177,81 @@ class LiveTrainingPreviewApplication:
                 device=device,
                 out_width=width,
                 out_height=height,
+                output_variant="baseline",
+            )
+            stage_maps, stage_diagnostics = helper._direct_maps(
+                albedo=albedo,
+                context=context,
+                model=model,
+                config=config,
+                device=device,
+                out_width=width,
+                out_height=height,
+                output_variant=stage_variant,
             )
             helper._apply_direct_maps(
                 albedo=albedo,
                 context=context,
-                maps=maps,
+                maps=baseline_maps,
                 width=width,
                 height=height,
-                canvases=canvases,
-                semantics=generated_semantics,
+                canvases=baseline_canvases,
+                semantics=baseline_semantics,
+            )
+            helper._apply_direct_maps(
+                albedo=albedo,
+                context=context,
+                maps=stage_maps,
+                width=width,
+                height=height,
+                canvases=stage_canvases,
+                semantics=stage_semantics,
             )
             inference_records.append({
                 "source": str(albedo),
                 "outputSize": [int(width), int(height)],
-                "diagnostics": diagnostics,
+                "baselineDiagnostics": baseline_diagnostics,
+                "stageVariant": stage_variant,
+                "stageDiagnostics": stage_diagnostics,
             })
             print(
-                f"[live-preview] epoch {epoch} [{index}/{len(contexts)}] {albedo.name} -> {width}x{height}",
+                f"[live-preview] epoch {epoch} [{index}/{len(contexts)}] {albedo.name} "
+                f"-> {width}x{height} baseline + {stage_variant}",
                 flush=True,
             )
 
-        texture_dir = output_root / "live_nsamdr"
-        replacements: dict[Path, Path] = {}
-        for source, canvas in sorted(canvases.items(), key=lambda item: str(item[0]).casefold()):
-            token = hashlib.sha1(str(source).casefold().encode("utf-8")).hexdigest()[:10]
-            destination = texture_dir / f"{source.stem}_{token}_nsamdr_live.png"
-            helper._write_png(destination, canvas)
-            replacements[source] = destination.resolve()
+        def write_canvases(canvases, folder: str, suffix: str) -> dict[Path, Path]:
+            texture_dir = output_root / folder
+            replacements: dict[Path, Path] = {}
+            for source, canvas in sorted(canvases.items(), key=lambda item: str(item[0]).casefold()):
+                token = hashlib.sha1(str(source).casefold().encode("utf-8")).hexdigest()[:10]
+                destination = texture_dir / f"{source.stem}_{token}_{suffix}.png"
+                helper._write_png(destination, canvas)
+                replacements[source] = destination.resolve()
+            return replacements
 
+        baseline_replacements = write_canvases(
+            baseline_canvases, "baseline_4x", "baseline_4x"
+        )
+        stage_replacements = write_canvases(
+            stage_canvases, "live_nsamdr", f"nsamdr_{stage_variant}"
+        )
+
+        baseline_materials = output_root / "baseline.materials.tsv"
+        self._write_material_manifest(
+            helper, baseline_materials, fields, rows, comments,
+            baseline_replacements, materials.parent,
+        )
         candidate_materials = output_root / "live.materials.tsv"
         self._write_material_manifest(
-            helper,
-            candidate_materials,
-            fields,
-            rows,
-            comments,
-            replacements,
-            materials.parent,
+            helper, candidate_materials, fields, rows, comments,
+            stage_replacements, materials.parent,
         )
         candidate_obj = output_root / obj_path.name
         shutil.copy2(obj_path, candidate_obj)
         provenance = helper._provenance(
             source_before=source_before,
-            replacements=replacements,
+            replacements=stage_replacements,
             usages=usages,
             material_manifest=materials,
             asset_manifest=asset_manifest,
@@ -216,29 +261,35 @@ class LiveTrainingPreviewApplication:
         analysis_path = output_root / "live_candidate_analysis.json"
         analysis_path.write_text(
             json.dumps({
-                "schema": "NSAMDR_LIVE_TRAINING_CANDIDATE_ANALYSIS_V1",
+                "schema": "NSAMDR_LIVE_TRAINING_CANDIDATE_ANALYSIS_V2",
                 "authority": "training-intermediate",
                 "qualified": False,
                 "epoch": int(epoch),
                 "phase": phase,
+                "stageVariant": stage_variant,
+                "baselineVariant": "baseline",
                 "checkpoint": str(checkpoint),
                 "checkpointSha256": checkpoint_sha,
                 "modelSchema": MODEL_SCHEMA,
                 "productionForward": "FidelityResidualNetV9.forward(inputs)",
+                "baselineForward": "deterministic production 4x baseline; no model.forward",
                 "inference": inference_records,
             }, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
         report = {
-            "schema": "NSAMDR_LIVE_TRAINING_CANDIDATE_V1",
+            "schema": "NSAMDR_LIVE_TRAINING_CANDIDATE_V2",
             "status": "live-preview-ready",
             "authority": "training-intermediate",
             "qualified": False,
             "epoch": int(epoch),
             "phase": phase,
+            "stageVariant": stage_variant,
             "checkpoint": str(checkpoint),
             "checkpointSha256": checkpoint_sha,
             "candidateObj": str(candidate_obj.resolve()),
+            "baselineObj": str(candidate_obj.resolve()),
+            "baselineMaterials": str(baseline_materials.resolve()),
             "candidateMaterials": str(candidate_materials.resolve()),
             "candidateAnalysis": str(analysis_path.resolve()),
             "controlProvenance": provenance,
@@ -264,6 +315,9 @@ class LiveTrainingPreviewApplication:
             f"epoch={epoch}",
             f"phase={phase}",
             f"checkpointSha256={checkpoint_sha}",
+            f"stageVariant={report['stageVariant']}",
+            f"baselineObj={report['baselineObj']}",
+            f"baselineMaterials={report['baselineMaterials']}",
             f"candidateObj={report['candidateObj']}",
             f"candidateMaterials={report['candidateMaterials']}",
             f"candidateManifest={report['reportPath']}",

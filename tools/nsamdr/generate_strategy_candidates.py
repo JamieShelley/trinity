@@ -340,6 +340,7 @@ class StrategyCandidateGenerator:
         device,
         out_width: int,
         out_height: int,
+        output_variant: str = "final",
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         model_input = self._model_input(albedo, context, out_width, out_height)
         maps, diagnostics = infer_tiled(
@@ -350,6 +351,7 @@ class StrategyCandidateGenerator:
             overlap=config.inference_overlap,
             return_diagnostics=True,
             return_all_maps=True,
+            output_variant=output_variant,
         )
         result: dict[str, Any] = {}
         for name in ("albedo", "normal_xy", "material", "roughness", "emissive"):
@@ -363,7 +365,7 @@ class StrategyCandidateGenerator:
         diagnostics = dict(diagnostics)
         diagnostics.update(
             {
-                "candidateAuthority": "direct-production-forward",
+                "candidateAuthority": f"direct-production-forward:{output_variant}",
                 "postModelBlend": False,
                 "postModelBoundaryRender": False,
                 "postModelReplacement": False,

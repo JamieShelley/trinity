@@ -200,6 +200,19 @@ void RenderPipeline::RenderShip(
         true,
     };
 
+    const CandidateAssetGpu& deterministicBaseline = candidates.baseline;
+    const AssetBinding deterministicBaselineAsset = deterministicBaseline.available
+        ? AssetBinding{
+            baselineAsset.vertexBuffer,
+            baselineAsset.indexBuffer,
+            baselineAsset.indexCount,
+            &deterministicBaseline.areaMaterials,
+            false,
+            true,
+            true,
+        }
+        : AssetBinding{nullptr, nullptr, 0U, nullptr, false, false, false};
+
     const CandidateAssetGpu& finalCandidate = candidates.candidate;
     const AssetBinding finalAsset = finalCandidate.available
         ? AssetBinding{
@@ -213,26 +226,51 @@ void RenderPipeline::RenderShip(
         }
         : AssetBinding{nullptr, nullptr, 0U, nullptr, false, false, false};
 
-    PaneRect firstPane{sceneX, 0U, sceneWidth, sceneHeight};
-    PaneRect secondPane = firstPane;
-    if (state.splitVertical)
+    const bool threeWay = deterministicBaseline.available;
+    PaneRect rawControlPane{sceneX, 0U, sceneWidth, sceneHeight};
+    PaneRect deterministicBaselinePane = rawControlPane;
+    PaneRect candidatePane = rawControlPane;
+    if (threeWay)
     {
-        const uint32_t firstWidth = std::max(1U, sceneWidth / 2U);
-        firstPane = PaneRect{sceneX, 0U, firstWidth, sceneHeight};
-        secondPane = PaneRect{sceneX + firstWidth, 0U, sceneWidth - firstWidth, sceneHeight};
+        if (state.splitVertical)
+        {
+            const uint32_t firstWidth = std::max(1U, sceneWidth / 3U);
+            const uint32_t secondWidth = std::max(1U, (sceneWidth - firstWidth) / 2U);
+            rawControlPane = PaneRect{sceneX, 0U, firstWidth, sceneHeight};
+            deterministicBaselinePane = PaneRect{sceneX + firstWidth, 0U, secondWidth, sceneHeight};
+            candidatePane = PaneRect{
+                sceneX + firstWidth + secondWidth, 0U,
+                sceneWidth - firstWidth - secondWidth, sceneHeight};
+        }
+        else
+        {
+            const uint32_t firstHeight = std::max(1U, sceneHeight / 3U);
+            const uint32_t secondHeight = std::max(1U, (sceneHeight - firstHeight) / 2U);
+            rawControlPane = PaneRect{sceneX, 0U, sceneWidth, firstHeight};
+            deterministicBaselinePane = PaneRect{sceneX, firstHeight, sceneWidth, secondHeight};
+            candidatePane = PaneRect{
+                sceneX, firstHeight + secondHeight, sceneWidth,
+                sceneHeight - firstHeight - secondHeight};
+        }
+        if (state.swapSplitSides)
+            std::swap(rawControlPane, candidatePane);
     }
     else
     {
-        const uint32_t firstHeight = std::max(1U, sceneHeight / 2U);
-        firstPane = PaneRect{sceneX, 0U, sceneWidth, firstHeight};
-        secondPane = PaneRect{sceneX, firstHeight, sceneWidth, sceneHeight - firstHeight};
-    }
-
-    PaneRect rawControlPane = firstPane;
-    PaneRect candidatePane = secondPane;
-    if (state.swapSplitSides)
-    {
-        std::swap(rawControlPane, candidatePane);
+        if (state.splitVertical)
+        {
+            const uint32_t firstWidth = std::max(1U, sceneWidth / 2U);
+            rawControlPane = PaneRect{sceneX, 0U, firstWidth, sceneHeight};
+            candidatePane = PaneRect{sceneX + firstWidth, 0U, sceneWidth - firstWidth, sceneHeight};
+        }
+        else
+        {
+            const uint32_t firstHeight = std::max(1U, sceneHeight / 2U);
+            rawControlPane = PaneRect{sceneX, 0U, sceneWidth, firstHeight};
+            candidatePane = PaneRect{sceneX, firstHeight, sceneWidth, sceneHeight - firstHeight};
+        }
+        if (state.swapSplitSides)
+            std::swap(rawControlPane, candidatePane);
     }
     const float blendFactor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     const UINT stride = sizeof(Vertex);
@@ -420,12 +458,20 @@ void RenderPipeline::RenderShip(
         }
     };
 
-    // B: immutable NSAMDR FINAL material resources on the source mesh.
+    // C: current learned stage (or immutable final outside live mode).
     drawBackgroundPane(candidatePane);
     drawPane(candidatePane, finalAsset);
     context->ClearDepthStencilView(resources.depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-    // A: authoritative raw source under the exact same draw path.
+    // B: exact deterministic 4x reconstruction baseline from the same LR evidence.
+    if (threeWay)
+    {
+        drawBackgroundPane(deterministicBaselinePane);
+        drawPane(deterministicBaselinePane, deterministicBaselineAsset);
+        context->ClearDepthStencilView(resources.depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+    }
+
+    // A: authoritative authored source under the exact same draw path.
     drawBackgroundPane(rawControlPane);
     drawPane(rawControlPane, baselineAsset);
 

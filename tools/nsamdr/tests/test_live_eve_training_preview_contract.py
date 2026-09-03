@@ -30,6 +30,9 @@ def test_live_eve_training_preview_is_end_to_end_and_non_authoritative():
     assert "FidelityResidualNetV9" in live
     assert "StrategyCandidateGenerator" in live
     assert "NSAMDR_LIVE_CANDIDATE_POINTER_V1" in live
+    assert "baselineMaterials" in live
+    assert "stageVariant" in live
+    assert "_stage_output_variant" in live
     assert '"qualified": False' in live
     assert '"authority": "training-intermediate"' in live
     assert "skipping stale publish" in live
@@ -50,7 +53,9 @@ def test_live_eve_training_preview_is_end_to_end_and_non_authoritative():
     assert "elapsedSeconds + 0.5f" in application
     assert "LIVE TRAINING A/B" in application
     assert "LIVE TRAINING PREVIEW — UNQUALIFIED INTERMEDIATE" in panel
-    assert "A RAW SOURCE stays fixed while B CURRENT NSAMDR EPOCH hot-reloads" in panel
+    assert "A AUTHORED SOURCE stays fixed" in panel
+    assert "B DETERMINISTIC 4X BASELINE" in panel
+    assert "C CURRENT TRAINED STAGE" in panel
 
     # Production final remains fail-closed and was not repurposed for live epochs.
     assert "preview requires a completed qualified experiment" in final_preview

@@ -35,7 +35,10 @@ struct LiveCandidatePointer
     std::string token;
     std::string epoch;
     std::string phase;
+    std::string stageVariant;
     std::string checkpointSha;
+    std::string baselineObj;
+    std::string baselineMaterials;
     std::string candidateObj;
     std::string candidateMaterials;
 };
@@ -58,11 +61,15 @@ bool ReadLiveCandidatePointer(const std::string& path, LiveCandidatePointer& poi
         if (key == "token") pointer.token = value;
         else if (key == "epoch") pointer.epoch = value;
         else if (key == "phase") pointer.phase = value;
+        else if (key == "stageVariant") pointer.stageVariant = value;
         else if (key == "checkpointSha256") pointer.checkpointSha = value;
+        else if (key == "baselineObj") pointer.baselineObj = value;
+        else if (key == "baselineMaterials") pointer.baselineMaterials = value;
         else if (key == "candidateObj") pointer.candidateObj = value;
         else if (key == "candidateMaterials") pointer.candidateMaterials = value;
     }
-    return !pointer.token.empty() && !pointer.candidateObj.empty() &&
+    return !pointer.token.empty() && !pointer.baselineObj.empty() &&
+        !pointer.baselineMaterials.empty() && !pointer.candidateObj.empty() &&
         !pointer.candidateMaterials.empty();
 }
 
@@ -208,6 +215,7 @@ bool PreviewProcessing::RefreshLiveCandidate(
     const std::string& rawAlbedoPath,
     FinalCandidateSet& candidates)
 {
+    (void)rawAlbedoPath;
     if (ToLowerAscii(GetEnvironmentString("NSAMDR_PREVIEW_AUTHORITY")) != "training-intermediate")
         return true;
     const std::string pointerPath = GetEnvironmentString("NSAMDR_LIVE_CANDIDATE_POINTER");
@@ -217,8 +225,27 @@ bool PreviewProcessing::RefreshLiveCandidate(
     if (!ReadLiveCandidatePointer(pointerPath, pointer)) return true;
     if (pointer.token == m_liveCandidateToken) return true;
 
+    CandidateAssetGpu nextBaseline;
+    if (!m_assetProcessor.LoadCandidateAsset(
+            device,
+            context,
+            "4X DETERMINISTIC BASELINE",
+            pointer.baselineObj,
+            pointer.baselineMaterials,
+            nextBaseline))
+    {
+        std::printf("NSAMDR live preview: baseline GPU load failed for token %s\n", pointer.token.c_str());
+        return true;
+    }
+    if (!nextBaseline.available || !CandidateUsesSourceDrawRanges(resources, nextBaseline))
+    {
+        std::printf("NSAMDR live preview: rejected baseline for token %s\n", pointer.token.c_str());
+        return true;
+    }
+
     CandidateAssetGpu nextCandidate;
-    const std::string label = "NSAMDR LIVE epoch " + pointer.epoch + " | " + pointer.phase;
+    const std::string stage = pointer.stageVariant.empty() ? pointer.phase : pointer.stageVariant;
+    const std::string label = "NSAMDR LIVE epoch " + pointer.epoch + " | " + stage;
     if (!m_assetProcessor.LoadCandidateAsset(
             device,
             context,
@@ -243,12 +270,14 @@ bool PreviewProcessing::RefreshLiveCandidate(
         return true;
     }
 
+    nextBaseline.status = "DETERMINISTIC 4X BASELINE | same degraded LR evidence";
     nextCandidate.status = "UNQUALIFIED INTERMEDIATE | epoch=" + pointer.epoch +
-        " | phase=" + pointer.phase + " | checkpoint=" +
+        " | phase=" + pointer.phase + " | variant=" + stage + " | checkpoint=" +
         (pointer.checkpointSha.empty() ? std::string("unknown") : pointer.checkpointSha.substr(0U, 12U));
+    candidates.baseline = std::move(nextBaseline);
     candidates.candidate = std::move(nextCandidate);
     m_liveCandidateToken = pointer.token;
-    std::printf("NSAMDR live preview: hot-reloaded %s\n", candidates.candidate.status.c_str());
+    std::printf("NSAMDR live preview: hot-reloaded baseline + %s\n", candidates.candidate.status.c_str());
     return true;
 }
 

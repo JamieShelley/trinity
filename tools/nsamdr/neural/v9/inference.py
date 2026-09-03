@@ -100,6 +100,7 @@ class InferenceService:
         overlap: int = 24,
         return_diagnostics: bool = False,
         return_all_maps: bool = False,
+        output_variant: str = "final",
     ):
         if isinstance(model_input, np.ndarray):
             tensor = torch.from_numpy(model_input)
@@ -112,6 +113,83 @@ class InferenceService:
         if device.type == "cuda" and model.config.channels_last:
             tensor = tensor.contiguous(memory_format=torch.channels_last)
         _, _, input_height, input_width = tensor.shape
+        variant = str(output_variant).strip().casefold()
+        allowed_variants = {"final", "baseline", "structural", "seam", "detail"}
+        if variant not in allowed_variants:
+            raise ValueError(
+                f"unsupported NSAMDR output_variant={output_variant!r}; "
+                f"expected one of {sorted(allowed_variants)}"
+            )
+
+        # Baseline is a first-class production comparator, not a neural output.
+        # Keep this branch independent of model.forward() so live A/B/C preview can
+        # render the exact deterministic 4x control without stealing CUDA time from
+        # training or accidentally exposing an untrained downstream head.
+        if variant == "baseline":
+            source_albedo = tensor[:, 0:3].clamp(0.0, 1.0)
+            source_normal = tensor[:, 3:5].clamp(-1.0, 1.0)
+            source_material = tensor[:, 5:8].clamp(0.0, 1.0)
+            baseline_albedo = F.interpolate(
+                source_albedo, scale_factor=UPSCALE_FACTOR, mode="bicubic",
+                align_corners=False, antialias=True,
+            ).clamp(0.0, 1.0)
+            baseline_normal = F.interpolate(
+                source_normal, scale_factor=UPSCALE_FACTOR, mode="bilinear",
+                align_corners=False,
+            )
+            normal_length = torch.sqrt(
+                baseline_normal.square().sum(dim=1, keepdim=True) + 1.0e-8
+            )
+            baseline_normal = baseline_normal / torch.maximum(
+                torch.ones_like(normal_length), normal_length / 0.999
+            )
+            baseline_material = F.interpolate(
+                source_material, scale_factor=UPSCALE_FACTOR, mode="nearest"
+            ).clamp(0.0, 1.0)
+            h_hr, w_hr = baseline_albedo.shape[-2:]
+            zeros1 = torch.zeros((1, 1, h_hr, w_hr), device=device, dtype=torch.float32)
+            zeros2 = torch.zeros((1, 2, h_hr, w_hr), device=device, dtype=torch.float32)
+            maps = {
+                "albedo": baseline_albedo[0].permute(1, 2, 0).cpu().numpy(),
+                "normal_xy": baseline_normal[0].permute(1, 2, 0).cpu().numpy(),
+                "roughness": baseline_material[:, 2:3][0].permute(1, 2, 0).cpu().numpy(),
+                "emissive": baseline_material[:, 1:2][0].permute(1, 2, 0).cpu().numpy(),
+                "material": baseline_material[0].permute(1, 2, 0).cpu().numpy(),
+                "sdf": zeros1[0].permute(1, 2, 0).cpu().numpy(),
+                "orientation": zeros2[0].permute(1, 2, 0).cpu().numpy(),
+                "confidence": zeros1[0].permute(1, 2, 0).cpu().numpy(),
+                "edge": zeros1[0].permute(1, 2, 0).cpu().numpy(),
+                "hardness": zeros1[0].permute(1, 2, 0).cpu().numpy(),
+                "boundary_gate": zeros1[0].permute(1, 2, 0).cpu().numpy(),
+                "coarse_sdf": zeros1[0].permute(1, 2, 0).cpu().numpy(),
+                "contour_normal_offset_pixels": zeros1[0].permute(1, 2, 0).cpu().numpy(),
+            }
+            maps["sdf_residual_pixels"] = np.zeros_like(
+                maps["contour_normal_offset_pixels"], dtype=np.float32
+            )
+            maps["displacement"] = np.zeros((h_hr, w_hr, 2), dtype=np.float32)
+            maps["displacement_gate"] = maps["boundary_gate"]
+            diagnostics = {
+                "schema": MODEL_SCHEMA,
+                "upscaleFactor": UPSCALE_FACTOR,
+                "inputSize": [input_width, input_height],
+                "outputSize": [w_hr, h_hr],
+                "tileSize": 0,
+                "overlap": 0,
+                "tileCount": 0,
+                "inferenceMilliseconds": 0.0,
+                "device": str(device),
+                "precision": "fp32-baseline",
+                "outputVariant": "baseline",
+                "candidateAuthority": "deterministic-4x-baseline",
+                "productionForward": "baseline interpolation only; model.forward not called",
+            }
+            if not return_all_maps:
+                maps = {key: maps[key] for key in ("albedo", "normal_xy", "material")}
+            if return_diagnostics:
+                return maps, diagnostics
+            return maps
+
         tile_size = max(64, min(int(tile_size), max(input_height, input_width)))
         tile_size -= tile_size % 16
         overlap = max(8, min(int(overlap), tile_size // 3))
@@ -152,9 +230,26 @@ class InferenceService:
                 tile = tensor[:, :, y:y + tile_size, x:x + tile_size]
                 with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
                     output = model(tile)
+                if variant == "structural":
+                    selected_albedo = output["boundary_pre_seam_albedo"]
+                    selected_normal = output["boundary_pre_seam_normal"]
+                    selected_material = output["boundary_pre_seam_material"]
+                elif variant == "seam":
+                    selected_albedo = output["boundary_reconstructed_albedo"]
+                    selected_normal = output["boundary_reconstructed_normal"]
+                    selected_material = output["boundary_reconstructed_material"]
+                elif variant == "detail":
+                    selected_albedo = output["detail_candidate_albedo"]
+                    selected_normal = output["detail_candidate_normal"]
+                    selected_material = output["detail_candidate_material"]
+                else:
+                    selected_albedo = output["albedo"]
+                    selected_normal = output["normal_xy"]
+                    selected_material = output["material"]
                 packed = torch.cat((
-                    output["albedo"], output["normal_xy"], output["roughness"], output["emissive"],
-                    output["material"], output["sdf"], output["orientation"], output["confidence"],
+                    selected_albedo, selected_normal,
+                    selected_material[:, 2:3], selected_material[:, 1:2],
+                    selected_material, output["sdf"], output["orientation"], output["confidence"],
                     torch.sigmoid(output["edge_logits"]), output["hardness"], output["boundary_gate"],
                     output["coarse_sdf"], output["contour_normal_offset_pixels"],
                 ), dim=1).float()
@@ -213,6 +308,7 @@ class InferenceService:
             "detailReconstructionEnabled": bool(getattr(model.config, "detail_reconstruction_enabled", True)),
             "checkpointSelectionKind": str(getattr(model, "_checkpoint_selection_kind", "")),
             "productionForward": "FidelityResidualNetV9.forward(inputs)",
+            "outputVariant": variant,
             "externalGeometryAuthority": False,
             "sourceCompatibleSdfMeanAbs": float(np.mean(np.abs(maps["coarse_sdf"]))),
             "contourNormalOffsetRmsPixels": float(np.sqrt(np.mean(maps["contour_normal_offset_pixels"] ** 2))),
