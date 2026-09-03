@@ -34,6 +34,13 @@ def test_live_eve_training_preview_is_end_to_end_and_non_authoritative():
     assert '"authority": "training-intermediate"' in live
     assert "skipping stale publish" in live
     assert "eve.launch_preview" in live
+    assert "_stage_terminal_epoch" in live
+    assert "_stage_complete" in live
+    assert "watcher remains active and will reopen after the next completed stage" in live
+    assert "waiting for the current stage to complete before reopening" in live
+    assert "renderer_has_opened = True" in live
+    assert "reopen_after_stage = True" in live
+    assert "return int(renderer_result[0] if renderer_result else 0)" not in live
 
     assert "RefreshLiveCandidate" in processing
     assert 'GetEnvironmentString("NSAMDR_LIVE_CANDIDATE_POINTER")' in processing

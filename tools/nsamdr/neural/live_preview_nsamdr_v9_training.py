@@ -272,6 +272,30 @@ class LiveTrainingPreviewApplication:
             "",
         ))
 
+    def _stage_terminal_epoch(self, config, phase: str) -> int | None:
+        """Return the final epoch belonging to one user-visible training stage."""
+        boundary = int(config.identity_epochs)
+        terminal = {"sdf-bootstrap": boundary}
+        boundary += int(config.residual_epochs)
+        terminal["sdf-proof"] = boundary
+        boundary += int(config.seam_proof_epochs)
+        terminal["seam-proof"] = boundary
+        boundary += int(config.seam_authority_epochs)
+        terminal["seam-authority"] = boundary
+        boundary += int(config.boundary_epochs)
+        terminal["gate-proof"] = boundary
+        boundary += int(config.detail_epochs)
+        terminal["detail-reconstruction"] = boundary
+        boundary += int(config.physical_finetune_epochs)
+        terminal["boundary-hardening"] = boundary
+        terminal["physical-finetune"] = boundary
+        return terminal.get(str(phase))
+
+    def _stage_complete(self, config, epoch: int, phase: str) -> bool:
+        """Tell a closed renderer when it may reopen without nagging every epoch."""
+        terminal = self._stage_terminal_epoch(config, phase)
+        return terminal is not None and int(epoch) >= int(terminal)
+
     def main(self, argv: list[str] | None = None) -> int:
         args = self._parser().parse_args(argv)
         if not 512 <= int(args.target_size) <= 2048:
@@ -287,6 +311,7 @@ class LiveTrainingPreviewApplication:
         selection_key = str(asset.get("selectionKey") or "")
         if not query:
             raise RuntimeError(f"{experiment} has no EVE asset query")
+        resolved_config = load_resolved_config(root, experiment)
 
         (
             obj_path,
@@ -309,7 +334,10 @@ class LiveTrainingPreviewApplication:
         launcher = root / "scripts/build/run_nsamdr_obj_preview_dx11.bat"
         renderer_thread: threading.Thread | None = None
         renderer_result: list[int] = []
+        renderer_has_opened = False
+        reopen_after_stage = False
         last_published_epoch = 0
+        last_deferred_epoch = 0
         retry_after = 0.0
 
         def launch_renderer() -> None:
@@ -345,14 +373,46 @@ class LiveTrainingPreviewApplication:
             flush=True,
         )
         while True:
+            current_manifest = self._read_json(directory / "experiment.json") or {}
+            terminal = str(current_manifest.get("status") or "").casefold() in {
+                "completed", "training-rejected", "interrupted-or-failed", "stage-paused"
+            }
             if renderer_thread is not None and not renderer_thread.is_alive():
-                return int(renderer_result[0] if renderer_result else 0)
+                exit_code = int(renderer_result[-1] if renderer_result else 0)
+                print(
+                    f"[live-preview] renderer closed (exit={exit_code}); watcher remains active and will reopen after the next completed stage",
+                    flush=True,
+                )
+                renderer_thread = None
+                renderer_result.clear()
+                if terminal:
+                    return 0
+                if renderer_has_opened:
+                    reopen_after_stage = True
             pointer = self._read_json(checkpoint_pointer)
             if pointer is not None:
                 epoch = int(pointer.get("epoch", 0))
                 phase = str(pointer.get("phase") or "unknown")
                 checkpoint = Path(str(pointer.get("checkpoint") or ""))
-                if epoch > last_published_epoch and checkpoint.is_file() and time.monotonic() >= retry_after:
+                stage_complete = self._stage_complete(resolved_config, epoch, phase)
+                can_publish = not reopen_after_stage or stage_complete
+                if (
+                    reopen_after_stage
+                    and epoch > last_published_epoch
+                    and not stage_complete
+                    and epoch != last_deferred_epoch
+                ):
+                    print(
+                        f"[live-preview] renderer is closed; epoch {epoch} ({phase}) is retained while waiting for the current stage to complete before reopening",
+                        flush=True,
+                    )
+                    last_deferred_epoch = epoch
+                if (
+                    epoch > last_published_epoch
+                    and checkpoint.is_file()
+                    and time.monotonic() >= retry_after
+                    and can_publish
+                ):
                     try:
                         report = self._generate_candidate(
                             root=root,
@@ -383,8 +443,12 @@ class LiveTrainingPreviewApplication:
                             flush=True,
                         )
                         if renderer_thread is None:
+                            renderer_result.clear()
                             renderer_thread = threading.Thread(target=launch_renderer, daemon=True)
                             renderer_thread.start()
+                            renderer_has_opened = True
+                            reopen_after_stage = False
+                            last_deferred_epoch = 0
                     except Exception as exc:  # noqa: BLE001 - preview must never own training success
                         retry_after = time.monotonic() + 5.0
                         print(
@@ -392,10 +456,6 @@ class LiveTrainingPreviewApplication:
                             file=sys.stderr,
                             flush=True,
                         )
-            current_manifest = self._read_json(directory / "experiment.json") or {}
-            terminal = str(current_manifest.get("status") or "").casefold() in {
-                "completed", "training-rejected", "interrupted-or-failed", "stage-paused"
-            }
             if terminal and renderer_thread is None:
                 return 0
             time.sleep(max(0.25, float(args.poll_seconds)))
