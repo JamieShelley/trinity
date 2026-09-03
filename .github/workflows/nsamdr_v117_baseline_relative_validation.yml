@@ -1,0 +1,105 @@
+name: NSAMDR V11.7 baseline-relative validation
+
+on:
+  push:
+    branches:
+      - nsamdr-v117-baseline-relative-temp
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: tools/nsamdr/neural
+      BASE_SHA: b8fa9ea016d20bb01cf84a618bf757ac25aed519
+      CLEAN_BRANCH: nsamdr-v117-baseline-relative-validated
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nsamdr-v117-baseline-relative-temp
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install current NSAMDR test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+          python -m pip install numpy opencv-python-headless pytest pillow
+
+      - name: Apply V11.7 redesign
+        run: python .github/nsamdr_apply_v117_baseline_relative.py
+
+      - name: Compile modified Python
+        run: |
+          python -m py_compile \
+            tools/nsamdr/neural/v9/inference.py \
+            tools/nsamdr/generate_strategy_candidates.py \
+            tools/nsamdr/neural/live_preview_nsamdr_v9_training.py \
+            tools/nsamdr/neural/v9/training.py \
+            tools/nsamdr/tests/test_live_eve_training_preview_contract.py \
+            tools/nsamdr/tests/test_v117_baseline_relative_contract.py
+
+      - name: Run current structural and live-preview contracts
+        run: |
+          pytest -q \
+            tools/nsamdr/tests/test_pass_driven_pipeline_contract.py \
+            tools/nsamdr/tests/test_nsamdr_application_oop_contract.py \
+            tools/nsamdr/tests/test_live_eve_training_preview_contract.py \
+            tools/nsamdr/tests/test_v117_baseline_relative_contract.py
+
+      - name: Diff hygiene and production scope
+        run: |
+          git diff --check
+          echo 'Production changes:'
+          git diff --name-only "$BASE_SHA" -- . ':(exclude).github/**'
+          python - <<'PY'
+          import subprocess
+          allowed = {
+              'tools/nsamdr/neural/v9/inference.py',
+              'tools/nsamdr/generate_strategy_candidates.py',
+              'tools/nsamdr/neural/live_preview_nsamdr_v9_training.py',
+              'tools/nsamdr/neural/v9/training.py',
+              'tools/nsamdr/tests/test_live_eve_training_preview_contract.py',
+              'tools/nsamdr/tests/test_v117_baseline_relative_contract.py',
+              'tools/nsamdr/NSAMDR_BASELINE_RELATIVE_DESIGN.md',
+              'trinityal/tests/nsamdr/NSAMDRPreviewTypes.h',
+              'trinityal/tests/nsamdr/NSAMDRPreviewProcessing.cpp',
+              'trinityal/tests/nsamdr/NSAMDRRenderPipeline.cpp',
+              'trinityal/tests/nsamdr/NSAMDRPreviewPanel.cpp',
+          }
+          names = set(subprocess.check_output([
+              'git','diff','--name-only',
+              'b8fa9ea016d20bb01cf84a618bf757ac25aed519','--','.', ':(exclude).github/**'
+          ], text=True).splitlines())
+          unexpected = sorted(names - allowed)
+          missing = sorted(allowed - names)
+          if unexpected or missing:
+              raise SystemExit(f'production scope mismatch: unexpected={unexpected} missing={missing}')
+          print(f'production scope exact: {len(names)} files')
+          PY
+
+      - name: Build one clean commit from exact production base
+        run: |
+          git diff --binary "$BASE_SHA" -- . ':(exclude).github/**' > /tmp/v117-production.patch
+          git switch --detach "$BASE_SHA"
+          git branch -D "$CLEAN_BRANCH" 2>/dev/null || true
+          git switch -c "$CLEAN_BRANCH"
+          git apply --index /tmp/v117-production.patch
+          git diff --cached --check
+          git config user.name 'NSAMDR validation'
+          git config user.email 'nsamdr-validation@users.noreply.github.com'
+          git commit -m 'Make NSAMDR training baseline-relative'
+          git push --force-with-lease origin "$CLEAN_BRANCH"
+          echo "CLEAN_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Report clean commit
+        run: |
+          echo "clean branch: $CLEAN_BRANCH"
+          echo "clean sha: $CLEAN_SHA"
+          git show --stat --oneline --decorate HEAD
