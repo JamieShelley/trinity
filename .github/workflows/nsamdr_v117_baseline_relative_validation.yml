@@ -76,6 +76,11 @@ jobs:
 
       - name: Diff hygiene and production scope
         run: |
+          # The driver creates these two files. Intent-to-add makes them part of the
+          # exact base-relative diff without creating a temp-branch production commit.
+          git add -N \
+            tools/nsamdr/NSAMDR_BASELINE_RELATIVE_DESIGN.md \
+            tools/nsamdr/tests/test_v117_baseline_relative_contract.py
           git diff --check
           echo 'Production changes:'
           git diff --name-only "$BASE_SHA" -- . ':(exclude).github/**'
