@@ -64,3 +64,14 @@ def test_quick_pipeline_rejects_failed_b1a_smoke_before_b1b():
     assert "return smoke_latest, current_resume, smoke_code" in source
     assert "REJECTED before B1b" in smoke
     assert "baselineRelativeSmokeMetrics" in smoke
+
+def test_local_structural_objective_trains_against_baseline_regret():
+    from v9.local_boundary_production_contract import LocalBoundaryProductionContract
+
+    source = inspect.getsource(LocalBoundaryProductionContract._local_compute_losses)
+    assert 'baseline_relative_supervision = (' in source
+    assert 'losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)' in source
+    assert 'losses["geometry_regret"] * float(config.geometry_regret_weight)' in source
+    assert 'losses["boundary_pixel_regret"] * float(config.boundary_pixel_regret_weight)' in source
+    assert 'total = total + baseline_relative_supervision' in source
+    assert source.count('losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)') == 1

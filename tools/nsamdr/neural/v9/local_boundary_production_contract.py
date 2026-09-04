@@ -581,7 +581,6 @@ class LocalBoundaryProductionContract:
                 losses["sdf_surface"] * float(config.sdf_surface_weight)
                 + losses["sdf_sign"] * float(config.sdf_sign_weight)
                 + losses["sdf_topology_sign"] * float(config.sdf_topology_weight)
-                + losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)
                 + losses["spline_graph_topology_control"] * float(config.spline_graph_topology_control_weight)
                 + losses["spline_graph_topology_sign"] * float(config.spline_graph_topology_sign_weight)
                 + losses["spline_graph_point"] * float(config.spline_graph_point_weight)
@@ -600,6 +599,19 @@ class LocalBoundaryProductionContract:
                 + losses["orientation"] * float(config.orientation_weight)
                 + losses["hardness"] * float(config.boundary_hardness_weight)
             )
+
+        # A structural candidate is useful only when it improves on the observed
+        # source/baseline. The canonical loss already computes these differentiable
+        # regret terms on both authored Raven and analytic examples; keep them as
+        # training authority in both B1a and B1b instead of telemetry-only values.
+        baseline_relative_supervision = (
+            losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)
+            + losses["geometry_regret"] * float(config.geometry_regret_weight)
+            + losses["boundary_pixel_regret"] * float(config.boundary_pixel_regret_weight)
+        )
+        total = total + baseline_relative_supervision
+        losses["baseline_relative_supervision"] = baseline_relative_supervision.detach()
+
         # B1a establishes topology. B1b/sdf-proof must then spend explicit
         # authority on the subpixel defects that the promotion gate measures.
         # These losses already exist in the canonical objective; V11.4 previously
