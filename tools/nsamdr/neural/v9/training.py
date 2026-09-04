@@ -2553,14 +2553,26 @@ class TrainingService:
             persistent_workers=config.data_loader_persistent_workers,
             rolling_epoch_indices=True,
         )
-        # V10.8.0 downstream appearance learning is deliberately real-Raven only.
-        # Structural synthetic primitives remain useful for B1, but seam/detail/
-        # selector stages must see the authored Raven crops they are expected to
-        # improve in the instrumented preview.
-        downstream_config = copy.deepcopy(config)
-        downstream_config.synthetic_geometry_probability = 0.0
+        # The deployable connected-spline structure must learn on the authored
+        # domain it is judged on. Synthetic primitives remain representation and
+        # topology audits, but they are not optimizer authority for production B1.
+        authored_config = copy.deepcopy(config)
+        authored_config.synthetic_geometry_probability = 0.0
+        structural_train_dataset = PhysicalTileDatasetV9(
+            manifest, authored_config, "train", config.tiles_per_epoch,
+            seed=config.seed + 71_337,
+        )
+        structural_train_loader = self._build_loader(
+            structural_train_dataset,
+            batch_size=config.batch_size, device=device, workers=workers,
+            prefetch_factor=config.data_loader_prefetch_factor,
+            persistent_workers=config.data_loader_persistent_workers,
+            rolling_epoch_indices=True,
+        )
+        # Downstream appearance/seam learning is likewise authored-Raven only,
+        # but retains its independent smaller work budget.
         downstream_train_dataset = PhysicalTileDatasetV9(
-            manifest, downstream_config, "train",
+            manifest, authored_config, "train",
             int(getattr(config, "raven_downstream_tiles_per_epoch", 24)),
             seed=config.seed + 80_813,
         )
@@ -2577,7 +2589,7 @@ class TrainingService:
         # steps, which is not a meaningful capacity proof.  B3 gets a dedicated
         # 12-sample real-Raven loader; later smoke stages keep their smaller budget.
         seam_proof_train_dataset = PhysicalTileDatasetV9(
-            manifest, downstream_config, "train",
+            manifest, authored_config, "train",
             max(12, int(getattr(config, "raven_downstream_tiles_per_epoch", 24))),
             seed=config.seed + 91_173,
         )
@@ -2600,26 +2612,6 @@ class TrainingService:
         parametric_train_loader = self._build_loader(
             parametric_train_dataset,
             batch_size=int(getattr(config, "parametric_primitive_batch_size", 8)),
-            device=device,
-            workers=workers,
-            prefetch_factor=config.data_loader_prefetch_factor,
-            persistent_workers=config.data_loader_persistent_workers,
-            rolling_epoch_indices=False,
-        )
-        # V11.4 uses the fixed complete-teacher analytic curriculum at the
-        # current structural epoch budget. Round up only to preserve complete
-        # seven-class balance; the legacy compact B1b bank size is not a floor for
-        # this full production graph. The permanent 29-case ladder remains held out.
-        local_structure_train_tiles = (
-            (int(config.tiles_per_epoch) + PRIMITIVE_COUNT - 1)
-            // PRIMITIVE_COUNT
-        ) * PRIMITIVE_COUNT
-        local_structure_train_dataset = ParametricPrimitiveTrainingDataset(
-            config, local_structure_train_tiles, seed=config.seed + 71_337
-        )
-        local_structure_train_loader = self._build_loader(
-            local_structure_train_dataset,
-            batch_size=config.batch_size,
             device=device,
             workers=workers,
             prefetch_factor=config.data_loader_prefetch_factor,
@@ -3017,9 +3009,12 @@ class TrainingService:
                 else:
                     self._status("  WARNING: no explicit best detail checkpoint found before selector training.")
             model.set_phase(phase)
-            local_structure_phase = bool(
-                phase == "sdf-proof"
+            production_structure_phase = bool(
+                phase in {"sdf-bootstrap", "sdf-proof"}
                 and hasattr(model.geometry_net, "production_structure")
+            )
+            local_structure_phase = bool(
+                phase == "sdf-proof" and production_structure_phase
             )
             if local_structure_phase:
                 b1b_classifier_qualified = True
@@ -3055,16 +3050,14 @@ class TrainingService:
             for group in optimizer.param_groups:
                 group["lr"] = learning_rate * float(group.get("lr_scale", 1.0))
             totals = _MetricAccumulator()
-            if phase == "sdf-proof":
-                # V11.4 local-boundary proof needs the fixed complete-teacher
-                # analytic bank that its held-out B1/B2 ladder evaluates, but the
-                # full production graph must stay at the canonical batch size. The
-                # legacy compact field keeps its configured micro-batch loader.
-                epoch_loader = (
-                    local_structure_train_loader
-                    if local_structure_phase
-                    else parametric_train_loader
-                )
+            if production_structure_phase:
+                # B1a and B1b optimize the connected-spline production path on
+                # authored Raven crops. The fixed synthetic ladder remains a
+                # separate held-out capability/topology audit below.
+                epoch_loader = structural_train_loader
+            elif phase == "sdf-proof":
+                # Compatibility path for the retired compact primitive field.
+                epoch_loader = parametric_train_loader
             elif phase == "seam-proof":
                 epoch_loader = seam_proof_train_loader
             elif phase in {"seam-authority", "gate-proof", "detail-reconstruction", "boundary-hardening", "physical-finetune"}:
@@ -3074,24 +3067,22 @@ class TrainingService:
             epoch_batch_size = max(1, int(epoch_loader.batch_size or 1))
             epoch_batch_count = len(epoch_loader) * seam_proof_passes
             epoch_tile_count = len(epoch_loader.dataset) * seam_proof_passes
-            # Quick's first connected-spline geometry epoch is a complete-class
-            # smoke proof, not a promotion epoch. Two examples per primitive family
-            # give an early A/B/C result before paying for the full 70-tile bank.
-            # Full runs and every later B1b epoch retain the complete training bank.
+            # Quick's first connected-spline refinement epoch is a bounded
+            # authored-Raven smoke pass, not a promotion epoch. The permanent
+            # synthetic ladder remains validation-only; Full and later B1b work
+            # retain the complete authored structural bank.
             structural_smoke_batch_limit = None
             if (
                 local_structure_phase
                 and b1b_stage_epoch == 1
                 and int(config.tiles_per_epoch) <= 64
             ):
-                structural_smoke_batch_limit = min(
-                    epoch_batch_count, max(PRIMITIVE_COUNT * 2, PRIMITIVE_COUNT)
-                )
+                structural_smoke_batch_limit = min(epoch_batch_count, 14)
                 epoch_batch_count = structural_smoke_batch_limit
                 epoch_tile_count = structural_smoke_batch_limit * epoch_batch_size
                 self._status(
-                    f"  B1b QUICK SMOKE: {structural_smoke_batch_limit} batch(es) "
-                    "(2/class) before the full connected-spline bank; promotion disabled."
+                    f"  B1b QUICK SMOKE: {structural_smoke_batch_limit} authored Raven "
+                    "batch(es); synthetic ladder remains validation-only; promotion disabled."
                 )
             structural_smoke_epoch = structural_smoke_batch_limit is not None
             epoch_workers = workers
@@ -3104,8 +3095,9 @@ class TrainingService:
                     self._status(
                         "  B1 local-boundary production proof: full production "
                         "geometry + same-renderer losses have authority; "
-                        f"analytic complete-teacher bank={len(local_structure_train_dataset)} "
-                        f"batch={int(local_structure_train_loader.batch_size or 1)}"
+                        f"authored Raven structural bank={len(structural_train_dataset)} "
+                        f"batch={int(structural_train_loader.batch_size or 1)}; "
+                        "synthetic ladder=validation-only"
                     )
                 else:
                     self._status(
