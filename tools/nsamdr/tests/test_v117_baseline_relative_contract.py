@@ -139,3 +139,31 @@ def test_quick_first_b1b_is_authored_raven_smoke_and_cannot_promote():
     assert 'not structural_smoke_epoch' in source
     assert 'B1/B2 promotion is disabled' in source
     assert 'not structural_smoke_epoch and integration_ready and hard_render_gate' in source
+
+def test_v118_structural_candidate_is_exact_baseline_at_zero_gain():
+    from v9.model import FidelityResidualNetV9, MODEL_SCHEMA
+
+    locality = torch.ones((1, 1, 5, 7), dtype=torch.float32)
+    zero_gain = torch.zeros_like(locality)
+    weight = FidelityResidualNetV9._structural_residual_weight(
+        locality, zero_gain, None
+    )
+    assert torch.equal(weight, torch.zeros_like(weight))
+
+    baseline = torch.linspace(0.05, 0.95, 5 * 7 * 3, dtype=torch.float32).reshape(1, 3, 5, 7)
+    proposal = torch.flip(baseline, dims=(-1,))
+    candidate = baseline + weight * (proposal - baseline)
+    assert torch.equal(candidate, baseline)
+    assert MODEL_SCHEMA == "NSAMDR_RAVEN_PRODUCTION_BASELINE_RESIDUAL_SPLINE_GRAPH_4X_V11_8_0"
+
+
+def test_v118_structural_residual_gain_is_zero_initialized_and_checkpointed():
+    local = text("tools/nsamdr/neural/v9/local_boundary_production_contract.py")
+    model = text("tools/nsamdr/neural/v9/model.py")
+    assert "self.structural_residual_gain_head = nn.Sequential(" in local
+    assert "nn.init.zeros_(self.structural_residual_gain_head[-1].weight)" in local
+    assert "nn.init.zeros_(self.structural_residual_gain_head[-1].bias)" in local
+    assert '"structural_residual_gain": structural_residual_gain' in local
+    assert 'geometry.get("structural_residual_gain")' in model
+    assert 'boundary_structural_residual_weight' in model
+    assert 'structural_gate = candidate_locality' not in model

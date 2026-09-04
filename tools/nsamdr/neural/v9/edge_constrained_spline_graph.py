@@ -31,7 +31,7 @@ from . import spline_graph as _spline_graph
 from . import losses as _losses
 
 
-SCHEMA = "NSAMDR_RAVEN_PRODUCTION_EDGE_CONSTRAINED_SPLINE_GRAPH_4X_V11_6_0"
+SCHEMA = "NSAMDR_RAVEN_PRODUCTION_BASELINE_RESIDUAL_SPLINE_GRAPH_4X_V11_8_0"
 
 _INSTALLED = False
 _ORIGINAL_EDGE_GRAPH = _spline_graph.ConnectedSplineGraph._edge_graph

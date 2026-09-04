@@ -26,7 +26,7 @@ from . import model as _model
 from .parametric_boundary import LocalParametricBoundaryDecoder, make_query_grid
 from .spline_graph import ConnectedSplineGraph
 
-SCHEMA = "NSAMDR_RAVEN_PRODUCTION_CONNECTED_SPLINE_GRAPH_4X_V11_5_0"
+SCHEMA = "NSAMDR_RAVEN_PRODUCTION_BASELINE_RESIDUAL_SPLINE_GRAPH_4X_V11_8_0"
 
 _INSTALLED = False
 _ORIGINAL_GEOMETRY_INIT: Callable[..., None] | None = None
@@ -144,6 +144,7 @@ class LocalBoundaryProductionContract:
         local_context = structure["context"]
         spline_graph = structure["spline_graph"]
         field = structure["field"]
+        structural_residual_gain = structure["structural_residual_gain"].float()
 
         final_pixels = field["phi_pixels"].float()
         max_distance = float(self.config.contour_sdf_max_distance_pixels)
@@ -219,6 +220,7 @@ class LocalBoundaryProductionContract:
             "local_csg_logits": local_context["csg_logits"].to(aux.dtype),
             "local_parametric_confidence": local_context["confidence"].to(aux.dtype),
             "local_implicit_authority": field["implicit_authority"].to(aux.dtype),
+            "structural_residual_gain": structural_residual_gain.to(aux.dtype),
             "contour_transport_control_pixels": zero_control2,
             "contour_transport_pixels": zero_hr2,
             "contour_dilation_control_pixels": zero_control2[:, 0:1],
@@ -343,11 +345,16 @@ class LocalBoundaryProductionContract:
                 "bounded 2x topology field -> shared edge-crossing nodes -> "
                 "connected cubic-Hermite contour graph -> metric SDF"
             ),
-            "reconstructionPrimitive": "connected marching-squares cubic-Hermite spline graph",
+            "reconstructionPrimitive": (
+                "deterministic B + zero-initialized bounded structural residual gain "
+                "* (connected marching-squares cubic-Hermite redraw - B)"
+            ),
             "b1bObjective": "shared graph-node, tangent, span-smoothness, metric-SDF and same-renderer reconstruction",
             "geometryOutputs": (
-                "source_sdf_prior", "connected_spline_graph", "edge", "orientation", "hardness"
+                "source_sdf_prior", "connected_spline_graph", "structural_residual_gain",
+                "edge", "orientation", "hardness"
             ),
+            "baselineRelativeStructuralIdentity": True,
             "topologyGeometryFeatureSplit": True,
             "finiteWidthStrokeRepresentation": (
                 "paired connected material-boundary spline branches; topology is structural"
@@ -765,6 +772,16 @@ class LocalBoundaryProductionStructure(nn.Module):
         self.topology_feature_project = self._make_feature_project(
             int(decoded_channels), feature_channels
         )
+        # V11.8 structural output is a residual correction to deterministic B.
+        # A zero-initialized final layer gives exact C == B at construction while
+        # tanh keeps the learned signed correction bounded and differentiable.
+        self.structural_residual_gain_head = nn.Sequential(
+            nn.Conv2d(int(decoded_channels) + 16, feature_channels, 3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(feature_channels, 1, 1),
+        )
+        nn.init.zeros_(self.structural_residual_gain_head[-1].weight)
+        nn.init.zeros_(self.structural_residual_gain_head[-1].bias)
         initial_genome = torch.tensor(
             [float(_ACTIVE_EVOLUTION_GENOME[name]) for name in EVOLUTION_GENOME_NAMES],
             dtype=torch.float32,
@@ -902,6 +919,13 @@ class LocalBoundaryProductionStructure(nn.Module):
         )
         geometry_feature_grid = self.geometry_feature_project(projected_input)
         topology_feature_grid = self.topology_feature_project(projected_input)
+        structural_residual_gain = torch.tanh(
+            self.structural_residual_gain_head(projected_input).float()
+        )
+        structural_residual_gain = F.interpolate(
+            structural_residual_gain, size=query_grid.shape[1:3],
+            mode="bilinear", align_corners=False,
+        )
 
         # Retain the V11.4 local context only for checkpoint/public telemetry. It has
         # no query-time authority after V11.5.
@@ -944,5 +968,6 @@ class LocalBoundaryProductionStructure(nn.Module):
             "context": context,
             "spline_graph": spline["graph"],
             "field": field,
+            "structural_residual_gain": structural_residual_gain,
             "genome": self.evolution_genome,
         }

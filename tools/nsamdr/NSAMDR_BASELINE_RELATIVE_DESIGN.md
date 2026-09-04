@@ -10,6 +10,12 @@ Every learned stage is judged against the deterministic reconstruction available
 
 Training is useful only when C improves on B while moving toward A. Production-final remains a separate fail-closed authority.
 
+## V11.8 structural identity contract
+
+The connected-spline graph proposes an analytic redraw **R**, but proposal quality alone does not authorize replacement of B. The production structural stage is residual: **C = B + g(R - B)**. The learned local gain **g** is bounded to [-1, 1] and its final prediction layer is initialized to exact zero, therefore a fresh model starts with **C == B**. Baseline-relative geometry/pixel regret then supplies gradient authority for opening the correction only where authored Raven evidence reduces error. Explicit oracle/teacher gates may still force the full analytic proposal for proof construction; they do not change production C semantics.
+
+This follows the residual-learning principle used by image-restoration/SR systems and the zero-initialized residual-gating principle: preserve the known reconstruction at initialization and learn only the evidence-supported correction.
+
 ## Literature corrections carried into V11.7
 
 1. Residual SR systems (VDSR, LapSRN, SwinIR) preserve a low-frequency/interpolated path and learn the missing correction rather than forcing the network to repaint the full image. NSAMDR already had an internal baseline, but its proof/preview did not expose it as a first-class control.
