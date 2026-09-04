@@ -21,4 +21,4 @@ Training is useful only when C improves on B while moving toward A. Production-f
 
 ## Quick feedback contract
 
-The first Quick B1b epoch is a two-examples-per-primitive smoke pass. It is validation-only and cannot promote B1/B2 even if its held-out metrics happen to pass. If C is visibly/quantitatively worse than B, stop there. Later B1b epochs retain the complete training bank and all existing hard qualification gates.
+Production B1a/B1b optimization uses authored Raven crops with synthetic geometry disabled. Synthetic line/circle/ring cases remain representation and topology audits; they do not replace real-domain optimizer evidence. The first Quick B1b epoch is a bounded 14-batch authored-Raven structural refinement smoke pass. It cannot promote B1/B2 even if its held-out metrics happen to pass. If C is visibly/quantitatively worse than B, stop there. Later B1b epochs retain the complete authored structural bank and all existing hard qualification gates.

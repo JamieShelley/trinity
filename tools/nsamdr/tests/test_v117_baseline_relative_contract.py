@@ -112,22 +112,30 @@ def test_live_preview_is_authored_baseline_stage_not_raw_vs_final():
     assert 'Live epoch A/B comparison' not in panel
 
 
-def test_quick_first_b1b_is_balanced_smoke_and_cannot_promote():
-    from v9.dataset import ParametricPrimitiveTrainingDataset
+def test_connected_spline_b1_optimizes_real_raven_and_keeps_synthetic_audit():
     from v9.training import TrainingService
 
     source = inspect.getsource(TrainingService.train_v9)
-    dataset_source = inspect.getsource(ParametricPrimitiveTrainingDataset.__getitem__)
-    assert 'forced_class=int(index) % PRIMITIVE_COUNT' in dataset_source
+    assert 'authored_config.synthetic_geometry_probability = 0.0' in source
+    assert 'structural_train_dataset = PhysicalTileDatasetV9(' in source
+    assert 'epoch_loader = structural_train_loader' in source
+    assert 'phase in {"sdf-bootstrap", "sdf-proof"}' in source
+    assert 'SyntheticGeometryValidationDataset(' in source
+    assert 'local_structure_train_dataset = ParametricPrimitiveTrainingDataset(' not in source
+    assert 'local_structure_train_loader' not in source
+
+
+def test_quick_first_b1b_is_authored_raven_smoke_and_cannot_promote():
+    from v9.training import TrainingService
+
+    source = inspect.getsource(TrainingService.train_v9)
     assert 'b1b_stage_epoch == 1' in source
     assert 'int(config.tiles_per_epoch) <= 64' in source
-    assert 'PRIMITIVE_COUNT * 2' in source
+    assert 'structural_smoke_batch_limit = min(epoch_batch_count, 14)' in source
     assert 'B1b QUICK SMOKE' in source
+    assert 'authored Raven' in source
+    assert 'synthetic ladder remains validation-only' in source
     assert 'structural_smoke_epoch = structural_smoke_batch_limit is not None' in source
     assert 'not structural_smoke_epoch' in source
     assert 'B1/B2 promotion is disabled' in source
     assert 'not structural_smoke_epoch and integration_ready and hard_render_gate' in source
-    # The complete bank is unshuffled, so indices 0..13 are exactly two of each
-    # class because the dataset maps index modulo primitive count to class.
-    assert 'rolling_epoch_indices=False' in source
-    assert 'local_structure_train_loader' in source
