@@ -77,7 +77,7 @@ jobs:
           )
           if 'test_local_structural_objective_trains_against_baseline_regret' in test_source:
               raise RuntimeError('focused regret-objective test already exists')
-          test.write_text(test_source.rstrip() + addition + '\n', encoding='utf-8')
+          test.write_text(test_source.rstrip() + addition, encoding='utf-8')
 
           Path('.github/workflows/nsamdr_v117_regret_objective_temp.yml').unlink()
           PY
