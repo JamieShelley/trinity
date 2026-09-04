@@ -1,0 +1,124 @@
+name: NSAMDR V11.7 regret objective temp
+
+on:
+  push:
+    branches:
+      - nsamdr-v117-regret-objective-temp
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Apply baseline-relative structural objective
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          objective = Path('tools/nsamdr/neural/v9/local_boundary_production_contract.py')
+          source = objective.read_text(encoding='utf-8')
+
+          duplicate = '                + losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)\n'
+          if source.count(duplicate) != 1:
+              raise RuntimeError(f'expected one B1b-only regret term, found {source.count(duplicate)}')
+          source = source.replace(duplicate, '', 1)
+
+          marker = '''            )
+          # B1a establishes topology. B1b/sdf-proof must then spend explicit
+          '''
+          replacement = '''            )
+
+          # A structural candidate is useful only when it improves on the observed
+          # source/baseline.  The canonical loss already computes these differentiable
+          # regret terms on both authored Raven and analytic examples; keep them as
+          # training authority in both B1a and B1b instead of telemetry-only values.
+          baseline_relative_supervision = (
+              losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)
+              + losses["geometry_regret"] * float(config.geometry_regret_weight)
+              + losses["boundary_pixel_regret"] * float(config.boundary_pixel_regret_weight)
+          )
+          total = total + baseline_relative_supervision
+          losses["baseline_relative_supervision"] = baseline_relative_supervision.detach()
+
+          # B1a establishes topology. B1b/sdf-proof must then spend explicit
+          '''
+          if source.count(marker) != 1:
+              raise RuntimeError(f'expected one local-objective insertion point, found {source.count(marker)}')
+          source = source.replace(marker, replacement, 1)
+          objective.write_text(source, encoding='utf-8')
+
+          test = Path('tools/nsamdr/tests/test_v117_quick_baseline_smoke.py')
+          test_source = test.read_text(encoding='utf-8')
+          addition = '''
+
+          def test_local_structural_objective_trains_against_baseline_regret():
+              from v9.local_boundary_production_contract import LocalBoundaryProductionContract
+
+              source = inspect.getsource(LocalBoundaryProductionContract._local_compute_losses)
+              assert 'baseline_relative_supervision = (' in source
+              assert 'losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)' in source
+              assert 'losses["geometry_regret"] * float(config.geometry_regret_weight)' in source
+              assert 'losses["boundary_pixel_regret"] * float(config.boundary_pixel_regret_weight)' in source
+              assert 'total = total + baseline_relative_supervision' in source
+              assert source.count('losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)') == 1
+          '''
+          if 'test_local_structural_objective_trains_against_baseline_regret' in test_source:
+              raise RuntimeError('focused regret-objective test already exists')
+          test.write_text(test_source.rstrip() + addition + '\n', encoding='utf-8')
+
+          Path('.github/workflows/nsamdr_v117_regret_objective_temp.yml').unlink()
+          PY
+
+      - name: Validate source contracts
+        shell: bash
+        run: |
+          python -m py_compile \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/tests/test_v117_quick_baseline_smoke.py
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'tools/nsamdr/neural')
+          from nsamdr_readability_contract import check_file
+
+          path = Path('tools/nsamdr/neural/v9/local_boundary_production_contract.py')
+          failures = check_file(path)
+          if failures:
+              raise SystemExit('\n'.join(failures))
+
+          source = path.read_text(encoding='utf-8')
+          required = (
+              'baseline_relative_supervision = (',
+              'losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)',
+              'losses["geometry_regret"] * float(config.geometry_regret_weight)',
+              'losses["boundary_pixel_regret"] * float(config.boundary_pixel_regret_weight)',
+              'total = total + baseline_relative_supervision',
+          )
+          for text in required:
+              if text not in source:
+                  raise SystemExit(f'missing required structural regret contract: {text}')
+          if source.count('losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)') != 1:
+              raise SystemExit('sdf improvement regret must have exactly one shared authority')
+          print('[v11.7-regret] PASS')
+          PY
+          git diff --check
+
+      - name: Commit validated edit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Train V11.7 structural stages against baseline regret"
+          git push origin HEAD:nsamdr-v117-regret-objective-temp
