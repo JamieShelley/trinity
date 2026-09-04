@@ -20,6 +20,13 @@ renderer modes belong in Git history, not in the runtime workflow.
 
 [![NSAMDR example reconstruction](./EXAMPLE.png)](./EXAMPLE.png)
 
+> **Illustrative target outcome:** `EXAMPLE.png` defines the intended visible
+> behaviour of NSAMDR: cleaner supported contours, continuous seams,
+> well-defined manufactured features, and richer evidence-supported
+> microdetail. It is not a claim that every crop can recover the exact lost
+> authored pixels. A learned candidate must still beat the deterministic
+> baseline on held-out evidence; otherwise the workflow fails closed.
+
 ## 1. Why NSAMDR exists
 
 A conventional super-resolution network sees a low-resolution image and tries
@@ -80,11 +87,14 @@ that geometry into a physical transition. The profile and seam specialists
 refine shared boundary/seam behaviour. `DetailNet` then restores non-parametric
 high-frequency appearance without being allowed to move the accepted contour.
 
-The current structural implementation uses a learned compact parametric
-primitive classifier/regressor followed by exact analytic SDF rendering. The
-architecture audit retains the generic label `Spline/SDF` for the continuous
-structure slot, but the active production implementation is the parametric
-primitive field in `GeometryNet`.
+The current production structural implementation uses a learned bounded 2x
+topology field to form a hard-connected marching-squares graph. Shared
+edge-crossing nodes and tangents are rendered as connected cubic-Hermite
+spans and queried as a metric SDF. V11.6 constrains each learned crossing to
+its owning control edge, while V11.7 gives baseline-relative regret losses
+direct optimisation authority during structural training. The retired
+whole-tile primitive classifier/regressor remains compatibility telemetry
+only and has no production structural authority.
 
 One production model reconstructs aligned high-resolution albedo, normal,
 material, emissive, and roughness maps. Geometry, boundary profiles, seam
@@ -165,7 +175,7 @@ production inference.
 | Component | Production responsibility | Evidence required |
 | --- | --- | --- |
 | `GeometryNet` | Encodes the complete LR input and produces the geometry features used by reconstruction. | Forward call, parameter count, training state, gradient/update evidence. |
-| Continuous structure | Produces the SDF/topology and active parametric representation. Its output is owned by the model, not an external fitter. | Forward reachability, structural losses, final-forward output. |
+| Continuous structure | Produces the topology and connected-spline metric SDF. Its output is owned by the model, not an external fitter. | Forward reachability, structural losses, final-forward output. |
 | Boundary renderer/profile | Reconstructs two physical sides of a boundary and refines their shared coverage profile. The renderer is deterministic; the profile specialist is learned. | Shared use by albedo, normal, and material plus profile loss/update evidence. |
 | `PhaseAwareSeamSR` | Reconstructs phase-sensitive 2x/4x seam information from authored LR maps. | Forward call and seam-stage gradient/update evidence. |
 | Seam authority | Limits seam reconstruction to supported locations and controls how the phase proposal enters the physical candidate. | Forward call, authority loss/metric, non-bypassed final output. |
