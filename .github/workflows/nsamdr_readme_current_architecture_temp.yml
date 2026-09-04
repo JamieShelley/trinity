@@ -1,0 +1,120 @@
+name: NSAMDR README current architecture temp
+
+on:
+  push:
+    branches:
+      - nsamdr-readme-current-architecture-temp
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Correct NSAMDR README
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tools/nsamdr/README.md')
+          text = path.read_text(encoding='utf-8')
+
+          image_marker = '[![NSAMDR example reconstruction](./EXAMPLE.png)](./EXAMPLE.png)\n'
+          image_note = (
+              image_marker
+              + '\n'
+              + '> **Illustrative target outcome:** `EXAMPLE.png` defines the intended visible\n'
+              + '> behaviour of NSAMDR: cleaner supported contours, continuous seams,\n'
+              + '> well-defined manufactured features, and richer evidence-supported\n'
+              + '> microdetail. It is not a claim that every crop can recover the exact lost\n'
+              + '> authored pixels. A learned candidate must still beat the deterministic\n'
+              + '> baseline on held-out evidence; otherwise the workflow fails closed.\n'
+          )
+          if text.count(image_marker) != 1:
+              raise RuntimeError(f'expected one example image marker, found {text.count(image_marker)}')
+          text = text.replace(image_marker, image_note, 1)
+
+          stale_structure = (
+              'The current structural implementation uses a learned compact parametric\n'
+              'primitive classifier/regressor followed by exact analytic SDF rendering. The\n'
+              'architecture audit retains the generic label `Spline/SDF` for the continuous\n'
+              'structure slot, but the active production implementation is the parametric\n'
+              'primitive field in `GeometryNet`.\n'
+          )
+          current_structure = (
+              'The current production structural implementation uses a learned bounded 2x\n'
+              'topology field to form a hard-connected marching-squares graph. Shared\n'
+              'edge-crossing nodes and tangents are rendered as connected cubic-Hermite\n'
+              'spans and queried as a metric SDF. V11.6 constrains each learned crossing to\n'
+              'its owning control edge, while V11.7 gives baseline-relative regret losses\n'
+              'direct optimisation authority during structural training. The retired\n'
+              'whole-tile primitive classifier/regressor remains compatibility telemetry\n'
+              'only and has no production structural authority.\n'
+          )
+          if text.count(stale_structure) != 1:
+              raise RuntimeError(f'expected one stale structural paragraph, found {text.count(stale_structure)}')
+          text = text.replace(stale_structure, current_structure, 1)
+
+          stale_table = (
+              '| Continuous structure | Produces the SDF/topology and active parametric representation. '
+              'Its output is owned by the model, not an external fitter. | Forward reachability, '
+              'structural losses, final-forward output. |'
+          )
+          current_table = (
+              '| Continuous structure | Produces the topology and connected-spline metric SDF. '
+              'Its output is owned by the model, not an external fitter. | Forward reachability, '
+              'structural losses, final-forward output. |'
+          )
+          if text.count(stale_table) != 1:
+              raise RuntimeError(f'expected one stale module-table row, found {text.count(stale_table)}')
+          text = text.replace(stale_table, current_table, 1)
+
+          path.write_text(text, encoding='utf-8')
+          Path('.github/workflows/nsamdr_readme_current_architecture_temp.yml').unlink()
+          PY
+
+      - name: Validate README diff
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('tools/nsamdr/README.md').read_text(encoding='utf-8')
+          required = (
+              '**Illustrative target outcome:**',
+              'hard-connected marching-squares graph',
+              'connected cubic-Hermite',
+              'baseline-relative regret losses',
+              'connected-spline metric SDF',
+          )
+          for item in required:
+              if item not in text:
+                  raise SystemExit(f'missing README correction: {item}')
+          forbidden = (
+              'current structural implementation uses a learned compact parametric',
+              'active parametric representation',
+          )
+          for item in forbidden:
+              if item in text:
+                  raise SystemExit(f'stale README text remains: {item}')
+          print('[nsamdr-readme] PASS')
+          PY
+          git diff --check
+
+      - name: Commit validated README correction
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Correct NSAMDR README architecture description"
+          git push origin HEAD:nsamdr-readme-current-architecture-temp
