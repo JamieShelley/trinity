@@ -34,25 +34,27 @@ jobs:
               raise RuntimeError(f'expected one B1b-only regret term, found {source.count(duplicate)}')
           source = source.replace(duplicate, '', 1)
 
-          marker = '''            )
-          # B1a establishes topology. B1b/sdf-proof must then spend explicit
-          '''
-          replacement = '''            )
-
-          # A structural candidate is useful only when it improves on the observed
-          # source/baseline.  The canonical loss already computes these differentiable
-          # regret terms on both authored Raven and analytic examples; keep them as
-          # training authority in both B1a and B1b instead of telemetry-only values.
-          baseline_relative_supervision = (
-              losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)
-              + losses["geometry_regret"] * float(config.geometry_regret_weight)
-              + losses["boundary_pixel_regret"] * float(config.boundary_pixel_regret_weight)
+          marker = (
+              '            )\n'
+              '        # B1a establishes topology. B1b/sdf-proof must then spend explicit\n'
           )
-          total = total + baseline_relative_supervision
-          losses["baseline_relative_supervision"] = baseline_relative_supervision.detach()
-
-          # B1a establishes topology. B1b/sdf-proof must then spend explicit
-          '''
+          replacement = (
+              '            )\n'
+              '\n'
+              '        # A structural candidate is useful only when it improves on the observed\n'
+              '        # source/baseline. The canonical loss already computes these differentiable\n'
+              '        # regret terms on both authored Raven and analytic examples; keep them as\n'
+              '        # training authority in both B1a and B1b instead of telemetry-only values.\n'
+              '        baseline_relative_supervision = (\n'
+              '            losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)\n'
+              '            + losses["geometry_regret"] * float(config.geometry_regret_weight)\n'
+              '            + losses["boundary_pixel_regret"] * float(config.boundary_pixel_regret_weight)\n'
+              '        )\n'
+              '        total = total + baseline_relative_supervision\n'
+              '        losses["baseline_relative_supervision"] = baseline_relative_supervision.detach()\n'
+              '\n'
+              '        # B1a establishes topology. B1b/sdf-proof must then spend explicit\n'
+          )
           if source.count(marker) != 1:
               raise RuntimeError(f'expected one local-objective insertion point, found {source.count(marker)}')
           source = source.replace(marker, replacement, 1)
@@ -60,19 +62,19 @@ jobs:
 
           test = Path('tools/nsamdr/tests/test_v117_quick_baseline_smoke.py')
           test_source = test.read_text(encoding='utf-8')
-          addition = '''
-
-          def test_local_structural_objective_trains_against_baseline_regret():
-              from v9.local_boundary_production_contract import LocalBoundaryProductionContract
-
-              source = inspect.getsource(LocalBoundaryProductionContract._local_compute_losses)
-              assert 'baseline_relative_supervision = (' in source
-              assert 'losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)' in source
-              assert 'losses["geometry_regret"] * float(config.geometry_regret_weight)' in source
-              assert 'losses["boundary_pixel_regret"] * float(config.boundary_pixel_regret_weight)' in source
-              assert 'total = total + baseline_relative_supervision' in source
-              assert source.count('losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)') == 1
-          '''
+          addition = (
+              '\n\n'
+              'def test_local_structural_objective_trains_against_baseline_regret():\n'
+              '    from v9.local_boundary_production_contract import LocalBoundaryProductionContract\n'
+              '\n'
+              '    source = inspect.getsource(LocalBoundaryProductionContract._local_compute_losses)\n'
+              '    assert \'baseline_relative_supervision = (\' in source\n'
+              '    assert \'losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)\' in source\n'
+              '    assert \'losses["geometry_regret"] * float(config.geometry_regret_weight)\' in source\n'
+              '    assert \'losses["boundary_pixel_regret"] * float(config.boundary_pixel_regret_weight)\' in source\n'
+              '    assert \'total = total + baseline_relative_supervision\' in source\n'
+              '    assert source.count(\'losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)\') == 1\n'
+          )
           if 'test_local_structural_objective_trains_against_baseline_regret' in test_source:
               raise RuntimeError('focused regret-objective test already exists')
           test.write_text(test_source.rstrip() + addition + '\n', encoding='utf-8')
