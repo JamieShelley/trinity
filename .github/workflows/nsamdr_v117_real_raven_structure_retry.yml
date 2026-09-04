@@ -1,0 +1,258 @@
+name: NSAMDR V11.7 real Raven structure retry
+
+on:
+  push:
+    branches:
+      - nsamdr-v117-real-raven-structure-temp
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Record baseline readability
+        shell: bash
+        run: |
+          python - <<'PY' > /tmp/readability-before.txt
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'tools/nsamdr/neural')
+          from nsamdr_readability_contract import check_file
+          for failure in check_file(Path('tools/nsamdr/neural/v9/training.py')):
+              print(failure)
+          PY
+
+      - name: Apply real-Raven structural training contract
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tools/nsamdr/neural/v9/training.py')
+          source = path.read_text(encoding='utf-8')
+
+          start = source.index('        # V10.8.0 downstream appearance learning is deliberately real-Raven only.\n')
+          end = source.index('        # V10.8.4 B3 recovery:', start)
+          authored = '''        # The deployable connected-spline structure must learn on the authored
+        # domain it is judged on. Synthetic primitives remain representation and
+        # topology audits, but they are not optimizer authority for production B1.
+        authored_config = copy.deepcopy(config)
+        authored_config.synthetic_geometry_probability = 0.0
+        structural_train_dataset = PhysicalTileDatasetV9(
+            manifest, authored_config, "train", config.tiles_per_epoch,
+            seed=config.seed + 71_337,
+        )
+        structural_train_loader = self._build_loader(
+            structural_train_dataset,
+            batch_size=config.batch_size, device=device, workers=workers,
+            prefetch_factor=config.data_loader_prefetch_factor,
+            persistent_workers=config.data_loader_persistent_workers,
+            rolling_epoch_indices=True,
+        )
+        # Downstream appearance/seam learning is likewise authored-Raven only,
+        # but retains its independent smaller work budget.
+        downstream_train_dataset = PhysicalTileDatasetV9(
+            manifest, authored_config, "train",
+            int(getattr(config, "raven_downstream_tiles_per_epoch", 24)),
+            seed=config.seed + 80_813,
+        )
+        downstream_train_loader = self._build_loader(
+            downstream_train_dataset,
+            batch_size=config.batch_size, device=device, workers=workers,
+            prefetch_factor=config.data_loader_prefetch_factor,
+            persistent_workers=config.data_loader_persistent_workers,
+            rolling_epoch_indices=True,
+        )
+'''
+          source = source[:start] + authored + source[end:]
+          source = source.replace('manifest, downstream_config, "train",', 'manifest, authored_config, "train",')
+
+          start = source.index('        # V11.4 uses the fixed complete-teacher analytic curriculum at the\n')
+          end = source.index('        validation_loader = self._build_loader(', start)
+          source = source[:start] + source[end:]
+
+          old = '''            model.set_phase(phase)
+            local_structure_phase = bool(
+                phase == "sdf-proof"
+                and hasattr(model.geometry_net, "production_structure")
+            )
+'''
+          new = '''            model.set_phase(phase)
+            production_structure_phase = bool(
+                phase in {"sdf-bootstrap", "sdf-proof"}
+                and hasattr(model.geometry_net, "production_structure")
+            )
+            local_structure_phase = bool(
+                phase == "sdf-proof" and production_structure_phase
+            )
+'''
+          if source.count(old) != 1:
+              raise RuntimeError('structural phase marker changed')
+          source = source.replace(old, new, 1)
+
+          old = '''            if phase == "sdf-proof":
+                # V11.4 local-boundary proof needs the fixed complete-teacher
+                # analytic bank that its held-out B1/B2 ladder evaluates, but the
+                # full production graph must stay at the canonical batch size. The
+                # legacy compact field keeps its configured micro-batch loader.
+                epoch_loader = (
+                    local_structure_train_loader
+                    if local_structure_phase
+                    else parametric_train_loader
+                )
+            elif phase == "seam-proof":
+'''
+          new = '''            if production_structure_phase:
+                # B1a and B1b optimize the connected-spline production path on
+                # authored Raven crops. The fixed synthetic ladder remains a
+                # separate held-out capability/topology audit below.
+                epoch_loader = structural_train_loader
+            elif phase == "sdf-proof":
+                # Compatibility path for the retired compact primitive field.
+                epoch_loader = parametric_train_loader
+            elif phase == "seam-proof":
+'''
+          if source.count(old) != 1:
+              raise RuntimeError('structural loader marker changed')
+          source = source.replace(old, new, 1)
+
+          smoke_start = source.index("            # Quick's first connected-spline geometry epoch is a complete-class\n")
+          smoke_end = source.index('            structural_smoke_epoch = structural_smoke_batch_limit is not None', smoke_start)
+          smoke = '''            # Quick's first connected-spline refinement epoch is a bounded
+            # authored-Raven smoke pass, not a promotion epoch. The permanent
+            # synthetic ladder remains validation-only; Full and later B1b work
+            # retain the complete authored structural bank.
+            structural_smoke_batch_limit = None
+            if (
+                local_structure_phase
+                and b1b_stage_epoch == 1
+                and int(config.tiles_per_epoch) <= 64
+            ):
+                structural_smoke_batch_limit = min(epoch_batch_count, 14)
+                epoch_batch_count = structural_smoke_batch_limit
+                epoch_tile_count = structural_smoke_batch_limit * epoch_batch_size
+                self._status(
+                    f"  B1b QUICK SMOKE: {structural_smoke_batch_limit} authored Raven "
+                    "batch(es); synthetic ladder remains validation-only; promotion disabled."
+                )
+'''
+          source = source[:smoke_start] + smoke + source[smoke_end:]
+
+          old = '''                    self._status(
+                        "  B1 local-boundary production proof: full production "
+                        "geometry + same-renderer losses have authority; "
+                        f"analytic complete-teacher bank={len(local_structure_train_dataset)} "
+                        f"batch={int(local_structure_train_loader.batch_size or 1)}"
+                    )
+'''
+          new = '''                    self._status(
+                        "  B1 local-boundary production proof: full production "
+                        "geometry + same-renderer losses have authority; "
+                        f"authored Raven structural bank={len(structural_train_dataset)} "
+                        f"batch={int(structural_train_loader.batch_size or 1)}; "
+                        "synthetic ladder=validation-only"
+                    )
+'''
+          if source.count(old) != 1:
+              raise RuntimeError('structural status marker changed')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+
+          test_path = Path('tools/nsamdr/tests/test_v117_baseline_relative_contract.py')
+          test = test_path.read_text(encoding='utf-8')
+          start = test.index('def test_quick_first_b1b_is_balanced_smoke_and_cannot_promote():\n')
+          replacement = '''def test_connected_spline_b1_optimizes_real_raven_and_keeps_synthetic_audit():
+    from v9.training import TrainingService
+
+    source = inspect.getsource(TrainingService.train_v9)
+    assert 'authored_config.synthetic_geometry_probability = 0.0' in source
+    assert 'structural_train_dataset = PhysicalTileDatasetV9(' in source
+    assert 'epoch_loader = structural_train_loader' in source
+    assert 'phase in {"sdf-bootstrap", "sdf-proof"}' in source
+    assert 'SyntheticGeometryValidationDataset(' in source
+    assert 'local_structure_train_dataset = ParametricPrimitiveTrainingDataset(' not in source
+    assert 'local_structure_train_loader' not in source
+
+
+def test_quick_first_b1b_is_authored_raven_smoke_and_cannot_promote():
+    from v9.training import TrainingService
+
+    source = inspect.getsource(TrainingService.train_v9)
+    assert 'b1b_stage_epoch == 1' in source
+    assert 'int(config.tiles_per_epoch) <= 64' in source
+    assert 'structural_smoke_batch_limit = min(epoch_batch_count, 14)' in source
+    assert 'B1b QUICK SMOKE' in source
+    assert 'authored Raven' in source
+    assert 'synthetic ladder remains validation-only' in source
+    assert 'structural_smoke_epoch = structural_smoke_batch_limit is not None' in source
+    assert 'not structural_smoke_epoch' in source
+    assert 'B1/B2 promotion is disabled' in source
+    assert 'not structural_smoke_epoch and integration_ready and hard_render_gate' in source
+'''
+          test_path.write_text(test[:start] + replacement, encoding='utf-8')
+
+          design_path = Path('tools/nsamdr/NSAMDR_BASELINE_RELATIVE_DESIGN.md')
+          design = design_path.read_text(encoding='utf-8')
+          old = 'The first Quick B1b epoch is a two-examples-per-primitive smoke pass. It is validation-only and cannot promote B1/B2 even if its held-out metrics happen to pass. If C is visibly/quantitatively worse than B, stop there. Later B1b epochs retain the complete training bank and all existing hard qualification gates.'
+          new = 'Production B1a/B1b optimization uses authored Raven crops with synthetic geometry disabled. Synthetic line/circle/ring cases remain representation and topology audits; they do not replace real-domain optimizer evidence. The first Quick B1b epoch is a bounded 14-batch authored-Raven structural refinement smoke pass. It cannot promote B1/B2 even if its held-out metrics happen to pass. If C is visibly/quantitatively worse than B, stop there. Later B1b epochs retain the complete authored structural bank and all existing hard qualification gates.'
+          if design.count(old) != 1:
+              raise RuntimeError('baseline-relative design marker changed')
+          design_path.write_text(design.replace(old, new, 1), encoding='utf-8')
+
+          for workflow in (
+              '.github/workflows/nsamdr_v117_real_raven_structure_temp.yml',
+              '.github/workflows/nsamdr_v117_real_raven_structure_retry.yml',
+          ):
+              Path(workflow).unlink(missing_ok=True)
+          PY
+
+      - name: Validate source contracts
+        shell: bash
+        run: |
+          python -m py_compile tools/nsamdr/neural/v9/training.py tools/nsamdr/tests/test_v117_baseline_relative_contract.py
+          python - <<'PY'
+          from pathlib import Path
+          training = Path('tools/nsamdr/neural/v9/training.py').read_text(encoding='utf-8')
+          design = Path('tools/nsamdr/NSAMDR_BASELINE_RELATIVE_DESIGN.md').read_text(encoding='utf-8')
+          required = (
+              'authored_config.synthetic_geometry_probability = 0.0',
+              'structural_train_dataset = PhysicalTileDatasetV9(',
+              'phase in {"sdf-bootstrap", "sdf-proof"}',
+              'epoch_loader = structural_train_loader',
+              'structural_smoke_batch_limit = min(epoch_batch_count, 14)',
+              'synthetic ladder remains validation-only',
+          )
+          for value in required:
+              assert value in training, value
+          assert 'local_structure_train_dataset = ParametricPrimitiveTrainingDataset(' not in training
+          assert 'local_structure_train_loader' not in training
+          assert 'Production B1a/B1b optimization uses authored Raven crops with synthetic geometry disabled.' in design
+          print('[v11.7-real-raven-structure] PASS')
+          PY
+          python - <<'PY' > /tmp/readability-after.txt
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'tools/nsamdr/neural')
+          from nsamdr_readability_contract import check_file
+          for failure in check_file(Path('tools/nsamdr/neural/v9/training.py')):
+              print(failure)
+          PY
+          diff -u /tmp/readability-before.txt /tmp/readability-after.txt
+          git diff --check
+
+      - name: Commit validated edit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Train connected-spline B1 on authored Raven"
+          git push origin HEAD:nsamdr-v117-real-raven-structure-temp
