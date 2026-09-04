@@ -62,6 +62,11 @@ jobs:
           assert 'C = B + g(R - B)' in text['design']
           assert 'test_v118_structural_candidate_is_exact_baseline_at_zero_gain' in text['test']
           PY
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tools/nsamdr/tests/test_v117_baseline_relative_contract.py')
+          path.write_text(path.read_text(encoding='utf-8').rstrip() + '\n', encoding='utf-8')
+          PY
           git diff --check
 
       - name: Commit validated production delta
