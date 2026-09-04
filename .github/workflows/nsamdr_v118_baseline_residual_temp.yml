@@ -1,0 +1,79 @@
+name: NSAMDR V11.8 baseline residual temp
+
+on:
+  push:
+    branches:
+      - nsamdr-v118-baseline-residual-temp
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nsamdr-v118-baseline-residual-temp
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply baseline-residual architecture correction
+        run: python tools/nsamdr/tests/_temp_apply_v118_baseline_residual.py
+
+      - name: Validate syntax and structural contracts
+        shell: bash
+        run: |
+          python -m py_compile \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/neural/v9/model.py \
+            tools/nsamdr/neural/v9/edge_constrained_spline_graph.py \
+            tools/nsamdr/tests/test_v117_baseline_relative_contract.py
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+
+          files = {
+              'local': Path('tools/nsamdr/neural/v9/local_boundary_production_contract.py'),
+              'model': Path('tools/nsamdr/neural/v9/model.py'),
+              'edge': Path('tools/nsamdr/neural/v9/edge_constrained_spline_graph.py'),
+              'test': Path('tools/nsamdr/tests/test_v117_baseline_relative_contract.py'),
+              'design': Path('tools/nsamdr/NSAMDR_BASELINE_RELATIVE_DESIGN.md'),
+          }
+          text = {name: path.read_text(encoding='utf-8') for name, path in files.items()}
+          for name in ('local', 'model', 'edge', 'test'):
+              ast.parse(text[name], filename=str(files[name]))
+
+          assert 'structural_residual_gain_head' in text['local']
+          assert 'nn.init.zeros_(self.structural_residual_gain_head[-1].weight)' in text['local']
+          assert 'nn.init.zeros_(self.structural_residual_gain_head[-1].bias)' in text['local']
+          assert 'structural_residual_gain = torch.tanh(' in text['local']
+          assert '"structural_residual_gain": structural_residual_gain' in text['local']
+          assert 'def _structural_residual_weight(' in text['model']
+          assert 'return torch.zeros_like(candidate_locality, dtype=torch.float32)' in text['model']
+          assert 'geometry.get("structural_residual_gain")' in text['model']
+          assert 'boundary_structural_residual_weight' in text['model']
+          assert 'structural_gate = candidate_locality' not in text['model']
+          assert 'BASELINE_RESIDUAL_SPLINE_GRAPH_4X_V11_8_0' in text['edge']
+          assert 'C = B + g(R - B)' in text['design']
+          assert 'test_v118_structural_candidate_is_exact_baseline_at_zero_gain' in text['test']
+          PY
+          git diff --check
+
+      - name: Commit validated production delta
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/neural/v9/model.py \
+            tools/nsamdr/neural/v9/edge_constrained_spline_graph.py \
+            tools/nsamdr/tests/test_v117_baseline_relative_contract.py \
+            tools/nsamdr/NSAMDR_BASELINE_RELATIVE_DESIGN.md
+          git commit -m "Make structural C residual to baseline B"
+          git push origin HEAD:nsamdr-v118-baseline-residual-temp
