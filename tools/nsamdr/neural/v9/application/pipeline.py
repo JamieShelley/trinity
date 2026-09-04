@@ -5,6 +5,7 @@ from typing import Any
 
 from ..evolution import EvolutionaryRecoveryController, FailureKind
 from .backend import TrainingBackend
+from .baseline_relative_smoke import BaselineRelativeSmokeService
 from .domain import ExperimentContext, StageDefinition, TrainingOptions
 from .experiment import ExperimentService
 from .gates import QualificationGates, StagePlan
@@ -41,6 +42,7 @@ class PassDrivenPipeline:
         self.experiments = experiments
         self.evolution = evolution
         self.options = options
+        self.baseline_smoke = BaselineRelativeSmokeService()
 
     def _invoke(
         self,
@@ -145,6 +147,84 @@ class PassDrivenPipeline:
         )
         print(f"[evolution] production genome locked: {locked}", flush=True)
 
+    def _run_quick_b1a_smoke(
+        self,
+        context: ExperimentContext,
+        *,
+        resume_now: bool,
+    ) -> tuple[dict[str, Any], bool, int]:
+        """Run/reuse one Quick B1a epoch and reject before B1b when C loses to B.
+
+        Purpose:
+            Turn the live A/B/C comparison into an executable fail-fast contract on
+            held-out authored Raven data, independently of the synthetic topology gate.
+        Called by:
+            PassDrivenPipeline._run_stage().
+        Calls:
+            BaselineRelativeSmokeService, PassDrivenPipeline._invoke(),
+            TrainingStateService.latest_phase_validation(), TrainingStateService.snapshot(),
+            ExperimentService.reject().
+        """
+        validation = self.state.latest_phase_validation(
+            context.directory,
+            context.config,
+            phase="sdf-bootstrap",
+        )
+        latest: dict[str, Any] = {}
+        current_resume = bool(resume_now)
+        if not validation:
+            latest = self._invoke(
+                context,
+                resume=current_resume,
+                stop_after_phase="sdf-bootstrap",
+            )
+            current_resume = True
+            validation = self.state.latest_phase_validation(
+                context.directory,
+                context.config,
+                phase="sdf-bootstrap",
+            )
+
+        snapshot = self.state.snapshot(context.directory, context.config)
+        metrics = self.baseline_smoke.metrics(validation)
+        topology_safe = bool(snapshot.get("topologyBootstrapped", False))
+        baseline_safe = self.baseline_smoke.passed(validation, context.config)
+        print(
+            "[quick-smoke] real Raven B1a: "
+            f"B={metrics['baselineMae']:.6f} C={metrics['candidateMae']:.6f} "
+            f"gain={metrics['relativeGain']:+.2%} "
+            f"wins={metrics['improvementFraction']:.1%} "
+            f"regress={metrics['regressionFraction']:.1%}/"
+            f"{float(context.config.maximum_validation_regression_fraction):.1%} "
+            f"topology={'PASS' if topology_safe else 'FAIL'}",
+            flush=True,
+        )
+        if baseline_safe:
+            print(
+                "[quick-smoke] PASS: C beats deterministic baseline B on held-out Raven; "
+                "synthetic topology remains independently fail-closed.",
+                flush=True,
+            )
+            return latest, current_resume, 0
+
+        rejected = dict(latest or snapshot)
+        rejected["baselineRelativeSmokeValidation"] = validation
+        rejected["baselineRelativeSmokeMetrics"] = metrics
+        rejected["topologyBootstrapped"] = topology_safe
+        print(
+            "[quick-smoke] REJECTED before B1b: B1a did not satisfy the real-Raven "
+            "baseline-relative contract. C must beat B and held-out regressions must "
+            "remain within the configured safety limit.",
+            flush=True,
+        )
+        code = self.experiments.reject(
+            context,
+            phase="sdf-bootstrap-baseline-relative-smoke",
+            gate_label="real Raven baseline-relative smoke: C must beat B",
+            metadata=rejected,
+        )
+        return rejected, current_resume, code
+
     def _run_stage(
         self,
         context: ExperimentContext,
@@ -170,14 +250,30 @@ class PassDrivenPipeline:
 
         current_resume = bool(resume_now)
         while True:
-            trainer_stop_phase = (
-                "sdf-proof" if definition.phase == "sdf-bootstrap" else definition.phase
-            )
-            latest = self._invoke(
-                context,
-                resume=current_resume,
-                stop_after_phase=trainer_stop_phase,
-            )
+            if (
+                definition.phase == "sdf-bootstrap"
+                and self.options.training_mode == "quick"
+            ):
+                smoke_latest, current_resume, smoke_code = self._run_quick_b1a_smoke(
+                    context,
+                    resume_now=current_resume,
+                )
+                if smoke_code != 0:
+                    return smoke_latest, current_resume, smoke_code
+                latest = self._invoke(
+                    context,
+                    resume=True,
+                    stop_after_phase="sdf-proof",
+                )
+            else:
+                trainer_stop_phase = (
+                    "sdf-proof" if definition.phase == "sdf-bootstrap" else definition.phase
+                )
+                latest = self._invoke(
+                    context,
+                    resume=current_resume,
+                    stop_after_phase=trainer_stop_phase,
+                )
             current_resume = True
 
             if definition.gate(latest, context.config):

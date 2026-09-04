@@ -32,7 +32,9 @@ CANONICAL_SEMANTIC_OVERRIDES: dict[str, Any] = {
 }
 
 QUICK_WORK_BUDGET: dict[str, int] = {
-    "identity_epochs": 3,
+    # Quick must expose a real-Raven A/B/C verdict after one B1a epoch. If C loses
+    # to deterministic baseline B, the application rejects before any B1b work.
+    "identity_epochs": 1,
     "residual_epochs": 1,
     "seam_proof_epochs": 1,
     "seam_authority_epochs": 1,

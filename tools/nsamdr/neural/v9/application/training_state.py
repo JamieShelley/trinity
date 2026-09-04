@@ -79,6 +79,40 @@ class TrainingStateService:
                 )
         return snapshot
 
+    def latest_phase_validation(
+        self,
+        directory: Path,
+        config: V9Config,
+        *,
+        phase: str,
+    ) -> dict[str, Any]:
+        """Read the newest persisted held-out validation for one trainer phase.
+
+        Purpose:
+            Expose real-domain epoch evidence to application gates without making
+            orchestration or metric services own the serialized trainer state.
+        Called by:
+            PassDrivenPipeline._run_quick_b1a_smoke().
+        Calls:
+            torch.load().
+        """
+        state_path = directory / config.training_state_name
+        if not state_path.is_file():
+            return {}
+        try:
+            state = torch.load(state_path, map_location="cpu", weights_only=False)
+        except Exception:
+            return {}
+        history = state.get("history") if isinstance(state, dict) else None
+        if not isinstance(history, list):
+            return {}
+        for row in reversed(history):
+            if not isinstance(row, dict) or str(row.get("phase")) != str(phase):
+                continue
+            validation = row.get("validation")
+            return dict(validation) if isinstance(validation, dict) else {}
+        return {}
+
     def promote_local_geometry(
         self,
         directory: Path,

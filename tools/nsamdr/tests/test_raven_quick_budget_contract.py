@@ -12,10 +12,11 @@ if str(NEURAL) not in sys.path:
 
 class TestRavenQuickBudgetContract:
     def test_quick_is_a_short_local_capacity_run(self) -> None:
-        """Verify the unchanged Quick work budget moved into application configuration.
+        """Verify Quick reaches the real-Raven B1a verdict after one epoch.
 
         Purpose:
-            Preserve the bounded Quick runtime contract across source reorganisation.
+            Preserve bounded Quick runtime while making the baseline-relative smoke
+            gate execute before any B1b work.
         Called by:
             pytest.
         Calls:
@@ -23,7 +24,7 @@ class TestRavenQuickBudgetContract:
         """
         from v9.application.configuration import QUICK_WORK_BUDGET as budget
 
-        assert budget["identity_epochs"] == 3
+        assert budget["identity_epochs"] == 1
         assert budget["residual_epochs"] == 1
         assert budget["tiles_per_epoch"] == 64
         assert budget["raven_downstream_tiles_per_epoch"] == 16
