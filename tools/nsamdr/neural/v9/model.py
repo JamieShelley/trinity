@@ -1588,6 +1588,44 @@ class FidelityResidualNetV9(nn.Module):
             detail_regret.float(),
         ), dim=1)
 
+    # Purpose: Compute signed baseline-relative structural residual authority.
+    # Called by: _forward_impl
+    # Calls: No same-class helper methods.
+    @staticmethod
+    def _structural_residual_weight(
+        candidate_locality: torch.Tensor,
+        structural_residual_gain: torch.Tensor | None,
+        gate_override: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """Return the local structural residual weight with exact-zero default authority.
+
+        Production uses a learned signed gain in [-1, 1]. A teacher/oracle gate
+        remains an explicit positive override so proof rendering can still request
+        the complete analytic candidate without changing production semantics.
+        """
+        if gate_override is not None:
+            weight = gate_override.to(
+                device=candidate_locality.device, dtype=torch.float32, non_blocking=True
+            ).clamp(0.0, 1.0)
+            if weight.shape[-2:] != candidate_locality.shape[-2:]:
+                weight = F.interpolate(
+                    weight, size=candidate_locality.shape[-2:],
+                    mode="bilinear", align_corners=False,
+                )
+            return weight * candidate_locality
+
+        if structural_residual_gain is None:
+            return torch.zeros_like(candidate_locality, dtype=torch.float32)
+        gain = structural_residual_gain.to(
+            device=candidate_locality.device, dtype=torch.float32, non_blocking=True
+        )
+        if gain.shape[-2:] != candidate_locality.shape[-2:]:
+            gain = F.interpolate(
+                gain, size=candidate_locality.shape[-2:],
+                mode="bilinear", align_corners=False,
+            )
+        return gain.clamp(-1.0, 1.0) * candidate_locality
+
     # Purpose: Implement forward impl for FidelityResidualNetV9.
     # Called by: External callers and the owning workflow.
     # Calls: Same-class helpers where required.
@@ -1708,32 +1746,30 @@ class FidelityResidualNetV9(nn.Module):
             + material_boundary["positive_side"].float() * (1.0 - refined_coverage)
         ).to(baseline_material.dtype)
 
-        # Geometry-only candidate. Structural reconstruction remains compact/local
-        # and therefore preserves the true bicubic baseline exactly elsewhere.
-        if gate_override is not None:
-            structural_gate = gate_override.to(
-                device=inputs.device, dtype=torch.float32, non_blocking=True
-            ).clamp(0.0, 1.0)
-            if structural_gate.shape[-2:] != candidate_locality.shape[-2:]:
-                structural_gate = F.interpolate(
-                    structural_gate, size=candidate_locality.shape[-2:], mode="bilinear", align_corners=False
-                )
-            structural_gate = structural_gate * candidate_locality
-        else:
-            structural_gate = candidate_locality
+        # V11.8 structural reconstruction is residual relative to B, not an
+        # unconditional replacement inside every contour band. The gain head starts
+        # at exactly zero, so a fresh model produces C == B until authored-Raven
+        # evidence earns local correction authority.
+        structural_residual_weight = self._structural_residual_weight(
+            candidate_locality, geometry.get("structural_residual_gain"), gate_override
+        )
+        structural_gate = structural_residual_weight.abs().clamp(0.0, 1.0)
 
         boundary_albedo = (
-            baseline_albedo.float() * (1.0 - structural_gate)
-            + candidate_albedo.float() * structural_gate
-        ).to(baseline_albedo.dtype)
+            baseline_albedo.float()
+            + structural_residual_weight
+            * (candidate_albedo.float() - baseline_albedo.float())
+        ).clamp(0.0, 1.0).to(baseline_albedo.dtype)
         boundary_normal_out = self._normalize_xy((
-            baseline_normal.float() * (1.0 - structural_gate)
-            + candidate_normal.float() * structural_gate
+            baseline_normal.float()
+            + structural_residual_weight
+            * (candidate_normal.float() - baseline_normal.float())
         ).to(baseline_normal.dtype))
         boundary_material = (
-            baseline_material.float() * (1.0 - structural_gate)
-            + candidate_material.float() * structural_gate
-        ).to(baseline_material.dtype)
+            baseline_material.float()
+            + structural_residual_weight
+            * (candidate_material.float() - baseline_material.float())
+        ).clamp(0.0, 1.0).to(baseline_material.dtype)
 
         # V10.7.1 seam path: manufactured panel seams are local vector features,
         # not solely material-boundary zero sets.  Refine the already reconstructed
@@ -1913,6 +1949,10 @@ class FidelityResidualNetV9(nn.Module):
             "transition_width": (float(self.config.boundary_renderer_soft_width_pixels) + (float(self.config.boundary_renderer_hard_width_pixels) - float(self.config.boundary_renderer_soft_width_pixels)) * hardness).to(albedo.dtype),
             "boundary_normal": boundary["boundary_normal"],
             "boundary_gate": structural_gate.to(albedo.dtype),
+            "boundary_structural_residual_weight": structural_residual_weight.to(albedo.dtype),
+            "structural_residual_gain": geometry.get(
+                "structural_residual_gain", torch.zeros_like(structural_residual_weight)
+            ).to(albedo.dtype),
             "boundary_candidate_locality": candidate_locality.to(albedo.dtype),
             "boundary_gate_prediction": selector_probability.to(albedo.dtype),
             "boundary_gate_probability": selector_probability.to(albedo.dtype),
