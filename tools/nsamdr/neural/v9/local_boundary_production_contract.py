@@ -26,7 +26,7 @@ from . import model as _model
 from .parametric_boundary import LocalParametricBoundaryDecoder, make_query_grid
 from .spline_graph import ConnectedSplineGraph
 
-SCHEMA = "NSAMDR_RAVEN_PRODUCTION_BASELINE_RESIDUAL_SPLINE_GRAPH_4X_V11_8_0"
+SCHEMA = "NSAMDR_RAVEN_PRODUCTION_B1A_IDENTITY_B1B_RESIDUAL_SPLINE_GRAPH_4X_V11_9_0"
 
 _INSTALLED = False
 _ORIGINAL_GEOMETRY_INIT: Callable[..., None] | None = None
@@ -823,6 +823,11 @@ class LocalBoundaryProductionStructure(nn.Module):
             parameter.requires_grad_(True)
         for parameter in self.geometry_feature_project.parameters():
             parameter.requires_grad_(False)
+        # B1a proves topology only: C must remain exactly B until B1b.
+        nn.init.zeros_(self.structural_residual_gain_head[-1].weight)
+        nn.init.zeros_(self.structural_residual_gain_head[-1].bias)
+        for parameter in self.structural_residual_gain_head.parameters():
+            parameter.requires_grad_(False)
         for parameter in self.decoder.parameters():
             parameter.requires_grad_(False)
         for parameter in self.spline_graph.geometry_head.parameters():
@@ -839,6 +844,9 @@ class LocalBoundaryProductionStructure(nn.Module):
         for parameter in self.topology_feature_project.parameters():
             parameter.requires_grad_(False)
         for parameter in self.geometry_feature_project.parameters():
+            parameter.requires_grad_(True)
+        # B1b is the first phase allowed to earn structural authority over B.
+        for parameter in self.structural_residual_gain_head.parameters():
             parameter.requires_grad_(True)
         for parameter in head.geometry_net.parameters():
             parameter.requires_grad_(True)
