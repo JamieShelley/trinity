@@ -154,7 +154,7 @@ def test_v118_structural_candidate_is_exact_baseline_at_zero_gain():
     proposal = torch.flip(baseline, dims=(-1,))
     candidate = baseline + weight * (proposal - baseline)
     assert torch.equal(candidate, baseline)
-    assert MODEL_SCHEMA == "NSAMDR_RAVEN_PRODUCTION_BASELINE_RESIDUAL_SPLINE_GRAPH_4X_V11_8_0"
+    assert MODEL_SCHEMA == "NSAMDR_RAVEN_PRODUCTION_B1A_IDENTITY_B1B_RESIDUAL_SPLINE_GRAPH_4X_V11_9_0"
 
 
 def test_v118_structural_residual_gain_is_zero_initialized_and_checkpointed():
@@ -167,3 +167,28 @@ def test_v118_structural_residual_gain_is_zero_initialized_and_checkpointed():
     assert 'geometry.get("structural_residual_gain")' in model
     assert 'boundary_structural_residual_weight' in model
     assert 'structural_gate = candidate_locality' not in model
+
+
+def test_v119_b1a_freezes_gain_and_b1b_unlocks_it():
+    local = text("tools/nsamdr/neural/v9/local_boundary_production_contract.py")
+    a = local.index("    def unlock_topology_for_bootstrap")
+    b = local.index("    def lock_topology_for_proof")
+    c = local.index("    def restore_locked_topology_parameters")
+    b1a, b1b = local[a:b], local[b:c]
+    assert "nn.init.zeros_(self.structural_residual_gain_head[-1].weight)" in b1a
+    assert "self.structural_residual_gain_head.parameters()" in b1a
+    assert "parameter.requires_grad_(False)" in b1a
+    assert "self.structural_residual_gain_head.parameters()" in b1b
+    assert "parameter.requires_grad_(True)" in b1b
+
+
+def test_v119_quick_moves_strict_baseline_win_to_b1b():
+    smoke = text("tools/nsamdr/neural/v9/application/baseline_relative_smoke.py")
+    pipeline = text("tools/nsamdr/neural/v9/application/pipeline.py")
+    assert "def safe_to_refine(" in smoke
+    assert 'metrics["candidateMae"] <= metrics["baselineMae"] + tolerance' in smoke
+    assert 'metrics["candidateMae"] < metrics["baselineMae"]' in smoke
+    assert "def _run_quick_b1b_smoke(" in pipeline
+    assert "PASS B1a: C preserved deterministic baseline B" in pipeline
+    assert "PASS B1b: C now beats deterministic baseline B" in pipeline
+    assert 'phase="sdf-proof-baseline-relative-smoke"' in pipeline

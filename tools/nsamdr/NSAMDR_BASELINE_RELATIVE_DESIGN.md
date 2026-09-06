@@ -16,6 +16,10 @@ The connected-spline graph proposes an analytic redraw **R**, but proposal quali
 
 This follows the residual-learning principle used by image-restoration/SR systems and the zero-initialized residual-gating principle: preserve the known reconstruction at initialization and learn only the evidence-supported correction.
 
+## V11.9 B1 authority contract
+
+B1a is topology-only. Its structural residual-gain head is reset to exact zero and frozen, so **C == B by construction throughout B1a**. B1a may advance only when topology bootstraps and held-out Raven remains inside the configured regression safety budget. B1b then freezes topology, unlocks continuous spline geometry and the residual-gain head, and receives the first opportunity to earn structural authority. The bounded Quick B1b smoke must show strict **C > B** on held-out Raven before normal structural qualification is considered. Equality is safe for B1a but is not a B1b success.
+
 ## Literature corrections carried into V11.7
 
 1. Residual SR systems (VDSR, LapSRN, SwinIR) preserve a low-frequency/interpolated path and learn the missing correction rather than forcing the network to repaint the full image. NSAMDR already had an internal baseline, but its proof/preview did not expose it as a first-class control.
@@ -27,4 +31,4 @@ This follows the residual-learning principle used by image-restoration/SR system
 
 ## Quick feedback contract
 
-Production B1a/B1b optimization uses authored Raven crops with synthetic geometry disabled. Synthetic line/circle/ring cases remain representation and topology audits; they do not replace real-domain optimizer evidence. The first Quick B1b epoch is a bounded 14-batch authored-Raven structural refinement smoke pass. It cannot promote B1/B2 even if its held-out metrics happen to pass. If C is visibly/quantitatively worse than B, stop there. Later B1b epochs retain the complete authored structural bank and all existing hard qualification gates.
+Production B1a/B1b optimization uses authored Raven crops with synthetic geometry disabled. Synthetic line/circle/ring cases remain representation and topology audits; they do not replace real-domain optimizer evidence. Quick first runs one B1a topology epoch with structural residual authority frozen at exact identity; B1a is checked for topology and non-regression safety, not strict improvement. The first Quick B1b epoch is a bounded 14-batch authored-Raven structural refinement smoke pass and must show strict C > B. It cannot promote B1/B2 even if its held-out metrics happen to pass. If C is visibly/quantitatively worse than B, stop there. Later B1b epochs retain the complete authored structural bank and all existing hard qualification gates.

@@ -153,11 +153,11 @@ class PassDrivenPipeline:
         *,
         resume_now: bool,
     ) -> tuple[dict[str, Any], bool, int]:
-        """Run/reuse one Quick B1a epoch and reject before B1b when C loses to B.
+        """Run/reuse one Quick B1a epoch and require identity-safe real-Raven output.
 
         Purpose:
-            Turn the live A/B/C comparison into an executable fail-fast contract on
-            held-out authored Raven data, independently of the synthetic topology gate.
+            Keep topology-only B1a fail-closed without demanding improvement before
+            continuous geometry and residual authority become trainable in B1b.
         Called by:
             PassDrivenPipeline._run_stage().
         Calls:
@@ -188,9 +188,9 @@ class PassDrivenPipeline:
         snapshot = self.state.snapshot(context.directory, context.config)
         metrics = self.baseline_smoke.metrics(validation)
         topology_safe = bool(snapshot.get("topologyBootstrapped", False))
-        baseline_safe = self.baseline_smoke.passed(validation, context.config)
+        baseline_safe = self.baseline_smoke.safe_to_refine(validation, context.config)
         print(
-            "[quick-smoke] real Raven B1a: "
+            "[quick-smoke] real Raven B1a identity safety: "
             f"B={metrics['baselineMae']:.6f} C={metrics['candidateMae']:.6f} "
             f"gain={metrics['relativeGain']:+.2%} "
             f"wins={metrics['improvementFraction']:.1%} "
@@ -199,10 +199,10 @@ class PassDrivenPipeline:
             f"topology={'PASS' if topology_safe else 'FAIL'}",
             flush=True,
         )
-        if baseline_safe:
+        if topology_safe and baseline_safe:
             print(
-                "[quick-smoke] PASS: C beats deterministic baseline B on held-out Raven; "
-                "synthetic topology remains independently fail-closed.",
+                "[quick-smoke] PASS B1a: C preserved deterministic baseline B within "
+                "the real-Raven safety budget; B1b may now earn positive authority.",
                 flush=True,
             )
             return latest, current_resume, 0
@@ -212,18 +212,69 @@ class PassDrivenPipeline:
         rejected["baselineRelativeSmokeMetrics"] = metrics
         rejected["topologyBootstrapped"] = topology_safe
         print(
-            "[quick-smoke] REJECTED before B1b: B1a did not satisfy the real-Raven "
-            "baseline-relative contract. C must beat B and held-out regressions must "
-            "remain within the configured safety limit.",
-            flush=True,
+            "[quick-smoke] REJECTED before B1b: topology-only B1a did not preserve "
+            "baseline safety or topology did not bootstrap.", flush=True,
         )
         code = self.experiments.reject(
             context,
-            phase="sdf-bootstrap-baseline-relative-smoke",
-            gate_label="real Raven baseline-relative smoke: C must beat B",
+            phase="sdf-bootstrap-baseline-relative-safety",
+            gate_label="real Raven B1a identity safety + topology bootstrap",
             metadata=rejected,
         )
         return rejected, current_resume, code
+
+
+    def _run_quick_b1b_smoke(
+        self, context: ExperimentContext, latest: dict[str, Any]
+    ) -> tuple[dict[str, Any], int]:
+        """Require bounded Quick B1b refinement to produce strict real C > B.
+
+        Purpose:
+            Move strict baseline improvement to the first phase with continuous
+            spline geometry and residual-gain training authority.
+        Called by:
+            PassDrivenPipeline._run_stage().
+        Calls:
+            BaselineRelativeSmokeService.metrics(), BaselineRelativeSmokeService.passed(),
+            TrainingStateService.latest_phase_validation(), TrainingStateService.snapshot(),
+            ExperimentService.reject().
+        """
+        validation = self.state.latest_phase_validation(
+            context.directory, context.config, phase="sdf-proof"
+        )
+        snapshot = self.state.snapshot(context.directory, context.config)
+        metrics = self.baseline_smoke.metrics(validation)
+        passed = self.baseline_smoke.passed(validation, context.config)
+        print(
+            "[quick-smoke] real Raven B1b strict improvement: "
+            f"B={metrics['baselineMae']:.6f} C={metrics['candidateMae']:.6f} "
+            f"gain={metrics['relativeGain']:+.2%} "
+            f"wins={metrics['improvementFraction']:.1%} "
+            f"regress={metrics['regressionFraction']:.1%}/"
+            f"{float(context.config.maximum_validation_regression_fraction):.1%}",
+            flush=True,
+        )
+        if passed:
+            print(
+                "[quick-smoke] PASS B1b: C now beats deterministic baseline B on "
+                "held-out Raven; normal structural qualification remains fail-closed.",
+                flush=True,
+            )
+            return latest, 0
+        rejected = dict(latest or snapshot)
+        rejected["baselineRelativeB1bSmokeValidation"] = validation
+        rejected["baselineRelativeB1bSmokeMetrics"] = metrics
+        print(
+            "[quick-smoke] REJECTED after B1b: refinement did not earn positive "
+            "real-Raven improvement over B within the safety budget.", flush=True,
+        )
+        code = self.experiments.reject(
+            context,
+            phase="sdf-proof-baseline-relative-smoke",
+            gate_label="real Raven B1b smoke: C must beat B",
+            metadata=rejected,
+        )
+        return rejected, code
 
     def _run_stage(
         self,
@@ -265,6 +316,9 @@ class PassDrivenPipeline:
                     resume=True,
                     stop_after_phase="sdf-proof",
                 )
+                latest, b1b_smoke_code = self._run_quick_b1b_smoke(context, latest)
+                if b1b_smoke_code != 0:
+                    return latest, current_resume, b1b_smoke_code
             else:
                 trainer_stop_phase = (
                     "sdf-proof" if definition.phase == "sdf-bootstrap" else definition.phase
