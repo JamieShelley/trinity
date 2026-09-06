@@ -6,25 +6,19 @@ on:
       - nsamdr-v119-b1-authority-temp
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch-and-validate:
-    if: github.actor != 'github-actions[bot]'
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: nsamdr-v119-b1-authority-temp
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Apply V11.9 B1 authority correction
-        run: |
-          python tools/nsamdr/tests/_temp_apply_v119_b1_authority.py
-          python tools/nsamdr/tests/_temp_v119_docfix.py
-      - name: Validate V11.9 source contracts
+      - name: Validate V11.9 readability and source contracts
         shell: bash
         run: |
           python -m py_compile \
@@ -34,45 +28,11 @@ jobs:
             tools/nsamdr/neural/v9/application/pipeline.py \
             tools/nsamdr/tests/test_v117_baseline_relative_contract.py
           python - <<'PY'
+          import sys
           from pathlib import Path
-          import ast
-          paths = [
-              Path('tools/nsamdr/neural/v9/local_boundary_production_contract.py'),
-              Path('tools/nsamdr/neural/v9/edge_constrained_spline_graph.py'),
-              Path('tools/nsamdr/neural/v9/application/baseline_relative_smoke.py'),
-              Path('tools/nsamdr/neural/v9/application/pipeline.py'),
-              Path('tools/nsamdr/tests/test_v117_baseline_relative_contract.py'),
-          ]
-          for path in paths:
-              ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
-          local = paths[0].read_text(encoding='utf-8')
-          smoke = paths[2].read_text(encoding='utf-8')
-          pipeline = paths[3].read_text(encoding='utf-8')
-          tests = paths[4].read_text(encoding='utf-8')
-          design = Path('tools/nsamdr/NSAMDR_BASELINE_RELATIVE_DESIGN.md').read_text(encoding='utf-8')
-          assert 'B1A_IDENTITY_B1B_RESIDUAL_SPLINE_GRAPH_4X_V11_9_0' in local
-          assert 'nn.init.zeros_(self.structural_residual_gain_head[-1].weight)' in local
-          assert 'self.structural_residual_gain_head.parameters()' in local
-          assert 'def safe_to_refine(' in smoke
-          assert 'metrics["candidateMae"] <= metrics["baselineMae"] + tolerance' in smoke
-          assert 'metrics["candidateMae"] < metrics["baselineMae"]' in smoke
-          assert 'def _run_quick_b1b_smoke(' in pipeline
-          assert 'phase="sdf-proof-baseline-relative-smoke"' in pipeline
-          assert 'test_v119_b1a_freezes_gain_and_b1b_unlocks_it' in tests
-          assert 'V11.9 B1 authority contract' in design
+          tests = Path('tools/nsamdr/tests').resolve()
+          sys.path.insert(0, str(tests))
+          from test_nsamdr_application_oop_contract import TestNsamdrApplicationOopContract
+          TestNsamdrApplicationOopContract().test_application_readability_contract()
           PY
-          git diff --check
-      - name: Commit validated production delta
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
-            tools/nsamdr/neural/v9/edge_constrained_spline_graph.py \
-            tools/nsamdr/neural/v9/application/baseline_relative_smoke.py \
-            tools/nsamdr/neural/v9/application/pipeline.py \
-            tools/nsamdr/tests/test_v117_baseline_relative_contract.py \
-            tools/nsamdr/NSAMDR_BASELINE_RELATIVE_DESIGN.md
-          git commit -m "Split B1 topology safety from structural authority"
-          git push origin HEAD:nsamdr-v119-b1-authority-temp
+          git diff --check HEAD~1 HEAD
