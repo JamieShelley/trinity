@@ -6,6 +6,7 @@ def r(path, old, new):
     p.write_text(s.replace(old,new,1),encoding='utf-8')
 S='tools/nsamdr/neural/v9/application/baseline_relative_smoke.py'
 P='tools/nsamdr/neural/v9/application/pipeline.py'
+T='tools/nsamdr/tests/test_v117_baseline_relative_contract.py'
 r(S,'        """Allow B1b only when topology-only B1a preserves baseline safety."""','''        """Allow B1b only when topology-only B1a preserves baseline safety.
 
         Purpose:
@@ -38,4 +39,6 @@ r(P,'        """Require bounded Quick B1b refinement to produce strict real C > 
             TrainingStateService.latest_phase_validation(), TrainingStateService.snapshot(),
             ExperimentService.reject().
         """''')
+test_path = ROOT / T
+test_path.write_text(test_path.read_text(encoding='utf-8').rstrip() + '\n', encoding='utf-8')
 print('Applied V11.9 documentation/readability fix')
