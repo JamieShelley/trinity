@@ -332,21 +332,37 @@ class ExplicitSplineGeometryRefiner(nn.Module):
 
         max_move_lattice = self.max_move_pixels / max(float(spline_graph.spacing_pixels), 1.0e-6)
         epsilon = 1.0e-3
-        h_edge_start = torch.floor(proposal_h[..., 0]).detach()
-        v_edge_start = torch.floor(proposal_v[..., 1]).detach()
 
-        with torch.enable_grad():
+        # Production callers legitimately wrap inference in torch.inference_mode().
+        # The explicit refiner is a parameter-free inner optimiser and therefore
+        # owns the responsibility for temporarily re-enabling ordinary autograd.
+        # Merely using torch.enable_grad() is insufficient because inference-mode
+        # tensors remain non-differentiable. Re-materialise the small spline graph
+        # and LR evidence as ordinary tensors inside inference_mode(False).
+        with torch.inference_mode(False), torch.enable_grad():
+            working_graph = {
+                key: (value.detach().clone() if torch.is_tensor(value) else value)
+                for key, value in proposal_graph.items()
+            }
+            working_source_sdf_lr = source_sdf_lr.detach().float().clone()
+            proposal_h = working_graph["spline_control_point_h_lr"].detach().float()
+            proposal_v = working_graph["spline_control_point_v_lr"].detach().float()
+            mask_h = working_graph["spline_graph_mask_h"][:, 0].detach().float()
+            mask_v = working_graph["spline_graph_mask_v"][:, 0].detach().float()
+            h_edge_start = torch.floor(proposal_h[..., 0]).detach()
+            v_edge_start = torch.floor(proposal_v[..., 1]).detach()
+
             h_x = proposal_h[..., 0].clone().requires_grad_(True)
             v_y = proposal_v[..., 1].clone().requires_grad_(True)
-            tangent_h = proposal_graph["spline_control_tangent_h"].detach().float().clone().requires_grad_(True)
-            tangent_v = proposal_graph["spline_control_tangent_v"].detach().float().clone().requires_grad_(True)
+            tangent_h = working_graph["spline_control_tangent_h"].detach().float().clone().requires_grad_(True)
+            tangent_v = working_graph["spline_control_tangent_v"].detach().float().clone().requires_grad_(True)
             energy_before, _ = self._energy(
-                spline_graph, proposal_graph, source_sdf_lr,
+                spline_graph, working_graph, working_source_sdf_lr,
                 h_x, v_y, tangent_h, tangent_v,
             )
             for _step in range(self.steps):
                 energy, _ = self._energy(
-                    spline_graph, proposal_graph, source_sdf_lr,
+                    spline_graph, working_graph, working_source_sdf_lr,
                     h_x, v_y, tangent_h, tangent_v,
                 )
                 gradients = torch.autograd.grad(
@@ -387,11 +403,11 @@ class ExplicitSplineGeometryRefiner(nn.Module):
                 tangent_v = tangent_v.detach().requires_grad_(True)
 
             energy_after, parts = self._energy(
-                spline_graph, proposal_graph, source_sdf_lr,
+                spline_graph, working_graph, working_source_sdf_lr,
                 h_x, v_y, tangent_h, tangent_v,
             )
             refined = self._graph_with_geometry(
-                proposal_graph,
+                working_graph,
                 h_x.detach(), v_y.detach(), tangent_h.detach(), tangent_v.detach(),
             )
 
