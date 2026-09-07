@@ -21,7 +21,9 @@ def _line_sample(torch, size_lr: int, max_distance: float):
 
     size_hr = size_lr * 4
     xx_hr = torch.arange(size_hr, dtype=torch.float32).view(1, 1, 1, size_hr)
-    source_x_hr = source_x_lr * 4.0
+    # LR SDF samples live at texel centres. Under align_corners=False the physical
+    # HR location represented by LR coordinate x is (x + 0.5) * scale.
+    source_x_hr = (source_x_lr + 0.5) * 4.0
     target_x_hr = source_x_hr + 0.75
     source = (xx_hr - source_x_hr).expand(1, 1, size_hr, size_hr)
     target = (xx_hr - target_x_hr).expand(1, 1, size_hr, size_hr)
@@ -41,7 +43,7 @@ def test_v12_evolution_trains_neural_proposal_not_detached_refined_sdf():
     config.spline_refiner_steps = 1
     model = FidelityResidualNetV9(config).train()
     # Candidate micro-training must enter the same phase that gives B1b continuous
-    # proposal authority.  A fresh/default model is not a valid B1b capacity probe.
+    # proposal authority. A fresh/default model is not a valid B1b capacity probe.
     model.set_phase("sdf-proof")
     model.set_parametric_substage("integration")
     max_distance = float(config.contour_sdf_max_distance_pixels)
@@ -61,6 +63,7 @@ def test_v12_evolution_trains_neural_proposal_not_detached_refined_sdf():
     loss, metrics = StructuralObjective(config).evaluate(geometry, sample, max_distance)
     assert loss.requires_grad
     assert torch.isfinite(loss)
+    assert metrics["teacherCoverage"] > 0.0
     loss.backward()
 
     gradient = sum(
