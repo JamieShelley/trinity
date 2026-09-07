@@ -1,0 +1,71 @@
+name: NSAMDR V12.1 proposal baseline regret temp
+
+on:
+  push:
+    branches:
+      - nsamdr-v121-proposal-baseline-regret-temp
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nsamdr-v121-proposal-baseline-regret-temp
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Apply V12.1 proposal-space regret
+        run: python tools/nsamdr/tests/_temp_apply_v121_proposal_baseline_regret.py
+      - name: Compile changed Python
+        run: |
+          python -m py_compile \
+            tools/nsamdr/neural/v9/edge_constrained_spline_graph.py \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py \
+            tools/nsamdr/tests/test_v117_baseline_relative_contract.py \
+            tools/nsamdr/tests/test_v121_proposal_baseline_regret.py
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --quiet pytest numpy pillow opencv-python-headless
+          python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+      - name: V12.1 proposal baseline regret
+        run: python -m pytest -q tools/nsamdr/tests/test_v121_proposal_baseline_regret.py
+      - name: V12 explicit refiner contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
+      - name: Baseline-relative contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py
+      - name: Raven Quick budget contract
+        run: python -m pytest -q tools/nsamdr/tests/test_raven_quick_budget_contract.py
+      - name: Quick baseline smoke contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_quick_baseline_smoke.py
+      - name: Quick structural contract
+        run: python -m pytest -q tools/nsamdr/tests/test_raven_quick_fast_structural_contract.py
+      - name: Schema provenance
+        shell: bash
+        run: |
+          NEW='NSAMDR_RAVEN_PRODUCTION_BASELINE_SAFE_NEURAL_PROPOSAL_EXPLICIT_REFINER_SPLINE_GRAPH_4X_V12_1_0'
+          grep -F "$NEW" tools/nsamdr/neural/v9/edge_constrained_spline_graph.py
+          grep -F "$NEW" tools/nsamdr/neural/v9/local_boundary_production_contract.py
+          grep -F "$NEW" tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
+          grep -F "$NEW" tools/nsamdr/tests/test_v117_baseline_relative_contract.py
+      - name: Diff hygiene
+        run: git diff --check
+      - name: Commit validated production delta
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/nsamdr/neural/v9/edge_constrained_spline_graph.py \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py \
+            tools/nsamdr/tests/test_v117_baseline_relative_contract.py \
+            tools/nsamdr/tests/test_v121_proposal_baseline_regret.py
+          git commit -m "Make V12.1 B1b proposal baseline-safe"
+          git push origin HEAD:nsamdr-v121-proposal-baseline-regret-temp
