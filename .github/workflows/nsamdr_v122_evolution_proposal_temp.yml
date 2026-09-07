@@ -1,0 +1,63 @@
+name: NSAMDR V12.2 evolution proposal temp
+
+on:
+  push:
+    branches:
+      - nsamdr-v122-evolution-proposal-temp
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nsamdr-v122-evolution-proposal-temp
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Apply V12.2 evolution proposal alignment
+        run: python tools/nsamdr/tests/_temp_apply_v122_evolution_proposal.py
+      - name: Compile changed Python
+        run: |
+          python -m py_compile \
+            tools/nsamdr/neural/v9/evolution/fitness.py \
+            tools/nsamdr/neural/v9/evolution/candidate.py \
+            tools/nsamdr/neural/v9/evolution/controller.py \
+            tools/nsamdr/tests/test_v122_evolution_proposal_contract.py
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --quiet pytest numpy pillow opencv-python-headless
+          python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+      - name: V12.2 proposal gradient and software-failure contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v122_evolution_proposal_contract.py
+      - name: Existing evolutionary recovery contract
+        run: python -m pytest -q tools/nsamdr/tests/test_evolutionary_recovery_v114_contract.py
+      - name: V12 and V12.1 contracts
+        run: |
+          python -m pytest -q tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
+          python -m pytest -q tools/nsamdr/tests/test_v121_proposal_baseline_regret.py
+          python -m pytest -q tools/nsamdr/tests/test_v121_refiner_telemetry_contract.py
+      - name: Raven Quick gates
+        run: |
+          python -m pytest -q tools/nsamdr/tests/test_raven_quick_budget_contract.py
+          python -m pytest -q tools/nsamdr/tests/test_v117_quick_baseline_smoke.py
+          python -m pytest -q tools/nsamdr/tests/test_raven_quick_fast_structural_contract.py
+      - name: Diff hygiene
+        run: git diff --check
+      - name: Commit validated production delta
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/nsamdr/neural/v9/evolution/fitness.py \
+            tools/nsamdr/neural/v9/evolution/candidate.py \
+            tools/nsamdr/neural/v9/evolution/controller.py \
+            tools/nsamdr/tests/test_v122_evolution_proposal_contract.py
+          git commit -m "Align evolution capacity proof with V12 proposal"
+          git push origin HEAD:nsamdr-v122-evolution-proposal-temp
