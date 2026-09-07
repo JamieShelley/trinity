@@ -57,8 +57,9 @@ continuous vector parameters can be optimized against raster evidence; discrete
 topology remains outside that optimization.
 
 B1b outer SGD therefore supervises the **neural proposal initializer** with
-held-out authored geometry teachers. The explicit refiner is detached from that
-outer optimizer and has no parameters to train. Final B1 qualification still
-judges the actual refined pre-seam C against B; the residual authority gate may
-open only when that final refined geometry produces a real baseline-relative
-improvement.
+authored training geometry teachers. Held-out Raven remains qualification-only
+evidence and is never used for optimizer updates. The explicit refiner is
+detached from that outer optimizer and has no parameters to train. Final B1
+qualification still judges the actual refined pre-seam C against B; the residual
+authority gate may open only when that final refined geometry produces a real
+baseline-relative improvement.
