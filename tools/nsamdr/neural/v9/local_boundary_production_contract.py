@@ -27,7 +27,7 @@ from .parametric_boundary import LocalParametricBoundaryDecoder, make_query_grid
 from .spline_graph import ConnectedSplineGraph
 from .explicit_spline_refiner import ExplicitSplineGeometryRefiner
 
-SCHEMA = "NSAMDR_RAVEN_PRODUCTION_NEURAL_PROPOSAL_EXPLICIT_REFINER_SPLINE_GRAPH_4X_V12_0_0"
+SCHEMA = "NSAMDR_RAVEN_PRODUCTION_BASELINE_SAFE_NEURAL_PROPOSAL_EXPLICIT_REFINER_SPLINE_GRAPH_4X_V12_1_0"
 
 _INSTALLED = False
 _ORIGINAL_GEOMETRY_INIT: Callable[..., None] | None = None
@@ -618,8 +618,14 @@ class LocalBoundaryProductionContract:
             # that proposal plus observed LR consistency. Final dense spline/SDF
             # terms remain qualification telemetry and cannot masquerade as an
             # outer-loop gradient through the detached explicit optimizer.
+            # Residual/identity-safe B1b authority: direct point supervision
+            # moves the neural initializer toward authored geometry, while point
+            # regret adds extra cost only when that proposal is worse than the
+            # deterministic same-edge source crossing. No new tuning weight is
+            # introduced; both terms have identical point-error units.
             total = (
-                losses["spline_graph_point"] * float(config.spline_graph_point_weight)
+                (losses["spline_graph_point"] + losses["spline_graph_point_regret"])
+                * float(config.spline_graph_point_weight)
                 + losses["spline_graph_tangent"] * float(config.spline_graph_tangent_weight)
                 + losses["edge"] * float(config.edge_weight)
                 + losses["edge_sdf_consistency"] * float(config.boundary_edge_sdf_consistency_weight)
@@ -627,10 +633,10 @@ class LocalBoundaryProductionContract:
                 + losses["hardness"] * float(config.boundary_hardness_weight)
             )
 
-        # A structural candidate is useful only when it improves on the observed
-        # source/baseline. The canonical loss already computes these differentiable
-        # regret terms on both authored Raven and analytic examples; keep them as
-        # training authority in both B1a and B1b instead of telemetry-only values.
+        # Dense baseline-relative terms remain useful qualification evidence.
+        # In V12.1, B1b's guaranteed gradient-bearing baseline safety lives in the
+        # neural proposal space above; the final explicit-refiner geometry is
+        # intentionally detached from outer SGD.
         baseline_relative_supervision = (
             losses["sdf_improvement_regret"] * float(config.sdf_improvement_regret_weight)
             + losses["geometry_regret"] * float(config.geometry_regret_weight)

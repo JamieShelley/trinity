@@ -7,7 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 V9 = ROOT / "tools/nsamdr/neural/v9"
-SCHEMA = "NSAMDR_RAVEN_PRODUCTION_NEURAL_PROPOSAL_EXPLICIT_REFINER_SPLINE_GRAPH_4X_V12_0_0"
+SCHEMA = "NSAMDR_RAVEN_PRODUCTION_BASELINE_SAFE_NEURAL_PROPOSAL_EXPLICIT_REFINER_SPLINE_GRAPH_4X_V12_1_0"
 
 
 class TestV120ExplicitGeometryRefinerContract(unittest.TestCase):

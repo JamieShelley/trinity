@@ -154,7 +154,7 @@ def test_v118_structural_candidate_is_exact_baseline_at_zero_gain():
     proposal = torch.flip(baseline, dims=(-1,))
     candidate = baseline + weight * (proposal - baseline)
     assert torch.equal(candidate, baseline)
-    assert MODEL_SCHEMA == "NSAMDR_RAVEN_PRODUCTION_NEURAL_PROPOSAL_EXPLICIT_REFINER_SPLINE_GRAPH_4X_V12_0_0"
+    assert MODEL_SCHEMA == "NSAMDR_RAVEN_PRODUCTION_BASELINE_SAFE_NEURAL_PROPOSAL_EXPLICIT_REFINER_SPLINE_GRAPH_4X_V12_1_0"
 
 
 def test_v118_structural_residual_gain_is_zero_initialized_and_checkpointed():
