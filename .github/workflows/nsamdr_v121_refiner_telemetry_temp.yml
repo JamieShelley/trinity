@@ -1,0 +1,73 @@
+name: NSAMDR V12.1 refiner telemetry temp
+
+on:
+  push:
+    branches:
+      - nsamdr-v121-refiner-telemetry-temp
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nsamdr-v121-refiner-telemetry-temp
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Apply complete refiner telemetry fix
+        run: python tools/nsamdr/tests/_temp_apply_v121_refiner_telemetry_fix.py
+      - name: Compile changed Python
+        run: |
+          python -m py_compile \
+            tools/nsamdr/neural/v9/explicit_spline_refiner.py \
+            tools/nsamdr/tests/test_v121_refiner_telemetry_contract.py
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --quiet pytest numpy pillow opencv-python-headless
+          python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Refiner telemetry contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v121_refiner_telemetry_contract.py
+      - name: V12 explicit refiner contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
+      - name: V12.1 proposal baseline regret
+        run: python -m pytest -q tools/nsamdr/tests/test_v121_proposal_baseline_regret.py
+      - name: Baseline-relative contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py
+      - name: Quick contracts
+        run: |
+          python -m pytest -q \
+            tools/nsamdr/tests/test_raven_quick_budget_contract.py \
+            tools/nsamdr/tests/test_v117_quick_baseline_smoke.py \
+            tools/nsamdr/tests/test_raven_quick_fast_structural_contract.py
+      - name: Production architecture preflight
+        run: |
+          python tools/nsamdr/neural/raven_architecture_contract.py pre \
+            --config tools/nsamdr/neural/configs/v9_fidelity_full.json \
+            --output /tmp/nsamdr_architecture_preflight.json
+          python - <<'PY'
+          import json
+          p=json.load(open('/tmp/nsamdr_architecture_preflight.json', encoding='utf-8'))
+          assert p['pass'] is True, p.get('failures')
+          assert p['productionForward']['call'] == 'model(input)'
+          assert not p['productionForward']['overridesUsed']
+          for key in ('albedo','normal_xy','material','roughness','emissive'):
+              assert key in p['productionForward']['outputs'], key
+          print('architecture preflight PASS')
+          PY
+      - name: Diff hygiene
+        run: git diff --check
+      - name: Commit validated production delta
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/nsamdr/neural/v9/explicit_spline_refiner.py \
+            tools/nsamdr/tests/test_v121_refiner_telemetry_contract.py
+          git commit -m "Complete V12.1 refiner telemetry on empty topology"
+          git push origin HEAD:nsamdr-v121-refiner-telemetry-temp
