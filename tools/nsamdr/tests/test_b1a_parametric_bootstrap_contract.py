@@ -20,5 +20,6 @@ class TestB1aParametricBootstrapContract:
     # Calls: No same-class helper methods.
     def test_local_geometry_has_direct_loss_authority(self) -> None:
         source = CONTRACT.read_text(encoding="utf-8")
-        assert 'losses["parametric_anchor"]' in source
-        assert 'losses["sdf_topology_sign"]' in source
+        assert 'losses["spline_graph_topology_control"]' in source
+        assert 'losses["spline_graph_topology_sign"]' in source
+        assert 'B1a trains only the differentiable topology/control field' in source

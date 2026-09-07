@@ -89,6 +89,7 @@ class TestRavenArchitectureLock:
         assert tuple(contract._COMPONENT_PATHS) == (
             "GeometryNet",
             "Spline/SDF",
+            "ExplicitRefiner",
             "BoundaryRenderer",
             "BoundaryProfile",
             "PhaseAwareSeamSR",

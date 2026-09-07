@@ -61,7 +61,7 @@ class TestV120ExplicitGeometryRefinerContract(unittest.TestCase):
         for path in (
             V9 / "local_boundary_production_contract.py",
             V9 / "edge_constrained_spline_graph.py",
-            ROOT / "tools/nsamdr/tests/test_v117_baseline_relative_contract.py",
+            ROOT / "tools/nsamdr/tests/test_baseline_relative_structural_contract.py",
         ):
             self.assertIn(SCHEMA, path.read_text(encoding="utf-8"))
 

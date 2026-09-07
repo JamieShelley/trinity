@@ -12,6 +12,7 @@ import json
 import os
 import re
 import stat
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -23,6 +24,7 @@ _COMPONENT_PATHS: dict[str, tuple[str, ...]] = {
         "geometry_net.production_structure",
         "geometry_net.parametric_primitive_field",
     ),
+    "ExplicitRefiner": ("geometry_net.production_structure.geometry_refiner",),
     "BoundaryRenderer": ("boundary_renderer",),
     "BoundaryProfile": ("boundary_specialist",),
     "PhaseAwareSeamSR": ("seam_restorer.phase_sr",),
@@ -147,10 +149,18 @@ class RavenArchitectureContract:
     # Calls: _sha256
     def _source_fingerprints(self, repo: Path) -> dict[str, str]:
         relatives = (
+            "tools/nsamdr/neural/v9/__init__.py",
             "tools/nsamdr/neural/v9/model.py",
             "tools/nsamdr/neural/v9/inference.py",
             "tools/nsamdr/neural/v9/training.py",
             "tools/nsamdr/neural/v9/losses.py",
+            "tools/nsamdr/neural/v9/local_boundary_production_contract.py",
+            "tools/nsamdr/neural/v9/explicit_spline_refiner.py",
+            "tools/nsamdr/neural/v9/edge_constrained_spline_graph.py",
+            "tools/nsamdr/neural/v9/spline_graph.py",
+            "tools/nsamdr/neural/v9/application/backend.py",
+            "tools/nsamdr/neural/v9/application/pipeline.py",
+            "tools/nsamdr/neural/v9/application/runner.py",
             "tools/nsamdr/neural/train_nsamdr_v9_preview_experiment.py",
             "tools/nsamdr/neural/run_nsamdr_v9_raven_tune_preview.py",
             "tools/nsamdr/neural/preview_nsamdr_v9_experiment.py",
@@ -189,6 +199,7 @@ class RavenArchitectureContract:
         aliases = {
             "GeometryNet": ("GeometryNet", "geometry"),
             "Spline/SDF": ("Spline/SDF", "structural representation"),
+            "ExplicitRefiner": ("ExplicitRefiner", "explicit geometry refiner"),
             "BoundaryRenderer": ("BoundaryRenderer", "boundary renderer"),
             "BoundaryProfile": ("BoundaryProfile", "boundary/profile"),
             "PhaseAwareSeamSR": ("PhaseAwareSeamSR",),
@@ -528,19 +539,75 @@ class RavenArchitectureContract:
         mode = path.stat().st_mode
         return not bool(mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
 
+    # Purpose: Capture the exact committed source revision used by this process.
+    # Called by: _preflight, _postflight.
+    # Calls: subprocess.run().
+    def _git_provenance(self, repo: Path) -> dict[str, Any]:
+        def run(*arguments: str) -> tuple[int, str]:
+            try:
+                completed = subprocess.run(
+                    ["git", "-C", str(repo), *arguments],
+                    check=False, capture_output=True, text=True, timeout=10.0,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return 127, ""
+            return int(completed.returncode), completed.stdout.strip()
+
+        head_code, head = run("rev-parse", "HEAD")
+        branch_code, branch = run("rev-parse", "--abbrev-ref", "HEAD")
+        status_code, status = run("status", "--porcelain=v1", "--untracked-files=no")
+        tracked_changes = [line for line in status.splitlines() if line.strip()]
+        return {
+            "available": head_code == 0,
+            "head": head if head_code == 0 else None,
+            "branch": branch if branch_code == 0 else None,
+            "trackedDirty": bool(tracked_changes) if status_code == 0 else None,
+            "trackedChanges": tracked_changes,
+        }
+
+    # Purpose: Exercise the same installed trainer architecture validator used by train_v9.
+    # Called by: _preflight.
+    # Calls: TrainingBackend(), trainer architecture validators.
+    def _validate_trainer_contract(self, repo: Path, contract: Mapping[str, Any]) -> None:
+        self._install_import_path(repo)
+        import v9.training as training  # type: ignore  # noqa: WPS433
+        from v9.application.backend import TrainingBackend  # type: ignore  # noqa: WPS433
+
+        # TrainingBackend owns the production install/synchronisation order. Constructing
+        # it here deliberately reproduces the exact contract state train_v9 will see.
+        TrainingBackend()
+        training._validate_v992_architecture_contract(dict(contract))
+        service = getattr(training, "_training_service", None)
+        if service is None:
+            raise RuntimeError("trainer has no TrainingService singleton")
+        service._validate_v992_architecture_contract(dict(contract))
+
     # Purpose: Implement preflight for RavenArchitectureContract.
     # Called by: main
-    # Calls: _load_model_api, _observe_production_forward, _source_fingerprints, _write_report
+    # Calls: _git_provenance, _load_model_api, _observe_production_forward, _source_fingerprints, _validate_trainer_contract, _write_report
     def _preflight(self, repo: Path, config_path: Path, output: Path) -> int:
         torch, config, model_cls, schema, channels, upscale = self._load_model_api(repo, config_path)
         torch.manual_seed(int(getattr(config, "seed", 1337)))
         model = model_cls(config)
+        trainer_failures: list[str] = []
+        try:
+            self._validate_trainer_contract(repo, model.architecture_contract())
+        except Exception as exc:
+            trainer_failures.append(
+                f"trainer architecture contract failed before training: {type(exc).__name__}: {exc}"
+            )
         rows, forward, failures = self._observe_production_forward(
             torch,
             model,
             input_channels=channels,
             upscale=upscale,
         )
+        failures = trainer_failures + failures
+        source_revision = self._git_provenance(repo)
+        if source_revision.get("trackedDirty") is True:
+            failures.append(
+                "tracked source files differ from Git HEAD; commit/stash source changes before training"
+            )
         payload = {
             "kind": "nsamdr-production-architecture-preflight",
             "pass": not failures,
@@ -552,9 +619,17 @@ class RavenArchitectureContract:
             "failures": failures,
             "config": str(config_path),
             "sourceSha256": self._source_fingerprints(repo),
+            "sourceRevision": source_revision,
+            "trainerContractValidated": not trainer_failures,
             "invariant": "Raven changes dataset/work budget only; model and direct forward are production-identical",
         }
         self._write_report(output, payload)
+        print(
+            f"[architecture] source HEAD={source_revision.get('head') or '<unavailable>'} "
+            f"branch={source_revision.get('branch') or '<unavailable>'} "
+            f"trackedDirty={source_revision.get('trackedDirty')}",
+            flush=True,
+        )
         for label, row in rows.items():
             print(
                 f"[architecture] {label:24s} "
@@ -650,6 +725,7 @@ class RavenArchitectureContract:
             "cacheEquivalence": cache_equivalence,
             "trainerFinalQualification": trainer_qualification,
             "sourceSha256": self._source_fingerprints(repo),
+            "sourceRevision": self._git_provenance(repo),
             "failures": failures,
             "invariant": "strict full state + direct uncached model(input) + exact immutable checkpoint provenance",
         }
