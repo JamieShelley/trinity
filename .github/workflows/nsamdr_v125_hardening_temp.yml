@@ -1,0 +1,37 @@
+name: NSAMDR V12.5 source hardening temp
+on:
+  push:
+    branches: [nsamdr-v125-hardening-temp]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile hardening patcher
+        run: python -m py_compile tools/nsamdr/_temp_harden_v125.py
+      - name: Apply hardening
+        run: python tools/nsamdr/_temp_harden_v125.py
+      - name: Install torch CPU
+        run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Install dependencies
+        run: pip install -q numpy scipy pillow opencv-python-headless pytest
+      - name: Compile NSAMDR Python
+        run: python -m compileall -q tools/nsamdr/neural tools/nsamdr/gui tools/nsamdr/nsamdr_cli.py tools/nsamdr/generate_strategy_candidates.py
+      - name: Run complete NSAMDR test suite
+        run: python -m pytest -q tools/nsamdr/tests
+      - name: Diff hygiene
+        run: git diff --check
+      - name: Ensure no version-patch tests remain
+        run: test -z "$(find tools/nsamdr/tests -maxdepth 1 -name 'test_v*.py' -print)"
+      - name: Commit validated delta
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A tools/nsamdr/README.md tools/nsamdr/neural tools/nsamdr/tests
+          git commit -m "Harden NSAMDR source and architecture preflight"
+          git push
