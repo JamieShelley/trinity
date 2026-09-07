@@ -21,7 +21,9 @@ jobs:
         with:
           python-version: '3.10'
       - name: Apply V12.1 proposal-space regret
-        run: python tools/nsamdr/tests/_temp_apply_v121_proposal_baseline_regret.py
+        run: |
+          python tools/nsamdr/tests/_temp_apply_v121_proposal_baseline_regret.py
+          python tools/nsamdr/tests/_temp_adjust_v121_gradient_probe.py
       - name: Compile changed Python
         run: |
           python -m py_compile \
