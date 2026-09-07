@@ -28,11 +28,11 @@ class BaselineRelativeSmokeService:
                 return float(default)
 
         return {
-            "baselineMae": value("sdf_stageb_baseline_mae", float("inf")),
-            "candidateMae": value("sdf_stageb_renderer_mae", float("inf")),
-            "relativeGain": value("sdf_stageb_renderer_improvement", float("-inf")),
-            "improvementFraction": value("improvement_fraction", 0.0),
-            "regressionFraction": value("regression_fraction", 1.0),
+            "baselineMae": value("structural_baseline_mae", float("inf")),
+            "candidateMae": value("structural_stage_mae", float("inf")),
+            "relativeGain": value("structural_relative_gain", float("-inf")),
+            "improvementFraction": value("structural_improvement_fraction", 0.0),
+            "regressionFraction": value("structural_regression_fraction", 1.0),
         }
 
     def safe_to_refine(self, validation: dict[str, Any], config: V9Config) -> bool:

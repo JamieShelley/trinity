@@ -154,7 +154,7 @@ def test_v118_structural_candidate_is_exact_baseline_at_zero_gain():
     proposal = torch.flip(baseline, dims=(-1,))
     candidate = baseline + weight * (proposal - baseline)
     assert torch.equal(candidate, baseline)
-    assert MODEL_SCHEMA == "NSAMDR_RAVEN_PRODUCTION_B1A_IDENTITY_B1B_RESIDUAL_SPLINE_GRAPH_4X_V11_9_0"
+    assert MODEL_SCHEMA == "NSAMDR_RAVEN_PRODUCTION_B1A_IDENTITY_B1B_PRESEAM_RESIDUAL_SPLINE_GRAPH_4X_V11_10_0"
 
 
 def test_v118_structural_residual_gain_is_zero_initialized_and_checkpointed():
@@ -192,3 +192,23 @@ def test_v119_quick_moves_strict_baseline_win_to_b1b():
     assert "PASS B1a: C preserved deterministic baseline B" in pipeline
     assert "PASS B1b: C now beats deterministic baseline B" in pipeline
     assert 'phase="sdf-proof-baseline-relative-smoke"' in pipeline
+
+
+def test_v1110_structural_smoke_is_pre_seam_and_uses_explicit_metrics():
+    losses = text("tools/nsamdr/neural/v9/losses.py")
+    smoke = text("tools/nsamdr/neural/v9/application/baseline_relative_smoke.py")
+    assert 'if phase in {"sdf-bootstrap", "sdf-proof"}:' in losses
+    assert 'reconstructed_albedo = seam_source_albedo' in losses
+    assert 'reconstructed_normal = seam_source_normal' in losses
+    assert 'reconstructed_material = seam_source_material' in losses
+    assert 'losses["structural_baseline_mae"]' in losses
+    assert 'losses["structural_stage_mae"]' in losses
+    assert 'losses["structural_relative_gain"]' in losses
+    assert 'losses["structural_improvement_fraction"]' in losses
+    assert 'losses["structural_regression_fraction"]' in losses
+    assert 'value("structural_baseline_mae"' in smoke
+    assert 'value("structural_stage_mae"' in smoke
+    assert 'value("structural_relative_gain"' in smoke
+    assert 'value("structural_improvement_fraction"' in smoke
+    assert 'value("structural_regression_fraction"' in smoke
+    assert 'value("sdf_stageb_renderer_mae"' not in smoke

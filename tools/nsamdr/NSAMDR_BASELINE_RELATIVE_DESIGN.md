@@ -32,3 +32,8 @@ B1a is topology-only. Its structural residual-gain head is reset to exact zero a
 ## Quick feedback contract
 
 Production B1a/B1b optimization uses authored Raven crops with synthetic geometry disabled. Synthetic line/circle/ring cases remain representation and topology audits; they do not replace real-domain optimizer evidence. Quick first runs one B1a topology epoch with structural residual authority frozen at exact identity; B1a is checked for topology and non-regression safety, not strict improvement. The first Quick B1b epoch is a bounded 14-batch authored-Raven structural refinement smoke pass and must show strict C > B. It cannot promote B1/B2 even if its held-out metrics happen to pass. If C is visibly/quantitatively worse than B, stop there. Later B1b epochs retain the complete authored structural bank and all existing hard qualification gates.
+
+
+## V11.10 structural-stage consumer contract
+
+B1a and B1b are evaluated on the pre-seam structural output, matching the live `structural` C preview. The public production forward remains fully connected, but frozen downstream seam/detail components cannot contribute to B1 structural training, regret, or baseline-relative acceptance evidence. B1a therefore preserves exact B when structural residual gain is zero; B1b must earn strict C > B using the structural stage itself.
