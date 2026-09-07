@@ -21,7 +21,9 @@ jobs:
         with:
           python-version: '3.10'
       - name: Apply V12.2 evolution proposal alignment
-        run: python tools/nsamdr/tests/_temp_apply_v122_evolution_proposal.py
+        run: |
+          python tools/nsamdr/tests/_temp_apply_v122_evolution_proposal.py
+          python tools/nsamdr/tests/_temp_apply_v122_candidate_phase.py
       - name: Compile changed Python
         run: |
           python -m py_compile \
