@@ -35,14 +35,26 @@ jobs:
           python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
       - name: V12 explicit refiner contract
         run: python -m pytest -q tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
-      - name: Baseline-relative contract
-        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py
-      - name: Raven Quick budget contract
-        run: python -m pytest -q tools/nsamdr/tests/test_raven_quick_budget_contract.py
-      - name: Quick baseline smoke contract
-        run: python -m pytest -q tools/nsamdr/tests/test_v117_quick_baseline_smoke.py
-      - name: Quick structural contract
-        run: python -m pytest -q tools/nsamdr/tests/test_raven_quick_fast_structural_contract.py
+      - name: Baseline exact deterministic B
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_baseline_variant_is_exact_model_baseline_and_does_not_call_model_forward
+      - name: Baseline stage variants
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_stage_variants_are_selected_before_final_selector
+      - name: Baseline live A-B-C
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_live_preview_is_authored_baseline_stage_not_raw_vs_final
+      - name: Baseline real Raven structural optimizer
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_connected_spline_b1_optimizes_real_raven_and_keeps_synthetic_audit
+      - name: Baseline Quick B1b smoke
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_quick_first_b1b_is_authored_raven_smoke_and_cannot_promote
+      - name: Baseline V11.8 exact identity
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v118_structural_candidate_is_exact_baseline_at_zero_gain
+      - name: Baseline V11.8 gain checkpoint
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v118_structural_residual_gain_is_zero_initialized_and_checkpointed
+      - name: Baseline V11.9 authority split
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v119_b1a_freezes_gain_and_b1b_unlocks_it
+      - name: Baseline V11.9 Quick handoff
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v119_quick_moves_strict_baseline_win_to_b1b
+      - name: Baseline V11.10 pre-seam metrics
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v1110_structural_smoke_is_pre_seam_and_uses_explicit_metrics
       - name: Production proposal-gradient and refiner reachability
         shell: bash
         run: |
@@ -135,6 +147,14 @@ jobs:
 
           print(f'V12 proposal gradient reaches geometry_head; grad L1={grad_total:.6f}')
           PY
+      - name: Baseline complete-file process check
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py
+      - name: Raven Quick budget contract
+        run: python -m pytest -q tools/nsamdr/tests/test_raven_quick_budget_contract.py
+      - name: Quick baseline smoke contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_quick_baseline_smoke.py
+      - name: Quick structural contract
+        run: python -m pytest -q tools/nsamdr/tests/test_raven_quick_fast_structural_contract.py
       - name: Diff hygiene
         run: git diff --check
       - name: Commit validated production delta
