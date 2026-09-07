@@ -14,6 +14,16 @@ class StructuralObjective:
     """V12 proposal-space capacity objective for evolutionary recovery."""
 
     def __init__(self, config: Any | None = None) -> None:
+        """Bind the production configuration used by the proposal-space objective.
+
+        Purpose:
+            Keep the evolutionary capacity proof aligned with the active B1b spline
+            proposal and SDF-polarity contracts.
+        Called by:
+            CandidateEvaluator.__init__() and tests constructing the objective directly.
+        Calls:
+            No project functions.
+        """
         self.config = config
 
     def evaluate(
@@ -23,6 +33,15 @@ class StructuralObjective:
         max_distance: float,
     ) -> tuple[torch.Tensor, dict[str, float]]:
         """Train the neural spline proposal, never the detached explicit-refiner result.
+
+        Purpose:
+            Measure short-horizon real-Raven capacity in the gradient-bearing neural
+            proposal while leaving final refined geometry as qualification authority.
+        Called by:
+            CandidateEvaluator._train_candidate() and focused capacity-contract tests.
+        Calls:
+            _same_edge_targets(), _baseline_relative_point_objective(), and the canonical
+            global SDF-polarity helper when gauge invariance is enabled.
 
         V12 deliberately makes final refined geometry parameter-free and detached from
         outer SGD.  The evolutionary capacity proof therefore uses the same authored

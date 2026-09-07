@@ -389,6 +389,9 @@ class LocalBoundaryProductionContract:
         })
         production = dict(contract.get("productionComponents") or {})
         production["structural representation"] = "geometry_net.production_structure"
+        production["explicit geometry refiner"] = (
+            "geometry_net.production_structure.geometry_refiner"
+        )
         contract["productionComponents"] = production
         # Replace the obsolete primitive-class proof labels without touching the
         # downstream B3/B4/detail/selector stages.
