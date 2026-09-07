@@ -31,7 +31,7 @@ from . import spline_graph as _spline_graph
 from . import losses as _losses
 
 
-SCHEMA = "NSAMDR_RAVEN_PRODUCTION_NEURAL_PROPOSAL_EXPLICIT_REFINER_SPLINE_GRAPH_4X_V12_0_0"
+SCHEMA = "NSAMDR_RAVEN_PRODUCTION_BASELINE_SAFE_NEURAL_PROPOSAL_EXPLICIT_REFINER_SPLINE_GRAPH_4X_V12_1_0"
 
 _INSTALLED = False
 _ORIGINAL_EDGE_GRAPH = _spline_graph.ConnectedSplineGraph._edge_graph
@@ -48,9 +48,10 @@ def _edge_graph(
     """Build shared crossings with exactly one positional DOF per owning edge.
 
     A horizontal crossing may move only in X and a vertical crossing only in Y.
-    The final fraction is clamped to the interior of the same edge, so geometry
-    refinement cannot jump a node into a neighbouring cell while retaining the
-    old topology mask.
+    The observed source crossing is first projected into the representable
+    interior of the same owning edge. The neural branch then predicts a residual
+    around that projected source identity. Forward projection remains hard, while
+    a straight-through derivative preserves B1b learning at projection boundaries.
     """
     batch, _channels, height, width = control_phi.shape
     gx, gy = _spline_graph._central_difference(control_phi)
@@ -87,18 +88,37 @@ def _edge_graph(
     # Keep the original channel ownership: H.x was channel 0 and V.y was channel
     # 3.  The retired orthogonal position channels remain in the checkpoint but
     # have no structural authority.
-    h_fraction_pred = (
-        h_fraction[:, 0]
+    # The representation uses an open-edge feasible interval to avoid vertex
+    # degeneracy in connected Hermite cells. Project the observed source crossing
+    # into that same feasible set first, so zero neural correction is exact identity
+    # in the representation used by both B1b supervision and the explicit refiner.
+    epsilon = 1.0e-3
+    source_h_fraction = h_fraction[:, 0].clamp(epsilon, 1.0 - epsilon)
+    source_v_fraction = v_fraction[:, 0].clamp(epsilon, 1.0 - epsilon)
+    unconstrained_h_fraction = (
+        source_h_fraction
         + torch.tanh(raw_h[:, 0]) * max_displacement_lattice * scale
-    ).clamp(1.0e-3, 1.0 - 1.0e-3)
-    v_fraction_pred = (
-        v_fraction[:, 0]
+    )
+    unconstrained_v_fraction = (
+        source_v_fraction
         + torch.tanh(raw_v[:, 3]) * max_displacement_lattice * scale
-    ).clamp(1.0e-3, 1.0 - 1.0e-3)
+    )
+    projected_h_fraction = unconstrained_h_fraction.clamp(epsilon, 1.0 - epsilon)
+    projected_v_fraction = unconstrained_v_fraction.clamp(epsilon, 1.0 - epsilon)
+
+    # Hard projection owns the forward geometry. The detached correction makes the
+    # local derivative identity-valued, so a proposal sitting exactly on a feasible
+    # boundary can still learn an inward residual instead of receiving zero gradient.
+    h_fraction_pred = unconstrained_h_fraction + (
+        projected_h_fraction - unconstrained_h_fraction
+    ).detach()
+    v_fraction_pred = unconstrained_v_fraction + (
+        projected_v_fraction - unconstrained_v_fraction
+    ).detach()
 
     source_h = torch.stack(
         (
-            h_x.expand(batch, 1, height, width - 1)[:, 0] + h_fraction[:, 0],
+            h_x.expand(batch, 1, height, width - 1)[:, 0] + source_h_fraction,
             h_y.expand(batch, 1, height, width - 1)[:, 0],
         ),
         dim=-1,
@@ -106,7 +126,7 @@ def _edge_graph(
     source_v = torch.stack(
         (
             v_x.expand(batch, 1, height - 1, width)[:, 0],
-            v_y.expand(batch, 1, height - 1, width)[:, 0] + v_fraction[:, 0],
+            v_y.expand(batch, 1, height - 1, width)[:, 0] + source_v_fraction,
         ),
         dim=-1,
     )
@@ -470,6 +490,47 @@ def _same_edge_targets(
     )
 
 
+def _baseline_relative_point_objective(
+    proposal_h: torch.Tensor,
+    proposal_v: torch.Tensor,
+    source_h: torch.Tensor,
+    source_v: torch.Tensor,
+    target_h: torch.Tensor,
+    target_v: torch.Tensor,
+    mask_h: torch.Tensor,
+    mask_v: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Score the neural node proposal as a residual correction over baseline B.
+
+    The deterministic source crossings are the zero-correction baseline.  Direct
+    target supervision still supplies the estimator gradient, while the hinge
+    term adds extra authority only where the proposal is farther from the authored
+    same-edge target than that baseline.  Exact identity therefore has zero regret.
+    """
+    proposal_h_error = (proposal_h.float() - target_h).abs().sum(dim=-1)
+    proposal_v_error = (proposal_v.float() - target_v).abs().sum(dim=-1)
+    source_h_error = (source_h.detach().float() - target_h).abs().sum(dim=-1)
+    source_v_error = (source_v.detach().float() - target_v).abs().sum(dim=-1)
+    denom = (mask_h.sum() + mask_v.sum()).clamp_min(1.0)
+
+    point = (
+        (proposal_h_error * mask_h).sum() + (proposal_v_error * mask_v).sum()
+    ) / denom
+    regret = (
+        (F.relu(proposal_h_error - source_h_error) * mask_h).sum()
+        + (F.relu(proposal_v_error - source_v_error) * mask_v).sum()
+    ) / denom
+    gain = (
+        ((source_h_error - proposal_h_error) * mask_h).sum()
+        + ((source_v_error - proposal_v_error) * mask_v).sum()
+    ) / denom
+    wins = (
+        ((proposal_h_error < source_h_error).float() * mask_h).sum()
+        + ((proposal_v_error < source_v_error).float() * mask_v).sum()
+    ) / denom
+    return point, regret, gain.detach(), wins.detach()
+
+
 def _compute_losses(
     outputs: dict[str, torch.Tensor],
     batch: dict[str, torch.Tensor],
@@ -504,12 +565,14 @@ def _compute_losses(
     spline_tan_v = outputs.get("spline_proposal_control_tangent_v", outputs.get("spline_control_tangent_v"))
     spline_mask_h = outputs.get("spline_graph_mask_h")
     spline_mask_v = outputs.get("spline_graph_mask_v")
+    spline_src_h = outputs.get("spline_source_control_point_h_lr")
+    spline_src_v = outputs.get("spline_source_control_point_v_lr")
     source_prior = outputs.get("source_sdf_prior_pixels")
     if any(
         value is None
         for value in (
             spline_control, spline_h, spline_v, spline_tan_h, spline_tan_v,
-            spline_mask_h, spline_mask_v, source_prior,
+            spline_mask_h, spline_mask_v, spline_src_h, spline_src_v, source_prior,
         )
     ):
         return result
@@ -542,11 +605,15 @@ def _compute_losses(
     mh = spline_mask_h[:, 0].float() * valid_h.float()
     mv = spline_mask_v[:, 0].float() * valid_v.float()
     denom = (mh.sum() + mv.sum()).clamp_min(1.0)
-    point_h_error = (spline_h.float() - target_h).abs().sum(dim=-1)
-    point_v_error = (spline_v.float() - target_v).abs().sum(dim=-1)
-    result["spline_graph_point"] = (
-        (point_h_error * mh).sum() + (point_v_error * mv).sum()
-    ) / denom
+    (
+        result["spline_graph_point"],
+        result["spline_graph_point_regret"],
+        result["spline_graph_point_gain"],
+        result["spline_graph_point_win_fraction"],
+    ) = _baseline_relative_point_objective(
+        spline_h, spline_v, spline_src_h, spline_src_v,
+        target_h, target_v, mh, mv,
+    )
     dot_h = (spline_tan_h.float() * target_tan_h).sum(dim=-1).abs().clamp(0.0, 1.0)
     dot_v = (spline_tan_v.float() * target_tan_v).sum(dim=-1).abs().clamp(0.0, 1.0)
     result["spline_graph_tangent"] = (
