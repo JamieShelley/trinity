@@ -18,7 +18,7 @@ class TestEvolutionaryRecoveryV114Contract:
     def test_genome_is_bounded_and_state_dict_compatible(self) -> None:
         torch = pytest.importorskip("torch")
         from v9.config import V9Config
-        from v9.evolutionary_recovery import GENOME_NAMES, Genome
+        from v9.evolution import GENOME_NAMES, Genome
         from v9.local_boundary_production_contract import set_active_evolution_genome
         from v9.model import FidelityResidualNetV9
 
@@ -61,7 +61,7 @@ class TestEvolutionaryRecoveryV114Contract:
     def test_full_production_forward_observes_evolved_structure(self) -> None:
         torch = pytest.importorskip("torch")
         from v9.config import V9Config
-        from v9.evolutionary_recovery import Genome
+        from v9.evolution import Genome
         from v9.local_boundary_production_contract import set_active_evolution_genome
         from v9.model import FidelityResidualNetV9
 
@@ -89,7 +89,7 @@ class TestEvolutionaryRecoveryV114Contract:
     # Calls: StructuralFitness.measure().
     def test_capacity_gate_uses_held_out_improvement_not_fixed_one_percent_descent(self) -> None:
         torch = pytest.importorskip("torch")
-        from v9.evolution.fitness import StructuralFitness
+        from v9.evolution import StructuralFitness
 
         target = torch.tensor(
             [[[[-2.0, -1.0], [1.0, 2.0]]]],
@@ -105,6 +105,7 @@ class TestEvolutionaryRecoveryV114Contract:
             source,
             train_loss_before=14.0508,
             train_loss_after=14.0353,
+            topology_regression_fraction=0.0,
         )
         observed_learning_gain = (14.0508 - 14.0353) / 14.0508
         assert 0.0 < observed_learning_gain < 0.01
@@ -117,6 +118,7 @@ class TestEvolutionaryRecoveryV114Contract:
             source,
             train_loss_before=14.0508,
             train_loss_after=14.0508,
+            topology_regression_fraction=0.0,
         )
         assert no_descent["passed"] is False
 
@@ -126,6 +128,7 @@ class TestEvolutionaryRecoveryV114Contract:
             source,
             train_loss_before=14.0508,
             train_loss_after=14.0353,
+            topology_regression_fraction=0.0,
         )
         assert float(validation_regression["gain"]) < 0.0
         assert validation_regression["passed"] is False
@@ -134,7 +137,7 @@ class TestEvolutionaryRecoveryV114Contract:
     # Called by: External callers and the owning workflow.
     # Calls: No same-class helper methods.
     def test_failure_classifier_never_evolves_software_exception(self) -> None:
-        from v9.evolutionary_recovery import FailureKind, classify_failure
+        from v9.evolution import FailureKind, classify_failure
 
         assert classify_failure(error=AttributeError("missing tensor")) == FailureKind.SOFTWARE
         assert classify_failure(error=RuntimeError("CUDA out of memory")) == FailureKind.NUMERICAL
