@@ -2,6 +2,8 @@ name: NSAMDR V12.4 contract map temp
 on:
   push:
     branches: [nsamdr-v124-contract-map-temp]
+permissions:
+  contents: write
 jobs:
   validate-and-commit:
     runs-on: ubuntu-latest
