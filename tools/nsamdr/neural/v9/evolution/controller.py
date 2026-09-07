@@ -97,6 +97,15 @@ class EvolutionaryRecoveryController:
             Genome.bounded().
         """
         viable = [item for item in results if item.finite]
+        if not viable:
+            execution_errors = sorted({
+                str(item.error) for item in results if item.error
+            })
+            if execution_errors:
+                raise RuntimeError(
+                    "evolution capacity proof did not execute; candidate error(s): "
+                    + " | ".join(execution_errors)
+                )
         winner_result = max(viable, key=lambda item: item.fitness) if viable else results[0]
         passed_results = [item for item in viable if item.passed_microproof]
         if passed_results:
