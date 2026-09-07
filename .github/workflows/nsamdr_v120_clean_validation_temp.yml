@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  isolate-baseline-contract:
+  isolate-baseline-state:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,33 +22,34 @@ jobs:
         run: |
           python -m pip install --quiet pytest numpy pillow
           python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
-      - name: exact deterministic baseline
+      - name: first five together
         continue-on-error: true
-        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_baseline_variant_is_exact_model_baseline_and_does_not_call_model_forward
-      - name: stage variants pre-selector
+        run: >-
+          python -m pytest -q
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_baseline_variant_is_exact_model_baseline_and_does_not_call_model_forward
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_stage_variants_are_selected_before_final_selector
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_live_preview_is_authored_baseline_stage_not_raw_vs_final
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_connected_spline_b1_optimizes_real_raven_and_keeps_synthetic_audit
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_quick_first_b1b_is_authored_raven_smoke_and_cannot_promote
+      - name: last five together
         continue-on-error: true
-        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_stage_variants_are_selected_before_final_selector
-      - name: live A-B-C contract
+        run: >-
+          python -m pytest -q
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v118_structural_candidate_is_exact_baseline_at_zero_gain
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v118_structural_residual_gain_is_zero_initialized_and_checkpointed
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v119_b1a_freezes_gain_and_b1b_unlocks_it
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v119_quick_moves_strict_baseline_win_to_b1b
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v1110_structural_smoke_is_pre_seam_and_uses_explicit_metrics
+      - name: first five then identity same process
         continue-on-error: true
-        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_live_preview_is_authored_baseline_stage_not_raw_vs_final
-      - name: real Raven structural optimizer
+        run: >-
+          python -m pytest -q
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_baseline_variant_is_exact_model_baseline_and_does_not_call_model_forward
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_stage_variants_are_selected_before_final_selector
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_live_preview_is_authored_baseline_stage_not_raw_vs_final
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_connected_spline_b1_optimizes_real_raven_and_keeps_synthetic_audit
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_quick_first_b1b_is_authored_raven_smoke_and_cannot_promote
+          tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v118_structural_candidate_is_exact_baseline_at_zero_gain
+      - name: complete file
         continue-on-error: true
-        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_connected_spline_b1_optimizes_real_raven_and_keeps_synthetic_audit
-      - name: B1b Quick smoke
-        continue-on-error: true
-        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_quick_first_b1b_is_authored_raven_smoke_and_cannot_promote
-      - name: V11.8 identity
-        continue-on-error: true
-        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v118_structural_candidate_is_exact_baseline_at_zero_gain
-      - name: V11.8 residual gain
-        continue-on-error: true
-        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v118_structural_residual_gain_is_zero_initialized_and_checkpointed
-      - name: V11.9 B1 authority
-        continue-on-error: true
-        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v119_b1a_freezes_gain_and_b1b_unlocks_it
-      - name: V11.9 Quick baseline handoff
-        continue-on-error: true
-        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v119_quick_moves_strict_baseline_win_to_b1b
-      - name: V11.10 pre-seam metrics
-        continue-on-error: true
-        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py::test_v1110_structural_smoke_is_pre_seam_and_uses_explicit_metrics
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py
