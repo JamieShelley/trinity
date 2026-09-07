@@ -40,7 +40,7 @@ class CandidateEvaluator:
         self.device_request = str(device)
         self.seed = int(seed)
         self.micro_steps = max(1, int(micro_steps))
-        self.objective = objective or StructuralObjective()
+        self.objective = objective or StructuralObjective(config)
         self.fitness = fitness or StructuralFitness()
 
     def _device(self) -> torch.device:
@@ -100,6 +100,10 @@ class CandidateEvaluator:
             StructuralObjective.evaluate(), AdamW.step(), clip_grad_norm_().
         """
         model.train()
+        # The disposable capacity candidate must use the same trainability contract
+        # as production B1b: topology fixed, neural continuous proposal enabled.
+        model.set_phase("sdf-proof")
+        model.set_parametric_substage("integration")
         parameters = [
             parameter
             for parameter in model.geometry_net.production_structure.parameters()

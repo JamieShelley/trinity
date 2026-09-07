@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from typing import Mapping
+from typing import Any, Mapping
 
 import torch
 from torch.nn import functional as F
@@ -11,7 +11,10 @@ from .tensor_math import align_polarity, central_difference, weighted_mean
 
 
 class StructuralObjective:
-    """Differentiable short-horizon objective for candidate capacity proof training."""
+    """V12 proposal-space capacity objective for evolutionary recovery."""
+
+    def __init__(self, config: Any | None = None) -> None:
+        self.config = config
 
     def evaluate(
         self,
@@ -19,54 +22,111 @@ class StructuralObjective:
         sample: Mapping[str, torch.Tensor],
         max_distance: float,
     ) -> tuple[torch.Tensor, dict[str, float]]:
-        """Calculate the bounded real-Raven microproof loss.
+        """Train the neural spline proposal, never the detached explicit-refiner result.
 
-        Purpose:
-            Train only enough structural capacity to compare bounded genomes cheaply.
-        Called by:
-            CandidateEvaluator._train_candidate().
-        Calls:
-            align_polarity(), central_difference(), weighted_mean().
+        V12 deliberately makes final refined geometry parameter-free and detached from
+        outer SGD.  The evolutionary capacity proof therefore uses the same authored
+        same-edge point/tangent teacher as B1b.  Held-out fitness below still measures
+        the final refined SDF, so proposal learning cannot masquerade as qualification.
         """
-        predicted = geometry["primitive_phi_pixels"].float()
-        target = sample["target_sdf"].float() * float(max_distance)
-        source = sample["source_sdf"].float() * float(max_distance)
-        if target.shape[-2:] != predicted.shape[-2:]:
-            target = F.interpolate(target, size=predicted.shape[-2:], mode="bilinear", align_corners=False)
-        if source.shape[-2:] != predicted.shape[-2:]:
-            source = F.interpolate(source, size=predicted.shape[-2:], mode="bilinear", align_corners=False)
-
-        band = 0.15 + 1.85 * torch.exp(-target.abs() / 4.0)
-        predicted = align_polarity(predicted, target, band)
-        source = align_polarity(source, target, band)
-
-        surface = weighted_mean(
-            F.smooth_l1_loss(predicted, target, beta=0.20, reduction="none"), band
+        from ..edge_constrained_spline_graph import (
+            _baseline_relative_point_objective,
+            _same_edge_targets,
         )
-        pgx, pgy = central_difference(predicted)
-        tgx, tgy = central_difference(target)
-        gradient = weighted_mean(
-            F.smooth_l1_loss(pgx, tgx, beta=0.12, reduction="none")
-            + F.smooth_l1_loss(pgy, tgy, beta=0.12, reduction="none"),
-            band,
-        )
-        inside = (target < 0.0).float()
-        sign = weighted_mean(
-            F.binary_cross_entropy_with_logits(-predicted / 1.5, inside, reduction="none"),
-            band,
-        )
-        source_error = (source - target).abs().detach()
-        predicted_error = (predicted - target).abs()
-        regret = weighted_mean(F.relu(predicted_error - source_error - 0.05), band)
-        correction = weighted_mean((predicted - source).square(), band).sqrt()
 
-        total = surface + 0.35 * gradient + 0.20 * sign + 0.80 * regret + 0.015 * correction
+        required = (
+            "spline_graph_control_phi_pixels",
+            "source_sdf_prior_pixels",
+            "spline_graph_mask_h",
+            "spline_graph_mask_v",
+            "spline_source_control_point_h_lr",
+            "spline_source_control_point_v_lr",
+            "spline_proposal_control_point_h_lr",
+            "spline_proposal_control_point_v_lr",
+            "spline_proposal_control_tangent_h",
+            "spline_proposal_control_tangent_v",
+        )
+        missing = [name for name in required if name not in geometry]
+        if missing:
+            raise RuntimeError(
+                "V12 evolutionary capacity proof requires neural proposal outputs: "
+                + ", ".join(missing)
+            )
+
+        raw_target = sample["target_sdf"].float() * float(max_distance)
+        source_prior = geometry["source_sdf_prior_pixels"].detach().float()
+        if bool(getattr(self.config, "sdf_sign_gauge_invariant", True)):
+            from .. import losses as canonical_losses
+            polarity = canonical_losses._losses_service._sdf_global_polarity(
+                source_prior,
+                raw_target,
+                float(getattr(self.config, "sdf_metric_band_pixels", 6.0)),
+            )
+            target = raw_target * polarity
+        else:
+            target = raw_target
+        control = geometry["spline_graph_control_phi_pixels"]
+        control_scale = float(getattr(self.config, "spline_graph_control_scale", 2))
+        control_spacing_hr = 4.0 / max(control_scale, 1.0)
+        target_h, target_v, target_tan_h, target_tan_v, valid_h, valid_v = (
+            _same_edge_targets(
+                target,
+                tuple(control.shape[-2:]),
+                control_spacing_hr=control_spacing_hr,
+                control_origin=2.0,
+            )
+        )
+
+        proposal_h = geometry["spline_proposal_control_point_h_lr"].float()
+        proposal_v = geometry["spline_proposal_control_point_v_lr"].float()
+        source_h = geometry["spline_source_control_point_h_lr"].detach().float()
+        source_v = geometry["spline_source_control_point_v_lr"].detach().float()
+        tangent_h = geometry["spline_proposal_control_tangent_h"].float()
+        tangent_v = geometry["spline_proposal_control_tangent_v"].float()
+        mask_h = geometry["spline_graph_mask_h"][:, 0].float() * valid_h.float()
+        mask_v = geometry["spline_graph_mask_v"][:, 0].float() * valid_v.float()
+
+        point, regret, gain, wins = _baseline_relative_point_objective(
+            proposal_h,
+            proposal_v,
+            source_h,
+            source_v,
+            target_h,
+            target_v,
+            mask_h,
+            mask_v,
+        )
+        active_teacher = mask_h.sum() + mask_v.sum()
+        active_source = (
+            geometry["spline_graph_mask_h"][:, 0].float().sum()
+            + geometry["spline_graph_mask_v"][:, 0].float().sum()
+        ).clamp_min(1.0)
+        denom = active_teacher.clamp_min(1.0)
+        dot_h = (tangent_h * target_tan_h).sum(dim=-1).abs().clamp(0.0, 1.0)
+        dot_v = (tangent_v * target_tan_v).sum(dim=-1).abs().clamp(0.0, 1.0)
+        tangent = (
+            ((1.0 - dot_h) * mask_h).sum()
+            + ((1.0 - dot_v) * mask_v).sum()
+        ) / denom
+
+        point_weight = max(
+            float(getattr(self.config, "spline_graph_point_weight", 1.0)), 1.0e-6
+        )
+        tangent_ratio = float(
+            getattr(self.config, "spline_graph_tangent_weight", 1.0)
+        ) / point_weight
+        total = point + regret + tangent * tangent_ratio
+        if not total.requires_grad:
+            raise RuntimeError(
+                "V12 evolutionary proposal objective is detached from outer SGD"
+            )
         metrics = {
-            "surface": float(surface.detach().item()),
-            "gradient": float(gradient.detach().item()),
-            "sign": float(sign.detach().item()),
-            "regret": float(regret.detach().item()),
-            "correctionRms": float(correction.detach().item()),
+            "proposalPoint": float(point.detach().item()),
+            "proposalRegret": float(regret.detach().item()),
+            "proposalGain": float(gain.detach().item()),
+            "proposalWins": float(wins.detach().item()),
+            "proposalTangent": float(tangent.detach().item()),
+            "teacherCoverage": float((active_teacher / active_source).detach().item()),
         }
         return total, metrics
 
@@ -82,7 +142,7 @@ class StructuralFitness:
         *,
         train_loss_before: float,
         train_loss_after: float,
-        topology_regression_fraction: float,
+        topology_regression_fraction: float = 0.0,
     ) -> dict[str, float | bool]:
         """Measure hard checks and scalar fitness for a trained candidate.
 
