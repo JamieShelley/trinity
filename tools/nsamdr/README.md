@@ -397,7 +397,40 @@ second viewer project.
 Verify shader-family parsing and authored semantic channels before changing
 NSAMDR. `LegacyPgs` is intentionally retained for real source compatibility.
 
-## 13. Non-negotiable invariant
+## 13. Research inspirations and references
+
+NSAMDR is an engineering system rather than a direct implementation of any one
+paper. The following works have materially influenced its reconstruction,
+vectorisation, residual-learning, and geometry-design choices. They are retained
+here so future architecture changes can be checked against the original ideas
+rather than against accumulated implementation assumptions.
+
+| Work | NSAMDR design lesson / influence |
+| --- | --- |
+| J. Kim, J. K. Lee, K. M. Lee, **[Accurate Image Super-Resolution Using Very Deep Convolutional Networks (VDSR)](https://openaccess.thecvf.com/content_cvpr_2016/html/Kim_Accurate_Image_Super-Resolution_CVPR_2016_paper.html)**, CVPR 2016. | Residual learning: preserve a known reconstruction path and learn the missing correction rather than repainting the complete output. |
+| W.-S. Lai, J.-B. Huang, N. Ahuja, M.-H. Yang, **[Deep Laplacian Pyramid Networks for Fast and Accurate Super-Resolution (LapSRN)](https://openaccess.thecvf.com/content_cvpr_2017/html/Lai_Deep_Laplacian_Pyramid_CVPR_2017_paper.html)**, CVPR 2017. | Progressive reconstruction and explicit high-frequency residual recovery across scales; relevant to the 2x-to-4x detail path. |
+| J. Liang, J. Cao, G. Sun, K. Zhang, L. Van Gool, R. Timofte, **[SwinIR: Image Restoration Using Swin Transformer](https://arxiv.org/abs/2108.10257)**, 2021. | Strong image-restoration framing, residual feature paths, and larger-context reasoning for appearance/detail restoration. |
+| V. Egiazarian et al., **[Deep Vectorization of Technical Drawings](https://www.ecva.net/papers/eccv_2020/papers_ECCV/html/1978_ECCV_2020_paper.php)**, ECCV 2020. | Particularly important structural precedent: neural cleaning/primitive estimation is followed by an explicit optimisation procedure for the final primitive configuration. This is the reference escalation if a learned structural field cannot reliably produce final geometry by itself. |
+| H. Liu, C. Li, X. Liu, T.-T. Wong, **[End-to-End Line Drawing Vectorization](https://ojs.aaai.org/index.php/AAAI/article/view/20379)**, AAAI 2022. | Connectivity and stroke structure should be represented explicitly; direct vector primitive tracing can avoid failure modes caused by raster-only segmentation followed by disconnected fitting. |
+| T.-M. Li, M. Lukac, M. Gharbi, J. Ragan-Kelley, **[Differentiable Vector Graphics Rasterization for Editing and Learning (DiffVG)](https://people.csail.mit.edu/tzumao/diffvg/)**, ACM TOG / SIGGRAPH Asia 2020. | Differentiable rasterisation allows image-space objectives to optimise continuous curve parameters. It does **not** solve discrete topology changes; NSAMDR must keep topology as an explicit responsibility. |
+| X. Ma et al., **[Towards Layer-Wise Image Vectorization (LIVE)](https://openaccess.thecvf.com/content/CVPR2022/html/Ma_Towards_Layer-Wise_Image_Vectorization_CVPR_2022_paper.html)**, CVPR 2022. | Progressive construction and optimisation of explicit Bezier paths while preserving topology. This reinforces separating proposal/initialisation from final geometric optimisation. |
+| D. Berio, M. Stroh, S. Calinon, F. F. Leymarie, O. Deussen, A. Shamir, **[Neural Image Abstraction Using Long Smoothing B-Splines](https://arxiv.org/abs/2511.05360)**, 2025. | Long smooth parameterised curves and derivative-based regularisation. For NSAMDR this is a conditional prior only: engineered corners, junctions, bevels, seam widths, and intentional kinks must not be smoothed away. |
+
+### Design caution carried forward
+
+Several of the vectorisation references separate **neural estimation** from
+**explicit geometric optimisation**. NSAMDR must not assume that a neural
+structural field should necessarily be both the initializer and the final
+geometric solver. If the connected-spline B1 path cannot reliably beat the
+same-evidence deterministic baseline on real Raven data, the preferred next
+architecture review is a neural-proposal + explicit-geometry-optimisation
+pipeline rather than repeated relaxation of qualification gates or arbitrary
+loss-weight tuning.
+
+See also `NSAMDR_BASELINE_RELATIVE_DESIGN.md` for the current A/B/C acceptance
+contract and the design consequences already carried into V11.x.
+
+## 14. Non-negotiable invariant
 
 > Raven Quick uses the complete production NSAMDR model.
 > It changes dataset/work budget only and never substitutes an alternate
