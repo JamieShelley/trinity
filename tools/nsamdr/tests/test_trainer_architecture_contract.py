@@ -38,3 +38,26 @@ def test_v124_trainer_contract_declares_explicit_refiner():
     path, module = modules["explicit geometry refiner"]
     assert path == "geometry_net.production_structure.geometry_refiner"
     assert module is model.geometry_net.production_structure.geometry_refiner
+
+
+def test_final_qualification_clears_b1a_runtime_refiner_bypass():
+    from v9 import FidelityResidualNetV9, V9Config
+    from v9 import training as training_module
+    from v9.application.backend import TrainingBackend
+
+    backend = TrainingBackend()
+    config = V9Config()
+    config.training_activation_checkpointing = False
+    model = FidelityResidualNetV9(config)
+
+    model.set_phase("sdf-bootstrap")
+    structure = model.geometry_net.production_structure
+    assert structure._topology_bootstrap_only is True
+
+    # A fresh production load does not persist B1a's runtime-only bypass. Final
+    # qualification must reproduce that state before requiring refiner activity.
+    backend._prepare_production_runtime(model)
+    assert structure._topology_bootstrap_only is False
+
+    wrapped = training_module._training_service._run_final_qualification
+    assert getattr(wrapped, "_nsamdr_production_runtime_reset", False) is True
