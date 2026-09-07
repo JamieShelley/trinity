@@ -1,0 +1,45 @@
+name: NSAMDR V12.2 clean validation temp
+
+on:
+  push:
+    branches:
+      - nsamdr-v122-clean-validation-temp
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Compile changed Python
+        run: |
+          python -m py_compile \
+            tools/nsamdr/neural/v9/evolution/fitness.py \
+            tools/nsamdr/neural/v9/evolution/candidate.py \
+            tools/nsamdr/neural/v9/evolution/controller.py \
+            tools/nsamdr/tests/test_v122_evolution_proposal_contract.py \
+            tools/nsamdr/tests/test_evolutionary_recovery_v114_contract.py
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --quiet pytest numpy pillow opencv-python-headless
+          python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+      - name: V12.2 evolution proposal contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v122_evolution_proposal_contract.py
+      - name: Evolutionary recovery contract
+        run: python -m pytest -q tools/nsamdr/tests/test_evolutionary_recovery_v114_contract.py
+      - name: V12 and V12.1 contracts
+        run: |
+          python -m pytest -q tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
+          python -m pytest -q tools/nsamdr/tests/test_v121_proposal_baseline_regret.py
+          python -m pytest -q tools/nsamdr/tests/test_v121_refiner_telemetry_contract.py
+      - name: Application OOP contract
+        run: python -m pytest -q tools/nsamdr/tests/test_nsamdr_application_oop_contract.py
+      - name: Raven Quick gates
+        run: |
+          python -m pytest -q tools/nsamdr/tests/test_raven_quick_budget_contract.py
+          python -m pytest -q tools/nsamdr/tests/test_v117_quick_baseline_smoke.py
+          python -m pytest -q tools/nsamdr/tests/test_raven_quick_fast_structural_contract.py
+      - name: Diff hygiene
+        run: git diff --check
