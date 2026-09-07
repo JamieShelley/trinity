@@ -23,8 +23,7 @@ jobs:
         run: |
           python -m pip install --quiet pytest numpy pillow
           python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
-      - name: Static and contract validation
-        shell: bash
+      - name: Python compile
         run: |
           python -m py_compile \
             tools/nsamdr/neural/v9/explicit_spline_refiner.py \
@@ -33,14 +32,20 @@ jobs:
             tools/nsamdr/neural/v9/local_boundary_production_contract.py \
             tools/nsamdr/tests/test_v117_baseline_relative_contract.py \
             tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
-          python -m pytest -q \
-            tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py \
-            tools/nsamdr/tests/test_v117_baseline_relative_contract.py \
-            tools/nsamdr/tests/test_raven_quick_budget_contract.py \
-            tools/nsamdr/tests/test_v117_quick_baseline_smoke.py \
-            tools/nsamdr/tests/test_raven_quick_fast_structural_contract.py \
-            tools/nsamdr/tests/test_nsamdr_application_oop_contract.py
-          git diff --check
+      - name: V12 explicit refiner contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
+      - name: V11.7 baseline-relative contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py
+      - name: Raven Quick budget contract
+        run: python -m pytest -q tools/nsamdr/tests/test_raven_quick_budget_contract.py
+      - name: Quick baseline smoke contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_quick_baseline_smoke.py
+      - name: Quick fast structural contract
+        run: python -m pytest -q tools/nsamdr/tests/test_raven_quick_fast_structural_contract.py
+      - name: Application OOP contract
+        run: python -m pytest -q tools/nsamdr/tests/test_nsamdr_application_oop_contract.py
+      - name: Diff hygiene
+        run: git diff --check
       - name: Runtime refiner microproof
         shell: bash
         run: |
