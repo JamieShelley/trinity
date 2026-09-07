@@ -1,0 +1,179 @@
+name: NSAMDR V12 final validation temp
+
+on:
+  push:
+    branches:
+      - nsamdr-v120-final-validation-temp
+
+permissions:
+  contents: read
+
+jobs:
+  validate-v12:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nsamdr-v120-final-validation-temp
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --quiet pytest numpy pillow
+          python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile V12 production sources
+        run: |
+          python -m py_compile \
+            tools/nsamdr/neural/v9/explicit_spline_refiner.py \
+            tools/nsamdr/neural/v9/config.py \
+            tools/nsamdr/neural/v9/edge_constrained_spline_graph.py \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/tests/test_v117_baseline_relative_contract.py \
+            tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
+      - name: Targeted architecture and Quick contracts
+        run: |
+          python -m pytest -q \
+            tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py \
+            tools/nsamdr/tests/test_v117_baseline_relative_contract.py \
+            tools/nsamdr/tests/test_raven_quick_budget_contract.py \
+            tools/nsamdr/tests/test_v117_quick_baseline_smoke.py \
+            tools/nsamdr/tests/test_raven_quick_fast_structural_contract.py \
+            tools/nsamdr/tests/test_nsamdr_application_oop_contract.py \
+            tools/nsamdr/tests/test_pass_driven_pipeline_contract.py
+      - name: Runtime explicit-refiner microproof
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from types import SimpleNamespace
+          import importlib.util
+          import torch
+
+          path = Path('tools/nsamdr/neural/v9/explicit_spline_refiner.py')
+          spec = importlib.util.spec_from_file_location('explicit_spline_refiner_test', path)
+          module = importlib.util.module_from_spec(spec)
+          assert spec.loader is not None
+          spec.loader.exec_module(module)
+
+          cfg = SimpleNamespace(
+              spline_refiner_enabled=True,
+              spline_refiner_steps=5,
+              spline_refiner_position_step=0.20,
+              spline_refiner_tangent_step=0.05,
+              spline_refiner_source_node_weight=1.0,
+              spline_refiner_source_span_weight=0.0,
+              spline_refiner_proposal_position_weight=0.05,
+              spline_refiner_source_tangent_weight=0.0,
+              spline_refiner_proposal_tangent_weight=0.0,
+              spline_refiner_max_move_pixels=2.0,
+              spline_refiner_huber_beta_pixels=0.35,
+              target_scale=4,
+              contour_sdf_max_distance_pixels=24.0,
+          )
+          refiner = module.ExplicitSplineGeometryRefiner(cfg)
+
+          class FakeGraph:
+              origin_pixels = 2.0
+              spacing_pixels = 2.0
+              def _cell_spans(self, graph):
+                  device = graph['spline_control_point_h_lr'].device
+                  p0 = torch.zeros((1, 1, 1, 1, 2), device=device)
+                  p1 = torch.ones((1, 1, 1, 1, 2), device=device)
+                  t = torch.tensor([1.0, 0.0], device=device).view(1,1,1,1,2).expand_as(p0)
+                  n = torch.tensor([0.0, 1.0], device=device).view(1,1,1,1,2).expand_as(p0)
+                  active = torch.zeros((1, 1, 1, 1), dtype=torch.bool, device=device)
+                  return p0, p1, t, t, n, n, active
+
+          graph_module = FakeGraph()
+          width = 8
+          xx = torch.arange(width, dtype=torch.float32).view(1,1,1,width)
+          source_pixels = ((xx + 0.5) * 4.0 - 16.0).expand(1,1,8,width)
+          source = (source_pixels / 24.0).clamp(-1.0, 1.0)
+          proposal_h = torch.tensor([[[[7.30, 6.0]]]], dtype=torch.float32)
+          proposal_v = torch.tensor([[[[6.0, 7.30]]]], dtype=torch.float32)
+          tangent_h = torch.tensor([[[[0.0, 1.0]]]], dtype=torch.float32)
+          tangent_v = torch.tensor([[[[0.0, 1.0]]]], dtype=torch.float32)
+          proposal = {
+              'spline_control_point_h_lr': proposal_h,
+              'spline_control_point_v_lr': proposal_v,
+              'spline_source_control_point_h_lr': proposal_h.clone(),
+              'spline_source_control_point_v_lr': proposal_v.clone(),
+              'spline_control_tangent_h': tangent_h,
+              'spline_control_tangent_v': tangent_v,
+              'spline_control_displacement_h_lr': torch.zeros_like(proposal_h),
+              'spline_control_displacement_v_lr': torch.zeros_like(proposal_v),
+              'spline_graph_mask_h': torch.ones((1,1,1,1)),
+              'spline_graph_mask_v': torch.zeros((1,1,1,1)),
+          }
+          refined = refiner(graph_module, proposal, source)
+          before = float(refined['spline_refiner_energy_before'])
+          after = float(refined['spline_refiner_energy_after'])
+          shift = float(refined['spline_refiner_node_shift_rms_pixels'])
+          assert after < before, (before, after)
+          assert shift > 0.0, shift
+          assert torch.equal(refined['spline_graph_mask_h'], proposal['spline_graph_mask_h'])
+          assert torch.equal(refined['spline_graph_mask_v'], proposal['spline_graph_mask_v'])
+          print(f'explicit refiner microproof: energy {before:.6f}->{after:.6f}, shift={shift:.6f}px')
+          PY
+      - name: Full production-forward refiner reachability smoke
+        shell: bash
+        run: |
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+          import torch
+
+          root = Path.cwd()
+          neural = root / 'tools/nsamdr/neural'
+          sys.path.insert(0, str(neural))
+          from v9 import V9Config, FidelityResidualNetV9
+          from v9.model import MODEL_SCHEMA
+
+          expected = 'NSAMDR_RAVEN_PRODUCTION_NEURAL_PROPOSAL_EXPLICIT_REFINER_SPLINE_GRAPH_4X_V12_0_0'
+          assert MODEL_SCHEMA == expected, MODEL_SCHEMA
+          config = V9Config()
+          config.training_activation_checkpointing = False
+          model = FidelityResidualNetV9(config).eval()
+          refiner = model.geometry_net.production_structure.geometry_refiner
+          assert sum(p.numel() for p in refiner.parameters()) == 0
+
+          observed = {'calls': 0, 'steps': 0.0, 'mask_equal': False}
+          def hook(_module, args, output):
+              observed['calls'] += 1
+              proposal = args[1]
+              observed['steps'] = float(output['spline_refiner_steps'])
+              observed['mask_equal'] = bool(
+                  torch.equal(output['spline_graph_mask_h'], proposal['spline_graph_mask_h'])
+                  and torch.equal(output['spline_graph_mask_v'], proposal['spline_graph_mask_v'])
+              )
+          handle = refiner.register_forward_hook(hook)
+
+          h = w = 16
+          inputs = torch.zeros((1, 17, h, w), dtype=torch.float32)
+          inputs[:, 0:3] = 0.5
+          # Valid neutral tangent-space normal XY.
+          inputs[:, 3:5] = 0.0
+          # Give the structural prior one unambiguous vertical zero crossing.
+          x = torch.linspace(-1.0, 1.0, w, dtype=torch.float32).view(1,1,1,w)
+          inputs[:, 16:17] = x.expand(1,1,h,w)
+          with torch.no_grad():
+              outputs = model(inputs)
+          handle.remove()
+
+          assert observed['calls'] == 1, observed
+          assert observed['steps'] == float(config.spline_refiner_steps), observed
+          assert observed['mask_equal'], observed
+          for key in ('albedo', 'normal_xy', 'material'):
+              assert key in outputs, key
+              assert torch.isfinite(outputs[key]).all(), key
+          contract = model.architecture_contract()
+          assert contract['neuralGeometryIsInitializerOnly'] is True
+          assert contract['explicitGeometryRefinement'] is True
+          assert contract['explicitGeometryRefinementUsesTargetHR'] is False
+          assert contract['explicitGeometryRefinementCanChangeTopology'] is False
+          print('production forward reached parameter-free refiner with fixed topology')
+          PY
+      - name: Diff hygiene
+        run: git diff --check
