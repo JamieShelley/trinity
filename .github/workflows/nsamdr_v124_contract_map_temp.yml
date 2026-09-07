@@ -21,11 +21,13 @@ jobs:
       - name: Exact trainer architecture validator
         run: python -m pytest -q tools/nsamdr/tests/test_v124_trainer_architecture_contract.py
       - name: Existing V12/V12.1/V12.2/V12.3 contracts
-        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py tools/nsamdr/tests/test_v120_explicit_geometry_refinement_contract.py tools/nsamdr/tests/test_v121_proposal_baseline_regret.py tools/nsamdr/tests/test_v121_refiner_telemetry_contract.py tools/nsamdr/tests/test_v122_evolution_proposal_contract.py tools/nsamdr/tests/test_v123_refiner_inference_context.py
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py tools/nsamdr/tests/test_v121_proposal_baseline_regret.py tools/nsamdr/tests/test_v121_refiner_telemetry_contract.py tools/nsamdr/tests/test_v122_evolution_proposal_contract.py tools/nsamdr/tests/test_v123_refiner_inference_context.py
       - name: Evolution and Quick contracts
-        run: python -m pytest -q tools/nsamdr/tests/test_evolutionary_recovery_v114_contract.py tools/nsamdr/tests/test_v117_quick_budget_contract.py tools/nsamdr/tests/test_v117_quick_structural_smoke_contract.py tools/nsamdr/tests/test_v117_quick_b1a_baseline_smoke.py
-      - name: Application OOP contract
-        run: python -m pytest -q tools/nsamdr/tests/test_v116_application_oop_contract.py
+        run: python -m pytest -q tools/nsamdr/tests/test_evolutionary_recovery_v114_contract.py tools/nsamdr/tests/test_raven_quick_budget_contract.py tools/nsamdr/tests/test_raven_quick_fast_structural_contract.py tools/nsamdr/tests/test_v117_quick_baseline_smoke.py tools/nsamdr/tests/test_raven_architecture_lock.py
+      - name: Application contracts
+        run: python -m pytest -q tools/nsamdr/tests/test_nsamdr_application_oop_contract.py tools/nsamdr/tests/test_nsamdr_oop_readability_contract.py
+      - name: Pass-driven pipeline contract
+        run: python -m pytest -q tools/nsamdr/tests/test_pass_driven_pipeline_contract.py
       - name: Diff hygiene
         run: git diff --check
       - name: Commit validated production delta
