@@ -40,8 +40,16 @@ def test_v12_evolution_trains_neural_proposal_not_detached_refined_sdf():
     config.training_activation_checkpointing = False
     config.spline_refiner_steps = 1
     model = FidelityResidualNetV9(config).train()
+    # Candidate micro-training must enter the same phase that gives B1b continuous
+    # proposal authority.  A fresh/default model is not a valid B1b capacity probe.
+    model.set_phase("sdf-proof")
+    model.set_parametric_substage("integration")
     max_distance = float(config.contour_sdf_max_distance_pixels)
     inputs, sample = _line_sample(torch, 12, max_distance)
+
+    geometry_head = model.geometry_net.production_structure.spline_graph.geometry_head
+    assert all(parameter.requires_grad for parameter in geometry_head.parameters())
+    assert model.geometry_net.production_structure.topology_locked()
 
     geometry = model.geometry_net(inputs)
     assert geometry["spline_proposal_control_point_h_lr"].requires_grad
@@ -55,7 +63,6 @@ def test_v12_evolution_trains_neural_proposal_not_detached_refined_sdf():
     assert torch.isfinite(loss)
     loss.backward()
 
-    geometry_head = model.geometry_net.production_structure.spline_graph.geometry_head
     gradient = sum(
         float(parameter.grad.detach().abs().sum())
         for parameter in geometry_head.parameters()
