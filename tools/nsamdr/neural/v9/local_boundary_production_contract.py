@@ -26,7 +26,7 @@ from . import model as _model
 from .parametric_boundary import LocalParametricBoundaryDecoder, make_query_grid
 from .spline_graph import ConnectedSplineGraph
 
-SCHEMA = "NSAMDR_RAVEN_PRODUCTION_B1A_IDENTITY_B1B_RESIDUAL_SPLINE_GRAPH_4X_V11_9_0"
+SCHEMA = "NSAMDR_RAVEN_PRODUCTION_B1A_IDENTITY_B1B_PRESEAM_RESIDUAL_SPLINE_GRAPH_4X_V11_10_0"
 
 _INSTALLED = False
 _ORIGINAL_GEOMETRY_INIT: Callable[..., None] | None = None

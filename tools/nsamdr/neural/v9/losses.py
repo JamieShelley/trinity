@@ -1857,6 +1857,15 @@ class LossesService:
             losses["seam_authority_iou"] = zero.detach()
             losses["seam_projected_view"] = zero
 
+        # V11.10 B1 phase isolation. The public forward keeps every production
+        # component connected, but B1a/B1b structural supervision must consume
+        # exactly the pre-seam structural stage shown as live C. Frozen downstream
+        # seam authority is not structural evidence and must not change C-vs-B.
+        if phase in {"sdf-bootstrap", "sdf-proof"}:
+            reconstructed_albedo = seam_source_albedo
+            reconstructed_normal = seam_source_normal
+            reconstructed_material = seam_source_material
+
         # V9.9.3 Panel-2 teacher.  training.py supplies a detached render made by
         # the same BoundaryRenderer using aligned GT SDF + forced gate + forced hard
         # profile.  Stage-B therefore optimises Panel 3 directly toward Panel 2.
@@ -2095,6 +2104,11 @@ class LossesService:
             (baseline_boundary_mae - stageb_boundary_mae)
             / baseline_boundary_mae.clamp_min(1.0e-6)
         ).detach()
+        # Explicit V11.10 names prevent the application smoke gate from silently
+        # drifting back to a downstream/post-seam consumer.
+        losses["structural_baseline_mae"] = baseline_boundary_mae.detach()
+        losses["structural_stage_mae"] = stageb_boundary_mae.detach()
+        losses["structural_relative_gain"] = losses["sdf_stageb_renderer_improvement"]
 
         target_edge_proxy = self._normalise_edge(
             self.gradient_magnitude(target_gray)
@@ -2322,6 +2336,8 @@ class LossesService:
                 > baseline_geometry_local + 1.0e-4
             ).float()
         )
+        losses["structural_improvement_fraction"] = losses["improvement_fraction"].detach()
+        losses["structural_regression_fraction"] = losses["regression_fraction"].detach()
         losses["geometry_proxy_improvement"] = self._mean_fp32(
             baseline_geometry_local - reconstructed_geometry_local
         ).detach()
