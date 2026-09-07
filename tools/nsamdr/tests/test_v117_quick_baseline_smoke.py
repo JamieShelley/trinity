@@ -20,12 +20,14 @@ def test_quick_b1a_is_one_epoch_before_baseline_relative_verdict():
 def test_exp0003_style_real_raven_regression_is_rejected():
     from v9.application.baseline_relative_smoke import BaselineRelativeSmokeService
 
+    # V11.10+ Quick acceptance is deliberately pre-seam. Preserve the EXP_0003
+    # failure shape while expressing it in the current structural metric contract.
     validation = {
-        "sdf_stageb_baseline_mae": 0.068426,
-        "sdf_stageb_renderer_mae": 0.142875,
-        "sdf_stageb_renderer_improvement": -1.084767,
-        "improvement_fraction": 0.18866,
-        "regression_fraction": 0.768524,
+        "structural_baseline_mae": 0.068426,
+        "structural_stage_mae": 0.142875,
+        "structural_relative_gain": -1.084767,
+        "structural_improvement_fraction": 0.18866,
+        "structural_regression_fraction": 0.768524,
     }
     config = SimpleNamespace(maximum_validation_regression_fraction=0.08)
 
@@ -39,14 +41,14 @@ def test_real_raven_candidate_must_beat_baseline_and_respect_regression_limit():
     config = SimpleNamespace(maximum_validation_regression_fraction=0.08)
     service = BaselineRelativeSmokeService()
     passing = {
-        "sdf_stageb_baseline_mae": 0.070,
-        "sdf_stageb_renderer_mae": 0.060,
-        "sdf_stageb_renderer_improvement": 0.142857,
-        "improvement_fraction": 0.70,
-        "regression_fraction": 0.05,
+        "structural_baseline_mae": 0.070,
+        "structural_stage_mae": 0.060,
+        "structural_relative_gain": 0.142857,
+        "structural_improvement_fraction": 0.70,
+        "structural_regression_fraction": 0.05,
     }
-    worse_candidate = dict(passing, sdf_stageb_renderer_mae=0.071)
-    too_many_regressions = dict(passing, regression_fraction=0.081)
+    worse_candidate = dict(passing, structural_stage_mae=0.071)
+    too_many_regressions = dict(passing, structural_regression_fraction=0.081)
 
     assert service.passed(passing, config)
     assert not service.passed(worse_candidate, config)
@@ -64,6 +66,7 @@ def test_quick_pipeline_rejects_failed_b1a_smoke_before_b1b():
     assert "return smoke_latest, current_resume, smoke_code" in source
     assert "REJECTED before B1b" in smoke
     assert "baselineRelativeSmokeMetrics" in smoke
+
 
 def test_local_structural_objective_trains_against_baseline_regret():
     from v9.local_boundary_production_contract import LocalBoundaryProductionContract
