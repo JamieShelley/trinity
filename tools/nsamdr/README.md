@@ -87,14 +87,17 @@ that geometry into a physical transition. The profile and seam specialists
 refine shared boundary/seam behaviour. `DetailNet` then restores non-parametric
 high-frequency appearance without being allowed to move the accepted contour.
 
-The current production structural implementation uses a learned bounded 2x
-topology field to form a hard-connected marching-squares graph. Shared
-edge-crossing nodes and tangents are rendered as connected cubic-Hermite
-spans and queried as a metric SDF. V11.6 constrains each learned crossing to
-its owning control edge, while V11.7 gives baseline-relative regret losses
-direct optimisation authority during structural training. The retired
-whole-tile primitive classifier/regressor remains compatibility telemetry
-only and has no production structural authority.
+The current production structural implementation separates **neural estimation**
+from **final geometric refinement**. A learned bounded topology field forms a
+hard-connected marching-squares graph and predicts an initial set of same-edge
+crossing nodes/tangents. V12 then runs a parameter-free explicit optimizer over
+only those continuous spline parameters using observed LR structural evidence
+plus a bounded prior to the neural proposal; topology cannot change in this
+step and authored HR is never an inference input. The refined connected
+cubic-Hermite graph is queried as the production metric SDF, after which the
+baseline-relative residual authority decides whether the redraw can replace B.
+The retired whole-tile primitive classifier/regressor remains compatibility
+telemetry only and has no production structural authority.
 
 One production model reconstructs aligned high-resolution albedo, normal,
 material, emissive, and roughness maps. Geometry, boundary profiles, seam

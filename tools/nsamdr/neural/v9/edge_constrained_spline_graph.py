@@ -31,7 +31,7 @@ from . import spline_graph as _spline_graph
 from . import losses as _losses
 
 
-SCHEMA = "NSAMDR_RAVEN_PRODUCTION_B1A_IDENTITY_B1B_PRESEAM_RESIDUAL_SPLINE_GRAPH_4X_V11_10_0"
+SCHEMA = "NSAMDR_RAVEN_PRODUCTION_NEURAL_PROPOSAL_EXPLICIT_REFINER_SPLINE_GRAPH_4X_V12_0_0"
 
 _INSTALLED = False
 _ORIGINAL_EDGE_GRAPH = _spline_graph.ConnectedSplineGraph._edge_graph
@@ -479,10 +479,13 @@ def _compute_losses(
     """Replace only V11 spline node/tangent teachers with same-edge GT crossings."""
     result = _ORIGINAL_COMPUTE_LOSSES(outputs, batch, config, phase)
     spline_control = outputs.get("spline_graph_control_phi_pixels")
-    spline_h = outputs.get("spline_control_point_h_lr")
-    spline_v = outputs.get("spline_control_point_v_lr")
-    spline_tan_h = outputs.get("spline_control_tangent_h")
-    spline_tan_v = outputs.get("spline_control_tangent_v")
+    # V12: supervise the neural initializer. Final continuous geometry is
+    # produced by the explicit LR-consistency refiner and is intentionally
+    # detached from the outer optimizer, matching the estimator/refiner split.
+    spline_h = outputs.get("spline_proposal_control_point_h_lr", outputs.get("spline_control_point_h_lr"))
+    spline_v = outputs.get("spline_proposal_control_point_v_lr", outputs.get("spline_control_point_v_lr"))
+    spline_tan_h = outputs.get("spline_proposal_control_tangent_h", outputs.get("spline_control_tangent_h"))
+    spline_tan_v = outputs.get("spline_proposal_control_tangent_v", outputs.get("spline_control_tangent_v"))
     spline_mask_h = outputs.get("spline_graph_mask_h")
     spline_mask_v = outputs.get("spline_graph_mask_v")
     source_prior = outputs.get("source_sdf_prior_pixels")
