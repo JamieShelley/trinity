@@ -1,0 +1,146 @@
+name: NSAMDR V12 explicit refiner temp
+
+on:
+  push:
+    branches:
+      - nsamdr-v120-explicit-geometry-refiner-temp
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nsamdr-v120-explicit-geometry-refiner-temp
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply V12 architecture
+        run: python tools/nsamdr/tests/_temp_apply_v120_explicit_refiner.py
+      - name: Static validation
+        shell: bash
+        run: |
+          python -m py_compile \
+            tools/nsamdr/neural/v9/explicit_spline_refiner.py \
+            tools/nsamdr/neural/v9/config.py \
+            tools/nsamdr/neural/v9/edge_constrained_spline_graph.py \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/tests/test_v117_baseline_relative_contract.py \
+            tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
+          python tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          paths = [
+              Path('tools/nsamdr/neural/v9/explicit_spline_refiner.py'),
+              Path('tools/nsamdr/neural/v9/local_boundary_production_contract.py'),
+              Path('tools/nsamdr/neural/v9/edge_constrained_spline_graph.py'),
+          ]
+          for path in paths:
+              ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
+          refiner = paths[0].read_text(encoding='utf-8')
+          local = paths[1].read_text(encoding='utf-8')
+          assert 'target_sdf' not in refiner
+          assert 'target_albedo' not in refiner
+          assert 'nn.Parameter' not in refiner
+          assert local.index('proposal_graph = self.spline_graph.build_graph(') < local.index('refined_graph = self.geometry_refiner(')
+          assert local.index('refined_graph = self.geometry_refiner(') < local.index('self.spline_graph.query(refined_graph, query_grid)')
+          PY
+          git diff --check
+      - name: Runtime refiner microproof
+        shell: bash
+        run: |
+          python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+          python - <<'PY'
+          from pathlib import Path
+          from types import SimpleNamespace
+          import importlib.util
+          import torch
+
+          path = Path('tools/nsamdr/neural/v9/explicit_spline_refiner.py')
+          spec = importlib.util.spec_from_file_location('explicit_spline_refiner_test', path)
+          module = importlib.util.module_from_spec(spec)
+          assert spec.loader is not None
+          spec.loader.exec_module(module)
+
+          cfg = SimpleNamespace(
+              spline_refiner_enabled=True,
+              spline_refiner_steps=5,
+              spline_refiner_position_step=0.20,
+              spline_refiner_tangent_step=0.05,
+              spline_refiner_source_node_weight=1.0,
+              spline_refiner_source_span_weight=0.0,
+              spline_refiner_proposal_position_weight=0.05,
+              spline_refiner_source_tangent_weight=0.0,
+              spline_refiner_proposal_tangent_weight=0.0,
+              spline_refiner_max_move_pixels=2.0,
+              spline_refiner_huber_beta_pixels=0.35,
+              target_scale=4,
+              contour_sdf_max_distance_pixels=24.0,
+          )
+          refiner = module.ExplicitSplineGeometryRefiner(cfg)
+
+          class FakeGraph:
+              origin_pixels = 2.0
+              spacing_pixels = 2.0
+              def _cell_spans(self, graph):
+                  device = graph['spline_control_point_h_lr'].device
+                  p0 = torch.zeros((1, 1, 1, 1, 2), device=device)
+                  p1 = torch.ones((1, 1, 1, 1, 2), device=device)
+                  t = torch.tensor([1.0, 0.0], device=device).view(1,1,1,1,2).expand_as(p0)
+                  n = torch.tensor([0.0, 1.0], device=device).view(1,1,1,1,2).expand_as(p0)
+                  active = torch.zeros((1, 1, 1, 1), dtype=torch.bool, device=device)
+                  return p0, p1, t, t, n, n, active
+
+          graph_module = FakeGraph()
+          width = 8
+          xx = torch.arange(width, dtype=torch.float32).view(1,1,1,width)
+          source_pixels = ((xx + 0.5) * 4.0 - 16.0).expand(1,1,8,width)
+          source = (source_pixels / 24.0).clamp(-1.0, 1.0)
+          proposal_h = torch.tensor([[[[7.30, 6.0]]]], dtype=torch.float32)
+          proposal_v = torch.tensor([[[[6.0, 7.30]]]], dtype=torch.float32)
+          tangent_h = torch.tensor([[[[0.0, 1.0]]]], dtype=torch.float32)
+          tangent_v = torch.tensor([[[[0.0, 1.0]]]], dtype=torch.float32)
+          proposal = {
+              'spline_control_point_h_lr': proposal_h,
+              'spline_control_point_v_lr': proposal_v,
+              'spline_source_control_point_h_lr': proposal_h.clone(),
+              'spline_source_control_point_v_lr': proposal_v.clone(),
+              'spline_control_tangent_h': tangent_h,
+              'spline_control_tangent_v': tangent_v,
+              'spline_control_displacement_h_lr': torch.zeros_like(proposal_h),
+              'spline_control_displacement_v_lr': torch.zeros_like(proposal_v),
+              'spline_graph_mask_h': torch.ones((1,1,1,1)),
+              'spline_graph_mask_v': torch.zeros((1,1,1,1)),
+          }
+          refined = refiner(graph_module, proposal, source)
+          before = float(refined['spline_refiner_energy_before'])
+          after = float(refined['spline_refiner_energy_after'])
+          shift = float(refined['spline_refiner_node_shift_rms_pixels'])
+          assert after < before, (before, after)
+          assert shift > 0.0, shift
+          assert torch.equal(refined['spline_graph_mask_h'], proposal['spline_graph_mask_h'])
+          assert torch.equal(refined['spline_graph_mask_v'], proposal['spline_graph_mask_v'])
+          print(f'explicit refiner microproof: energy {before:.6f}->{after:.6f}, shift={shift:.6f}px')
+          PY
+      - name: Commit validated production delta
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/nsamdr/neural/v9/explicit_spline_refiner.py \
+            tools/nsamdr/neural/v9/config.py \
+            tools/nsamdr/neural/v9/edge_constrained_spline_graph.py \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/tests/test_v117_baseline_relative_contract.py \
+            tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py \
+            tools/nsamdr/NSAMDR_BASELINE_RELATIVE_DESIGN.md \
+            tools/nsamdr/README.md
+          git commit -m "Separate neural geometry proposal from explicit refinement"
+          git push origin HEAD:nsamdr-v120-explicit-geometry-refiner-temp
