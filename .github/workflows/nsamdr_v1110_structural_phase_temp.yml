@@ -1,0 +1,121 @@
+name: NSAMDR V11.10 structural phase temp
+
+on:
+  push:
+    branches:
+      - nsamdr-v1110-structural-smoke-phase-temp
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nsamdr-v1110-structural-smoke-phase-temp
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply V11.10 phase correction
+        run: python tools/nsamdr/tests/_temp_apply_v1110_structural_phase.py
+      - name: Validate source and smoke semantics
+        shell: bash
+        run: |
+          python -m py_compile \
+            tools/nsamdr/neural/v9/losses.py \
+            tools/nsamdr/neural/v9/application/baseline_relative_smoke.py \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/neural/v9/edge_constrained_spline_graph.py \
+            tools/nsamdr/tests/test_v117_baseline_relative_contract.py
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          import sys
+          from types import SimpleNamespace
+
+          paths = [
+              Path('tools/nsamdr/neural/v9/losses.py'),
+              Path('tools/nsamdr/neural/v9/application/baseline_relative_smoke.py'),
+              Path('tools/nsamdr/neural/v9/local_boundary_production_contract.py'),
+              Path('tools/nsamdr/neural/v9/edge_constrained_spline_graph.py'),
+              Path('tools/nsamdr/tests/test_v117_baseline_relative_contract.py'),
+          ]
+          for path in paths:
+              ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
+
+          losses = paths[0].read_text(encoding='utf-8')
+          smoke = paths[1].read_text(encoding='utf-8')
+          local = paths[2].read_text(encoding='utf-8')
+          edge = paths[3].read_text(encoding='utf-8')
+          tests = paths[4].read_text(encoding='utf-8')
+          design = Path('tools/nsamdr/NSAMDR_BASELINE_RELATIVE_DESIGN.md').read_text(encoding='utf-8')
+
+          assert 'reconstructed_albedo = seam_source_albedo' in losses
+          assert losses.index('reconstructed_albedo = seam_source_albedo') < losses.index('# V9.9.3 Panel-2 teacher')
+          for key in (
+              'structural_baseline_mae', 'structural_stage_mae', 'structural_relative_gain',
+              'structural_improvement_fraction', 'structural_regression_fraction',
+          ):
+              assert key in losses
+              assert key in smoke
+          assert 'value("sdf_stageb_renderer_mae"' not in smoke
+          schema = 'NSAMDR_RAVEN_PRODUCTION_B1A_IDENTITY_B1B_PRESEAM_RESIDUAL_SPLINE_GRAPH_4X_V11_10_0'
+          assert schema in local and schema in edge and schema in tests
+          assert 'V11.10 structural-stage consumer contract' in design
+
+          sys.path.insert(0, str(Path('tools/nsamdr/neural').resolve()))
+          from v9.application.baseline_relative_smoke import BaselineRelativeSmokeService
+          service = BaselineRelativeSmokeService()
+          cfg = SimpleNamespace(maximum_validation_regression_fraction=0.08)
+          identity = {
+              'structural_baseline_mae': 0.05,
+              'structural_stage_mae': 0.05,
+              'structural_relative_gain': 0.0,
+              'structural_improvement_fraction': 0.0,
+              'structural_regression_fraction': 0.0,
+              # Deliberately catastrophic stale legacy values. V11.10 must ignore them.
+              'sdf_stageb_renderer_mae': 0.5,
+              'sdf_stageb_renderer_improvement': -9.0,
+              'regression_fraction': 1.0,
+          }
+          assert service.safe_to_refine(identity, cfg)
+          assert not service.passed(identity, cfg)
+          improved = dict(identity)
+          improved.update({
+              'structural_stage_mae': 0.045,
+              'structural_relative_gain': 0.10,
+              'structural_improvement_fraction': 0.60,
+              'structural_regression_fraction': 0.04,
+          })
+          assert service.passed(improved, cfg)
+          unsafe = dict(identity)
+          unsafe['structural_regression_fraction'] = 0.081
+          assert not service.safe_to_refine(unsafe, cfg)
+          PY
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+          tests = Path('tools/nsamdr/tests').resolve()
+          sys.path.insert(0, str(tests))
+          from test_nsamdr_application_oop_contract import TestNsamdrApplicationOopContract
+          TestNsamdrApplicationOopContract().test_application_readability_contract()
+          PY
+          git diff --check
+      - name: Commit validated production delta
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/nsamdr/neural/v9/losses.py \
+            tools/nsamdr/neural/v9/application/baseline_relative_smoke.py \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/neural/v9/edge_constrained_spline_graph.py \
+            tools/nsamdr/tests/test_v117_baseline_relative_contract.py \
+            tools/nsamdr/NSAMDR_BASELINE_RELATIVE_DESIGN.md
+          git commit -m "Isolate B1 smoke from downstream seam output"
+          git push origin HEAD:nsamdr-v1110-structural-smoke-phase-temp
