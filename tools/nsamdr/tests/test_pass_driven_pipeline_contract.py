@@ -144,9 +144,10 @@ class TestPassDrivenPipelineContract:
         from v9.training import TrainingService
 
         source = inspect.getsource(TrainingService.train_v9)
-        assert 'local_structure_train_loader' in source
-        assert 'if local_structure_phase' in source
-        assert 'else parametric_train_loader' in source
+        assert 'authored_config.synthetic_geometry_probability = 0.0' in source
+        assert 'structural_train_dataset = PhysicalTileDatasetV9(' in source
+        assert 'if production_structure_phase:' in source
+        assert 'epoch_loader = structural_train_loader' in source
         assert 'batch_size=config.batch_size' in source
 
     def test_b1a_topology_checkpoint_locks_after_first_pass(self) -> None:
@@ -278,7 +279,8 @@ class TestPassDrivenPipelineContract:
         assert 'parameter.requires_grad_(False)' in lock_source
         assert 'self.topology_feature_project.parameters()' in structure_lock
         assert 'self.geometry_feature_project.parameters()' in structure_lock
-        assert 'head.geometry_net.parameters()' in structure_lock
+        assert 'self.decoder.parameters()' in structure_lock
+        assert 'self.spline_graph.geometry_head.parameters()' in structure_lock
 
     def test_v114_sdf_proof_uses_batch_one_analytic_teacher_bank(self) -> None:
         """Keep V11.4 quality proof on analytic teachers without restoring batch inflation.
@@ -294,13 +296,14 @@ class TestPassDrivenPipelineContract:
         from v9.training import TrainingService
 
         source = inspect.getsource(TrainingService.train_v9)
-        assert 'local_structure_train_dataset = ParametricPrimitiveTrainingDataset(' in source
+        assert 'authored_config.synthetic_geometry_probability = 0.0' in source
+        assert 'structural_train_dataset = PhysicalTileDatasetV9(' in source
+        assert 'manifest, authored_config, "train", config.tiles_per_epoch' in source
+        assert 'structural_train_loader = self._build_loader(' in source
         assert 'batch_size=config.batch_size' in source
-        proof = source.split('if phase == "sdf-proof":', 1)[1]
-        loader_block = proof.split('elif phase == "seam-proof":', 1)[0]
-        assert 'local_structure_train_loader' in loader_block
-        assert 'train_loader if local_structure_phase' not in loader_block
-        assert '(int(config.tiles_per_epoch) + PRIMITIVE_COUNT - 1)' in source
+        assert 'if production_structure_phase:' in source
+        assert 'epoch_loader = structural_train_loader' in source
+        assert 'synthetic ladder remains validation-only' in source
 
     def test_v114_sdf_proof_cancels_raster_phase_in_final_geometry(self) -> None:
         """Train the final analytic geometry rather than smoothing source-relative residuals.
@@ -398,15 +401,14 @@ class TestPassDrivenPipelineContract:
         from v9.training import TrainingService
 
         source = inspect.getsource(TrainingService.train_v9)
-        budget = source.split('local_structure_train_tiles =', 1)[1].split(
-            'local_structure_train_dataset =', 1
+        authored = source.split('structural_train_dataset = PhysicalTileDatasetV9(', 1)[1].split(
+            'downstream_train_dataset =', 1
         )[0]
-        assert 'parametric_primitive_train_tiles_per_epoch' not in budget
-        assert 'PRIMITIVE_COUNT' in budget
-        loader = source.split('local_structure_train_loader = self._build_loader(', 1)[1].split(
-            'validation_loader =', 1
-        )[0]
-        assert 'batch_size=config.batch_size' in loader
+        assert 'manifest, authored_config, "train", config.tiles_per_epoch' in authored
+        assert 'parametric_primitive_train_tiles_per_epoch' not in authored
+        assert 'structural_train_loader = self._build_loader(' in authored
+        assert 'batch_size=config.batch_size' in authored
+        assert 'synthetic_validation_loader = self._build_loader(' in source
 
     def test_v114_outer_forward_exposes_analytic_anchor_for_sdf_proof(self) -> None:
         """Keep the V11.4 target-relative anchor proof connected to production output.
@@ -764,9 +766,11 @@ def test_v115_connected_spline_graph_is_the_renderer_geometry_authority() -> Non
     structure = inspect.getsource(LocalBoundaryProductionStructure.forward)
     query = inspect.getsource(LocalBoundaryProductionContract._geometry_query_from_outputs)
     cell_spans = inspect.getsource(ConnectedSplineGraph._cell_spans)
-    assert 'spline = self.spline_graph(' in structure
+    assert 'proposal_graph = self.spline_graph.build_graph(' in structure
+    assert 'refined_graph = self.geometry_refiner(' in structure
+    assert 'self.spline_graph.query(refined_graph, query_grid)' in structure
     assert 'self.decoder.query(' not in structure
-    assert '"spline_graph": spline["graph"]' in structure
+    assert '"spline_graph": refined_graph' in structure
     assert 'self.production_structure.spline_graph.query(graph, query_grid)' in query
     assert 'count == 2' in cell_spans
     assert 'count == 4' in cell_spans
@@ -782,14 +786,12 @@ def test_v115_canonical_spline_losses_are_training_authority() -> None:
     source = inspect.getsource(LocalBoundaryProductionContract._local_compute_losses)
     for name in (
         'spline_graph_topology_control', 'spline_graph_topology_sign',
-        'spline_graph_point', 'spline_graph_tangent',
-        'spline_graph_span_smoothness', 'spline_graph_span_tangent',
-        'spline_graph_span_separation', 'spline_graph_sdf',
-        'spline_graph_gradient', 'spline_graph_eikonal',
-        'spline_graph_curvature', 'spline_metric_offset',
-        'spline_metric_eikonal_near',
+        'spline_graph_point', 'spline_graph_point_regret', 'spline_graph_tangent',
+        'sdf_improvement_regret', 'geometry_regret', 'boundary_pixel_regret',
     ):
         assert f'losses["{name}"]' in source
+    assert '(losses["spline_graph_point"] + losses["spline_graph_point_regret"])' in source
+    assert 'baseline_relative_supervision' in source
 
 
 def test_v115_spline_graph_representation_removes_shallow_line_and_circle_faceting() -> None:
