@@ -1900,6 +1900,19 @@ class FidelityResidualNetV9(nn.Module):
             "spline_source_control_point_v_lr": geometry["spline_source_control_point_v_lr"],
             "spline_control_tangent_h": geometry["spline_control_tangent_h"],
             "spline_control_tangent_v": geometry["spline_control_tangent_v"],
+            # V12 estimator/refiner split: B1b supervises these gradient-bearing
+            # neural initializer tensors. The refined spline state below remains
+            # the detached production/qualification geometry.
+            "spline_proposal_control_point_h_lr": geometry["spline_proposal_control_point_h_lr"],
+            "spline_proposal_control_point_v_lr": geometry["spline_proposal_control_point_v_lr"],
+            "spline_proposal_control_tangent_h": geometry["spline_proposal_control_tangent_h"],
+            "spline_proposal_control_tangent_v": geometry["spline_proposal_control_tangent_v"],
+            "spline_refiner_energy_before": geometry["spline_refiner_energy_before"],
+            "spline_refiner_energy_after": geometry["spline_refiner_energy_after"],
+            "spline_refiner_node_shift_rms_pixels": geometry["spline_refiner_node_shift_rms_pixels"],
+            "spline_refiner_steps": geometry["spline_refiner_steps"],
+            "spline_refiner_node_source_error": geometry["spline_refiner_node_source_error"],
+            "spline_refiner_span_source_error": geometry["spline_refiner_span_source_error"],
             "spline_control_displacement_h_lr": geometry["spline_control_displacement_h_lr"],
             "spline_control_displacement_v_lr": geometry["spline_control_displacement_v_lr"],
             "spline_graph_mask_h": geometry["spline_graph_mask_h"],

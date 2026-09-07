@@ -507,6 +507,10 @@ class LocalBoundaryProductionContract:
                 "spline_source_control_point_v_lr",
                 "spline_control_tangent_h",
                 "spline_control_tangent_v",
+                "spline_proposal_control_point_h_lr",
+                "spline_proposal_control_point_v_lr",
+                "spline_proposal_control_tangent_h",
+                "spline_proposal_control_tangent_v",
                 "spline_control_displacement_h_lr",
                 "spline_control_displacement_v_lr",
                 "spline_graph_mask_h",
@@ -517,8 +521,8 @@ class LocalBoundaryProductionContract:
             ]
             if missing_spline_outputs:
                 raise RuntimeError(
-                    "V11.5 connected-spline B1 supervision is disconnected from "
-                    "the production forward; missing outputs="
+                    "V12 connected-spline B1 supervision is disconnected from "
+                    "the production forward; refined and neural-proposal outputs are required; missing outputs="
                     f"{missing_spline_outputs}"
                 )
 

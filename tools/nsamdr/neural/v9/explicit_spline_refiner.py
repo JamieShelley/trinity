@@ -145,12 +145,14 @@ class ExplicitSplineGeometryRefiner(nn.Module):
         tangent_v: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
         graph = dict(proposal_graph)
-        proposal_h = proposal_graph["spline_control_point_h_lr"].float()
-        proposal_v = proposal_graph["spline_control_point_v_lr"].float()
+        # The proposal supplies fixed coordinates/topology to the inner solver,
+        # never an outer-SGD path into final refined geometry.
+        proposal_h = proposal_graph["spline_control_point_h_lr"].detach().float()
+        proposal_v = proposal_graph["spline_control_point_v_lr"].detach().float()
         point_h = torch.stack((h_x, proposal_h[..., 1]), dim=-1)
         point_v = torch.stack((proposal_v[..., 0], v_y), dim=-1)
-        source_h = proposal_graph["spline_source_control_point_h_lr"].float()
-        source_v = proposal_graph["spline_source_control_point_v_lr"].float()
+        source_h = proposal_graph["spline_source_control_point_h_lr"].detach().float()
+        source_v = proposal_graph["spline_source_control_point_v_lr"].detach().float()
         graph["spline_control_point_h_lr"] = point_h
         graph["spline_control_point_v_lr"] = point_v
         graph["spline_control_tangent_h"] = F.normalize(tangent_h, dim=-1, eps=1.0e-6)
@@ -288,7 +290,14 @@ class ExplicitSplineGeometryRefiner(nn.Module):
         source_sdf_lr: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
         if not self.enabled or self.steps <= 0:
-            graph = dict(proposal_graph)
+            # A no-op solver still establishes detached final-geometry authority.
+            graph = self._graph_with_geometry(
+                proposal_graph,
+                proposal_graph["spline_control_point_h_lr"][..., 0].detach().float(),
+                proposal_graph["spline_control_point_v_lr"][..., 1].detach().float(),
+                proposal_graph["spline_control_tangent_h"].detach().float(),
+                proposal_graph["spline_control_tangent_v"].detach().float(),
+            )
             zero = source_sdf_lr.new_zeros(())
             graph["spline_refiner_energy_before"] = zero
             graph["spline_refiner_energy_after"] = zero
@@ -301,7 +310,15 @@ class ExplicitSplineGeometryRefiner(nn.Module):
         mask_h = proposal_graph["spline_graph_mask_h"][:, 0].float()
         mask_v = proposal_graph["spline_graph_mask_v"][:, 0].float()
         if float(mask_h.sum().detach().cpu()) + float(mask_v.sum().detach().cpu()) <= 0.0:
-            graph = dict(proposal_graph)
+            # Empty topology has no optimization work, but final geometry remains
+            # detached from the neural initializer exactly like the normal path.
+            graph = self._graph_with_geometry(
+                proposal_graph,
+                proposal_h[..., 0],
+                proposal_v[..., 1],
+                proposal_graph["spline_control_tangent_h"].detach().float(),
+                proposal_graph["spline_control_tangent_v"].detach().float(),
+            )
             zero = source_sdf_lr.new_zeros(())
             graph["spline_refiner_energy_before"] = zero
             graph["spline_refiner_energy_after"] = zero
