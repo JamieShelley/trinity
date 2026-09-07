@@ -302,6 +302,21 @@ class V9Config:
     spline_branch_corner_window: int = 5
     spline_graph_lr_multiplier: float = 4.0
 
+    # V12.0 neural-proposal + explicit-geometry-refinement split. The refiner
+    # has no learned parameters and sees only observed LR structural evidence
+    # plus the neural proposal. It never consumes authored HR at inference.
+    spline_refiner_enabled: bool = True
+    spline_refiner_steps: int = 3
+    spline_refiner_position_step: float = 0.08
+    spline_refiner_tangent_step: float = 0.08
+    spline_refiner_source_node_weight: float = 0.35
+    spline_refiner_source_span_weight: float = 0.20
+    spline_refiner_proposal_position_weight: float = 1.00
+    spline_refiner_source_tangent_weight: float = 0.15
+    spline_refiner_proposal_tangent_weight: float = 0.60
+    spline_refiner_max_move_pixels: float = 0.75
+    spline_refiner_huber_beta_pixels: float = 0.35
+
     # V10.7.9 finite-width seam/ridge geometry. One medial centreline plus one
     # width owns both stroke sides; the legacy spline SDF remains the material-
     # boundary/topology fallback and B1a safety path.

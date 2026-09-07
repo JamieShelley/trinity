@@ -25,8 +25,9 @@ from torch.nn import functional as F
 from . import model as _model
 from .parametric_boundary import LocalParametricBoundaryDecoder, make_query_grid
 from .spline_graph import ConnectedSplineGraph
+from .explicit_spline_refiner import ExplicitSplineGeometryRefiner
 
-SCHEMA = "NSAMDR_RAVEN_PRODUCTION_B1A_IDENTITY_B1B_PRESEAM_RESIDUAL_SPLINE_GRAPH_4X_V11_10_0"
+SCHEMA = "NSAMDR_RAVEN_PRODUCTION_NEURAL_PROPOSAL_EXPLICIT_REFINER_SPLINE_GRAPH_4X_V12_0_0"
 
 _INSTALLED = False
 _ORIGINAL_GEOMETRY_INIT: Callable[..., None] | None = None
@@ -192,6 +193,16 @@ class LocalBoundaryProductionContract:
             "spline_control_displacement_v_lr",
             "spline_graph_mask_h",
             "spline_graph_mask_v",
+            "spline_proposal_control_point_h_lr",
+            "spline_proposal_control_point_v_lr",
+            "spline_proposal_control_tangent_h",
+            "spline_proposal_control_tangent_v",
+            "spline_refiner_energy_before",
+            "spline_refiner_energy_after",
+            "spline_refiner_node_shift_rms_pixels",
+            "spline_refiner_steps",
+            "spline_refiner_node_source_error",
+            "spline_refiner_span_source_error",
         )
         spline_outputs = {
             key: spline_graph[key].to(aux.dtype) for key in spline_keys
@@ -342,14 +353,22 @@ class LocalBoundaryProductionContract:
         contract.update({
             "schema": SCHEMA,
             "geometryPrediction": (
-                "bounded 2x topology field -> shared edge-crossing nodes -> "
-                "connected cubic-Hermite contour graph -> metric SDF"
+                "neural topology + continuous spline proposal -> explicit "
+                "LR-consistency geometry refinement -> connected cubic-Hermite "
+                "contour graph -> metric SDF"
             ),
             "reconstructionPrimitive": (
                 "deterministic B + zero-initialized bounded structural residual gain "
                 "* (connected marching-squares cubic-Hermite redraw - B)"
             ),
-            "b1bObjective": "shared graph-node, tangent, span-smoothness, metric-SDF and same-renderer reconstruction",
+            "b1bObjective": (
+                "GT-supervised neural graph initializer + deterministic LR-consistency "
+                "continuous refinement + baseline-relative structural authority"
+            ),
+            "neuralGeometryIsInitializerOnly": True,
+            "explicitGeometryRefinement": True,
+            "explicitGeometryRefinementUsesTargetHR": False,
+            "explicitGeometryRefinementCanChangeTopology": False,
             "geometryOutputs": (
                 "source_sdf_prior", "connected_spline_graph", "structural_residual_gain",
                 "edge", "orientation", "hardness"
@@ -403,6 +422,10 @@ class LocalBoundaryProductionContract:
                 "geometry_net.production_structure",
                 model.geometry_net.production_structure,
             ),
+            "explicit geometry refiner": (
+                "geometry_net.production_structure.geometry_refiner",
+                model.geometry_net.production_structure.geometry_refiner,
+            ),
             "boundary renderer": ("boundary_renderer", model.boundary_renderer),
             "boundary/profile": ("boundary_specialist", model.boundary_specialist),
             "PhaseAwareSeamSR": ("seam_restorer.phase_sr", model.seam_restorer.phase_sr),
@@ -429,6 +452,7 @@ class LocalBoundaryProductionContract:
         required = {
             "geometry": "geometry_net",
             "structural representation": "geometry_net.production_structure",
+            "explicit geometry refiner": "geometry_net.production_structure.geometry_refiner",
             "boundary renderer": "boundary_renderer",
             "boundary/profile": "boundary_specialist",
             "PhaseAwareSeamSR": "seam_restorer.phase_sr",
@@ -584,23 +608,15 @@ class LocalBoundaryProductionContract:
                 + losses["hardness"] * float(config.boundary_hardness_weight)
             )
         else:
+            # V12 B1b outer optimization trains the neural initializer, not the
+            # final solver state. Point/tangent teachers therefore target proposal
+            # parameters; the parameter-free refiner obtains final geometry from
+            # that proposal plus observed LR consistency. Final dense spline/SDF
+            # terms remain qualification telemetry and cannot masquerade as an
+            # outer-loop gradient through the detached explicit optimizer.
             total = (
-                losses["sdf_surface"] * float(config.sdf_surface_weight)
-                + losses["sdf_sign"] * float(config.sdf_sign_weight)
-                + losses["sdf_topology_sign"] * float(config.sdf_topology_weight)
-                + losses["spline_graph_topology_control"] * float(config.spline_graph_topology_control_weight)
-                + losses["spline_graph_topology_sign"] * float(config.spline_graph_topology_sign_weight)
-                + losses["spline_graph_point"] * float(config.spline_graph_point_weight)
+                losses["spline_graph_point"] * float(config.spline_graph_point_weight)
                 + losses["spline_graph_tangent"] * float(config.spline_graph_tangent_weight)
-                + losses["spline_graph_span_smoothness"] * float(config.spline_graph_span_smoothness_weight)
-                + losses["spline_graph_span_tangent"] * float(config.spline_graph_span_tangent_weight)
-                + losses["spline_graph_span_separation"] * float(config.spline_graph_span_separation_weight)
-                + losses["spline_graph_sdf"] * float(config.spline_graph_sdf_weight)
-                + losses["spline_graph_gradient"] * float(config.spline_graph_gradient_weight)
-                + losses["spline_graph_eikonal"] * float(config.spline_graph_eikonal_weight)
-                + losses["spline_graph_curvature"] * float(config.spline_graph_curvature_weight)
-                + losses["spline_metric_offset"] * float(config.spline_metric_offset_weight)
-                + losses["spline_metric_eikonal_near"] * float(config.spline_metric_eikonal_near_weight)
                 + losses["edge"] * float(config.edge_weight)
                 + losses["edge_sdf_consistency"] * float(config.boundary_edge_sdf_consistency_weight)
                 + losses["orientation"] * float(config.orientation_weight)
@@ -802,6 +818,9 @@ class LocalBoundaryProductionStructure(nn.Module):
             output_scale=int(getattr(config, "target_scale", _model.UPSCALE_FACTOR)),
         )
         self.spline_graph = ConnectedSplineGraph(feature_channels, config)
+        # V12: the network proposes continuous geometry; this deterministic,
+        # parameter-free module obtains the final continuous configuration.
+        self.geometry_refiner = ExplicitSplineGeometryRefiner(config)
         self._topology_bootstrap_only = False
 
     # Purpose: Report whether B1a topology is locked for proof.
@@ -845,11 +864,13 @@ class LocalBoundaryProductionStructure(nn.Module):
             parameter.requires_grad_(False)
         for parameter in self.geometry_feature_project.parameters():
             parameter.requires_grad_(True)
-        # B1b is the first phase allowed to earn structural authority over B.
+        # V12 B1b: learned geometry is an initializer only. The retired local
+        # decoder stays telemetry-only; final continuous geometry comes from
+        # the parameter-free explicit refiner using observed LR evidence.
         for parameter in self.structural_residual_gain_head.parameters():
             parameter.requires_grad_(True)
-        for parameter in head.geometry_net.parameters():
-            parameter.requires_grad_(True)
+        for parameter in self.decoder.parameters():
+            parameter.requires_grad_(False)
         for parameter in self.spline_graph.geometry_head.parameters():
             parameter.requires_grad_(True)
 
@@ -962,19 +983,37 @@ class LocalBoundaryProductionStructure(nn.Module):
             if self._topology_bootstrap_only
             else self._genome_value("correction_scale").to(source_control.device)
         )
-        spline = self.spline_graph(
+        proposal_graph = self.spline_graph.build_graph(
             topology_feature_grid,
             geometry_feature_grid,
             source_prior_lr,
-            query_grid,
             topology_scale=distance_scale,
             displacement_scale=geometry_scale,
         )
-        field = self._apply_query_genome(spline["field"])
+        if self._topology_bootstrap_only:
+            refined_graph = dict(proposal_graph)
+            zero = source_prior_lr.new_zeros(())
+            for key in (
+                "spline_refiner_energy_before", "spline_refiner_energy_after",
+                "spline_refiner_node_shift_rms_pixels", "spline_refiner_steps",
+                "spline_refiner_node_source_error", "spline_refiner_span_source_error",
+            ):
+                refined_graph[key] = zero
+        else:
+            refined_graph = self.geometry_refiner(
+                self.spline_graph, proposal_graph, source_prior_lr
+            )
+        refined_graph["spline_proposal_control_point_h_lr"] = proposal_graph["spline_control_point_h_lr"]
+        refined_graph["spline_proposal_control_point_v_lr"] = proposal_graph["spline_control_point_v_lr"]
+        refined_graph["spline_proposal_control_tangent_h"] = proposal_graph["spline_control_tangent_h"]
+        refined_graph["spline_proposal_control_tangent_v"] = proposal_graph["spline_control_tangent_v"]
+        field = self._apply_query_genome(
+            self.spline_graph.query(refined_graph, query_grid)
+        )
         return {
             "feature_grid": geometry_feature_grid,
             "context": context,
-            "spline_graph": spline["graph"],
+            "spline_graph": refined_graph,
             "field": field,
             "structural_residual_gain": structural_residual_gain,
             "genome": self.evolution_genome,

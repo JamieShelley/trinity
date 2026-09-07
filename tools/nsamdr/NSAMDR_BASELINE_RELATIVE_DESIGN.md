@@ -37,3 +37,28 @@ Production B1a/B1b optimization uses authored Raven crops with synthetic geometr
 ## V11.10 structural-stage consumer contract
 
 B1a and B1b are evaluated on the pre-seam structural output, matching the live `structural` C preview. The public production forward remains fully connected, but frozen downstream seam/detail components cannot contribute to B1 structural training, regret, or baseline-relative acceptance evidence. B1a therefore preserves exact B when structural residual gain is zero; B1b must earn strict C > B using the structural stage itself.
+
+
+## V12.0 estimator/refiner architecture contract
+
+B1 continuous geometry is no longer treated as a one-shot neural prediction.
+The neural branch proposes fixed topology plus initial same-edge node positions
+and tangents. A separate **parameter-free explicit geometry refiner** then
+optimizes only those continuous parameters against the observed LR source-SDF
+evidence while remaining bounded around the neural proposal. The topology masks
+are immutable during refinement. The explicit optimizer never receives authored
+HR targets, so training and production use the same refinement evidence.
+
+This deliberately follows the decomposition used by *Deep Vectorization of
+Technical Drawings*: learned estimation supplies an initial primitive
+configuration and an iterative geometric optimization obtains the final
+configuration. It also uses DiffVG/LIVE only for the narrower lesson that
+continuous vector parameters can be optimized against raster evidence; discrete
+topology remains outside that optimization.
+
+B1b outer SGD therefore supervises the **neural proposal initializer** with
+held-out authored geometry teachers. The explicit refiner is detached from that
+outer optimizer and has no parameters to train. Final B1 qualification still
+judges the actual refined pre-seam C against B; the residual authority gate may
+open only when that final refined geometry produces a real baseline-relative
+improvement.
