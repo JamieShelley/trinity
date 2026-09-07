@@ -479,6 +479,22 @@ def _compute_losses(
     """Replace only V11 spline node/tangent teachers with same-edge GT crossings."""
     result = _ORIGINAL_COMPUTE_LOSSES(outputs, batch, config, phase)
     spline_control = outputs.get("spline_graph_control_phi_pixels")
+    if phase in {"sdf-bootstrap", "sdf-proof"}:
+        required_proposal_outputs = (
+            "spline_proposal_control_point_h_lr",
+            "spline_proposal_control_point_v_lr",
+            "spline_proposal_control_tangent_h",
+            "spline_proposal_control_tangent_v",
+        )
+        missing_proposal_outputs = [
+            key for key in required_proposal_outputs if key not in outputs
+        ]
+        if missing_proposal_outputs:
+            raise RuntimeError(
+                "V12 B1 neural-initializer supervision requires proposal tensors from "
+                "the canonical production forward; missing outputs="
+                f"{missing_proposal_outputs}"
+            )
     # V12: supervise the neural initializer. Final continuous geometry is
     # produced by the explicit LR-consistency refiner and is intentionally
     # detached from the outer optimizer, matching the estimator/refiner split.
