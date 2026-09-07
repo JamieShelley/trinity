@@ -11,9 +11,11 @@ jobs:
         with:
           python-version: '3.12'
       - name: Apply V12.4 contract fix
-        run: python tools/nsamdr/_temp_apply_v124_contract_map.py
+        run: |
+          python tools/nsamdr/_temp_apply_v124_contract_map.py
+          python tools/nsamdr/_temp_update_v12_pipeline_contract.py
       - name: Compile changed Python
-        run: python -m py_compile tools/nsamdr/neural/v9/local_boundary_production_contract.py tools/nsamdr/neural/v9/evolution/fitness.py tools/nsamdr/neural/v9/evolutionary_recovery.py tools/nsamdr/tests/test_v124_trainer_architecture_contract.py
+        run: python -m py_compile tools/nsamdr/neural/v9/local_boundary_production_contract.py tools/nsamdr/neural/v9/evolution/fitness.py tools/nsamdr/neural/v9/evolutionary_recovery.py tools/nsamdr/tests/test_v124_trainer_architecture_contract.py tools/nsamdr/tests/test_pass_driven_pipeline_contract.py
       - name: Install torch CPU
         run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu
       - name: Install validation dependencies
@@ -34,6 +36,6 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add tools/nsamdr/neural/v9/local_boundary_production_contract.py tools/nsamdr/neural/v9/evolution/fitness.py tools/nsamdr/neural/v9/evolutionary_recovery.py tools/nsamdr/tests/test_v124_trainer_architecture_contract.py
+          git add tools/nsamdr/neural/v9/local_boundary_production_contract.py tools/nsamdr/neural/v9/evolution/fitness.py tools/nsamdr/neural/v9/evolutionary_recovery.py tools/nsamdr/tests/test_v124_trainer_architecture_contract.py tools/nsamdr/tests/test_pass_driven_pipeline_contract.py
           git commit -m "Complete V12 trainer architecture contract"
           git push
