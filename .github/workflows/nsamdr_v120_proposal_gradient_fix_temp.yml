@@ -1,0 +1,151 @@
+name: NSAMDR V12 proposal gradient fix temp
+
+on:
+  push:
+    branches:
+      - nsamdr-v120-proposal-gradient-fix-temp
+
+permissions:
+  contents: write
+
+jobs:
+  patch-validate-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nsamdr-v120-proposal-gradient-fix-temp
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Apply proposal-gradient contract
+        run: python tools/nsamdr/tests/_temp_apply_v120_proposal_gradient_fix.py
+      - name: Compile production sources
+        run: |
+          python -m py_compile \
+            tools/nsamdr/neural/v9/model.py \
+            tools/nsamdr/neural/v9/edge_constrained_spline_graph.py \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --quiet pytest numpy pillow
+          python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+      - name: V12 explicit refiner contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
+      - name: Baseline-relative contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py
+      - name: Raven Quick budget contract
+        run: python -m pytest -q tools/nsamdr/tests/test_raven_quick_budget_contract.py
+      - name: Quick baseline smoke contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_quick_baseline_smoke.py
+      - name: Quick structural contract
+        run: python -m pytest -q tools/nsamdr/tests/test_raven_quick_fast_structural_contract.py
+      - name: Production proposal-gradient and refiner reachability
+        shell: bash
+        run: |
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+          import torch
+
+          sys.path.insert(0, str(Path.cwd() / 'tools/nsamdr/neural'))
+          from v9 import V9Config, FidelityResidualNetV9
+          from v9.model import MODEL_SCHEMA
+
+          expected = 'NSAMDR_RAVEN_PRODUCTION_NEURAL_PROPOSAL_EXPLICIT_REFINER_SPLINE_GRAPH_4X_V12_0_0'
+          assert MODEL_SCHEMA == expected, MODEL_SCHEMA
+
+          config = V9Config()
+          config.training_activation_checkpointing = False
+          config.spline_refiner_steps = 2
+          model = FidelityResidualNetV9(config)
+          model.set_phase('sdf-proof')
+          model.eval()
+
+          refiner = model.geometry_net.production_structure.geometry_refiner
+          assert sum(parameter.numel() for parameter in refiner.parameters()) == 0
+          observed = {'calls': 0, 'masks_fixed': False}
+
+          def hook(_module, args, output):
+              observed['calls'] += 1
+              proposal = args[1]
+              observed['masks_fixed'] = bool(
+                  torch.equal(output['spline_graph_mask_h'], proposal['spline_graph_mask_h'])
+                  and torch.equal(output['spline_graph_mask_v'], proposal['spline_graph_mask_v'])
+              )
+
+          handle = refiner.register_forward_hook(hook)
+          h = w = 16
+          inputs = torch.zeros((1, 17, h, w), dtype=torch.float32)
+          inputs[:, 0:3] = 0.5
+          x = torch.linspace(-1.0, 1.0, w, dtype=torch.float32).view(1, 1, 1, w)
+          inputs[:, 16:17] = x.expand(1, 1, h, w)
+          outputs = model(inputs)
+          handle.remove()
+
+          assert observed['calls'] == 1, observed
+          assert observed['masks_fixed'], observed
+
+          proposal_keys = (
+              'spline_proposal_control_point_h_lr',
+              'spline_proposal_control_point_v_lr',
+              'spline_proposal_control_tangent_h',
+              'spline_proposal_control_tangent_v',
+          )
+          refined_keys = (
+              'spline_control_point_h_lr',
+              'spline_control_point_v_lr',
+              'spline_control_tangent_h',
+              'spline_control_tangent_v',
+          )
+          for key in proposal_keys:
+              assert key in outputs, key
+              assert outputs[key].requires_grad, (key, outputs[key].requires_grad)
+          for key in refined_keys:
+              assert key in outputs, key
+              assert not outputs[key].requires_grad, (key, outputs[key].requires_grad)
+
+          proposal_loss = (
+              outputs['spline_proposal_control_point_h_lr'][..., 0].square().mean()
+              + outputs['spline_proposal_control_point_v_lr'][..., 1].square().mean()
+              + 0.1 * outputs['spline_proposal_control_tangent_h'].square().mean()
+              + 0.1 * outputs['spline_proposal_control_tangent_v'].square().mean()
+          )
+          model.zero_grad(set_to_none=True)
+          proposal_loss.backward()
+          geometry_head = model.geometry_net.production_structure.spline_graph.geometry_head
+          grad_total = sum(
+              float(parameter.grad.detach().abs().sum())
+              for parameter in geometry_head.parameters()
+              if parameter.grad is not None
+          )
+          assert grad_total > 0.0, grad_total
+
+          for key in (
+              'spline_refiner_energy_before',
+              'spline_refiner_energy_after',
+              'spline_refiner_node_shift_rms_pixels',
+              'spline_refiner_steps',
+          ):
+              assert key in outputs, key
+              assert torch.isfinite(outputs[key]).all(), key
+
+          print(f'V12 proposal gradient reaches geometry_head; grad L1={grad_total:.6f}')
+          PY
+      - name: Diff hygiene
+        run: git diff --check
+      - name: Commit validated production delta
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/nsamdr/neural/v9/model.py \
+            tools/nsamdr/neural/v9/edge_constrained_spline_graph.py \
+            tools/nsamdr/neural/v9/local_boundary_production_contract.py \
+            tools/nsamdr/tests/test_v120_explicit_geometry_refiner_contract.py
+          git commit -m "Preserve V12 neural proposal gradient through production forward"
+          git push origin HEAD:nsamdr-v120-proposal-gradient-fix-temp
