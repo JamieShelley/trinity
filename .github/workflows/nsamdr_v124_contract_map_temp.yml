@@ -1,0 +1,35 @@
+name: NSAMDR V12.4 contract map temp
+on:
+  push:
+    branches: [nsamdr-v124-contract-map-temp]
+jobs:
+  validate-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply V12.4 contract fix
+        run: python tools/nsamdr/_temp_apply_v124_contract_map.py
+      - name: Compile changed Python
+        run: python -m py_compile tools/nsamdr/neural/v9/local_boundary_production_contract.py tools/nsamdr/tests/test_v124_trainer_architecture_contract.py
+      - name: Install validation dependencies
+        run: pip install -q numpy scipy pillow opencv-python-headless pytest torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Exact trainer architecture validator
+        run: python -m pytest -q tools/nsamdr/tests/test_v124_trainer_architecture_contract.py
+      - name: Existing V12/V12.1/V12.2/V12.3 contracts
+        run: python -m pytest -q tools/nsamdr/tests/test_v117_baseline_relative_contract.py tools/nsamdr/tests/test_v120_explicit_geometry_refinement_contract.py tools/nsamdr/tests/test_v121_proposal_baseline_regret.py tools/nsamdr/tests/test_v121_refiner_telemetry_contract.py tools/nsamdr/tests/test_v122_evolution_proposal_contract.py tools/nsamdr/tests/test_v123_refiner_inference_context.py
+      - name: Evolution and Quick contracts
+        run: python -m pytest -q tools/nsamdr/tests/test_evolutionary_recovery_v114_contract.py tools/nsamdr/tests/test_v117_quick_budget_contract.py tools/nsamdr/tests/test_v117_quick_structural_smoke_contract.py tools/nsamdr/tests/test_v117_quick_b1a_baseline_smoke.py
+      - name: Application OOP contract
+        run: python -m pytest -q tools/nsamdr/tests/test_v116_application_oop_contract.py
+      - name: Diff hygiene
+        run: git diff --check
+      - name: Commit validated production delta
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tools/nsamdr/neural/v9/local_boundary_production_contract.py tools/nsamdr/tests/test_v124_trainer_architecture_contract.py
+          git commit -m "Declare explicit refiner in trainer architecture contract"
+          git push
