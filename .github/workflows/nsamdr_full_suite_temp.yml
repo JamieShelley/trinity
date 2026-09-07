@@ -1,0 +1,20 @@
+name: NSAMDR full suite temp
+on:
+  push:
+    branches: [nsamdr-v124-clean-validation-temp]
+jobs:
+  full-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install torch CPU
+        run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Install dependencies
+        run: pip install -q numpy scipy pillow opencv-python-headless pytest
+      - name: Run complete NSAMDR tests
+        run: python -m pytest -q tools/nsamdr/tests
+      - name: Compile NSAMDR Python
+        run: python -m compileall -q tools/nsamdr/neural tools/nsamdr/gui tools/nsamdr/nsamdr_cli.py
