@@ -303,6 +303,8 @@ class ExplicitSplineGeometryRefiner(nn.Module):
             graph["spline_refiner_energy_after"] = zero
             graph["spline_refiner_node_shift_rms_pixels"] = zero
             graph["spline_refiner_steps"] = zero
+            graph["spline_refiner_node_source_error"] = zero
+            graph["spline_refiner_span_source_error"] = zero
             return graph
 
         proposal_h = proposal_graph["spline_control_point_h_lr"].detach().float()
@@ -324,6 +326,8 @@ class ExplicitSplineGeometryRefiner(nn.Module):
             graph["spline_refiner_energy_after"] = zero
             graph["spline_refiner_node_shift_rms_pixels"] = zero
             graph["spline_refiner_steps"] = zero
+            graph["spline_refiner_node_source_error"] = zero
+            graph["spline_refiner_span_source_error"] = zero
             return graph
 
         max_move_lattice = self.max_move_pixels / max(float(spline_graph.spacing_pixels), 1.0e-6)
