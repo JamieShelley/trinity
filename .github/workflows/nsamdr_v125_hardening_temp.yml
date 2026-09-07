@@ -15,9 +15,11 @@ jobs:
       - name: Fix and compile hardening patcher
         run: |
           python tools/nsamdr/_temp_fix_v125_patcher.py
-          python -m py_compile tools/nsamdr/_temp_harden_v125.py
+          python -m py_compile tools/nsamdr/_temp_harden_v125.py tools/nsamdr/_temp_fix_v125_tests.py
       - name: Apply hardening
-        run: python tools/nsamdr/_temp_harden_v125.py
+        run: |
+          python tools/nsamdr/_temp_harden_v125.py
+          python tools/nsamdr/_temp_fix_v125_tests.py
       - name: Install torch CPU
         run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu
       - name: Install dependencies
