@@ -442,3 +442,8 @@ contract and the design consequences already carried into V11.x.
 Raven Quick, Full Training, Preview, and production inference converge on the
 same `FidelityResidualNetV9`, the same `MODEL_SCHEMA`, the same direct forward
 graph, and the same immutable-checkpoint provenance contract.
+
+## Architecture diagrams
+
+- `NSAMDR_FULL_SYSTEM_ARCHITECTURE.png` — complete production pipeline.
+- `NSAMDR_EVOLUTIONARY_RECOVERY_ARCHITECTURE.png` — bounded training-only evolutionary recovery.

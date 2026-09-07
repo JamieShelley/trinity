@@ -22,6 +22,7 @@ if _SPEC is None or _SPEC.loader is None:  # pragma: no cover
     raise RuntimeError(f"Unable to load NSAMDR dispatcher from {CLI_PATH}")
 CLI = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(CLI)
+APP = CLI._n_s_a_m_d_r_command_line_application
 
 
 PUBLIC_COMMAND_PATHS = {
@@ -167,7 +168,7 @@ class DispatcherRoutingTests(unittest.TestCase):
     # Called by: External callers and the owning workflow.
     # Calls: No same-class helper methods.
     def test_raven_quick_is_only_quick_workflow_mode(self) -> None:
-        with mock.patch.object(CLI, "_command_workflow", return_value=73) as backend:
+        with mock.patch.object(APP, "_command_workflow", return_value=73) as backend:
             result = CLI.main(["raven-quick"])
         self.assertEqual(73, result)
         backend.assert_called_once()
@@ -177,7 +178,7 @@ class DispatcherRoutingTests(unittest.TestCase):
     # Called by: External callers and the owning workflow.
     # Calls: No same-class helper methods.
     def test_full_train_is_only_full_workflow_mode(self) -> None:
-        with mock.patch.object(CLI, "_command_workflow", return_value=74) as backend:
+        with mock.patch.object(APP, "_command_workflow", return_value=74) as backend:
             result = CLI.main(["full-train"])
         self.assertEqual(74, result)
         backend.assert_called_once()
@@ -187,7 +188,7 @@ class DispatcherRoutingTests(unittest.TestCase):
     # Called by: External callers and the owning workflow.
     # Calls: No same-class helper methods.
     def test_preview_routes_only_to_qualified_experiment_previewer(self) -> None:
-        with mock.patch.object(CLI, "_python_script", return_value=29) as backend:
+        with mock.patch.object(APP, "_python_script", return_value=29) as backend:
             result = CLI.main(["preview", "EXP_0042", "--target-size", "2048", "--device", "cpu"])
         self.assertEqual(29, result)
         backend.assert_called_once_with(
@@ -208,7 +209,7 @@ class DispatcherRoutingTests(unittest.TestCase):
     # Called by: External callers and the owning workflow.
     # Calls: No same-class helper methods.
     def test_contract_route_uses_canonical_contract_script(self) -> None:
-        with mock.patch.object(CLI, "_python_script", return_value=19) as backend:
+        with mock.patch.object(APP, "_python_script", return_value=19) as backend:
             result = CLI.main(["test", "contract"])
         self.assertEqual(19, result)
         backend.assert_called_once_with("tools/nsamdr/neural/test_nsamdr_v9_contract.py", [])
@@ -217,8 +218,8 @@ class DispatcherRoutingTests(unittest.TestCase):
     # Called by: External callers and the owning workflow.
     # Calls: No same-class helper methods.
     def test_validate_layout_only_does_not_launch_training(self) -> None:
-        with mock.patch.object(CLI, "validate_layout", return_value=0) as validate:
-            with mock.patch.object(CLI, "_command_test") as tests:
+        with mock.patch.object(APP, "validate_layout", return_value=0) as validate:
+            with mock.patch.object(APP, "_command_test") as tests:
                 result = CLI.main(["validate", "--layout-only"])
         self.assertEqual(0, result)
         validate.assert_called_once_with()
@@ -232,6 +233,46 @@ class DispatcherRoutingTests(unittest.TestCase):
             result = CLI.main(["cleanup", "--definitely-not-valid"])
         self.assertEqual(2, result)
         remove_tree.assert_not_called()
+
+    # Purpose: Verify a stale NSAMDR checkout is rejected before CUDA/training work.
+    # Called by: pytest.
+    # Calls: _source_freshness_preflight().
+    def test_source_freshness_rejects_remote_head_mismatch(self) -> None:
+        local = "a" * 40
+        remote = "b" * 40
+
+        def git_output(*arguments: str):
+            mapping = {
+                ("rev-parse", "HEAD"): (0, local),
+                ("rev-parse", "--abbrev-ref", "HEAD"): (0, "NSAMDR"),
+                ("status", "--porcelain=v1", "--untracked-files=no"): (0, ""),
+                ("ls-remote", "origin", "refs/heads/NSAMDR"): (0, f"{remote}\trefs/heads/NSAMDR"),
+            }
+            return mapping[arguments]
+
+        with mock.patch.object(APP, "_git_output", side_effect=git_output):
+            with contextlib.redirect_stderr(io.StringIO()) as error:
+                result = APP._source_freshness_preflight()
+        self.assertEqual(5, result)
+        self.assertIn("checkout is stale", error.getvalue())
+
+    # Purpose: Verify source freshness rejects tracked modifications before remote lookup.
+    # Called by: pytest.
+    # Calls: _source_freshness_preflight().
+    def test_source_freshness_rejects_tracked_modification(self) -> None:
+        def git_output(*arguments: str):
+            mapping = {
+                ("rev-parse", "HEAD"): (0, "a" * 40),
+                ("rev-parse", "--abbrev-ref", "HEAD"): (0, "NSAMDR"),
+                ("status", "--porcelain=v1", "--untracked-files=no"): (0, " M tools/nsamdr/neural/v9/model.py"),
+            }
+            return mapping[arguments]
+
+        with mock.patch.object(APP, "_git_output", side_effect=git_output):
+            with contextlib.redirect_stderr(io.StringIO()) as error:
+                result = APP._source_freshness_preflight()
+        self.assertEqual(5, result)
+        self.assertIn("tracked source files are modified", error.getvalue())
 
 
 if __name__ == "__main__":

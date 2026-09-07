@@ -212,10 +212,76 @@ class NSAMDRCommandLineApplication:
                 "expandable_segments:True,garbage_collection_threshold:0.80"
             )
 
+    # Purpose: Run one bounded Git command for source-revision checks.
+    # Called by: _source_freshness_preflight.
+    # Calls: subprocess.run().
+    def _git_output(self, *arguments: str) -> tuple[int, str]:
+        env = os.environ.copy()
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        try:
+            completed = subprocess.run(
+                ["git", "-C", os.fspath(REPO_ROOT), *arguments],
+                check=False, capture_output=True, text=True, env=env, timeout=10.0,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return 127, ""
+        return int(completed.returncode), completed.stdout.strip()
+
+    # Purpose: Prevent expensive Raven work from running stale or modified production source.
+    # Called by: _command_workflow.
+    # Calls: _git_output.
+    def _source_freshness_preflight(self) -> int:
+        if not (REPO_ROOT / ".git").exists():
+            print("[nsamdr] WARNING: Git metadata unavailable; source freshness cannot be verified.", flush=True)
+            return 0
+
+        head_code, head = self._git_output("rev-parse", "HEAD")
+        branch_code, branch = self._git_output("rev-parse", "--abbrev-ref", "HEAD")
+        status_code, status = self._git_output(
+            "status", "--porcelain=v1", "--untracked-files=no"
+        )
+        if head_code != 0 or branch_code != 0 or status_code != 0:
+            print("[nsamdr] WARNING: unable to read complete Git source provenance.", flush=True)
+            return 0
+        if status.strip():
+            print(
+                "ERROR: NSAMDR tracked source files are modified. Commit or stash them before training.",
+                file=sys.stderr, flush=True,
+            )
+            print(status, file=sys.stderr, flush=True)
+            return 5
+
+        if branch != "NSAMDR":
+            print(
+                f"[nsamdr] Source HEAD {head} on branch {branch}; remote NSAMDR freshness check skipped.",
+                flush=True,
+            )
+            return 0
+
+        remote_code, remote = self._git_output("ls-remote", "origin", "refs/heads/NSAMDR")
+        if remote_code != 0 or not remote:
+            print(
+                f"[nsamdr] WARNING: unable to query origin/NSAMDR; continuing with local HEAD {head}.",
+                flush=True,
+            )
+            return 0
+        remote_head = remote.split()[0].strip()
+        if remote_head != head:
+            print("ERROR: local NSAMDR checkout is stale; refusing to start Raven training.", file=sys.stderr, flush=True)
+            print(f"  local HEAD       : {head}", file=sys.stderr, flush=True)
+            print(f"  origin/NSAMDR    : {remote_head}", file=sys.stderr, flush=True)
+            print("  required action  : git pull --ff-only", file=sys.stderr, flush=True)
+            return 5
+        print(f"[nsamdr] Source revision verified: NSAMDR {head}", flush=True)
+        return 0
+
     # Purpose: Implement command workflow for NSAMDRCommandLineApplication.
     # Called by: _command_full_train, _command_raven_quick
-    # Calls: _configure_cuda_allocator_env, _python, _repo_args, _run_code
+    # Calls: _configure_cuda_allocator_env, _python, _repo_args, _run_code, _source_freshness_preflight
     def _command_workflow(self, args: argparse.Namespace, training_mode: str) -> int:
+        source_code = self._source_freshness_preflight()
+        if source_code:
+            return source_code
         python = self._python("cuda")
         env = os.environ.copy()
         env.setdefault("PYTHONUNBUFFERED", "1")
@@ -639,6 +705,8 @@ _reject_arguments = _n_s_a_m_d_r_command_line_application._reject_arguments
 _command_gui = _n_s_a_m_d_r_command_line_application._command_gui
 _command_setup = _n_s_a_m_d_r_command_line_application._command_setup
 _configure_cuda_allocator_env = _n_s_a_m_d_r_command_line_application._configure_cuda_allocator_env
+_git_output = _n_s_a_m_d_r_command_line_application._git_output
+_source_freshness_preflight = _n_s_a_m_d_r_command_line_application._source_freshness_preflight
 _command_workflow = _n_s_a_m_d_r_command_line_application._command_workflow
 _command_raven_quick = _n_s_a_m_d_r_command_line_application._command_raven_quick
 _command_full_train = _n_s_a_m_d_r_command_line_application._command_full_train

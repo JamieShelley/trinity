@@ -131,7 +131,7 @@ class TestStrategyCandidates:
         generator = self._load_generator()
         calls = []
         monkeypatch.setattr(
-            generator,
+            generator._strategy_candidate_generator,
             "_model_input",
             lambda *_args, **_kwargs: np.zeros((17, 2, 2), dtype=np.float32),
         )
@@ -165,9 +165,10 @@ class TestStrategyCandidates:
             "overlap": 8,
             "return_diagnostics": True,
             "return_all_maps": True,
+            "output_variant": "final",
         }
         assert maps["albedo"].shape == (8, 8, 3)
-        assert diagnostics["candidateAuthority"] == "direct-production-forward"
+        assert diagnostics["candidateAuthority"] == "direct-production-forward:final"
         assert diagnostics["postModelReplacement"] is False
 
     # Purpose: Implement test provenance rehashes source and candidate for TestStrategyCandidates.
@@ -191,7 +192,7 @@ class TestStrategyCandidates:
             }
         }
         monkey = pytest.MonkeyPatch()
-        monkey.setattr(generator, "_dimensions", lambda _path: [1, 1])
+        monkey.setattr(generator._strategy_candidate_generator, "_dimensions", lambda _path: [1, 1])
         try:
             provenance = generator._provenance(
                 source_before=before,

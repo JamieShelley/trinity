@@ -2,7 +2,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-ENTRY = ROOT / "tools/nsamdr/neural/train_nsamdr_v9_preview_experiment.py"
+BACKEND = ROOT / "tools/nsamdr/neural/v9/application/backend.py"
 INIT = ROOT / "tools/nsamdr/neural/v9/__init__.py"
 
 
@@ -11,9 +11,10 @@ class TestB1bStagedContract:
     # Called by: External callers and the owning workflow.
     # Calls: No same-class helper methods.
     def test_no_b1b_installer_in_production_entrypoint(self) -> None:
-        source = ENTRY.read_text(encoding="utf-8")
+        source = BACKEND.read_text(encoding="utf-8")
         assert "install_b1b_staged_contract" not in source
         assert "install_local_boundary_training_contract" in source
+        assert "_synchronize_training_service_contract" in source
 
     # Purpose: Implement test no classifier generalisation installer for TestB1bStagedContract.
     # Called by: External callers and the owning workflow.
