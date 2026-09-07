@@ -34,7 +34,6 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import ast
-          import sys
           from types import SimpleNamespace
 
           paths = [
@@ -67,9 +66,12 @@ jobs:
           assert schema in local and schema in edge and schema in tests
           assert 'V11.10 structural-stage consumer contract' in design
 
-          sys.path.insert(0, str(Path('tools/nsamdr/neural').resolve()))
-          from v9.application.baseline_relative_smoke import BaselineRelativeSmokeService
-          service = BaselineRelativeSmokeService()
+          # Execute the small smoke service in isolation. Importing package v9 would
+          # unnecessarily pull torch/numpy into this source-only contract runner.
+          isolated = smoke.replace('from ..config import V9Config', 'V9Config = object')
+          namespace = {'__name__': 'v1110_smoke_contract'}
+          exec(compile(isolated, 'baseline_relative_smoke.py', 'exec'), namespace)
+          service = namespace['BaselineRelativeSmokeService']()
           cfg = SimpleNamespace(maximum_validation_regression_fraction=0.08)
           identity = {
               'structural_baseline_mae': 0.05,
