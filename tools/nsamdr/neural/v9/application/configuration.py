@@ -32,10 +32,13 @@ CANONICAL_SEMANTIC_OVERRIDES: dict[str, Any] = {
 }
 
 QUICK_WORK_BUDGET: dict[str, int] = {
-    # Quick must expose a real-Raven A/B/C verdict after one B1a epoch. If C loses
-    # to deterministic baseline B, the application rejects before any B1b work.
+    # Quick uses one B1a topology epoch, then two B1b epochs. The trainer keeps
+    # the first B1b epoch as its 14-tile fail-fast smoke and the second consumes
+    # the complete 64-tile authored-Raven Quick bank before the strict C > B
+    # verdict. This preserves fail-fast semantics without asking a 17M-parameter
+    # production geometry path to generalise from only fourteen batch-size-1 tiles.
     "identity_epochs": 1,
-    "residual_epochs": 1,
+    "residual_epochs": 2,
     "seam_proof_epochs": 1,
     "seam_authority_epochs": 1,
     "boundary_epochs": 1,
