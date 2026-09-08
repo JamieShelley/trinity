@@ -55,4 +55,10 @@ _local_boundary.install_local_boundary_model_contract()
 from . import authority_alignment_contract as _authority_alignment
 _authority_alignment.install_authority_alignment_model_contract()
 
+# V12.2.2 makes the exact rendered B1 candidate the sole sdf-proof SGD objective.
+# Legacy spline/proxy terms remain telemetry only, preventing proxy improvement
+# from purchasing a worse production render.
+from . import b1_production_objective_contract as _b1_production_objective
+_b1_production_objective.install_b1_production_objective_contract()
+
 __all__ = ["V9Config", "FidelityResidualNetV9"]

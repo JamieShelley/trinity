@@ -113,8 +113,20 @@ def test_b1b_optimizes_raw_production_geometry_candidate():
     assert 'losses["b1b_production_edge_reconstruction"]' in backend
     assert 'losses["b1b_production_regret"]' in backend
     assert 'losses["b1b_production_gradient"]' in backend
-    assert 'losses["total"] = losses["total"].float() * 0.10 + production_objective' in backend
     assert 'renderer_loss = losses.get("boundary_photometric")' not in backend
+
+
+def test_b1b_proxy_objective_has_zero_sgd_authority():
+    package = (V9 / "__init__.py").read_text(encoding="utf-8")
+    source = (V9 / "b1_production_objective_contract.py").read_text(encoding="utf-8")
+    ast.parse(source)
+    assert 'B1_PRODUCTION_OBJECTIVE_REVISION = "V12.2.2"' in source
+    assert "install_b1_production_objective_contract()" in package
+    assert 'production = losses.get("b1b_renderer_supervision")' in source
+    assert 'losses["b1b_nonproduction_objective_ignored"]' in source
+    assert 'losses["total"] = production' in source
+    assert "_compute_losses_with_b1b_renderer_supervision = _production_only_b1b_loss" in source
+    assert "<locals>" not in source
 
 
 def test_b4_uses_deployed_forward_and_exact_phase_sr_oracle():
