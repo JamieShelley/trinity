@@ -8,18 +8,33 @@ import nsamdr_v9_workflow_gui as base
 
 
 _existing = {stage.id: stage for stage in base.STAGES}
+
+
+def _renumber(stage: base.Stage, number: str) -> base.Stage:
+    return base.Stage(
+        stage.id,
+        number,
+        stage.label,
+        stage.command,
+        stage.description,
+        stage.pipeline,
+    )
+
+
 _micro = base.Stage(
     "micro",
-    "3",
+    "1",
     "Raven Micro Capacity",
     ("raven-micro",),
     (
-        "Fast non-promotable overfit proof on one deterministic edge-dense Raven region. "
-        "Uses the production architecture/loss path and full production phase schedule "
-        "before the expensive whole-Raven preview."
+        "Fast non-promotable local capacity/authority proof on one deterministic "
+        "edge-dense Raven region. Exposes raw geometry, seam, raw detail and final "
+        "selector output before any whole-Raven training."
     ),
     False,
 )
+_quick = _renumber(_existing["quick"], "2")
+_train = _renumber(_existing["train"], "3")
 _preview = base.Stage(
     "preview",
     "4",
@@ -30,9 +45,9 @@ _preview = base.Stage(
 )
 base.STAGES = (
     _existing["setup"],
-    _existing["quick"],
-    _existing["train"],
     _micro,
+    _quick,
+    _train,
     _preview,
 )
 base.BY_ID = {stage.id: stage for stage in base.STAGES}
@@ -52,7 +67,7 @@ def _args(self: base.App, stage_id: str) -> list[str]:
         "--tile-size",
         self._value("micro_tile", "32"),
         "--steps-per-epoch",
-        self._value("micro_steps", "64"),
+        self._value("micro_steps", "32"),
         "--required-recovery",
         self._value("micro_recovery", "0.50"),
         "--device",
@@ -77,7 +92,7 @@ def _dispatcher_argv(
     if command == ("raven-micro",):
         return [
             sys.executable,
-            str(self.repo / "tools/nsamdr/neural/run_nsamdr_v9_raven_micro_overfit.py"),
+            str(self.repo / "tools/nsamdr/neural/run_nsamdr_v9_raven_micro_diagnostic.py"),
             "--repo-root",
             str(self.repo),
             *args,
@@ -103,18 +118,19 @@ def _selected(self: base.App) -> None:
     self._label_row("Authority", "DIAGNOSTIC ONLY — cannot create/promote a production final")
     self._label_row("Model", "Exact production NSAMDR architecture + current production losses")
     self._label_row("Region", "Deterministic highest edge-energy authored Raven patch")
-    self._label_row("Epoch schedule", "Full production: B1a/B1b/seam/gate/detail/physical-finetune")
+    self._label_row("Probe", "geometry -> seam -> raw detail -> final selector authority")
+    self._label_row("Epoch schedule", "Full production phase schedule on one repeated tiny patch")
     self._row("Shared cache", "cache", r"C:\CCP\EVE")
     self._row("Micro LR tile", "micro_tile", "32", ("32", "48", "64"))
-    self._row("Repeated steps / epoch", "micro_steps", "64", ("32", "64", "128", "256"))
+    self._row("Repeated steps / epoch", "micro_steps", "32", ("16", "32", "64", "128"))
     self._row("Required edge recovery", "micro_recovery", "0.50", ("0.25", "0.50", "0.70", "0.85"))
     self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
     self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
     self._check("Rebuild fixed Raven dataset", "rebuild", False)
-    self._check("Open final lightweight A/B/C image", "open_result", True)
+    self._check("Open final lightweight probe image", "open_result", True)
     self._label_row(
         "Output",
-        "A/B/C PNG + per-epoch metrics + MICRO_*_DIAGNOSTICS.zip",
+        "A/B/G/D/F probe PNG + per-epoch candidate/gate metrics + MICRO_*_DIAGNOSTICS.zip",
     )
     self._update_command()
     self.form_canvas.yview_moveto(0.0)
