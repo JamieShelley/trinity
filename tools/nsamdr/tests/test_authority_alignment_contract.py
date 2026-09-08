@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from multiprocessing.reduction import ForkingPickler
 from pathlib import Path
+from types import SimpleNamespace
 import ast
 import sys
 
@@ -120,13 +121,45 @@ def test_b1b_proxy_objective_has_zero_sgd_authority():
     package = (V9 / "__init__.py").read_text(encoding="utf-8")
     source = (V9 / "b1_production_objective_contract.py").read_text(encoding="utf-8")
     ast.parse(source)
-    assert 'B1_PRODUCTION_OBJECTIVE_REVISION = "V12.2.2"' in source
+    assert 'B1_PRODUCTION_OBJECTIVE_REVISION = "V12.2.3"' in source
     assert "install_b1_production_objective_contract()" in package
-    assert 'production = losses.get("b1b_renderer_supervision")' in source
+    assert "production = _live_production_objective(outputs, batch, config)" in source
+    assert "production.requires_grad" in source
     assert 'losses["b1b_nonproduction_objective_ignored"]' in source
     assert 'losses["total"] = production' in source
     assert "_compute_losses_with_b1b_renderer_supervision = _production_only_b1b_loss" in source
     assert "<locals>" not in source
+
+
+def test_b1b_production_objective_retains_candidate_gradient():
+    from v9.b1_production_objective_contract import _live_production_objective
+
+    candidate = torch.full((1, 3, 8, 8), 0.20, dtype=torch.float32, requires_grad=True)
+    baseline = torch.zeros_like(candidate)
+    target = torch.full_like(candidate, 0.75)
+    edge = torch.ones((1, 1, 8, 8), dtype=torch.float32)
+    config = SimpleNamespace(
+        spline_graph_render_weight=96.0,
+        spline_graph_render_gradient_weight=48.0,
+    )
+
+    objective = _live_production_objective(
+        {
+            "boundary_initial_candidate_albedo": candidate,
+            "baseline_albedo": baseline,
+        },
+        {
+            "target_albedo": target,
+            "target_edge": edge,
+        },
+        config,
+    )
+    assert objective.requires_grad
+    assert objective.grad_fn is not None
+    objective.backward()
+    assert candidate.grad is not None
+    assert bool(torch.isfinite(candidate.grad).all().item())
+    assert float(candidate.grad.abs().sum().item()) > 0.0
 
 
 def test_b4_uses_deployed_forward_and_exact_phase_sr_oracle():
