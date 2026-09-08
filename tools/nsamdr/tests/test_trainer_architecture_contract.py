@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from multiprocessing.reduction import ForkingPickler
 from pathlib import Path
 import sys
 
@@ -43,7 +44,10 @@ def test_v124_trainer_contract_declares_explicit_refiner():
 def test_final_qualification_clears_b1a_runtime_refiner_bypass():
     from v9 import FidelityResidualNetV9, V9Config
     from v9 import training as training_module
-    from v9.application.backend import TrainingBackend
+    from v9.application.backend import (
+        TrainingBackend,
+        _run_final_qualification_with_runtime_reset,
+    )
 
     backend = TrainingBackend()
     config = V9Config()
@@ -60,4 +64,18 @@ def test_final_qualification_clears_b1a_runtime_refiner_bypass():
     assert structure._topology_bootstrap_only is False
 
     wrapped = training_module._training_service._run_final_qualification
-    assert getattr(wrapped, "_nsamdr_production_runtime_reset", False) is True
+    assert wrapped is _run_final_qualification_with_runtime_reset
+    assert "<locals>" not in wrapped.__qualname__
+
+
+def test_windows_spawn_can_pickle_training_worker_after_backend_install():
+    from v9 import training as training_module
+    from v9.application.backend import TrainingBackend
+
+    TrainingBackend()
+
+    # Windows DataLoader spawn serializes this bound worker initializer. Because
+    # it carries the TrainingService singleton, every callback stored on that
+    # singleton must itself remain pickle-safe. This reproduces the real failure
+    # that previously occurred before Raven's first training batch.
+    ForkingPickler.dumps(training_module._data_worker_init)

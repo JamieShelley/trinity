@@ -7,6 +7,26 @@ from typing import Any
 from ..config import V9Config
 
 
+def _run_final_qualification_with_runtime_reset(
+    model: Any,
+    *args: Any,
+    **kwargs: Any,
+) -> Any:
+    """Run canonical final qualification from fresh production runtime state.
+
+    This wrapper is deliberately module-level. Windows DataLoader workers pickle
+    the bound TrainingService worker initializer, which serializes the service
+    instance. A nested/local function stored on that instance makes spawn fail
+    before the first training batch.
+    """
+    TrainingBackend._prepare_production_runtime(model)
+    import v9.training as training
+
+    service = training._training_service
+    canonical = type(service)._run_final_qualification
+    return canonical(service, model, *args, **kwargs)
+
+
 class TrainingBackend:
     """Own installation and invocation of the current production trainer contract."""
 
@@ -35,11 +55,12 @@ class TrainingBackend:
             Ensure the OOP TrainingService executes the installed V11.4 validator,
             structural microproof, and production-component map rather than stale
             pre-refactor methods reached through self.* calls. Final production
-            qualification must also clear training-only runtime phase state.
+            qualification must also clear training-only runtime phase state without
+            installing an unpicklable local closure on the service singleton.
         Called by:
             TrainingBackend.__init__().
         Calls:
-            getattr(), TrainingBackend._prepare_production_runtime().
+            getattr(), _run_final_qualification_with_runtime_reset().
         """
         service = getattr(training, "_training_service", None)
         if service is None:
@@ -48,18 +69,8 @@ class TrainingBackend:
         service._explicit_primitive_structure_microproof = training._explicit_primitive_structure_microproof
         service._production_component_modules = training._production_component_modules
 
-        current_final_qualification = service._run_final_qualification
-        if not bool(
-            getattr(current_final_qualification, "_nsamdr_production_runtime_reset", False)
-        ):
-            original_final_qualification = current_final_qualification
-
-            def run_final_qualification(model: Any, *args: Any, **kwargs: Any) -> Any:
-                TrainingBackend._prepare_production_runtime(model)
-                return original_final_qualification(model, *args, **kwargs)
-
-            run_final_qualification._nsamdr_production_runtime_reset = True  # type: ignore[attr-defined]
-            service._run_final_qualification = run_final_qualification
+        if service._run_final_qualification is not _run_final_qualification_with_runtime_reset:
+            service._run_final_qualification = _run_final_qualification_with_runtime_reset
 
     def __init__(self) -> None:
         """Install the local-boundary contract once and retain canonical train_v9.
