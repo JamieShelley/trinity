@@ -27,6 +27,54 @@ def _run_final_qualification_with_runtime_reset(
     return canonical(service, model, *args, **kwargs)
 
 
+def _compute_losses_with_b1b_renderer_supervision(
+    outputs: Any,
+    batch: Any,
+    config: V9Config,
+    phase: str,
+) -> dict[str, Any]:
+    """Make B1b optimize the same real-Raven renderer metric used by its smoke gate.
+
+    V12.1's local geometry contract trains spline/proposal and regret losses during
+    sdf-proof, while ``structural_stage_mae`` is measured from ``boundary_photometric``.
+    Quick then requires strict C > B after its bounded B1b smoke pass. Add that exact
+    differentiable pre-seam renderer loss to B1b instead of asking an unoptimized
+    telemetry metric to improve indirectly.
+    """
+    import v9.training as training
+
+    base = getattr(training, "_nsamdr_b1b_base_compute_losses", None)
+    if base is None:
+        raise RuntimeError("B1b renderer supervision installed without base compute_losses")
+
+    losses = base(outputs, batch, config, phase)
+    if phase != "sdf-proof":
+        return losses
+
+    renderer_loss = losses.get("boundary_photometric")
+    if renderer_loss is None:
+        raise RuntimeError(
+            "sdf-proof requires boundary_photometric for real-Raven B1b supervision"
+        )
+    renderer_supervision = (
+        renderer_loss.float() * float(config.boundary_photometric_weight)
+    )
+    losses["b1b_renderer_supervision"] = renderer_supervision.detach()
+    losses["total"] = losses["total"].float() + renderer_supervision
+    return losses
+
+
+def _install_b1b_renderer_supervision(training: Any) -> None:
+    """Install the module-level B1b loss adapter once without touching worker state."""
+    if bool(getattr(training, "_nsamdr_b1b_renderer_supervision_installed", False)):
+        training.compute_losses = _compute_losses_with_b1b_renderer_supervision
+        return
+
+    training._nsamdr_b1b_base_compute_losses = training.compute_losses
+    training.compute_losses = _compute_losses_with_b1b_renderer_supervision
+    training._nsamdr_b1b_renderer_supervision_installed = True
+
+
 class TrainingBackend:
     """Own installation and invocation of the current production trainer contract."""
 
@@ -73,20 +121,23 @@ class TrainingBackend:
             service._run_final_qualification = _run_final_qualification_with_runtime_reset
 
     def __init__(self) -> None:
-        """Install the local-boundary contract once and retain canonical train_v9.
+        """Install the current local-boundary trainer contract and B1b renderer loss.
 
         Purpose:
-            Isolate import-time trainer patching from CLI/application orchestration.
+            Isolate import-time trainer patching from CLI/application orchestration
+            and align B1b optimization with the real-Raven strict-improvement gate.
         Called by:
             TrainingApplication._build_pipeline() and diagnostic stage execution.
         Calls:
             install_local_boundary_training_contract(),
+            _install_b1b_renderer_supervision(),
             TrainingBackend._synchronize_training_service_contract().
         """
         import v9.training as training
         from ..local_boundary_production_contract import install_local_boundary_training_contract
 
         install_local_boundary_training_contract(training)
+        _install_b1b_renderer_supervision(training)
         self._synchronize_training_service_contract(training)
         self._trainer = training.train_v9
 
