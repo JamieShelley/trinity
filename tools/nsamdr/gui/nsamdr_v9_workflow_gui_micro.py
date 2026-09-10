@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GUI extension exposing Raven direct-residual and staged micro diagnostics."""
+"""GUI extension exposing focused Raven capacity/integration diagnostics."""
 from __future__ import annotations
 
 import sys
@@ -33,22 +33,34 @@ _direct = base.Stage(
     ),
     False,
 )
-_micro = base.Stage(
-    "micro",
+_parallel = base.Stage(
+    "parallel",
     "2",
-    "Raven Staged Micro",
-    ("raven-micro",),
+    "Parallel Detail Integration",
+    ("raven-parallel-detail",),
     (
-        "Non-promotable staged production integration proof on one deterministic edge-dense "
-        "Raven region. Run only after Direct Residual Capacity passes."
+        "Production-forward proof that the successful direct-detail candidate survives "
+        "composition and that BenefitSelector retains its improvement without geometry/seam "
+        "being allowed to poison the candidate."
     ),
     False,
 )
-_quick = _renumber(_existing["quick"], "3")
-_train = _renumber(_existing["train"], "4")
+_micro = base.Stage(
+    "micro",
+    "3",
+    "Raven Staged Micro",
+    ("raven-micro",),
+    (
+        "Non-promotable full staged production proof on one deterministic edge-dense Raven "
+        "region. Run only after Direct Residual and Parallel Detail Integration pass."
+    ),
+    False,
+)
+_quick = _renumber(_existing["quick"], "4")
+_train = _renumber(_existing["train"], "5")
 _preview = base.Stage(
     "preview",
-    "5",
+    "6",
     "Preview",
     ("preview",),
     "Preview only a completed qualified experiment from its immutable final checkpoint.",
@@ -57,6 +69,7 @@ _preview = base.Stage(
 base.STAGES = (
     _existing["setup"],
     _direct,
+    _parallel,
     _micro,
     _quick,
     _train,
@@ -105,6 +118,31 @@ def _args(self: base.App, stage_id: str) -> list[str]:
             values.append("--open-result")
         return values
 
+    if stage_id == "parallel":
+        values = [
+            *_common_flags(self),
+            "--tile-size",
+            self._value("parallel_tile", "32"),
+            "--detail-steps",
+            self._value("parallel_detail_steps", "1280"),
+            "--selector-steps",
+            self._value("parallel_selector_steps", "384"),
+            "--required-edge-recovery",
+            self._value("parallel_edge_recovery", "0.50"),
+            "--required-global-recovery",
+            self._value("parallel_global_recovery", "0.25"),
+            "--required-retention",
+            self._value("parallel_retention", "0.85"),
+            "--device",
+            self._value("device", "cuda"),
+            "--amp-precision",
+            self._value("amp", "auto"),
+        ]
+        open_result = self.vars.get("open_result")
+        if open_result is not None and bool(open_result.get()):
+            values.append("--open-result")
+        return values
+
     if stage_id == "micro":
         values = [
             *_common_flags(self),
@@ -136,6 +174,14 @@ def _dispatcher_argv(
         return [
             sys.executable,
             str(self.repo / "tools/nsamdr/neural/run_nsamdr_v9_raven_direct_residual_diagnostic.py"),
+            "--repo-root",
+            str(self.repo),
+            *args,
+        ]
+    if command == ("raven-parallel-detail",):
+        return [
+            sys.executable,
+            str(self.repo / "tools/nsamdr/neural/run_nsamdr_v9_raven_parallel_detail_diagnostic.py"),
             "--repo-root",
             str(self.repo),
             *args,
@@ -179,15 +225,43 @@ def _select_direct(self: base.App, stage: base.Stage, status: str) -> None:
     )
 
 
+def _select_parallel(self: base.App, stage: base.Stage, status: str) -> None:
+    note = " — interrupted; rerun starts a fresh diagnostic" if status == "interrupted" else ""
+    self.description.set(f"{stage.number}. {stage.label} — {stage.description}{note}")
+    self._clear_form()
+    self._label_row("Authority", "DIAGNOSTIC ONLY — cannot create/promote a production final")
+    self._label_row("Prerequisite", "Direct Residual Capacity must pass first")
+    self._label_row("Production change", "Detail candidate is independently anchored to deterministic B")
+    self._label_row("Selector evidence", "B + direct candidate + observable LR support + detail confidence/regret only")
+    self._label_row("Geometry/seam", "Still execute for audit/telemetry but cannot alter the direct-detail candidate")
+    self._label_row("Pass 1", "Direct detail candidate reaches the same 50% edge / 25% global recovery target")
+    self._label_row("Pass 2", "BenefitSelector retains at least 85% of both candidate recoveries")
+    self._row("Shared cache", "cache", r"C:\CCP\EVE")
+    self._row("Parallel LR tile", "parallel_tile", "32", ("32", "48", "64"))
+    self._row("Detail steps", "parallel_detail_steps", "1280", ("640", "960", "1280", "1600", "2048"))
+    self._row("Selector steps", "parallel_selector_steps", "384", ("128", "256", "384", "512", "768"))
+    self._row("Required edge recovery", "parallel_edge_recovery", "0.50", ("0.35", "0.50", "0.70"))
+    self._row("Required global recovery", "parallel_global_recovery", "0.25", ("0.10", "0.25", "0.50"))
+    self._row("Required selector retention", "parallel_retention", "0.85", ("0.70", "0.85", "0.95"))
+    self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
+    self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
+    self._check("Rebuild fixed Raven dataset", "rebuild", False)
+    self._check("Open final lightweight probe image", "open_result", True)
+    self._label_row(
+        "Output",
+        "A/B/D/F probe PNG + step metrics + parallel_detail_report.json + PARALLEL_*_DIAGNOSTICS.zip",
+    )
+
+
 def _select_micro(self: base.App, stage: base.Stage, status: str) -> None:
     note = " — interrupted; rerun starts a fresh diagnostic" if status == "interrupted" else ""
     self.description.set(f"{stage.number}. {stage.label} — {stage.description}{note}")
     self._clear_form()
     self._label_row("Authority", "DIAGNOSTIC ONLY — cannot create/promote a production final")
-    self._label_row("Prerequisite", "Direct Residual Capacity should pass first")
+    self._label_row("Prerequisite", "Direct Residual and Parallel Detail Integration should pass first")
     self._label_row("Model", "Exact production NSAMDR architecture + current production losses")
     self._label_row("Region", "Deterministic highest edge-energy authored Raven patch")
-    self._label_row("Probe", "geometry -> seam -> raw detail -> final selector authority")
+    self._label_row("Probe", "geometry -> seam -> independent detail -> final selector authority")
     self._label_row("Epoch schedule", "Full production phase schedule on one repeated tiny patch")
     self._row("Shared cache", "cache", r"C:\CCP\EVE")
     self._row("Micro LR tile", "micro_tile", "32", ("32", "48", "64"))
@@ -205,7 +279,7 @@ def _select_micro(self: base.App, stage: base.Stage, status: str) -> None:
 
 def _selected(self: base.App) -> None:
     selection = self.tree.selection()
-    if not selection or selection[0] not in {"direct", "micro"}:
+    if not selection or selection[0] not in {"direct", "parallel", "micro"}:
         _original_selected(self)
         return
 
@@ -216,6 +290,8 @@ def _selected(self: base.App) -> None:
     status = self.state["status"].get(stage_id, "pending")
     if stage_id == "direct":
         _select_direct(self, stage, status)
+    elif stage_id == "parallel":
+        _select_parallel(self, stage, status)
     else:
         _select_micro(self, stage, status)
     self._update_command()

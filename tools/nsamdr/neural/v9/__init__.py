@@ -61,4 +61,11 @@ _authority_alignment.install_authority_alignment_model_contract()
 from . import b1_production_objective_contract as _b1_production_objective
 _b1_production_objective.install_b1_production_objective_contract()
 
+# V12.3 promotes the direct-residual capacity result into production composition:
+# detail is reconstructed independently over deterministic B and the final selector
+# no longer depends on learned geometry/seam evidence. Geometry and seam remain
+# separately auditable specialists until they independently qualify.
+from . import parallel_detail_contract as _parallel_detail
+_parallel_detail.install_parallel_detail_contract()
+
 __all__ = ["V9Config", "FidelityResidualNetV9"]

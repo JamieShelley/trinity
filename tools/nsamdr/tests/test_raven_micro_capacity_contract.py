@@ -101,21 +101,24 @@ def test_micro_defaults_to_valid_32_lr_patch_and_shorter_probe_budget():
     assert 'production.target_scale' not in legacy_source
 
 
-def test_gui_orders_direct_capacity_before_staged_micro_and_training():
+def test_gui_orders_capacity_and_parallel_proofs_before_staged_training():
     source = GUI.read_text(encoding="utf-8")
     tree = ast.parse(source)
     assert tree is not None
     assert '"direct",\n    "1",\n    "Direct Residual Capacity"' in source
-    assert '"micro",\n    "2",\n    "Raven Staged Micro"' in source
-    assert '_quick = _renumber(_existing["quick"], "3")' in source
-    assert '_train = _renumber(_existing["train"], "4")' in source
-    assert '"preview",\n    "5",\n    "Preview"' in source
-    assert '_existing["setup"],\n    _direct,\n    _micro,\n    _quick,\n    _train,\n    _preview,' in source
+    assert '"parallel",\n    "2",\n    "Parallel Detail Integration"' in source
+    assert '"micro",\n    "3",\n    "Raven Staged Micro"' in source
+    assert '_quick = _renumber(_existing["quick"], "4")' in source
+    assert '_train = _renumber(_existing["train"], "5")' in source
+    assert '"preview",\n    "6",\n    "Preview"' in source
+    assert '_existing["setup"],\n    _direct,\n    _parallel,\n    _micro,\n    _quick,\n    _train,\n    _preview,' in source
     assert 'run_nsamdr_v9_raven_direct_residual_diagnostic.py' in source
+    assert 'run_nsamdr_v9_raven_parallel_detail_diagnostic.py' in source
     assert 'run_nsamdr_v9_raven_micro_diagnostic.py' in source
     assert 'self._value("direct_steps", "1536")' in source
+    assert 'self._value("parallel_detail_steps", "1280")' in source
     assert 'Sweeps residual amplitude first' in source
-    assert 'Direct Residual Capacity should pass first' in source
+    assert 'Direct Residual Capacity must pass first' in source
     assert 'DIAGNOSTIC ONLY' in source
 
 
