@@ -2,64 +2,172 @@
 
 ## Non-negotiable comparison
 
-Every learned stage is judged against the deterministic reconstruction available from the same degraded LR evidence.
+Every learned stage is judged against the deterministic reconstruction available from
+the same degraded LR evidence.
 
-- **A — Authored source:** held-out HR target / real EVE authored texture.
-- **B — Deterministic 4x baseline:** bicubic albedo, normalized bilinear normal XY, nearest physical material channels.
-- **C — Current learned stage:** the stage actually being trained, before downstream selectors can hide it.
+- **A — authored source:** held-out HR target / real EVE authored texture.
+- **B — deterministic 4x baseline:** bicubic albedo, normalized bilinear normal XY,
+  nearest physical material channels.
+- **C — current learned stage:** the exact stage candidate being trained, before a
+  downstream selector can hide it.
 
-Training is useful only when C improves on B while moving toward A. Production-final remains a separate fail-closed authority.
+Training is useful only when C improves on B while moving toward A. Production-final
+remains a separate fail-closed authority.
 
-## V11.8 structural identity contract
+## V12.4 baseline-centred specialist contract
 
-The connected-spline graph proposes an analytic redraw **R**, but proposal quality alone does not authorize replacement of B. The production structural stage is residual: **C = B + g(R - B)**. The learned local gain **g** is bounded to [-1, 1] and its final prediction layer is initialized to exact zero, therefore a fresh model starts with **C == B**. Baseline-relative geometry/pixel regret then supplies gradient authority for opening the correction only where authored Raven evidence reduces error. Explicit oracle/teacher gates may still force the full analytic proposal for proof construction; they do not change production C semantics.
+The architectural anchor is B. Structure, seam/profile and appearance/detail are
+bounded specialists around that anchor rather than an obligation to pass through one
+serial repainting chain.
 
-This follows the residual-learning principle used by image-restoration/SR systems and the zero-initialized residual-gating principle: preserve the known reconstruction at initialization and learn only the evidence-supported correction.
+```text
+                         +-- structure: B + delta geometry --+
+LR authored maps -> B ---+-- seam/profile: B + delta seam ---+--> bounded fusion
+                         +-- detail: B + delta detail --------+
+                                                               |
+                                                               v
+                                                        BenefitSelector
+                                                               |
+                                                               v
+                                                             FINAL
+```
 
-## V11.9 B1 authority contract
+The responsibilities are intentionally different:
 
-B1a is topology-only. Its structural residual-gain head is reset to exact zero and frozen, so **C == B by construction throughout B1a**. B1a may advance only when topology bootstraps and held-out Raven remains inside the configured regression safety budget. B1b then freezes topology, unlocks continuous spline geometry and the residual-gain head, and receives the first opportunity to earn structural authority. The bounded Quick B1b smoke must show strict **C > B** on held-out Raven before normal structural qualification is considered. Equality is safe for B1a but is not a B1b success.
+- structure corrects contour position/connectivity and downsampling stair-steps;
+- seam/profile corrects fuzzy, over-wide, ringing or phase-damaged transitions;
+- detail restores non-parametric high-frequency appearance and physical-map detail;
+- BenefitSelector applies final local safety between B and the complete useful
+  candidate.
 
-## Literature corrections carried into V11.7
+A specialist that is unsupported, has zero authority or is not independently useful
+contributes identity. It is not permitted to poison a different specialist that has
+already demonstrated useful capacity.
 
-1. Residual SR systems (VDSR, LapSRN, SwinIR) preserve a low-frequency/interpolated path and learn the missing correction rather than forcing the network to repaint the full image. NSAMDR already had an internal baseline, but its proof/preview did not expose it as a first-class control.
-2. Deep Vectorization of Technical Drawings uses neural estimates as an initializer and then refines explicit geometric parameters. This remains the next structural escalation if the connected-spline learned proposal cannot beat B reliably.
-3. End-to-End Line Drawing Vectorization supports hard ordered connectivity: connectivity should be represented, not merely penalized.
-4. DiffVG supplies differentiable anti-aliased rasterization but does not solve discrete topology changes; topology remains an explicit NSAMDR responsibility.
+V12.3 establishes this rule for detail in production: the existing detail network
+produces a bounded direct residual over deterministic B, and learned geometry/seam
+state cannot alter that direct-detail candidate. Structure and seam remain separately
+auditable until they earn equivalent baseline-relative authority.
+
+## Protected preservation
+
+A reconstruction system should not pay for local improvement by repainting regions B
+already reconstructs correctly. V12.4 therefore defines an explicit protected-region
+metric for authored training/qualification data.
+
+A pixel is **protected** when every albedo channel of B is within `2/255` of A. For
+those protected pixels:
+
+```text
+protectedPreservationRate >= 0.990
+candidateDriftTolerance   = 1/255 from B
+```
+
+The rate is the fraction of protected pixels that remain within that drift tolerance.
+Mean and maximum protected drift are recorded separately so the remaining <=1% cannot
+hide a large unbounded corruption.
+
+A is used only to label protected pixels while training or qualifying. Production
+inference never receives authored HR. Detail and final-selector training receive an
+excess-drift penalty on those target-known protected pixels; the checkpoint topology is
+unchanged.
+
+## Historical contracts still in force
+
+### V11.8 structural identity
+
+The structural redraw is baseline-relative: an unearned structural correction must
+reduce to B. The old signed structural gain may not invert a bad geometry proposal to
+manufacture an apparent improvement.
+
+### V11.9 B1 authority
+
+B1a establishes topology with structural residual authority at identity. B1b freezes
+that topology and must earn strict improvement over B using the actual structural
+candidate. Equality is safe during topology bootstrap but is not a B1b success.
+
+### V11.10 structural-stage consumer
+
+B1 is evaluated on the pre-seam structural output. Frozen downstream seam/detail
+components cannot contribute to B1 acceptance evidence. A structural failure cannot be
+hidden by a later appearance stage.
+
+### V12.0 estimator/refiner separation
+
+Continuous geometry is not treated as a one-shot raster prediction. A neural branch
+proposes fixed connected topology plus initial continuous crossing/tangent parameters.
+A separate parameter-free explicit refiner optimizes only those continuous parameters
+against observed LR structural evidence while remaining bounded around the proposal.
+Topology is immutable in that refinement step and authored HR is not an inference
+input.
+
+### V12.2 authority alignment
+
+Training and deployment must supervise the exact outputs that the corresponding heads
+control. The explicit refiner uses a first-order differentiable training path so loss
+on the refined rendered geometry reaches the neural initializer. PhaseAwareSeamSR uses
+one learned seam authority. BenefitSelector is the final residual authority rather than
+a product of unrelated veto gates.
+
+### V12.2.4 B1 production objective
+
+B1b SGD is driven by the actual rendered structural candidate in source-observable
+support. Legacy point/tangent/proxy objectives remain telemetry if they conflict with
+rendered production quality. HR-only appearance detail is not a geometry target.
+
+### V12.3 independent direct detail
+
+The detail candidate is generated from deterministic B rather than the serial
+geometry/seam candidate. Existing parameters and state-dict keys are retained. This
+prevents a weak structural specialist from destroying a detail path that independently
+beats B.
+
+## Qualification ladder
+
+Use the cheapest proof that can invalidate the current hypothesis:
+
+1. identity and protected preservation;
+2. direct detail capacity on fixed real Raven evidence;
+3. structural capacity on exact rendered C versus B;
+4. seam/profile capacity independent of unqualified upstream specialists;
+5. bounded specialist fusion and retention of each demonstrated gain;
+6. Raven Quick using the complete production model;
+7. Full Training only after the earlier gates are stable.
+
+Synthetic geometry, teacher geometry and oracle authorities are useful diagnostic tools.
+They establish representation capacity but never count as production qualification.
+
+## Training/inference boundary
+
+Training may use A for loss, teacher signals and qualification metrics. The public
+production call remains:
+
+```python
+outputs = model(inputs)
+```
+
+Production callers cannot provide A, replace structural geometry, force gates, inject
+cached intermediate tensors or choose a different Raven-only model. A selected
+checkpoint must strict-load into the production model and survive a fresh direct
+forward with the same output contract.
+
+## Literature rationale carried forward
+
+1. Residual SR systems such as VDSR, LapSRN and SwinIR preserve a known low-frequency
+   path and learn missing correction rather than repainting the complete output.
+2. Deep Vectorization of Technical Drawings separates neural estimation from explicit
+   geometric optimization; this remains the right structural decomposition when final
+   vector parameters need refinement.
+3. End-to-End Line Drawing Vectorization supports representing connectivity explicitly
+   rather than relying on raster penalties to recover it.
+4. DiffVG demonstrates differentiable anti-aliased vector rasterization but does not
+   solve discrete topology changes.
 5. LIVE reinforces that low raster error alone is not a topology guarantee.
-6. Long smoothing B-splines support smoothing the parameterized curve itself, with corners/junctions exempted structurally rather than blurring output pixels.
+6. Long smoothing B-splines motivate derivative/curve priors only where they do not
+   erase intentional manufactured corners, junctions, bevels or kinks.
 
-## Quick feedback contract
+## Design rule
 
-Production B1a/B1b optimization uses authored Raven crops with synthetic geometry disabled. Synthetic line/circle/ring cases remain representation and topology audits; they do not replace real-domain optimizer evidence. Quick first runs one B1a topology epoch with structural residual authority frozen at exact identity; B1a is checked for topology and non-regression safety, not strict improvement. The first Quick B1b epoch is a bounded 14-batch authored-Raven structural refinement smoke pass and must show strict C > B. It cannot promote B1/B2 even if its held-out metrics happen to pass. If C is visibly/quantitatively worse than B, stop there. Later B1b epochs retain the complete authored structural bank and all existing hard qualification gates.
-
-
-## V11.10 structural-stage consumer contract
-
-B1a and B1b are evaluated on the pre-seam structural output, matching the live `structural` C preview. The public production forward remains fully connected, but frozen downstream seam/detail components cannot contribute to B1 structural training, regret, or baseline-relative acceptance evidence. B1a therefore preserves exact B when structural residual gain is zero; B1b must earn strict C > B using the structural stage itself.
-
-
-## V12.0 estimator/refiner architecture contract
-
-B1 continuous geometry is no longer treated as a one-shot neural prediction.
-The neural branch proposes fixed topology plus initial same-edge node positions
-and tangents. A separate **parameter-free explicit geometry refiner** then
-optimizes only those continuous parameters against the observed LR source-SDF
-evidence while remaining bounded around the neural proposal. The topology masks
-are immutable during refinement. The explicit optimizer never receives authored
-HR targets, so training and production use the same refinement evidence.
-
-This deliberately follows the decomposition used by *Deep Vectorization of
-Technical Drawings*: learned estimation supplies an initial primitive
-configuration and an iterative geometric optimization obtains the final
-configuration. It also uses DiffVG/LIVE only for the narrower lesson that
-continuous vector parameters can be optimized against raster evidence; discrete
-topology remains outside that optimization.
-
-B1b outer SGD therefore supervises the **neural proposal initializer** with
-authored training geometry teachers. Held-out Raven remains qualification-only
-evidence and is never used for optimizer updates. The explicit refiner is
-detached from that outer optimizer and has no parameters to train. Final B1
-qualification still judges the actual refined pre-seam C against B; the residual
-authority gate may open only when that final refined geometry produces a real
-baseline-relative improvement.
+Do not relax a qualification gate merely because a serial dependency makes a later
+candidate look poor. First ask whether each specialist independently improves the same
+baseline B. Only independently useful corrections are eligible for fusion.

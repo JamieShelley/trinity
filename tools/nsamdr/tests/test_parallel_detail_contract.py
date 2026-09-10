@@ -9,6 +9,7 @@ V9 = ROOT / "tools/nsamdr/neural/v9"
 PARALLEL = V9 / "parallel_detail_contract.py"
 GUI = ROOT / "tools/nsamdr/gui/nsamdr_v9_workflow_gui_micro.py"
 DIAGNOSTIC = ROOT / "tools/nsamdr/neural/run_nsamdr_v9_raven_parallel_detail_diagnostic.py"
+DIAGNOSTIC_V2 = ROOT / "tools/nsamdr/neural/run_nsamdr_v9_raven_parallel_detail_diagnostic_v2.py"
 
 
 def test_parallel_detail_contract_is_package_wide_and_spawn_safe():
@@ -63,7 +64,6 @@ def test_detail_training_matches_successful_direct_capacity_objective():
     assert "gradient * 5.0" in source
     assert "regret * 16.0" in source
     assert "residual_supervision * 8.0" in source
-    assert "* 16.0" in source
 
 
 def test_architecture_contract_marks_direct_detail_as_independent_specialist():
@@ -75,19 +75,48 @@ def test_architecture_contract_marks_direct_detail_as_independent_specialist():
     assert "no learned geometry or seam prerequisite" in source
 
 
-def test_parallel_integration_diagnostic_runs_actual_production_forward():
-    source = DIAGNOSTIC.read_text(encoding="utf-8")
+def test_parallel_entrypoint_routes_to_fast_v2_proof():
+    wrapper = DIAGNOSTIC.read_text(encoding="utf-8")
+    source = DIAGNOSTIC_V2.read_text(encoding="utf-8")
+    ast.parse(wrapper)
     ast.parse(source)
-    assert 'REPORT_SCHEMA = "NSAMDR_RAVEN_PARALLEL_DETAIL_INTEGRATION_V1"' in source
-    assert 'phase="detail-reconstruction"' in source
-    assert 'phase="physical-finetune"' in source
-    assert 'service._forward_for_phase(model, batch, phase, config)' in source
-    assert 'training.compute_losses(outputs, batch, config, phase)' in source
-    assert 'outputs["detail_candidate_albedo"]' in source
-    assert 'outputs["benefit_selector_probability"]' in source
-    assert '"promotable": False' in source
+    assert "from run_nsamdr_v9_raven_parallel_detail_diagnostic_v2 import main" in wrapper
+    assert 'REPORT_SCHEMA = "NSAMDR_RAVEN_PARALLEL_DETAIL_INTEGRATION_V2"' in source
+    assert "parallel_contract._ORIGINAL_DETAIL_FORWARD" in source
+    assert '"detail-fast"' in source
+    assert '"selector-fast"' in source
+    assert "production_candidate = production_after_detail[\"detail_candidate_albedo\"].float()" in source
+    assert "candidate_parity_max_abs" in source
+    assert "final_parity_max_abs" in source
     assert '"candidatePass": bool(candidate_pass)' in source
     assert '"selectorPass": bool(selector_pass)' in source
+    assert '"promotable": False' in source
+
+
+def test_fast_parallel_proof_does_not_repeat_geometry_seam_during_specialist_steps():
+    source = DIAGNOSTIC_V2.read_text(encoding="utf-8")
+    detail_start = source.index("def _train_detail(")
+    selector_start = source.index("def _train_selector(")
+    main_start = source.index("def main(")
+    detail_body = source[detail_start:selector_start]
+    selector_body = source[selector_start:main_start]
+    assert "model.geometry_net(" not in detail_body
+    assert "model.seam_restorer(" not in detail_body
+    assert "model.geometry_net(" not in selector_body
+    assert "model.seam_restorer(" not in selector_body
+    assert "_raw_direct_candidate(" in detail_body
+    assert "model.benefit_selector(" in selector_body
+
+
+def test_fast_parallel_detail_reproduces_passing_optimizer_and_raw_residual_supervision():
+    source = DIAGNOSTIC_V2.read_text(encoding="utf-8")
+    assert 'parser.add_argument("--detail-learning-rate", type=float, default=1.0e-3)' in source
+    assert 'parser.add_argument("--head-lr-multiplier", type=float, default=3.0)' in source
+    assert 'parser.add_argument("--detail-steps", type=int, default=1536)' in source
+    assert 'raw_delta = detail["albedo_raw"].float() * float(residual_cap)' in source
+    assert "raw_delta.float() - desired_residual" in source
+    assert "weight_decay=0.0" in source
+    assert 'betas=(0.9, 0.99)' in source
 
 
 def test_gui_places_parallel_integration_between_direct_and_staged_micro():

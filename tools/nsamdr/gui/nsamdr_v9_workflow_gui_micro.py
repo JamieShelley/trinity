@@ -39,9 +39,9 @@ _parallel = base.Stage(
     "Parallel Detail Integration",
     ("raven-parallel-detail",),
     (
-        "Production-forward proof that the successful direct-detail candidate survives "
-        "composition and that BenefitSelector retains its improvement without geometry/seam "
-        "being allowed to poison the candidate."
+        "V12.5 production-forward proof that the successful direct-detail candidate survives "
+        "composition. Structure/seam support is forced to identity so fused candidate U must "
+        "equal D exactly before BenefitSelector retention is measured."
     ),
     False,
 )
@@ -101,7 +101,7 @@ def _args(self: base.App, stage_id: str) -> list[str]:
             "--tile-size",
             self._value("direct_tile", "32"),
             "--steps",
-            self._value("direct_steps", "1536"),
+            self._value("direct_steps", "3072"),
             "--learning-rate",
             self._value("direct_lr", "0.001"),
             "--required-edge-recovery",
@@ -124,9 +124,9 @@ def _args(self: base.App, stage_id: str) -> list[str]:
             "--tile-size",
             self._value("parallel_tile", "32"),
             "--detail-steps",
-            self._value("parallel_detail_steps", "1280"),
+            self._value("parallel_detail_steps", "3072"),
             "--selector-steps",
-            self._value("parallel_selector_steps", "384"),
+            self._value("parallel_selector_steps", "512"),
             "--required-edge-recovery",
             self._value("parallel_edge_recovery", "0.50"),
             "--required-global-recovery",
@@ -207,11 +207,11 @@ def _select_direct(self: base.App, stage: base.Stage, status: str) -> None:
     self._label_row("Output", "B + bounded albedo residual; geometry/seam/selector authority bypassed")
     self._label_row("Oracle", "Sweeps residual amplitude first and reports whether the production 0.20 cap is mathematically sufficient")
     self._label_row("Capacity cap", "Automatically uses the smallest bounded residual amplitude capable of meeting the requested thresholds")
-    self._label_row("Optimisation", "Identity-safe zero head gets 3x LR; direct residual target supervision removes the previous 250-step dead start")
+    self._label_row("Optimisation", "Identity-safe zero head gets 3x LR; run stops as soon as the requested recovery threshold is reached")
     self._label_row("Stop rule", "Pass as soon as edge and global recovery thresholds are both reached")
     self._row("Shared cache", "cache", r"C:\CCP\EVE")
     self._row("Direct LR tile", "direct_tile", "32", ("32", "48", "64"))
-    self._row("Maximum steps", "direct_steps", "1536", ("512", "1024", "1536", "2048", "3072"))
+    self._row("Maximum steps", "direct_steps", "3072", ("1024", "1536", "2048", "3072", "4096"))
     self._row("Learning rate", "direct_lr", "0.001", ("0.0003", "0.001", "0.003"))
     self._row("Required edge recovery", "direct_edge_recovery", "0.50", ("0.35", "0.50", "0.70", "0.85"))
     self._row("Required global recovery", "direct_global_recovery", "0.25", ("0.10", "0.25", "0.50", "0.70"))
@@ -231,15 +231,15 @@ def _select_parallel(self: base.App, stage: base.Stage, status: str) -> None:
     self._clear_form()
     self._label_row("Authority", "DIAGNOSTIC ONLY — cannot create/promote a production final")
     self._label_row("Prerequisite", "Direct Residual Capacity must pass first")
-    self._label_row("Production change", "Detail candidate is independently anchored to deterministic B")
-    self._label_row("Selector evidence", "B + direct candidate + observable LR support + detail confidence/regret only")
-    self._label_row("Geometry/seam", "Still execute for audit/telemetry but cannot alter the direct-detail candidate")
+    self._label_row("Production change", "V12.5 structure/seam support is forced to zero for this proof, therefore fused U must equal direct D exactly")
+    self._label_row("Selector evidence", "B + isolated U(=D) + observable LR support + V12.5 fusion support/conflict")
+    self._label_row("Geometry/seam", "Execute in the production graph but have zero fusion authority during D integration qualification")
     self._label_row("Pass 1", "Direct detail candidate reaches the same 50% edge / 25% global recovery target")
-    self._label_row("Pass 2", "BenefitSelector retains at least 85% of both candidate recoveries")
+    self._label_row("Pass 2", "Production U equals D and BenefitSelector retains at least 85% of both recoveries")
     self._row("Shared cache", "cache", r"C:\CCP\EVE")
     self._row("Parallel LR tile", "parallel_tile", "32", ("32", "48", "64"))
-    self._row("Detail steps", "parallel_detail_steps", "1280", ("640", "960", "1280", "1600", "2048"))
-    self._row("Selector steps", "parallel_selector_steps", "384", ("128", "256", "384", "512", "768"))
+    self._row("Detail steps", "parallel_detail_steps", "3072", ("1280", "1536", "2048", "3072", "4096"))
+    self._row("Selector steps", "parallel_selector_steps", "512", ("128", "256", "384", "512", "768"))
     self._row("Required edge recovery", "parallel_edge_recovery", "0.50", ("0.35", "0.50", "0.70"))
     self._row("Required global recovery", "parallel_global_recovery", "0.25", ("0.10", "0.25", "0.50"))
     self._row("Required selector retention", "parallel_retention", "0.85", ("0.70", "0.85", "0.95"))
@@ -261,7 +261,7 @@ def _select_micro(self: base.App, stage: base.Stage, status: str) -> None:
     self._label_row("Prerequisite", "Direct Residual and Parallel Detail Integration should pass first")
     self._label_row("Model", "Exact production NSAMDR architecture + current production losses")
     self._label_row("Region", "Deterministic highest edge-energy authored Raven patch")
-    self._label_row("Probe", "geometry -> seam -> independent detail -> final selector authority")
+    self._label_row("Probe", "geometry -> seam -> independent detail -> fused candidate -> final selector authority")
     self._label_row("Epoch schedule", "Full production phase schedule on one repeated tiny patch")
     self._row("Shared cache", "cache", r"C:\CCP\EVE")
     self._row("Micro LR tile", "micro_tile", "32", ("32", "48", "64"))
@@ -273,7 +273,7 @@ def _select_micro(self: base.App, stage: base.Stage, status: str) -> None:
     self._check("Open final lightweight probe image", "open_result", True)
     self._label_row(
         "Output",
-        "A/B/G/D/F probe PNG + per-epoch candidate/gate metrics + MICRO_*_DIAGNOSTICS.zip",
+        "A/B/G/S/D/U/F probe PNG + per-epoch candidate/gate metrics + MICRO_*_DIAGNOSTICS.zip",
     )
 
 
