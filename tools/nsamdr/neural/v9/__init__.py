@@ -46,8 +46,9 @@ _local_boundary.install_local_boundary_model_contract()
 from . import authority_alignment_contract as _authority_alignment
 _authority_alignment.install_authority_alignment_model_contract()
 
-# B1b SGD is driven by the exact rendered structural candidate; historical proxy
-# geometry losses remain telemetry and cannot purchase a worse production render.
+# B1b keeps an exact deployed-render objective. V12.10 below restores direct
+# same-edge node/tangent supervision alongside it rather than replacing deployment
+# alignment with a proxy objective.
 from . import b1_production_objective_contract as _b1_production_objective
 _b1_production_objective.install_b1_production_objective_contract()
 
@@ -78,5 +79,29 @@ _parallel_specialist_fusion.install_parallel_specialist_fusion_contract()
 # loss wrapper.
 from . import parallel_specialist_training_contract as _parallel_specialist_training
 _parallel_specialist_training.install_parallel_specialist_training_contract()
+
+# V12.6 restores detail support-head supervision and sharpens specialist authority
+# before convex fusion so weak candidates cannot linearly dilute a stronger one.
+from . import parallel_specialist_arbitration_contract as _parallel_specialist_arbitration
+_parallel_specialist_arbitration.install_parallel_specialist_arbitration_contract()
+
+# V12.7 isolates support-head gradients from the direct-detail residual backbone,
+# derives support labels strictly from D-versus-B benefit, and makes B1b supervise
+# the exact deployed structure candidate G including structural residual authority.
+from . import parallel_specialist_training_isolation_contract as _parallel_training_isolation
+_parallel_training_isolation.install_parallel_specialist_training_isolation_contract()
+
+# V12.8 makes the independently qualified D candidate the fusion anchor. G/S only
+# contribute complementary low-conflict residuals where D support is weak, while
+# selector supervision explicitly respects V12.4 protected-B drift.
+from . import parallel_specialist_safety_contract as _parallel_specialist_safety
+_parallel_specialist_safety.install_parallel_specialist_safety_contract()
+
+# V12.10 restores the exact same-owning-edge spline node/tangent teacher as primary
+# B1 continuous-geometry authority while retaining the deployed B-relative G
+# objective. This changes training gradients only; inference/checkpoint topology is
+# unchanged.
+from . import parallel_specialist_geometry_training_contract as _parallel_geometry_training
+_parallel_geometry_training.install_parallel_specialist_geometry_training_contract()
 
 __all__ = ["V9Config", "FidelityResidualNetV9"]
