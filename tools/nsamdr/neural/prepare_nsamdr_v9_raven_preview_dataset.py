@@ -28,9 +28,10 @@ from v9.experiments import (
     DEFAULT_TUNING_ASSET_QUERY,
 )
 
-PREVIEW_DATASET_SCHEMA = "NSAMDR_RAVEN_DEVELOPMENT_DATASET_V2"
-PREVIEW_CROP_SCHEMA = "NSAMDR_RAVEN_DEVELOPMENT_CROP_V2"
-BUILDER_VERSION = "raven-feature-stratified-disjoint-v2"
+PREVIEW_DATASET_SCHEMA = "NSAMDR_RAVEN_DEVELOPMENT_DATASET_V3_NATIVE_4K"
+PREVIEW_CROP_SCHEMA = "NSAMDR_RAVEN_DEVELOPMENT_CROP_V3_NATIVE_4K"
+BUILDER_VERSION = "raven-native-4k-feature-stratified-disjoint-v3"
+RAVEN_MIN_AUTHORED_DIMENSION = 4096
 
 
 class RavenPreviewDatasetPreparationApplication:
@@ -47,6 +48,23 @@ class RavenPreviewDatasetPreparationApplication:
                 f"Raven matches: {near[:12]}"
             )
         return exact[0]
+
+    # Purpose: Implement authoritative rows for RavenPreviewDatasetPreparationApplication.
+    # Called by: prepare
+    # Calls: eve.read_rows
+    def _authoritative_rows(self, indexes: list[Path]) -> list[eve.ResourceRow]:
+        """Read prefetch first so the full index wins duplicate logical resources.
+
+        EVE's prefetch index can point at reduced-resolution stand-ins under the same
+        logical path as the full resource index. ``eve.read_rows`` is deliberately
+        last-write-wins, so feeding prefetch indexes first makes the authoritative
+        full ``resfileindex.txt`` row replace any prefetch duplicate.
+        """
+        ordered = sorted(
+            indexes,
+            key=lambda path: 0 if "prefetch" in path.name.lower() else 1,
+        )
+        return eve.read_rows(ordered)
 
     # Purpose: Implement load rgb for RavenPreviewDatasetPreparationApplication.
     # Called by: prepare
@@ -173,6 +191,154 @@ class RavenPreviewDatasetPreparationApplication:
             raise RuntimeError("Raven asset preparation produced no aligned albedo+normal texture family")
         return result
 
+    # Purpose: Implement manifest texture logical map for RavenPreviewDatasetPreparationApplication.
+    # Called by: _native_family_sources
+    # Calls: No same-class helper methods.
+    def _manifest_texture_logical_map(self, asset_manifest: dict[str, Any]) -> dict[str, str]:
+        """Map prepared PNG/local paths back to their authoritative EVE logical path."""
+        result: dict[str, str] = {}
+
+        def add(record: object) -> None:
+            if not isinstance(record, dict):
+                return
+            logical = str(record.get("logical") or "").strip().replace("\\", "/")
+            if not logical:
+                return
+            for field in ("converted", "local"):
+                raw = str(record.get(field) or "").strip()
+                if not raw:
+                    continue
+                result[str(Path(raw).resolve()).casefold()] = logical
+
+        sof_textures = asset_manifest.get("sofTextures")
+        if isinstance(sof_textures, dict):
+            for record in sof_textures.values():
+                add(record)
+        direct_textures = asset_manifest.get("textures")
+        if isinstance(direct_textures, dict):
+            for record in direct_textures.values():
+                add(record)
+        return result
+
+    # Purpose: Implement native family sources for RavenPreviewDatasetPreparationApplication.
+    # Called by: prepare
+    # Calls: _manifest_texture_logical_map
+    def _native_family_sources(
+        self,
+        repo_root: Path,
+        output_root: Path,
+        asset_manifest: dict[str, Any],
+        families: list[dict[str, Any]],
+        rows: list[eve.ResourceRow],
+        resfiles: Path,
+    ) -> list[dict[str, Any]]:
+        """Replace preview PNG authority with native full-index SharedCache DDS data.
+
+        ``prepare_asset`` is still used to resolve the exact SOF/faction texture
+        semantics, but its converted preview PNG may originate from the prefetch
+        index. The Raven training target must instead decode the same logical map
+        from the authoritative full index. Native outputs are keyed by the EVE
+        content-addressed resource id, so a new source can never reuse an old 1K
+        conversion merely because a preview filename stayed the same.
+        """
+        logical_by_prepared_path = self._manifest_texture_logical_map(asset_manifest)
+        rows_by_logical = {
+            row.logical.strip().replace("\\", "/").lower(): row
+            for row in rows
+        }
+        native_root = output_root / "native_authored_sources"
+        native_root.mkdir(parents=True, exist_ok=True)
+        dds_repository = authored_dataset.AuthoredTextureDatasetRepository()
+        converted_cache: dict[str, tuple[Path, tuple[int, int], eve.ResourceRow]] = {}
+
+        def resolve_native(raw: str, role: str, required_4k: bool) -> tuple[Path, dict[str, Any]]:
+            prepared_path = Path(raw).resolve()
+            logical = logical_by_prepared_path.get(str(prepared_path).casefold())
+            if logical is None and raw.strip().lower().startswith("res:/"):
+                logical = raw.strip().replace("\\", "/")
+            if not logical:
+                raise RuntimeError(
+                    f"Raven {role} source could not be mapped back to an EVE logical resource: {raw}"
+                )
+            row = rows_by_logical.get(logical.lower())
+            if row is None:
+                raise RuntimeError(
+                    f"Raven {role} logical resource is absent from the authoritative full index: {logical}"
+                )
+            cache_key = row.logical.lower()
+            cached = converted_cache.get(cache_key)
+            if cached is None:
+                source_path = resfiles / Path(row.hashed)
+                if not source_path.is_file():
+                    raise RuntimeError(
+                        f"Raven {role} native EVE resource is not local: {row.logical} -> {source_path}"
+                    )
+                width, height, _mips, _format = dds_repository.parse_dds_header(source_path)
+                if required_4k and min(width, height) < RAVEN_MIN_AUTHORED_DIMENSION:
+                    raise RuntimeError(
+                        f"Raven authored {role} authority must be native >=4K from the full EVE index; "
+                        f"resolved {width}x{height}: {row.logical}. Refusing to train on a prefetch/reduced source."
+                    )
+                identity = hashlib.sha256(
+                    f"{row.logical.lower()}|{row.hashed}".encode("utf-8")
+                ).hexdigest()[:24]
+                output_path = native_root / f"{identity}_{Path(row.logical).stem}.png"
+                eve.convert_dds(repo_root, source_path, output_path)
+                with Image.open(output_path) as converted:
+                    converted_size = (int(converted.width), int(converted.height))
+                if converted_size != (width, height):
+                    raise RuntimeError(
+                        f"Native Raven {role} decode changed authored dimensions for {row.logical}: "
+                        f"DDS={width}x{height}, PNG={converted_size[0]}x{converted_size[1]}"
+                    )
+                cached = (output_path, (width, height), row)
+                converted_cache[cache_key] = cached
+
+            output_path, (width, height), source_row = cached
+            if required_4k and min(width, height) < RAVEN_MIN_AUTHORED_DIMENSION:
+                raise RuntimeError(
+                    f"Raven authored {role} authority is below 4K: {width}x{height} {source_row.logical}"
+                )
+            return output_path, {
+                "logical": source_row.logical,
+                "hashed": source_row.hashed,
+                "indexFile": source_row.index_file,
+                "width": width,
+                "height": height,
+                "authority": "eve-full-index-native",
+            }
+
+        result: list[dict[str, Any]] = []
+        for family in families:
+            native = dict(family)
+            provenance: dict[str, Any] = {}
+            for role in ("albedo", "normal", "material", "roughnessMap", "glow"):
+                raw = str(family.get(role) or "").strip()
+                if not raw:
+                    continue
+                try:
+                    output_path, source = resolve_native(
+                        raw,
+                        role,
+                        required_4k=role in ("albedo", "normal"),
+                    )
+                except RuntimeError:
+                    if role in ("albedo", "normal"):
+                        raise
+                    # Auxiliary material maps may legitimately be absent from the
+                    # full installation. Keep the already-resolved semantic preview
+                    # map rather than fabricating supervision.
+                    provenance[role] = {
+                        "authority": "prepared-auxiliary-fallback",
+                        "path": raw,
+                    }
+                    continue
+                native[role] = str(output_path)
+                provenance[role] = source
+            native["sourceProvenance"] = provenance
+            result.append(native)
+        return result
+
     # Purpose: Implement sha256 file for RavenPreviewDatasetPreparationApplication.
     # Called by: _source_fingerprint
     # Calls: No same-class helper methods.
@@ -203,6 +369,7 @@ class RavenPreviewDatasetPreparationApplication:
                 "areaName": family.get("areaName", ""),
                 "areaType": family.get("areaType", ""),
                 "shaderFamily": family.get("shaderFamily", ""),
+                "sourceProvenance": family.get("sourceProvenance", {}),
             }
             files: dict[str, dict[str, Any]] = {}
             for role in ("albedo", "normal", "material", "roughnessMap", "glow"):
@@ -382,7 +549,7 @@ class RavenPreviewDatasetPreparationApplication:
 
     # Purpose: Implement prepare for RavenPreviewDatasetPreparationApplication.
     # Called by: main
-    # Calls: _detail_score, _find_navy_raven, _grid_positions, _load_rgb, _normal_rgb, _resize_rgb, _select_fixed_regions, _selection_fingerprint, _semantic_plane, _source_fingerprint, _texture_families_from_report
+    # Calls: _authoritative_rows, _detail_score, _find_navy_raven, _grid_positions, _load_rgb, _native_family_sources, _normal_rgb, _resize_rgb, _select_fixed_regions, _selection_fingerprint, _semantic_plane, _source_fingerprint, _texture_families_from_report
     def prepare(
         self,
         repo_root: Path,
@@ -398,9 +565,9 @@ class RavenPreviewDatasetPreparationApplication:
         manifest_path = (repo_root / config.dataset_manifest).resolve()
         crop_root = output_root / "crops"
 
-        cache_root, indexes, _resfiles = eve.resolve_layout(shared_cache, allow_prompt=False)
+        cache_root, indexes, resfiles = eve.resolve_layout(shared_cache, allow_prompt=False)
         print(f"[preview-dataset] EVE SharedCache: {cache_root}", flush=True)
-        rows = eve.read_rows(indexes)
+        rows = self._authoritative_rows(indexes)
         selected = self._find_navy_raven(rows, repo_root)
         print(
             f"[preview-dataset] Fixed asset: {selected.display_name} "
@@ -408,8 +575,9 @@ class RavenPreviewDatasetPreparationApplication:
             flush=True,
         )
 
-        # Reuse the real ship-preparation path so faction/SOF texture insertion is
-        # exactly the same as the public Mode 1/2/3 preview.
+        # Reuse the real ship-preparation path to resolve the exact SOF/faction
+        # texture semantics, then remap those logical resources to native full-index
+        # DDS files before any training crops are created.
         _obj, _albedo, _normal, _pgs, _env, _envs, _materials, asset_manifest_path, _catalog, _cache = eve.prepare_asset(
             repo_root,
             shared_cache,
@@ -419,6 +587,14 @@ class RavenPreviewDatasetPreparationApplication:
         asset_manifest = json.loads(asset_manifest_path.read_text(encoding="utf-8"))
         report_path = Path(str(asset_manifest.get("materialBaselineReport") or ""))
         families = self._texture_families_from_report(report_path, asset_manifest)
+        families = self._native_family_sources(
+            repo_root,
+            output_root,
+            asset_manifest,
+            families,
+            rows,
+            resfiles,
+        )
         source_fingerprint = self._source_fingerprint(asset_manifest, families)
 
         if not rebuild and manifest_path.is_file():
@@ -464,6 +640,17 @@ class RavenPreviewDatasetPreparationApplication:
             albedo = self._load_rgb(albedo_path)
             normal, normal_encoding = self._normal_rgb(normal_path)
             h, w = albedo.shape[:2]
+            normal_h, normal_w = normal.shape[:2]
+            if min(w, h) < RAVEN_MIN_AUTHORED_DIMENSION:
+                raise RuntimeError(
+                    f"Raven albedo training authority fell below native 4K after decode: "
+                    f"{w}x{h} {albedo_path}"
+                )
+            if min(normal_w, normal_h) < RAVEN_MIN_AUTHORED_DIMENSION:
+                raise RuntimeError(
+                    f"Raven normal training authority fell below native 4K after decode: "
+                    f"{normal_w}x{normal_h} {normal_path}"
+                )
             if normal.shape[:2] != (h, w):
                 normal = self._resize_rgb(normal, w, h)
 
@@ -542,7 +729,10 @@ class RavenPreviewDatasetPreparationApplication:
                     "materialEncoding": "canonical-material-emissive-roughness",
                     "normalEncoding": normal_encoding,
                     "materialSupervision": material_valid,
+                    "sourceAuthority": "native-4k-eve-full-index",
+                    "sourceProvenance": family.get("sourceProvenance", {}),
                     "sourceSize": [w, h],
+                    "normalSourceSize": [normal_w, normal_h],
                     "nonOverlappingGridCells": cell_count,
                 }
             )
@@ -604,6 +794,7 @@ class RavenPreviewDatasetPreparationApplication:
                 "overlapBetweenTrainAndValidation": False,
                 "normalEncoding": item["normalEncoding"],
                 "materialSupervision": item["materialValid"],
+                "sourceAuthority": "native-4k-eve-full-index",
             }
             np.savez_compressed(
                 destination,
@@ -657,6 +848,8 @@ class RavenPreviewDatasetPreparationApplication:
             "modelScope": "tuning",
             "fixedPreviewSet": True,
             "deterministic": True,
+            "authoredSourceAuthority": "native-4k-eve-full-index",
+            "minimumAuthoredDimension": RAVEN_MIN_AUTHORED_DIMENSION,
             "asset": {
                 "displayName": selected.display_name,
                 "typeId": selected.type_id,
@@ -667,7 +860,7 @@ class RavenPreviewDatasetPreparationApplication:
                 "assetManifest": str(asset_manifest_path),
             },
             "splitPolicy": {
-                "type": "feature-stratified-non-overlapping-512-grid-v2",
+                "type": "feature-stratified-non-overlapping-512-grid-v3-native-4k",
                 "detailStrata": 4,
                 "maxTrainCrops": train_crops,
                 "maxValidationCrops": validation_crops,
@@ -688,9 +881,10 @@ class RavenPreviewDatasetPreparationApplication:
         output_root.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print("=" * 64, flush=True)
-        print("NSAMDR RAVEN FEATURE-STRATIFIED DEVELOPMENT DATASET READY", flush=True)
+        print("NSAMDR RAVEN NATIVE-4K FEATURE-STRATIFIED DEVELOPMENT DATASET READY", flush=True)
         print(f"Asset                    : {selected.display_name}", flush=True)
         print(f"Selection                 : {selected.canonical_key}", flush=True)
+        print(f"Authored authority        : native EVE full-index >= {RAVEN_MIN_AUTHORED_DIMENSION}px", flush=True)
         print(f"Texture families          : {len(family_payloads)}", flush=True)
         print(
             f"Fixed train crops         : {payload['counts']['trainCrops']} (cap {train_crops})",
@@ -734,6 +928,7 @@ class RavenPreviewDatasetPreparationApplication:
 
 _raven_preview_dataset_preparation_application = RavenPreviewDatasetPreparationApplication()
 _find_navy_raven = _raven_preview_dataset_preparation_application._find_navy_raven
+_authoritative_rows = _raven_preview_dataset_preparation_application._authoritative_rows
 _load_rgb = _raven_preview_dataset_preparation_application._load_rgb
 _load_rgba = _raven_preview_dataset_preparation_application._load_rgba
 _semantic_plane = _raven_preview_dataset_preparation_application._semantic_plane
@@ -742,6 +937,8 @@ _normal_rgb = _raven_preview_dataset_preparation_application._normal_rgb
 _detail_score = _raven_preview_dataset_preparation_application._detail_score
 _grid_positions = _raven_preview_dataset_preparation_application._grid_positions
 _texture_families_from_report = _raven_preview_dataset_preparation_application._texture_families_from_report
+_manifest_texture_logical_map = _raven_preview_dataset_preparation_application._manifest_texture_logical_map
+_native_family_sources = _raven_preview_dataset_preparation_application._native_family_sources
 _sha256_file = _raven_preview_dataset_preparation_application._sha256_file
 _source_fingerprint = _raven_preview_dataset_preparation_application._source_fingerprint
 _selection_fingerprint = _raven_preview_dataset_preparation_application._selection_fingerprint
