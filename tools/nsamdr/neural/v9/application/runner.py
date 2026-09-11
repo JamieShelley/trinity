@@ -1,27 +1,28 @@
-"""Top-level canonical NSAMDR training application composed from small services."""
+"""Top-level SR-first Quick training application."""
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
 from ..config import V9Config
-from ..evolution import EvolutionaryRecoveryController
 from .backend import TrainingBackend
 from .clock import UtcClock
-from .configuration import ConfigResolver
+from .configuration import (
+    ConfigResolver,
+    assert_quick_stop_phase,
+    assert_sr_first_quick_config,
+)
 from .domain import ExperimentContext, TrainingOptions
 from .experiment import ExperimentRunSession, ExperimentService
-from .gates import QualificationGates, StagePlan
 from .pipeline import PassDrivenPipeline
 from .results import ResultWriter
-from .training_state import TrainingStateService
 
 
 class TrainingApplication:
-    """Compose allocation, evolution, staged training, and final lifecycle transitions."""
+    """Compose allocation, SR-first training, qualification, and final lifecycle transitions."""
 
     def __init__(self, options: TrainingOptions) -> None:
-        """Build lightweight application-wide services that do not allocate models.
+        """Build lightweight application-wide services.
 
         Purpose:
             Establish the composition root for one CLI process.
@@ -64,28 +65,25 @@ class TrainingApplication:
         return base_path, V9Config.load(base_path), V9Config.load(dataset_path)
 
     def _print_banner(self, context: ExperimentContext) -> None:
-        """Print the resolved immutable training work budget before expensive work.
+        """Print the resolved immutable SR-first work budget.
 
         Purpose:
-            Preserve the existing CLI/GUI startup summary in one presentation method.
+            Preserve the CLI/GUI startup summary without retired stage terminology.
         Called by:
             TrainingApplication.run().
         Calls:
             print().
         """
         print("=" * 72, flush=True)
-        print(
-            f"NSAMDR COMPLETE PRODUCTION MODEL - "
-            f"{self.options.training_mode.upper()} WORK BUDGET",
-            flush=True,
-        )
+        print("NSAMDR V13 SR-FIRST QUICK WORK BUDGET", flush=True)
         print(f"Experiment               : {context.experiment_id}", flush=True)
         print(
             f"Dataset manifest         : "
             f"{self.options.repo_root / context.config.dataset_manifest}",
             flush=True,
         )
-        print(f"Epochs                   : {context.config.total_epochs}", flush=True)
+        print(f"SR epochs                : {context.config.detail_epochs}", flush=True)
+        print(f"Selector epochs          : {context.config.physical_finetune_epochs}", flush=True)
         print(
             f"Tiles / validation       : "
             f"{context.config.tiles_per_epoch} / {context.config.validation_tiles}",
@@ -95,117 +93,36 @@ class TrainingApplication:
             f"Resolved config          : {context.directory / 'resolved_config.json'}",
             flush=True,
         )
-        print(
-            "Semantic model config    : production (identical for Quick and Full)",
-            flush=True,
-        )
+        print("Authority                : B -> SR candidate C -> BenefitSelector F", flush=True)
         print("=" * 72, flush=True)
 
-    def _build_evolution(self, context: ExperimentContext) -> EvolutionaryRecoveryController:
-        """Construct the training-only evolutionary controller for this experiment.
-
-        Purpose:
-            Keep Quick/Full population/microstep budget selection out of pipeline internals.
-        Called by:
-            TrainingApplication.run().
-        Calls:
-            EvolutionaryRecoveryController().
-        """
-        return EvolutionaryRecoveryController(
-            repo_root=self.options.repo_root,
-            experiment_dir=context.directory,
-            config=context.config,
-            device=self.options.device,
-            population=4 if self.options.training_mode == "quick" else 6,
-            micro_steps=3 if self.options.training_mode == "quick" else 5,
-            max_recoveries=2,
-        )
-
-    def _run_discovery(
-        self,
-        context: ExperimentContext,
-        evolution: EvolutionaryRecoveryController,
-    ) -> int:
-        """Run bounded pre-training capacity discovery and persist rejection on failure.
-
-        Purpose:
-            Prevent expensive training when no local-boundary genome passes the real Raven microproof.
-        Called by:
-            TrainingApplication.run().
-        Calls:
-            EvolutionaryRecoveryController.discover_before_training(), ExperimentService.reject().
-        """
-        discovery = evolution.discover_before_training()
-        if not discovery.passed:
-            code = self.experiments.reject(
-                context,
-                phase="evolution-capacity-microproof",
-                gate_label="real Raven local-boundary capacity",
-                metadata={},
-            )
-            self.results.write(
-                {
-                    "experiment": context.experiment_id,
-                    "directory": str(context.directory),
-                    "trainingMode": self.options.training_mode,
-                    "status": "training-rejected",
-                    "failedStage": "evolution-capacity-microproof",
-                    "evolutionReport": str(context.directory / "evolution"),
-                }
-            )
-            print(
-                "[evolution] no candidate passed after two bounded generations; "
-                "expensive training was not started.",
-                flush=True,
-            )
-            return code
-
-        print(
-            f"[evolution] capacity microproof PASS; candidate genome="
-            f"{discovery.winner.fingerprint()[:12]} "
-            "(not production-locked until B1/B2 passes)",
-            flush=True,
-        )
-        return 0
-
-    def _build_pipeline(
-        self,
-        evolution: EvolutionaryRecoveryController,
-    ) -> PassDrivenPipeline:
-        """Compose the pass-driven production pipeline and its explicit collaborators.
+    def _build_pipeline(self) -> PassDrivenPipeline:
+        """Compose the current two-stage SR-first production pipeline.
 
         Purpose:
             Keep application construction separate from pipeline execution.
         Called by:
             TrainingApplication._run_training().
         Calls:
-            TrainingBackend(), QualificationGates(), StagePlan(),
-            TrainingStateService(), PassDrivenPipeline().
+            TrainingBackend(), PassDrivenPipeline().
         """
-        backend = TrainingBackend()
-        gates = QualificationGates()
-        stages = StagePlan(gates)
-        state = TrainingStateService(gates)
         return PassDrivenPipeline(
-            backend=backend,
-            gates=gates,
-            stages=stages,
-            state=state,
+            backend=TrainingBackend(),
             experiments=self.experiments,
-            evolution=evolution,
             options=self.options,
         )
 
     def _run_diagnostic_stage(self, context: ExperimentContext) -> dict[str, Any]:
-        """Run the hidden/manual single-stage trainer invocation.
+        """Run the only supported hidden stage stop: SR detail reconstruction.
 
         Purpose:
-            Preserve diagnostic stop-after-phase behaviour outside the pass-driven pipeline.
+            Preserve useful diagnostic stopping without exposing retired curricula.
         Called by:
             TrainingApplication._run_training().
         Calls:
-            TrainingBackend.run().
+            assert_quick_stop_phase(), TrainingBackend.run().
         """
+        assert_quick_stop_phase(self.options.stop_after_phase)
         backend = TrainingBackend()
         return backend.run(
             context.config,
@@ -217,28 +134,22 @@ class TrainingApplication:
             stop_after_phase=self.options.stop_after_phase,
         )
 
-    def _run_training(
-        self,
-        context: ExperimentContext,
-        evolution: EvolutionaryRecoveryController,
-    ) -> tuple[dict[str, Any], int]:
-        """Choose diagnostic single-stage or complete pass-driven production training.
+    def _run_training(self, context: ExperimentContext) -> tuple[dict[str, Any], int]:
+        """Choose diagnostic detail-only execution or complete SR-first training.
 
         Purpose:
-            Give run() one small training operation independent of stage mechanics.
+            Give run() one small training operation independent of trainer mechanics.
         Called by:
             TrainingApplication.run().
         Calls:
-            TrainingApplication._run_diagnostic_stage(), TrainingApplication._build_pipeline(),
-            PassDrivenPipeline.run().
+            TrainingApplication._run_diagnostic_stage(), _build_pipeline(), PassDrivenPipeline.run().
         """
         if self.options.stop_after_phase is not None:
             return self._run_diagnostic_stage(context), 0
 
-        pipeline = self._build_pipeline(evolution)
-        metadata, code = pipeline.run(context)
+        metadata, code = self._build_pipeline().run(context)
         if metadata is None and code == 0:
-            raise RuntimeError("pass-driven trainer returned no final metadata")
+            raise RuntimeError("SR-first trainer returned no final metadata")
         return metadata or {}, code
 
     def _handle_stage_pause(
@@ -246,10 +157,10 @@ class TrainingApplication:
         context: ExperimentContext,
         metadata: dict[str, Any],
     ) -> bool:
-        """Persist and report a reached hidden diagnostic stage stop.
+        """Persist and report a reached detail-reconstruction diagnostic stop.
 
         Purpose:
-            Stop normal finalisation when the user explicitly requested a staged pause.
+            Stop normal finalisation when detail-only execution was explicitly requested.
         Called by:
             TrainingApplication.run().
         Calls:
@@ -264,7 +175,7 @@ class TrainingApplication:
         return True
 
     def _finalise(self, context: ExperimentContext) -> int:
-        """Finalise a successful training application run.
+        """Finalise a successful SR-first training application run.
 
         Purpose:
             Leave the experiment in trained-pending-qualification exactly once.
@@ -277,41 +188,37 @@ class TrainingApplication:
         return 0
 
     def run(self) -> int:
-        """Execute the complete canonical training application lifecycle.
+        """Execute the canonical V13 SR-first Quick application lifecycle.
 
         Purpose:
-            Provide a readable top-level flow: config -> experiment -> discovery -> training -> finalise.
+            Provide one readable flow: config -> experiment -> SR C -> selector F -> finalise.
         Called by:
             application.main().
         Calls:
-            TrainingApplication._load_configs(), _print_banner(), _build_evolution(),
-            _run_discovery(), _run_training(), _handle_stage_pause(), _finalise(),
-            ExperimentService.allocate_or_resume(), ExperimentService.mark_allocated_only(),
-            ExperimentRunSession.
+            TrainingApplication helpers, ExperimentService.allocate_or_resume(), ExperimentRunSession.
         """
+        if str(self.options.training_mode).lower() != "quick":
+            raise RuntimeError(
+                "Full Training is disabled until it is converted to the V13 SR-first authority."
+            )
+
         base_path, base, dataset_config = self._load_configs()
         context = self.experiments.allocate_or_resume(
             base_path,
             base,
             dataset_config,
         )
+        assert_sr_first_quick_config(context.config)
+
         if self.options.allocate_only:
             self.experiments.mark_allocated_only(context)
             return 0
 
         self._print_banner(context)
-        evolution = self._build_evolution(context)
-
         with ExperimentRunSession(self.experiments, context):
-            discovery_code = self._run_discovery(context, evolution)
-            if discovery_code != 0:
-                return discovery_code
-
-            metadata, pipeline_code = self._run_training(context, evolution)
+            metadata, pipeline_code = self._run_training(context)
             if pipeline_code != 0:
                 return pipeline_code
-
             if self._handle_stage_pause(context, metadata):
                 return 0
-
             return self._finalise(context)

@@ -1,4 +1,4 @@
-"""Quick/Full configuration resolution for one canonical production model."""
+"""Current SR-first Quick configuration resolution."""
 from __future__ import annotations
 
 import copy
@@ -31,39 +31,112 @@ CANONICAL_SEMANTIC_OVERRIDES: dict[str, Any] = {
     "preview_allow_unqualified_downstream": False,
 }
 
-QUICK_WORK_BUDGET: dict[str, int] = {
-    # Quick uses one B1a topology epoch, then two B1b epochs. The trainer keeps
-    # the first B1b epoch as its 14-tile fail-fast smoke and the second consumes
-    # the complete 64-tile authored-Raven Quick bank before the strict C > B
-    # verdict. This preserves fail-fast semantics without asking a 17M-parameter
-    # production geometry path to generalise from only fourteen batch-size-1 tiles.
-    "identity_epochs": 1,
-    "residual_epochs": 2,
-    "seam_proof_epochs": 1,
-    "seam_authority_epochs": 1,
-    "boundary_epochs": 1,
-    "detail_epochs": 1,
-    "physical_finetune_epochs": 1,
-    "tiles_per_epoch": 64,
-    "validation_tiles": 8,
-    "raven_downstream_tiles_per_epoch": 16,
-    "parametric_primitive_train_tiles_per_epoch": 14,
+# The only supported training workflow is V13.2 SR-first Quick:
+# deterministic B -> learned multi-map SR candidate C -> BenefitSelector -> F.
+QUICK_WORK_BUDGET: dict[str, int | float] = {
+    "identity_epochs": 0,
+    "residual_epochs": 0,
+    "seam_proof_epochs": 0,
+    "seam_authority_epochs": 0,
+    "boundary_epochs": 0,
+    "detail_epochs": 8,
+    "physical_finetune_epochs": 3,
+    "tiles_per_epoch": 384,
+    "validation_tiles": 32,
+    "raven_downstream_tiles_per_epoch": 384,
+    "tile_size": 32,
+    "batch_size": 1,
+    "detail_albedo_max_delta": 0.40,
+    "detail_recovery_required": 0.40,
+    "detail_gradient_recovery_required": 0.30,
+    "detail_win_fraction_required": 0.60,
+    "detail_regression_fraction_max": 0.25,
+    "detail_learning_rate": 1.0e-3 / 3.0,
+    "finetune_learning_rate": 1.0e-3 / 20.0,
+    "weight_decay": 0.0,
 }
 
-FULL_MINIMUM_WORK_BUDGET: dict[str, int] = {
-    "identity_epochs": 12,
-    "residual_epochs": 1,
-    "seam_proof_epochs": 3,
-    "seam_authority_epochs": 2,
-    "boundary_epochs": 2,
-    "detail_epochs": 5,
-    "physical_finetune_epochs": 3,
-    "raven_downstream_tiles_per_epoch": 128,
-}
+_ALLOWED_QUICK_STOP_PHASES = {None, "detail-reconstruction"}
+
+
+def is_sr_first_quick_config(config: V9Config) -> bool:
+    """Return whether a config has the current SR-first Quick stage schedule.
+
+    Purpose:
+        Identify the only training schedule that the current application supports.
+    Called by:
+        assert_sr_first_quick_config(), V13.2 representative validation.
+    Calls:
+        No project functions.
+    """
+    return bool(
+        int(config.identity_epochs) == 0
+        and int(config.residual_epochs) == 0
+        and int(config.seam_proof_epochs) == 0
+        and int(config.seam_authority_epochs) == 0
+        and int(config.boundary_epochs) == 0
+        and int(config.detail_epochs) > 0
+        and int(config.physical_finetune_epochs) > 0
+        and float(config.detail_albedo_max_delta) >= 0.40 - 1.0e-8
+    )
+
+
+def assert_sr_first_quick_config(config: V9Config) -> None:
+    """Fail closed when a persisted experiment predates the current Quick contract.
+
+    Purpose:
+        Prevent old geometry/profile/seam schedules or stale optimizer scales from resuming.
+    Called by:
+        TrainingApplication.run().
+    Calls:
+        is_sr_first_quick_config().
+    """
+    if not is_sr_first_quick_config(config):
+        raise RuntimeError(
+            "Pre-V13.2 Quick schedules are retired; allocate a new SR-first Quick experiment."
+        )
+
+    expected = {
+        "tile_size": 32,
+        "batch_size": 1,
+        "detail_learning_rate": 1.0e-3 / 3.0,
+        "finetune_learning_rate": 1.0e-3 / 20.0,
+        "weight_decay": 0.0,
+    }
+    mismatches: list[str] = []
+    for name, value in expected.items():
+        actual = getattr(config, name)
+        if isinstance(value, float):
+            if abs(float(actual) - value) > 1.0e-12:
+                mismatches.append(f"{name}={actual!r} expected {value!r}")
+        elif int(actual) != int(value):
+            mismatches.append(f"{name}={actual!r} expected {value!r}")
+    if mismatches:
+        raise RuntimeError(
+            "Quick experiment does not use the proven V13 SR training regime: "
+            + "; ".join(mismatches)
+        )
+
+
+def assert_quick_stop_phase(phase: str | None) -> None:
+    """Reject hidden requests for retired geometry/profile/seam training phases.
+
+    Purpose:
+        Keep the command-line diagnostic surface aligned with the active SR-only trainer.
+    Called by:
+        TrainingApplication._run_diagnostic_stage().
+    Calls:
+        No project functions.
+    """
+    if phase not in _ALLOWED_QUICK_STOP_PHASES:
+        raise RuntimeError(
+            f"stop-after phase {phase!r} was retired by V13.2; "
+            "only detail-reconstruction is available."
+        )
 
 
 class ConfigResolver:
-    """Resolve Quick/Full work budgets while preserving production semantics."""
+    """Resolve the one supported SR-first Quick work budget."""
 
     def _set_values(self, config: V9Config, values: dict[str, Any]) -> None:
         """Assign validated named fields to one mutable V9Config.
@@ -80,66 +153,46 @@ class ConfigResolver:
                 raise RuntimeError(f"canonical workflow references unknown config field: {key}")
             setattr(config, key, value)
 
-    def _full_budget(self, resolved: V9Config) -> dict[str, int]:
-        """Build the Full minimum-work overlay from the production config.
-
-        Purpose:
-            Preserve larger production budgets while retaining the retired one-slot residual minimum.
-        Called by:
-            ConfigResolver.resolve_overrides().
-        Calls:
-            No project functions.
-        """
-        values = {
-            field: max(int(getattr(resolved, field)), minimum)
-            for field, minimum in FULL_MINIMUM_WORK_BUDGET.items()
-        }
-        values["residual_epochs"] = 1
-        return values
-
     def resolve_overrides(
         self,
         options: TrainingOptions,
         base: V9Config,
         dataset_config: V9Config,
     ) -> dict[str, Any]:
-        """Calculate the immutable experiment override set for Quick or Full.
+        """Calculate the immutable override set for current SR-first Quick training.
 
         Purpose:
-            Reproduce the canonical entry script's exact semantic/work-budget resolution.
+            Remove retired Quick/Full curricula from application configuration.
         Called by:
-            ExperimentService.allocate_or_resume().
+            ExperimentService._allocate_new().
         Calls:
-            ConfigResolver._set_values(), ConfigResolver._full_budget(),
-            V9Config.apply_performance_profile(), V9Config.validate().
+            ConfigResolver._set_values(), V9Config.apply_performance_profile(), V9Config.validate().
         """
-        resolved = copy.deepcopy(base)
-        if options.training_mode == "quick":
-            self._set_values(
-                resolved,
-                {field: getattr(dataset_config, field) for field in DATASET_SCOPE_FIELDS},
+        if str(options.training_mode).lower() != "quick":
+            raise RuntimeError(
+                "Full Training is disabled until it is converted to the V13 SR-first authority."
             )
+
+        resolved = copy.deepcopy(base)
+        self._set_values(
+            resolved,
+            {field: getattr(dataset_config, field) for field in DATASET_SCOPE_FIELDS},
+        )
         self._set_values(resolved, CANONICAL_SEMANTIC_OVERRIDES)
 
-        if options.training_mode == "quick":
-            self._set_values(resolved, QUICK_WORK_BUDGET)
-        else:
-            self._set_values(resolved, self._full_budget(resolved))
+        resolved.apply_performance_profile(options.performance_profile)
+        self._set_values(resolved, QUICK_WORK_BUDGET)
 
-        resolved.parametric_primitive_train_tiles_per_epoch = max(
-            int(getattr(resolved, "parametric_primitive_batch_size", 14)),
-            14,
-        )
         if options.tiles_per_epoch is not None:
             resolved.tiles_per_epoch = max(1, int(options.tiles_per_epoch))
         if options.validation_tiles is not None:
-            resolved.validation_tiles = max(1, int(options.validation_tiles))
+            resolved.validation_tiles = max(32, int(options.validation_tiles))
 
-        resolved.apply_performance_profile(options.performance_profile)
         resolved.data_loader_workers = max(0, int(options.workers))
         resolved.data_loader_prefetch_factor = max(1, int(options.prefetch_factor))
         resolved.amp_dtype = options.amp_precision
         resolved.validate()
+        assert_sr_first_quick_config(resolved)
 
         base_payload = base.to_dict()
         resolved_payload = resolved.to_dict()

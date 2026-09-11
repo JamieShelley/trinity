@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from ..config import V9Config
 
@@ -44,12 +43,3 @@ class ExperimentContext:
     asset_name: str
     asset_query: str
     selection_key: str
-
-
-@dataclass(frozen=True)
-class StageDefinition:
-    """One pass-driven production stage and its promotion gate."""
-
-    phase: str
-    gate_label: str
-    gate: Any
