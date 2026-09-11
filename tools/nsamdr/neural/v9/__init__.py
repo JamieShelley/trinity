@@ -1,9 +1,9 @@
-"""NSAMDR V9 production package."""
+"""NSAMDR V9 production package.
 
-# Install the active model/training contracts in dependency order. Historical names
-# remain only where the current V13 checkpoint/model stack still depends on them.
-from .edge_constrained_spline_contract import install_edge_constrained_spline_contract
-install_edge_constrained_spline_contract()
+Install the active compatibility/model contracts in dependency order, then the V13
+SR-first authority. Historical modules remain only where V13 still depends on their
+checkpoint/model behaviour; retired launchers are not imported here.
+"""
 
 from .local_boundary_production_contract import install_local_boundary_production_contract
 install_local_boundary_production_contract()
@@ -40,8 +40,10 @@ install_parallel_specialist_training_isolation_contract()
 from .parallel_specialist_safety_contract import install_parallel_specialist_safety_contract
 install_parallel_specialist_safety_contract()
 
-from .v1210_geometry_training_contract import install_v1210_geometry_training_contract
-install_v1210_geometry_training_contract()
+from .parallel_specialist_geometry_training_contract import (
+    install_parallel_specialist_geometry_training_contract,
+)
+install_parallel_specialist_geometry_training_contract()
 
 from .sr_first_contract import install_sr_first_contract
 install_sr_first_contract()
