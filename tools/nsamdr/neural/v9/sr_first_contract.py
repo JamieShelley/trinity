@@ -26,8 +26,10 @@ from .model import FidelityResidualNetV9, GeometryConditionedDetailNet
 from . import parallel_detail_contract as v123
 
 
-SR_FIRST_REVISION = "V13.0"
+SR_FIRST_REVISION = "V13.2"
 SR_LAPLACIAN_WEIGHT = 3.0
+SR_PYRAMID_WEIGHT = 4.0
+SR_GRID_EXCESS_WEIGHT = 8.0
 SR_NORMAL_GLOBAL_WEIGHT = 3.0
 SR_NORMAL_EDGE_WEIGHT = 4.0
 SR_MATERIAL_GLOBAL_WEIGHT = 3.0
@@ -286,6 +288,80 @@ def _laplacian(value: torch.Tensor) -> torch.Tensor:
     )
 
 
+def _area_downsample(value: torch.Tensor, scale: int) -> torch.Tensor:
+    """Downsample without introducing a sharpening kernel into the SR objective."""
+    if int(scale) <= 1:
+        return value.float()
+    height = max(1, int(value.shape[-2]) // int(scale))
+    width = max(1, int(value.shape[-1]) // int(scale))
+    return F.interpolate(value.float(), size=(height, width), mode="area")
+
+
+def _pyramid_l1(
+    candidate: torch.Tensor,
+    target: torch.Tensor,
+    scales: tuple[int, ...] = (2, 4),
+) -> torch.Tensor:
+    """Require reconstruction agreement below the single-pixel objective scale."""
+    terms: list[torch.Tensor] = []
+    for scale in scales:
+        if int(scale) <= 1 or min(int(candidate.shape[-2]), int(candidate.shape[-1])) < int(scale):
+            continue
+        terms.append(
+            (_area_downsample(candidate, scale) - _area_downsample(target, scale)).abs().mean()
+        )
+    if not terms:
+        return candidate.new_zeros(())
+    return torch.stack(terms).mean()
+
+
+def _grid_excess(
+    candidate: torch.Tensor,
+    target: torch.Tensor,
+    stride: int,
+) -> torch.Tensor:
+    """Penalise candidate-only discontinuities on the LR->HR lattice boundaries.
+
+    A genuine authored edge is allowed because only gradient energy above the target
+    at exact upscale-cell boundaries is penalised. This prevents the residual head
+    from making the deterministic baseline visibly more blocky while preserving
+    real target structure that happens to cross the same boundary.
+    """
+    stride = max(1, int(stride))
+    if stride <= 1 or candidate.shape[-2] < 2 or candidate.shape[-1] < 2:
+        return candidate.new_zeros(())
+
+    candidate_dx = (
+        candidate[..., 1:] - candidate[..., :-1]
+    ).abs().mean(dim=1, keepdim=True)
+    target_dx = (
+        target[..., 1:] - target[..., :-1]
+    ).abs().mean(dim=1, keepdim=True)
+    candidate_dy = (
+        candidate[:, :, 1:, :] - candidate[:, :, :-1, :]
+    ).abs().mean(dim=1, keepdim=True)
+    target_dy = (
+        target[:, :, 1:, :] - target[:, :, :-1, :]
+    ).abs().mean(dim=1, keepdim=True)
+
+    x_boundary = (
+        (torch.arange(candidate_dx.shape[-1], device=candidate.device) + 1) % stride == 0
+    ).to(candidate.dtype).view(1, 1, 1, -1)
+    y_boundary = (
+        (torch.arange(candidate_dy.shape[-2], device=candidate.device) + 1) % stride == 0
+    ).to(candidate.dtype).view(1, 1, -1, 1)
+    x_weight = x_boundary.expand(
+        candidate_dx.shape[0], 1, candidate_dx.shape[-2], candidate_dx.shape[-1]
+    )
+    y_weight = y_boundary.expand(
+        candidate_dy.shape[0], 1, candidate_dy.shape[-2], candidate_dy.shape[-1]
+    )
+
+    x_excess = _weighted_mean(F.relu(candidate_dx - target_dx), x_weight)
+    y_excess = _weighted_mean(F.relu(candidate_dy - target_dy), y_weight)
+    return 0.5 * (x_excess + y_excess)
+
+
 def _target_material(
     batch: dict[str, torch.Tensor],
     config: Any,
@@ -346,6 +422,9 @@ def _loss_with_sr_first_training(
         (_laplacian(candidate_gray) - _laplacian(target_gray)).abs(),
         edge_weight,
     )
+    pyramid = _pyramid_l1(candidate_albedo, target_albedo)
+    target_scale = max(1, int(getattr(config, "target_scale", 4)))
+    grid_excess = _grid_excess(candidate_albedo, target_albedo, target_scale)
 
     cap = float(getattr(config, "detail_albedo_max_delta", 0.20))
     desired_residual = (target_albedo.detach() - baseline_albedo).clamp(-cap, cap)
@@ -370,6 +449,8 @@ def _loss_with_sr_first_training(
     losses["sr_albedo_edge"] = albedo_edge
     losses["sr_gradient"] = gradient
     losses["sr_laplacian"] = laplacian
+    losses["sr_pyramid"] = pyramid
+    losses["sr_grid_excess"] = grid_excess
     losses["sr_regret"] = regret
     losses["sr_residual_supervision"] = residual_supervision
     losses["sr_normal_global"] = normal_global
@@ -389,6 +470,8 @@ def _loss_with_sr_first_training(
         + albedo_edge * 12.0
         + gradient * 5.0
         + laplacian * float(SR_LAPLACIAN_WEIGHT)
+        + pyramid * float(SR_PYRAMID_WEIGHT)
+        + grid_excess * float(SR_GRID_EXCESS_WEIGHT)
         + regret * 16.0
         + residual_supervision * 8.0
         + normal_global * float(SR_NORMAL_GLOBAL_WEIGHT)
@@ -414,6 +497,9 @@ def _architecture_contract_sr_first(
     contract["srConditioning"] = (
         "LR-observable contour SDF, luma gradients, normal/material edges and curvature only; "
         "learned G/profile/seam cannot alter the SR candidate"
+    )
+    contract["srArtifactRegularisation"] = (
+        "multi-scale area reconstruction + target-relative upscale-lattice excess penalty"
     )
     contract["specialistComposition"] = {
         "candidate": "C = B + bounded SR residual",
