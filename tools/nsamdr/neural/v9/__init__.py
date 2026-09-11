@@ -1,58 +1,94 @@
-"""NSAMDR V9 production package.
+"""NSAMDR production package and executable architecture-contract installation."""
+from .config import V9Config
+from .model import FidelityResidualNetV9
+from . import model as _model
+from . import edge_constrained_spline_graph as _edge_constrained_spline
 
-Install the active compatibility/model contracts in dependency order, then the V13
-SR-first authority. Historical modules remain only where V13 still depends on their
-checkpoint/model behaviour; retired launchers are not imported here.
-"""
+# V11.6 owns same-edge topology safety and must install before the local production
+# contract captures the spline/loss callables it extends.
+_edge_constrained_spline.install()
 
-from .local_boundary_production_contract import install_local_boundary_production_contract
-install_local_boundary_production_contract()
+from . import local_boundary_production_contract as _local_boundary
+_edge_constrained_spline.install_schema(_local_boundary)
 
-from .authority_alignment_contract import install_authority_alignment_contract
-install_authority_alignment_contract()
-
-from .b1_production_objective_contract import install_b1_production_objective_contract
-install_b1_production_objective_contract()
-
-from .parallel_detail_contract import install_parallel_detail_contract
-install_parallel_detail_contract()
-
-from .parallel_detail_optimization_contract import install_parallel_detail_optimization_contract
-install_parallel_detail_optimization_contract()
-
-from .baseline_relative_specialist_contract import install_baseline_relative_specialist_contract
-install_baseline_relative_specialist_contract()
-
-from .parallel_specialist_fusion_contract import install_parallel_specialist_fusion_contract
-install_parallel_specialist_fusion_contract()
-
-from .parallel_specialist_training_contract import install_parallel_specialist_training_contract
-install_parallel_specialist_training_contract()
-
-from .parallel_specialist_arbitration_contract import install_parallel_specialist_arbitration_contract
-install_parallel_specialist_arbitration_contract()
-
-from .parallel_specialist_training_isolation_contract import (
-    install_parallel_specialist_training_isolation_contract,
+# The local-boundary owner exposes selected unbound class functions as extension
+# methods. Keep Python descriptor binding explicit: model methods receive the model
+# instance, while training-module callbacks remain normal module callables.
+_local_boundary._geometry_init = _local_boundary.LocalBoundaryProductionContract._geometry_init
+_local_boundary._geometry_encode = _local_boundary.LocalBoundaryProductionContract._geometry_encode
+_local_boundary._geometry_forward = _local_boundary.LocalBoundaryProductionContract._geometry_forward
+_local_boundary._geometry_query_from_outputs = (
+    _local_boundary.LocalBoundaryProductionContract._geometry_query_from_outputs
 )
-install_parallel_specialist_training_isolation_contract()
-
-from .parallel_specialist_safety_contract import install_parallel_specialist_safety_contract
-install_parallel_specialist_safety_contract()
-
-from .parallel_specialist_geometry_training_contract import (
-    install_parallel_specialist_geometry_training_contract,
+_local_boundary._set_phase = _local_boundary.LocalBoundaryProductionContract._set_phase
+_local_boundary._set_parametric_substage = (
+    _local_boundary.LocalBoundaryProductionContract._set_parametric_substage
 )
-install_parallel_specialist_geometry_training_contract()
+_local_boundary._architecture_contract = (
+    _local_boundary.LocalBoundaryProductionContract._architecture_contract
+)
 
-from .sr_first_contract import install_sr_first_contract
-install_sr_first_contract()
+# These helpers intentionally receive GeometryNet explicitly rather than binding as
+# instance methods; changing that calling convention would alter the production path.
+_model.GeometryNet._require_current_v11_instance = staticmethod(
+    _local_boundary._local_boundary_production_contract._require_current_v11_instance
+)
+_model.GeometryNet._geometry_encode = staticmethod(
+    _local_boundary.LocalBoundaryProductionContract._geometry_encode
+)
 
-from .sr_first_quality_contract import install_sr_first_quality_contract
-install_sr_first_quality_contract()
+# V13 keeps the historical modules checkpoint-loadable, but only the SR candidate has
+# deployed pixel authority. Install the model compatibility stack before V13 captures
+# the production forward/loss callables it wraps.
+_local_boundary.install_local_boundary_model_contract()
 
-from .sr_first_quick_config_contract import install_sr_first_quick_config_contract
-install_sr_first_quick_config_contract()
+from . import authority_alignment_contract as _authority_alignment
+_authority_alignment.install_authority_alignment_model_contract()
 
-from .sr_first_generalization_contract import install_sr_first_generalization_contract
-install_sr_first_generalization_contract()
+from . import b1_production_objective_contract as _b1_production_objective
+_b1_production_objective.install_b1_production_objective_contract()
+
+from . import parallel_detail_contract as _parallel_detail
+_parallel_detail.install_parallel_detail_contract()
+
+from . import parallel_detail_optimization_contract as _parallel_detail_optimization
+_parallel_detail_optimization.install_parallel_detail_optimization_contract()
+
+from . import baseline_relative_specialist_contract as _baseline_relative_specialists
+_baseline_relative_specialists.install_baseline_relative_specialist_contract()
+
+from . import parallel_specialist_fusion_contract as _parallel_specialist_fusion
+_parallel_specialist_fusion.install_parallel_specialist_fusion_contract()
+
+from . import parallel_specialist_training_contract as _parallel_specialist_training
+_parallel_specialist_training.install_parallel_specialist_training_contract()
+
+from . import parallel_specialist_arbitration_contract as _parallel_specialist_arbitration
+_parallel_specialist_arbitration.install_parallel_specialist_arbitration_contract()
+
+from . import parallel_specialist_training_isolation_contract as _parallel_training_isolation
+_parallel_training_isolation.install_parallel_specialist_training_isolation_contract()
+
+from . import parallel_specialist_safety_contract as _parallel_specialist_safety
+_parallel_specialist_safety.install_parallel_specialist_safety_contract()
+
+from . import parallel_specialist_geometry_training_contract as _parallel_geometry_training
+_parallel_geometry_training.install_parallel_specialist_geometry_training_contract()
+
+# V13 production authority: deterministic B -> direct multi-map SR candidate C ->
+# BenefitSelector F. Geometry/profile/seam remain compatibility/evidence only.
+from . import sr_first_contract as _sr_first
+_sr_first.install_sr_first_contract()
+
+from . import sr_first_quality_contract as _sr_first_quality
+_sr_first_quality.install_sr_first_quality_contract()
+
+# V13.2 allows the canonical Quick schedule to set retired stage epochs to zero and
+# adds representative held-out Raven qualification around the same production model.
+from . import sr_first_quick_config_contract as _sr_first_quick_config
+_sr_first_quick_config.install_sr_first_quick_config_contract()
+
+from . import sr_first_generalization_contract as _sr_first_generalization
+_sr_first_generalization.install_sr_first_generalization_contract()
+
+__all__ = ["V9Config", "FidelityResidualNetV9"]
