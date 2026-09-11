@@ -104,4 +104,16 @@ _parallel_specialist_safety.install_parallel_specialist_safety_contract()
 from . import parallel_specialist_geometry_training_contract as _parallel_geometry_training
 _parallel_geometry_training.install_parallel_specialist_geometry_training_contract()
 
+# V13 pivots production authority to direct multi-map super-resolution over
+# deterministic B. Legacy geometry/profile/seam specialists remain available as
+# diagnostics/evidence but cannot paint the deployed candidate or final image.
+from . import sr_first_contract as _sr_first
+_sr_first.install_sr_first_contract()
+
+# V13.1 raises albedo SR headroom after the first visual proof saturated V13's 0.20
+# residual cap. The same contract publishes the stricter visual qualification used
+# by Test 3; no parameter, checkpoint or input topology changes are introduced.
+from . import sr_first_quality_contract as _sr_first_quality
+_sr_first_quality.install_sr_first_quality_contract()
+
 __all__ = ["V9Config", "FidelityResidualNetV9"]

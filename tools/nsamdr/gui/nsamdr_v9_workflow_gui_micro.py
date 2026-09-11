@@ -48,12 +48,12 @@ _parallel = base.Stage(
 _micro = base.Stage(
     "micro",
     "3",
-    "Raven Staged Micro",
+    "V13 SR Visual Fidelity",
     ("raven-micro",),
     (
-        "V12.9 hard-gated qualification ladder on one deterministic edge-dense Raven region. "
-        "G topology/geometry, rendered structure, profile, forced seam reconstruction, learned "
-        "seam authority, D, U and F must each pass before downstream training may continue."
+        "Fast SR-first proof on one deterministic edge-dense Raven region. The production "
+        "candidate is deterministic B plus a learned 4x multi-map residual conditioned only "
+        "on observable LR evidence; BenefitSelector provides the final conservative B-to-C blend."
     ),
     False,
 )
@@ -149,26 +149,20 @@ def _args(self: base.App, stage_id: str) -> list[str]:
             *_common_flags(self),
             "--tile-size",
             self._value("micro_tile", "32"),
-            "--geometry-topology-steps",
-            self._value("micro_geometry_topology_steps", "512"),
-            "--geometry-steps",
-            self._value("micro_geometry_steps", "3072"),
-            "--profile-steps",
-            self._value("micro_profile_steps", "1536"),
-            "--seam-capacity-steps",
-            self._value("micro_seam_capacity_steps", "1536"),
-            "--seam-authority-steps",
-            self._value("micro_seam_authority_steps", "1024"),
-            "--detail-capacity-steps",
-            self._value("micro_detail_capacity_steps", "3072"),
-            "--selector-capacity-steps",
-            self._value("micro_selector_capacity_steps", "1024"),
-            "--required-recovery",
-            self._value("micro_recovery", "0.50"),
-            "--required-fusion-retention",
-            self._value("micro_fusion_retention", "0.95"),
-            "--required-final-retention",
-            self._value("micro_final_retention", "0.85"),
+            "--steps",
+            self._value("micro_sr_steps", "3072"),
+            "--selector-steps",
+            self._value("micro_selector_steps", "768"),
+            "--learning-rate",
+            self._value("micro_sr_lr", "0.001"),
+            "--selector-learning-rate",
+            self._value("micro_selector_lr", "0.001"),
+            "--required-edge-recovery",
+            self._value("micro_edge_recovery", "0.50"),
+            "--required-global-recovery",
+            self._value("micro_global_recovery", "0.25"),
+            "--required-retention",
+            self._value("micro_retention", "0.85"),
             "--device",
             self._value("device", "cuda"),
             "--amp-precision",
@@ -274,36 +268,31 @@ def _select_micro(self: base.App, stage: base.Stage, status: str) -> None:
     note = " — interrupted; rerun starts a fresh diagnostic" if status == "interrupted" else ""
     self.description.set(f"{stage.number}. {stage.label} — {stage.description}{note}")
     self._clear_form()
-    self._label_row("Authority", "DIAGNOSTIC ONLY — cannot create/promote a production final")
-    self._label_row("Prerequisite", "Direct Residual and Parallel Detail Integration should pass first")
-    self._label_row("Model", "Current V12.8 production graph; V12.9 owns diagnostic qualification only")
+    self._label_row("Authority", "DIAGNOSTIC ONLY — fast V13 visual-fidelity/capacity proof")
     self._label_row("Region", "Deterministic highest edge-energy authored Raven patch")
-    self._label_row("Ladder", "G topology -> G metric/render -> profile -> forced S -> S authority -> D -> U -> F")
-    self._label_row("Hard stop", "A failed stage stops immediately; downstream specialists cannot hide it")
-    self._label_row("Best state", "Each stage saves its best metrics/probe/checkpoint and restores best state on failure")
-    self._label_row("G qualification", "Production contour gain/win/regression/topology criteria + rendered G non-regression")
-    self._label_row("Profile qualification", "Both target-SDF teacher geometry and learned-G profile must reach configured recovery")
-    self._label_row("S qualification", "Forced seam recovery >= configured requirement, then learned authority IoU >= configured requirement")
-    self._label_row("Final qualification", "D capacity + U retention + F retention + protected-B preservation >=99%")
+    self._label_row("Production candidate", "C = deterministic B + bounded 4x multi-map SR residual")
+    self._label_row("Conditioning", "17-channel LR evidence + observable LR SDF/gradients/normal/material edges; no learned G/P/S pixel authority")
+    self._label_row("Outputs trained", "Albedo RGB + normal XY + material/emissive/roughness residuals")
+    self._label_row("Visual objective", "Global + edge-weighted reconstruction, gradients, Laplacian/high-frequency fidelity and baseline regret")
+    self._label_row("Final authority", "BenefitSelector chooses a conservative per-pixel blend B <-> C")
+    self._label_row("Protection", ">=99% of baseline-correct protected pixels must remain within the one-code-value drift contract")
+    self._label_row("Stop rule", "SR stops as soon as visual recovery thresholds and non-regressive physical-map recovery are reached")
     self._row("Shared cache", "cache", r"C:\CCP\EVE")
-    self._row("Micro LR tile", "micro_tile", "32", ("32", "48", "64"))
-    self._row("G topology max steps", "micro_geometry_topology_steps", "512", ("256", "512", "768", "1024"))
-    self._row("G metric/render max steps", "micro_geometry_steps", "3072", ("1536", "2048", "3072", "4096"))
-    self._row("Profile max steps", "micro_profile_steps", "1536", ("768", "1024", "1536", "2048"))
-    self._row("Forced seam max steps", "micro_seam_capacity_steps", "1536", ("768", "1024", "1536", "2048"))
-    self._row("Seam authority max steps", "micro_seam_authority_steps", "1024", ("512", "768", "1024", "1536"))
-    self._row("Detail max steps", "micro_detail_capacity_steps", "3072", ("1536", "2048", "3072", "4096"))
-    self._row("Selector max steps", "micro_selector_capacity_steps", "1024", ("512", "768", "1024", "1536"))
-    self._row("Required D edge recovery", "micro_recovery", "0.50", ("0.35", "0.50", "0.70", "0.85"))
-    self._row("Required U/D retention", "micro_fusion_retention", "0.95", ("0.85", "0.90", "0.95", "0.98"))
-    self._row("Required F/U retention", "micro_final_retention", "0.85", ("0.70", "0.85", "0.90", "0.95"))
+    self._row("SR LR tile", "micro_tile", "32", ("32", "48", "64"))
+    self._row("SR maximum steps", "micro_sr_steps", "3072", ("1024", "1536", "2048", "3072", "4096"))
+    self._row("Selector maximum steps", "micro_selector_steps", "768", ("256", "512", "768", "1024"))
+    self._row("SR learning rate", "micro_sr_lr", "0.001", ("0.0003", "0.001", "0.003"))
+    self._row("Selector learning rate", "micro_selector_lr", "0.001", ("0.0003", "0.001", "0.003"))
+    self._row("Required edge recovery", "micro_edge_recovery", "0.50", ("0.35", "0.50", "0.65", "0.80"))
+    self._row("Required global recovery", "micro_global_recovery", "0.25", ("0.10", "0.25", "0.40", "0.60"))
+    self._row("Required selector retention", "micro_retention", "0.85", ("0.70", "0.85", "0.90", "0.95"))
     self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
     self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
     self._check("Rebuild fixed Raven dataset", "rebuild", False)
-    self._check("Open final/failure probe image", "open_result", True)
+    self._check("Open final visual-fidelity probe", "open_result", True)
     self._label_row(
         "Output",
-        "stage_summary.json + per-stage best_state/best_metrics/best_probe + A/B/G/S/D/U/F final/failure probe + MICRO_*_DIAGNOSTICS.zip",
+        "TARGET/B/C/F/error probe + albedo/gradient/normal/material metrics + sr_first_report.json + SR_*_DIAGNOSTICS.zip",
     )
 
 
