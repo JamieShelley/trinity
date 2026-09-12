@@ -23,10 +23,12 @@ def test_gui_exposes_sr_first_visual_fidelity_controls() -> None:
         ROOT / "tools/nsamdr/gui/nsamdr_v9_workflow_gui_micro.py"
     ).read_text(encoding="utf-8")
     assert '"V13.1 SR Visual Fidelity"' in source
-    assert '"V13.2 SR Raven Quick"' in source
+    assert '"V13.3 SR Raven Quick"' in source
     assert '"SR maximum steps"' in source
     assert '"Required edge recovery"' in source
     assert '"Required global recovery"' in source
     assert '"Required selector retention"' in source
+    assert '"Only V13.3 SR-first Quick experiments are listed' in source
+    assert '"detail_learning_rate", "detailLearningRate"' in source
     assert '"G topology max steps"' not in source
     assert '"Forced seam max steps"' not in source
