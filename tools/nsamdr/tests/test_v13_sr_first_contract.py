@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import torch
 
 from v9 import sr_first_contract as sr
+from v9 import sr_first_runtime_contract as runtime
 
 
 def test_observable_sr_condition_has_six_lr_only_channels() -> None:
@@ -60,5 +61,8 @@ def test_target_material_matches_production_three_channel_encoding() -> None:
 
 
 def test_v13_contract_declares_sr_as_final_candidate() -> None:
-    assert sr.SR_FIRST_REVISION == "V13.0"
+    assert sr.SR_FIRST_REVISION == "V13.2"
+    assert runtime.SR_RUNTIME_REVISION == "V13.3"
     assert sr.SR_LAPLACIAN_WEIGHT > 0.0
+    assert sr.SR_PYRAMID_WEIGHT > 0.0
+    assert sr.SR_GRID_EXCESS_WEIGHT > 0.0
