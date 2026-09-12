@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-"""Permit the explicit V13.2 SR-first Quick schedule through legacy config validation.
+"""Permit the explicit V13.3 SR-first Quick schedule through legacy config validation.
 
 The historical V9 validator clamps identity/residual epochs to at least one because
-those stages used to be mandatory. V13.2 deliberately requests both as zero after
-G/profile/seam pixel authority was retired. Preserve zero only for that unmistakable
-SR-first schedule; every other Quick/Full config keeps the historical bounds.
+those stages used to be mandatory. V13.3 deliberately requests them as zero after
+G/profile/seam execution was retired from the active production path. Preserve zero
+only for that unmistakable SR-first schedule; every other config keeps historical bounds.
 
-Quick also stays at the proven 32x32 LR tile/batch-1 capacity scale. The spatially
-convolutional model can see many distinct Raven patches without making the Quick proof
-16x more expensive by jumping immediately to 128x128 LR crops. Full training remains
-free to use the production crop scale after Quick generalisation qualifies.
+Quick stays at the proven 32x32 LR tile/batch-1 capacity scale. The active production
+path is deterministic B -> learned multi-map SR candidate C -> BenefitSelector F.
 """
 
 from typing import Any
@@ -18,7 +16,7 @@ from typing import Any
 from .config import V9Config
 
 
-SR_FIRST_QUICK_CONFIG_REVISION = "V13.2"
+SR_FIRST_QUICK_CONFIG_REVISION = "V13.3"
 SR_FIRST_QUICK_TILE_SIZE = 32
 SR_FIRST_QUICK_BATCH_SIZE = 1
 _INSTALLED = False
@@ -40,7 +38,7 @@ def _requested_sr_first_quick(config: V9Config) -> bool:
 
 def _validate_with_sr_first_quick(self: V9Config) -> None:
     if _ORIGINAL_VALIDATE is None:
-        raise RuntimeError("V13.2 Quick config contract installed without base validator")
+        raise RuntimeError("V13.3 Quick config contract installed without base validator")
     preserve_sr_first_schedule = _requested_sr_first_quick(self)
     _ORIGINAL_VALIDATE(self)
     if preserve_sr_first_schedule:
