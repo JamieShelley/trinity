@@ -9,12 +9,14 @@ import torch
 from v9 import sr_first_contract as sr
 from v9 import sr_first_runtime_contract as runtime
 from v9 import sr_first_runtime_integrity_contract as integrity
+from v9 import sr_first_trainer_contract as trainer
 
 
 ROOT = Path(__file__).resolve().parents[3]
 V9 = ROOT / "tools/nsamdr/neural/v9"
 RUNTIME = V9 / "sr_first_runtime_contract.py"
 INTEGRITY = V9 / "sr_first_runtime_integrity_contract.py"
+TRAINER = V9 / "sr_first_trainer_contract.py"
 ARCHITECTURE = ROOT / "tools/nsamdr/neural/raven_architecture_contract.py"
 CONFIGURATION = V9 / "application/configuration.py"
 
@@ -75,6 +77,32 @@ def test_v133_final_runtime_integrity_requires_only_active_sr_graph() -> None:
     assert "retiredComponentsBypassed" in source
     assert "service._run_final_qualification = _run_v133_runtime_integrity" in source
     assert "<locals>" not in source
+
+
+def test_v133_trainer_has_no_legacy_training_authority() -> None:
+    source = TRAINER.read_text(encoding="utf-8")
+    ast.parse(source)
+    assert trainer.SR_TRAINER_REVISION == "V13.3"
+    assert set(trainer._ACTIVE_COMPONENT_PATHS) == {
+        "conditioned detail",
+        "albedo physical head",
+        "normal physical head",
+        "material physical head",
+        "confidence",
+        "regret",
+        "BenefitSelector",
+    }
+    assert trainer._RETIRED_PHASES == {
+        "sdf-bootstrap",
+        "sdf-proof",
+        "seam-proof",
+        "seam-authority",
+        "gate-proof",
+    }
+    assert "service._production_component_modules = _active_component_modules" in source
+    assert "service._explicit_primitive_structure_microproof = _retired_structure_microproof" in source
+    assert "service._profile_specialist_microproof = _retired_profile_microproof" in source
+    assert "service._phase_seam_sr_microproof = _retired_seam_microproof" in source
 
 
 def test_grid_excess_does_not_punish_a_real_target_edge() -> None:
