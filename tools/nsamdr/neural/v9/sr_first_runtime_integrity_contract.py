@@ -74,7 +74,6 @@ def _component_map(model: FidelityResidualNetV9) -> dict[str, tuple[str, torch.n
 
 
 def _run_v133_runtime_integrity(
-    self: Any,
     model: FidelityResidualNetV9,
     loader: Any,
     config: Any,
@@ -84,17 +83,24 @@ def _run_v133_runtime_integrity(
     strict_missing_keys: list[str],
     strict_unexpected_keys: list[str],
 ) -> dict[str, Any]:
-    """Strict-reload audit of only the V13.3 deployed SR graph."""
+    """Strict-reload audit of only the V13.3 deployed SR graph.
+
+    This is deliberately a module-level callback stored directly on TrainingService,
+    matching the existing Windows-spawn-safe backend adapters.
+    """
+    import v9.training as training
+
+    service = training._training_service
     model.eval()
     raw_batch = next(iter(loader))
-    batch = self._move_batch(
+    batch = service._move_batch(
         raw_batch,
         device,
         channels_last=bool(config.channels_last and device.type == "cuda"),
     )
 
     components = _component_map(model)
-    forward_counts, handles = self._register_component_forward_hooks(components)
+    forward_counts, handles = service._register_component_forward_hooks(components)
     try:
         with torch.no_grad(), torch.autocast(
             device_type=device.type,
@@ -182,9 +188,7 @@ def _synchronize_runtime_integrity(self: Any, training: Any) -> None:
     service = getattr(training, "_training_service", None)
     if service is None:
         raise RuntimeError("NSAMDR training module has no TrainingService singleton")
-    service._run_final_qualification = _run_v133_runtime_integrity.__get__(
-        service, type(service)
-    )
+    service._run_final_qualification = _run_v133_runtime_integrity
     training._nsamdr_runtime_integrity_revision = SR_RUNTIME_INTEGRITY_REVISION
 
 
