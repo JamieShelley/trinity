@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Build the deterministic, feature-stratified Raven development dataset."""
+"""Build the deterministic, feature-stratified Raven development dataset.
+
+The Raven quick workflow uses authored EVE texture pixels as supervision.  The
+important distinction is between *native authored texture resolution* and the
+4096px render/preview target: EVE's SOF semantic maps are not guaranteed to be
+4096x4096.  This builder therefore preserves the native full-index DDS pixels,
+records their true dimensions, and never substitutes a differently encoded map
+merely because it is larger.
+"""
 from __future__ import annotations
 
 import argparse
@@ -28,19 +36,23 @@ from v9.experiments import (
     DEFAULT_TUNING_ASSET_QUERY,
 )
 
-PREVIEW_DATASET_SCHEMA = "NSAMDR_RAVEN_DEVELOPMENT_DATASET_V3_NATIVE_4K"
-PREVIEW_CROP_SCHEMA = "NSAMDR_RAVEN_DEVELOPMENT_CROP_V3_NATIVE_4K"
-BUILDER_VERSION = "raven-native-4k-feature-stratified-disjoint-v3"
-RAVEN_MIN_AUTHORED_DIMENSION = 4096
+PREVIEW_DATASET_SCHEMA = "NSAMDR_RAVEN_DEVELOPMENT_DATASET_V4_NATIVE_AUTHORED"
+PREVIEW_CROP_SCHEMA = "NSAMDR_RAVEN_DEVELOPMENT_CROP_V4_NATIVE_AUTHORED"
+BUILDER_VERSION = "raven-native-authored-feature-stratified-disjoint-v4"
 
 
 class RavenPreviewDatasetPreparationApplication:
-    # Purpose: Implement find navy raven for RavenPreviewDatasetPreparationApplication.
-    # Called by: prepare
-    # Calls: No same-class helper methods.
-    def _find_navy_raven(self, rows: list[eve.ResourceRow], repo_root: Path) -> eve.ShipCatalogEntry:
-        entries = eve._build_sde_ship_catalog(rows, repo_root)  # noqa: SLF001 - shared repo helper
-        exact = [entry for entry in entries if entry.display_name.strip().lower() == DEFAULT_TUNING_ASSET_NAME.lower()]
+    def _find_navy_raven(
+        self,
+        rows: list[eve.ResourceRow],
+        repo_root: Path,
+    ) -> eve.ShipCatalogEntry:
+        entries = eve._build_sde_ship_catalog(rows, repo_root)  # noqa: SLF001
+        exact = [
+            entry
+            for entry in entries
+            if entry.display_name.strip().lower() == DEFAULT_TUNING_ASSET_NAME.lower()
+        ]
         if not exact:
             near = [entry.display_name for entry in entries if "raven" in entry.display_name.lower()]
             raise RuntimeError(
@@ -49,90 +61,73 @@ class RavenPreviewDatasetPreparationApplication:
             )
         return exact[0]
 
-    # Purpose: Implement authoritative rows for RavenPreviewDatasetPreparationApplication.
-    # Called by: prepare
-    # Calls: eve.read_rows
     def _authoritative_rows(self, indexes: list[Path]) -> list[eve.ResourceRow]:
-        """Read prefetch first so the full index wins duplicate logical resources.
-
-        EVE's prefetch index can point at reduced-resolution stand-ins under the same
-        logical path as the full resource index. ``eve.read_rows`` is deliberately
-        last-write-wins, so feeding prefetch indexes first makes the authoritative
-        full ``resfileindex.txt`` row replace any prefetch duplicate.
-        """
-        ordered = sorted(
-            indexes,
-            key=lambda path: 0 if "prefetch" in path.name.lower() else 1,
-        )
+        """Read prefetch first so the full index wins duplicate logical resources."""
+        ordered = sorted(indexes, key=lambda path: 0 if "prefetch" in path.name.lower() else 1)
         return eve.read_rows(ordered)
 
-    # Purpose: Implement load rgb for RavenPreviewDatasetPreparationApplication.
-    # Called by: prepare
-    # Calls: No same-class helper methods.
     def _load_rgb(self, path: Path) -> np.ndarray:
         with Image.open(path) as image:
             return np.asarray(image.convert("RGB"), dtype=np.uint8)
 
-    # Purpose: Implement load rgba for RavenPreviewDatasetPreparationApplication.
-    # Called by: _semantic_plane
-    # Calls: No same-class helper methods.
     def _load_rgba(self, path: Path) -> np.ndarray:
         with Image.open(path) as image:
             return np.asarray(image.convert("RGBA"), dtype=np.uint8)
 
-    # Purpose: Implement semantic plane for RavenPreviewDatasetPreparationApplication.
-    # Called by: prepare
-    # Calls: _load_rgba
-    def _semantic_plane(self, path: Path | None, channel: int, width: int, height: int, default: int) -> np.ndarray:
+    def _semantic_plane(
+        self,
+        path: Path | None,
+        channel: int,
+        width: int,
+        height: int,
+        default: int,
+    ) -> np.ndarray:
         if path is None or not path.is_file():
             return np.full((height, width), int(default), dtype=np.uint8)
         rgba = self._load_rgba(path)
         plane = rgba[..., max(0, min(3, int(channel)))]
         if plane.shape != (height, width):
             plane = np.asarray(
-                Image.fromarray(plane, mode="L").resize((width, height), Image.Resampling.BILINEAR),
+                Image.fromarray(plane, mode="L").resize(
+                    (width, height), Image.Resampling.BILINEAR
+                ),
                 dtype=np.uint8,
             )
         return plane
 
-    # Purpose: Implement resize rgb for RavenPreviewDatasetPreparationApplication.
-    # Called by: prepare
-    # Calls: No same-class helper methods.
-    def _resize_rgb(self, array: np.ndarray, width: int, height: int, *, nearest: bool = False) -> np.ndarray:
+    def _resize_rgb(
+        self,
+        array: np.ndarray,
+        width: int,
+        height: int,
+        *,
+        nearest: bool = False,
+    ) -> np.ndarray:
         mode = Image.Resampling.NEAREST if nearest else Image.Resampling.LANCZOS
         return np.asarray(Image.fromarray(array, mode="RGB").resize((width, height), mode), dtype=np.uint8)
 
-    # Purpose: Implement normal rgb for RavenPreviewDatasetPreparationApplication.
-    # Called by: prepare
-    # Calls: No same-class helper methods.
     def _normal_rgb(self, path: Path) -> tuple[np.ndarray, str]:
         return authored_dataset.load_normal_training_rgb(path)
 
-    # Purpose: Implement detail score for RavenPreviewDatasetPreparationApplication.
-    # Called by: prepare
-    # Calls: No same-class helper methods.
-    def _detail_score(self, albedo: np.ndarray, normal: np.ndarray, material: np.ndarray) -> float:
+    def _detail_score(
+        self,
+        albedo: np.ndarray,
+        normal: np.ndarray,
+        material: np.ndarray,
+    ) -> float:
         score = authored_dataset.detail_map(albedo, normal, material)
         return float(score.mean() + score.max(initial=0.0) * 0.35)
 
-    # Purpose: Implement grid positions for RavenPreviewDatasetPreparationApplication.
-    # Called by: prepare
-    # Calls: No same-class helper methods.
     def _grid_positions(self, length: int, crop_size: int) -> list[int]:
-        """Return a strictly non-overlapping fixed grid.
-
-        Uncovered edge remainders are intentionally ignored. Appending a shifted
-        last crop would make held-out cells overlap training cells and invalidate
-        experiment comparisons.
-        """
         if length < crop_size:
             return [0]
         return list(range(0, length - crop_size + 1, crop_size))
 
-    # Purpose: Implement texture families from report for RavenPreviewDatasetPreparationApplication.
-    # Called by: prepare
-    # Calls: No same-class helper methods.
-    def _texture_families_from_report(self, report_path: Path, fallback_manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    def _texture_families_from_report(
+        self,
+        report_path: Path,
+        fallback_manifest: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         seen: set[tuple[Any, ...]] = set()
         if report_path.is_file():
@@ -147,7 +142,14 @@ class RavenPreviewDatasetPreparationApplication:
                 channels = dict(area.get("channels") or {}) if isinstance(area, dict) else {}
                 if not albedo or not normal:
                     continue
-                key = (albedo, normal, material, roughness, glow, json.dumps(channels, sort_keys=True))
+                key = (
+                    albedo,
+                    normal,
+                    material,
+                    roughness,
+                    glow,
+                    json.dumps(channels, sort_keys=True),
+                )
                 if key in seen:
                     continue
                 seen.add(key)
@@ -166,8 +168,6 @@ class RavenPreviewDatasetPreparationApplication:
                     }
                 )
 
-        # Legacy fallback: the asset manifest still exposes the directly related
-        # Raven maps even if SOF area extraction is incomplete.
         if not result:
             albedo = str(fallback_manifest.get("albedoPng") or "")
             normal = str(fallback_manifest.get("normalPng") or "")
@@ -191,11 +191,11 @@ class RavenPreviewDatasetPreparationApplication:
             raise RuntimeError("Raven asset preparation produced no aligned albedo+normal texture family")
         return result
 
-    # Purpose: Implement manifest texture logical map for RavenPreviewDatasetPreparationApplication.
-    # Called by: _native_family_sources
-    # Calls: No same-class helper methods.
-    def _manifest_texture_logical_map(self, asset_manifest: dict[str, Any]) -> dict[str, str]:
-        """Map prepared PNG/local paths back to their authoritative EVE logical path."""
+    def _manifest_texture_logical_map(
+        self,
+        asset_manifest: dict[str, Any],
+    ) -> dict[str, str]:
+        """Map prepared PNG/local paths back to EVE logical resources."""
         result: dict[str, str] = {}
 
         def add(record: object) -> None:
@@ -206,9 +206,8 @@ class RavenPreviewDatasetPreparationApplication:
                 return
             for field in ("converted", "local"):
                 raw = str(record.get(field) or "").strip()
-                if not raw:
-                    continue
-                result[str(Path(raw).resolve()).casefold()] = logical
+                if raw:
+                    result[str(Path(raw).resolve()).casefold()] = logical
 
         sof_textures = asset_manifest.get("sofTextures")
         if isinstance(sof_textures, dict):
@@ -220,9 +219,6 @@ class RavenPreviewDatasetPreparationApplication:
                 add(record)
         return result
 
-    # Purpose: Implement native family sources for RavenPreviewDatasetPreparationApplication.
-    # Called by: prepare
-    # Calls: _manifest_texture_logical_map
     def _native_family_sources(
         self,
         repo_root: Path,
@@ -231,35 +227,26 @@ class RavenPreviewDatasetPreparationApplication:
         families: list[dict[str, Any]],
         rows: list[eve.ResourceRow],
         resfiles: Path,
-    ) -> list[dict[str, Any]]:
-        """Replace preview PNG authority with native full-index SharedCache DDS data.
+        crop_size: int,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Resolve exact SOF semantics to untouched native full-index DDS pixels.
 
-        ``prepare_asset`` is still used to resolve the exact SOF/faction texture
-        semantics, but its converted preview PNG may originate from the prefetch
-        index. The Raven training target must instead decode the same logical map
-        from the authoritative full index. Native outputs are keyed by the EVE
-        content-addressed resource id, so a new source can never reuse an old 1K
-        conversion merely because a preview filename stayed the same.
+        A larger texture with a different semantic encoding is *not* a valid HR
+        replacement.  The old V3 code incorrectly assumed every SR authority map
+        had to be 4K and therefore rejected Raven's native 1024px V5 albedo map.
+        Here 4096 is treated as the render target, while the dataset authority is
+        the true authored semantic texture at its native resolution.
         """
         logical_by_prepared_path = self._manifest_texture_logical_map(asset_manifest)
         rows_by_logical = {
-            row.logical.strip().replace("\\", "/").lower(): row
-            for row in rows
+            row.logical.strip().replace("\\", "/").lower(): row for row in rows
         }
         native_root = output_root / "native_authored_sources"
         native_root.mkdir(parents=True, exist_ok=True)
         dds_repository = authored_dataset.AuthoredTextureDatasetRepository()
         converted_cache: dict[str, tuple[Path, tuple[int, int], eve.ResourceRow]] = {}
 
-        def resolve_native(raw: str, role: str, required_4k: bool) -> tuple[Path, dict[str, Any]]:
-            prepared_path = Path(raw).resolve()
-            logical = logical_by_prepared_path.get(str(prepared_path).casefold())
-            if logical is None and raw.strip().lower().startswith("res:/"):
-                logical = raw.strip().replace("\\", "/")
-            if not logical:
-                raise RuntimeError(
-                    f"Raven {role} source could not be mapped back to an EVE logical resource: {raw}"
-                )
+        def decode_logical(logical: str, role: str) -> tuple[Path, dict[str, Any]]:
             row = rows_by_logical.get(logical.lower())
             if row is None:
                 raise RuntimeError(
@@ -273,12 +260,7 @@ class RavenPreviewDatasetPreparationApplication:
                     raise RuntimeError(
                         f"Raven {role} native EVE resource is not local: {row.logical} -> {source_path}"
                     )
-                width, height, _mips, _format = dds_repository.parse_dds_header(source_path)
-                if required_4k and min(width, height) < RAVEN_MIN_AUTHORED_DIMENSION:
-                    raise RuntimeError(
-                        f"Raven authored {role} authority must be native >=4K from the full EVE index; "
-                        f"resolved {width}x{height}: {row.logical}. Refusing to train on a prefetch/reduced source."
-                    )
+                width, height, mip_count, format_name = dds_repository.parse_dds_header(source_path)
                 identity = hashlib.sha256(
                     f"{row.logical.lower()}|{row.hashed}".encode("utf-8")
                 ).hexdigest()[:24]
@@ -293,55 +275,89 @@ class RavenPreviewDatasetPreparationApplication:
                     )
                 cached = (output_path, (width, height), row)
                 converted_cache[cache_key] = cached
-
             output_path, (width, height), source_row = cached
-            if required_4k and min(width, height) < RAVEN_MIN_AUTHORED_DIMENSION:
-                raise RuntimeError(
-                    f"Raven authored {role} authority is below 4K: {width}x{height} {source_row.logical}"
-                )
+            source_path = resfiles / Path(source_row.hashed)
+            _width, _height, mip_count, format_name = dds_repository.parse_dds_header(source_path)
             return output_path, {
                 "logical": source_row.logical,
                 "hashed": source_row.hashed,
                 "indexFile": source_row.index_file,
                 "width": width,
                 "height": height,
-                "authority": "eve-full-index-native",
+                "mipCount": mip_count,
+                "format": format_name,
+                "authority": "eve-full-index-native-semantic",
             }
+
+        def resolve_prepared(raw: str, role: str) -> tuple[Path, dict[str, Any]]:
+            prepared_path = Path(raw).resolve()
+            logical = logical_by_prepared_path.get(str(prepared_path).casefold())
+            if logical is None and raw.strip().lower().startswith("res:/"):
+                logical = raw.strip().replace("\\", "/")
+            if not logical:
+                raise RuntimeError(
+                    f"Raven {role} source could not be mapped back to an EVE logical resource: {raw}"
+                )
+            return decode_logical(logical, role)
+
+        hull_probe: dict[str, Any] = {}
+        direct_textures = asset_manifest.get("textures")
+        if isinstance(direct_textures, dict):
+            for role in ("albedo", "normal"):
+                record = direct_textures.get(role)
+                if not isinstance(record, dict):
+                    continue
+                logical = str(record.get("logical") or "").strip().replace("\\", "/")
+                if not logical:
+                    continue
+                try:
+                    _decoded, provenance = decode_logical(logical, f"hull-{role}")
+                    hull_probe[role] = provenance
+                except RuntimeError as exc:
+                    hull_probe[role] = {"logical": logical, "error": str(exc)}
 
         result: list[dict[str, Any]] = []
         for family in families:
             native = dict(family)
             provenance: dict[str, Any] = {}
+            shader_family = str(family.get("shaderFamily") or "").lower()
             for role in ("albedo", "normal", "material", "roughnessMap", "glow"):
                 raw = str(family.get(role) or "").strip()
                 if not raw:
                     continue
                 try:
-                    output_path, source = resolve_native(
-                        raw,
-                        role,
-                        required_4k=role in ("albedo", "normal"),
-                    )
+                    output_path, source = resolve_prepared(raw, role)
                 except RuntimeError:
                     if role in ("albedo", "normal"):
                         raise
-                    # Auxiliary material maps may legitimately be absent from the
-                    # full installation. Keep the already-resolved semantic preview
-                    # map rather than fabricating supervision.
                     provenance[role] = {
                         "authority": "prepared-auxiliary-fallback",
                         "path": raw,
                     }
                     continue
+
+                if shader_family == "legacy" and role in ("albedo", "normal"):
+                    probed = hull_probe.get(role)
+                    if isinstance(probed, dict) and not probed.get("error"):
+                        if int(probed.get("width", 0)) * int(probed.get("height", 0)) > int(source["width"]) * int(source["height"]):
+                            logical = str(probed.get("logical") or "")
+                            if logical:
+                                output_path, source = decode_logical(logical, f"legacy-{role}")
+
+                if role in ("albedo", "normal") and min(int(source["width"]), int(source["height"])) < crop_size:
+                    raise RuntimeError(
+                        f"Raven authored {role} semantic texture is smaller than the required "
+                        f"{crop_size}x{crop_size} training crop: {source['width']}x{source['height']} "
+                        f"{source['logical']}"
+                    )
+
                 native[role] = str(output_path)
                 provenance[role] = source
             native["sourceProvenance"] = provenance
             result.append(native)
-        return result
 
-    # Purpose: Implement sha256 file for RavenPreviewDatasetPreparationApplication.
-    # Called by: _source_fingerprint
-    # Calls: No same-class helper methods.
+        return result, hull_probe
+
     def _sha256_file(self, path: Path) -> str:
         digest = hashlib.sha256()
         with path.open("rb") as handle:
@@ -349,19 +365,17 @@ class RavenPreviewDatasetPreparationApplication:
                 digest.update(chunk)
         return digest.hexdigest()
 
-    # Purpose: Implement source fingerprint for RavenPreviewDatasetPreparationApplication.
-    # Called by: prepare
-    # Calls: _sha256_file
     def _source_fingerprint(
         self,
         asset_manifest: dict[str, Any],
         families: list[dict[str, Any]],
+        hull_probe: dict[str, Any],
     ) -> str:
-        """Fingerprint only immutable source inputs available before crop selection."""
         payload: dict[str, Any] = {
             "builder": BUILDER_VERSION,
             "model": asset_manifest.get("model", {}).get("logical"),
             "sofIdentity": asset_manifest.get("sofIdentity"),
+            "hullAuthorityProbe": hull_probe,
             "families": [],
         }
         for family in families:
@@ -384,14 +398,8 @@ class RavenPreviewDatasetPreparationApplication:
             entry["channels"] = family.get("channels", {})
             entry["materialEncoding"] = family.get("materialEncoding", "")
             payload["families"].append(entry)
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
-        return hashlib.sha256(
-            json.dumps(payload, sort_keys=True).encode("utf-8")
-        ).hexdigest()
-
-    # Purpose: Implement selection fingerprint for RavenPreviewDatasetPreparationApplication.
-    # Called by: prepare
-    # Calls: No same-class helper methods.
     def _selection_fingerprint(
         self,
         source_fingerprint: str,
@@ -399,7 +407,6 @@ class RavenPreviewDatasetPreparationApplication:
         *,
         seed: int,
     ) -> str:
-        """Fingerprint the exact deterministic Raven regions selected for tuning."""
         selected_regions = sorted(
             (
                 {
@@ -421,13 +428,8 @@ class RavenPreviewDatasetPreparationApplication:
             "seed": int(seed),
             "selectedRegions": selected_regions,
         }
-        return hashlib.sha256(
-            json.dumps(payload, sort_keys=True).encode("utf-8")
-        ).hexdigest()
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
-    # Purpose: Implement select fixed regions for RavenPreviewDatasetPreparationApplication.
-    # Called by: prepare
-    # Calls: No same-class helper methods.
     def _select_fixed_regions(
         self,
         candidates: list[dict[str, Any]],
@@ -436,14 +438,6 @@ class RavenPreviewDatasetPreparationApplication:
         max_validation_crops: int,
         seed: int,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """Choose deterministic, disjoint subsets balanced across authored features.
-
-        Requested region counts are upper bounds. The authored Raven texture
-        topology decides the actual number of unique spatial regions; regions are
-        never duplicated or shared between train and validation merely to satisfy
-        an arbitrary requested count. Selection covers the full detail distribution
-        and texture families instead of sorting for only the highest-detail crops.
-        """
         if len(candidates) < 2:
             raise RuntimeError(
                 "Raven fixed tuning set requires at least two unique non-overlapping "
@@ -464,10 +458,6 @@ class RavenPreviewDatasetPreparationApplication:
 
         validation_pool = [item for item in candidates if bool(item["holdout"])]
         training_pool = [item for item in candidates if not bool(item["holdout"])]
-
-        # Tiny layouts can theoretically put every cell on one side of the
-        # checkerboard. Move one *whole unique cell* to the missing split rather
-        # than copying or overlapping it.
         if not validation_pool:
             all_ranked = sorted(candidates, key=stable_key)
             validation_pool = [all_ranked[0]]
@@ -497,14 +487,11 @@ class RavenPreviewDatasetPreparationApplication:
             for values in strata.values():
                 values.sort(key=stable_key)
 
-            # Low/high/mid-low/mid-high ensures a four-crop validation set samples
-            # every detail quartile. Within a quartile prefer an as-yet-unseen family.
-            stratum_order = (0, 3, 1, 2)
-            family_counts: dict[str, int] = {}
             selected: list[dict[str, Any]] = []
-            while len(selected) < requested:
+            family_counts: dict[str, int] = {}
+            for _ in range(requested + 4):
                 made_progress = False
-                for stratum in stratum_order:
+                for stratum in (0, 3, 1, 2):
                     values = strata[stratum]
                     if not values or len(selected) >= requested:
                         continue
@@ -520,7 +507,7 @@ class RavenPreviewDatasetPreparationApplication:
                     family = str(choice["familyId"])
                     family_counts[family] = family_counts.get(family, 0) + 1
                     made_progress = True
-                if not made_progress:
+                if len(selected) >= requested or not made_progress:
                     break
             return selected
 
@@ -528,28 +515,16 @@ class RavenPreviewDatasetPreparationApplication:
         selected_validation = stratified_subset(validation_pool, max_validation_crops)
         if not selected_train or not selected_validation:
             raise RuntimeError(
-                "Raven fixed tuning set could not produce at least one unique "
-                "training region and one unique held-out region."
+                "Raven fixed tuning set could not produce at least one unique training region "
+                "and one unique held-out region."
             )
-
-        train_keys = {
-            (str(item["familyId"]), int(item["x"]), int(item["y"]))
-            for item in selected_train
-        }
-        validation_keys = {
-            (str(item["familyId"]), int(item["x"]), int(item["y"]))
-            for item in selected_validation
-        }
+        train_keys = {(str(i["familyId"]), int(i["x"]), int(i["y"])) for i in selected_train}
+        validation_keys = {(str(i["familyId"]), int(i["x"]), int(i["y"])) for i in selected_validation}
         overlap = train_keys.intersection(validation_keys)
         if overlap:
-            raise RuntimeError(
-                f"Raven fixed tuning split contains spatial overlap: {sorted(overlap)}"
-            )
+            raise RuntimeError(f"Raven fixed tuning split contains spatial overlap: {sorted(overlap)}")
         return selected_train, selected_validation
 
-    # Purpose: Implement prepare for RavenPreviewDatasetPreparationApplication.
-    # Called by: main
-    # Calls: _authoritative_rows, _detail_score, _find_navy_raven, _grid_positions, _load_rgb, _native_family_sources, _normal_rgb, _resize_rgb, _select_fixed_regions, _selection_fingerprint, _semantic_plane, _source_fingerprint, _texture_families_from_report
     def prepare(
         self,
         repo_root: Path,
@@ -564,6 +539,12 @@ class RavenPreviewDatasetPreparationApplication:
         output_root = (repo_root / config.dataset_root).resolve()
         manifest_path = (repo_root / config.dataset_manifest).resolve()
         crop_root = output_root / "crops"
+        crop_size = int(config.source_crop_size)
+        if crop_size != config.tile_size * config.target_scale:
+            raise RuntimeError(
+                "preview sourceCropSize must equal the model HR target size so the fixed "
+                "spatial regions cannot drift inside a larger bundle"
+            )
 
         cache_root, indexes, resfiles = eve.resolve_layout(shared_cache, allow_prompt=False)
         print(f"[preview-dataset] EVE SharedCache: {cache_root}", flush=True)
@@ -575,9 +556,6 @@ class RavenPreviewDatasetPreparationApplication:
             flush=True,
         )
 
-        # Reuse the real ship-preparation path to resolve the exact SOF/faction
-        # texture semantics, then remap those logical resources to native full-index
-        # DDS files before any training crops are created.
         _obj, _albedo, _normal, _pgs, _env, _envs, _materials, asset_manifest_path, _catalog, _cache = eve.prepare_asset(
             repo_root,
             shared_cache,
@@ -587,15 +565,16 @@ class RavenPreviewDatasetPreparationApplication:
         asset_manifest = json.loads(asset_manifest_path.read_text(encoding="utf-8"))
         report_path = Path(str(asset_manifest.get("materialBaselineReport") or ""))
         families = self._texture_families_from_report(report_path, asset_manifest)
-        families = self._native_family_sources(
+        families, hull_probe = self._native_family_sources(
             repo_root,
             output_root,
             asset_manifest,
             families,
             rows,
             resfiles,
+            crop_size,
         )
-        source_fingerprint = self._source_fingerprint(asset_manifest, families)
+        source_fingerprint = self._source_fingerprint(asset_manifest, families, hull_probe)
 
         if not rebuild and manifest_path.is_file():
             try:
@@ -619,13 +598,6 @@ class RavenPreviewDatasetPreparationApplication:
         (crop_root / "train").mkdir(parents=True, exist_ok=True)
         (crop_root / "validation").mkdir(parents=True, exist_ok=True)
 
-        crop_size = int(config.source_crop_size)
-        if crop_size != config.tile_size * config.target_scale:
-            raise RuntimeError(
-                "preview sourceCropSize must equal the model HR target size so the "
-                "fixed spatial regions cannot drift inside a larger bundle"
-            )
-
         candidates: list[dict[str, Any]] = []
         family_payloads: list[dict[str, Any]] = []
         for family_index, family in enumerate(families):
@@ -641,15 +613,13 @@ class RavenPreviewDatasetPreparationApplication:
             normal, normal_encoding = self._normal_rgb(normal_path)
             h, w = albedo.shape[:2]
             normal_h, normal_w = normal.shape[:2]
-            if min(w, h) < RAVEN_MIN_AUTHORED_DIMENSION:
+            if min(w, h) < crop_size:
                 raise RuntimeError(
-                    f"Raven albedo training authority fell below native 4K after decode: "
-                    f"{w}x{h} {albedo_path}"
+                    f"Raven native albedo {w}x{h} is smaller than training crop {crop_size}: {albedo_path}"
                 )
-            if min(normal_w, normal_h) < RAVEN_MIN_AUTHORED_DIMENSION:
+            if min(normal_w, normal_h) < crop_size:
                 raise RuntimeError(
-                    f"Raven normal training authority fell below native 4K after decode: "
-                    f"{normal_w}x{normal_h} {normal_path}"
+                    f"Raven native normal {normal_w}x{normal_h} is smaller than training crop {crop_size}: {normal_path}"
                 )
             if normal.shape[:2] != (h, w):
                 normal = self._resize_rgb(normal, w, h)
@@ -665,23 +635,18 @@ class RavenPreviewDatasetPreparationApplication:
                 roughness_plane = self._semantic_plane(roughness_source, int(channels.get("roughness", 2)), w, h, 128)
                 material = np.stack((material_plane, emissive_plane, roughness_plane), axis=-1)
             else:
-                material = np.stack((
-                    np.zeros((h, w), dtype=np.uint8),
-                    np.zeros((h, w), dtype=np.uint8),
-                    np.full((h, w), 128, dtype=np.uint8),
-                ), axis=-1)
-
-            if h < crop_size or w < crop_size:
-                scale = max(crop_size / max(w, 1), crop_size / max(h, 1))
-                new_w = max(crop_size, round(w * scale))
-                new_h = max(crop_size, round(h * scale))
-                albedo = self._resize_rgb(albedo, new_w, new_h)
-                normal = self._resize_rgb(normal, new_w, new_h)
-                material = self._resize_rgb(material, new_w, new_h, nearest=True)
-                h, w = albedo.shape[:2]
+                material = np.stack(
+                    (
+                        np.zeros((h, w), dtype=np.uint8),
+                        np.zeros((h, w), dtype=np.uint8),
+                        np.full((h, w), 128, dtype=np.uint8),
+                    ),
+                    axis=-1,
+                )
 
             family_id = hashlib.sha1(
-                f"{selected.canonical_key}|{family_index}|{albedo_path}|{normal_path}|{material_path}|{roughness_path}|{glow_path}|{json.dumps(channels, sort_keys=True)}".encode("utf-8")
+                f"{selected.canonical_key}|{family_index}|{albedo_path}|{normal_path}|"
+                f"{material_path}|{roughness_path}|{glow_path}|{json.dumps(channels, sort_keys=True)}".encode("utf-8")
             ).hexdigest()[:16]
             xs = self._grid_positions(w, crop_size)
             ys = self._grid_positions(h, crop_size)
@@ -714,6 +679,8 @@ class RavenPreviewDatasetPreparationApplication:
                         }
                     )
                     cell_count += 1
+
+            provenance = dict(family.get("sourceProvenance") or {})
             family_payloads.append(
                 {
                     "familyId": family_id,
@@ -729,12 +696,17 @@ class RavenPreviewDatasetPreparationApplication:
                     "materialEncoding": "canonical-material-emissive-roughness",
                     "normalEncoding": normal_encoding,
                     "materialSupervision": material_valid,
-                    "sourceAuthority": "native-4k-eve-full-index",
-                    "sourceProvenance": family.get("sourceProvenance", {}),
+                    "sourceAuthority": "native-eve-full-index-semantic",
+                    "sourceProvenance": provenance,
                     "sourceSize": [w, h],
                     "normalSourceSize": [normal_w, normal_h],
                     "nonOverlappingGridCells": cell_count,
                 }
+            )
+            print(
+                f"[preview-dataset] Family {family_id} {family.get('shaderFamily') or 'unknown'}: "
+                f"albedo={w}x{h} normal={normal_w}x{normal_h}",
+                flush=True,
             )
 
         if not candidates:
@@ -750,34 +722,25 @@ class RavenPreviewDatasetPreparationApplication:
         available_validation = sum(1 for item in candidates if bool(item["holdout"]))
         available_training = sum(1 for item in candidates if not bool(item["holdout"]))
         print(
-            f"[preview-dataset] Unique non-overlapping 512 regions: {len(candidates)} "
+            f"[preview-dataset] Unique non-overlapping {crop_size} regions: {len(candidates)} "
             f"(checkerboard train={available_training}, held-out={available_validation})",
             flush=True,
         )
         print(
-            f"[preview-dataset] Requested region caps: train<={train_crops}, "
-            f"held-out<={validation_crops}",
+            f"[preview-dataset] Requested region caps: train<={train_crops}, held-out<={validation_crops}",
             flush=True,
         )
         print(
-            f"[preview-dataset] Selected fixed set: train={len(selected_train)}, "
-            f"held-out={len(selected_validation)}",
+            f"[preview-dataset] Selected fixed set: train={len(selected_train)}, held-out={len(selected_validation)}",
             flush=True,
         )
-        if len(selected_train) < train_crops or len(selected_validation) < validation_crops:
-            print(
-                "[preview-dataset] NOTE: Raven source topology provides fewer unique "
-                "512x512 cells than the requested caps; using all eligible cells "
-                "without overlap or duplication.",
-                flush=True,
-            )
 
         selected_cells = [
             *(dict(item, split="train") for item in selected_train),
             *(dict(item, split="validation") for item in selected_validation),
         ]
         records: list[dict[str, Any]] = []
-        for ordinal, item in enumerate(selected_cells):
+        for item in selected_cells:
             split = str(item["split"])
             crop_id = f"{item['familyId']}_{item['gx']:02d}_{item['gy']:02d}_{split}"
             destination = crop_root / split / f"{crop_id}.npz"
@@ -794,7 +757,7 @@ class RavenPreviewDatasetPreparationApplication:
                 "overlapBetweenTrainAndValidation": False,
                 "normalEncoding": item["normalEncoding"],
                 "materialSupervision": item["materialValid"],
-                "sourceAuthority": "native-4k-eve-full-index",
+                "sourceAuthority": "native-eve-full-index-semantic",
             }
             np.savez_compressed(
                 destination,
@@ -813,9 +776,9 @@ class RavenPreviewDatasetPreparationApplication:
                     "source_box": [item["x"], item["y"], item["x"] + crop_size, item["y"] + crop_size],
                     "detail_score": item["detailScore"],
                     "detail_stratum": int(item["detailStratum"]),
-                    "albedo_logical": str(item["family"].get("albedo") or ""),
-                    "normal_logical": str(item["family"].get("normal") or ""),
-                    "material_logical": str(item["family"].get("material") or ""),
+                    "albedo_logical": str(item["family"].get("sourceProvenance", {}).get("albedo", {}).get("logical") or ""),
+                    "normal_logical": str(item["family"].get("sourceProvenance", {}).get("normal", {}).get("logical") or ""),
+                    "material_logical": str(item["family"].get("sourceProvenance", {}).get("material", {}).get("logical") or ""),
                 }
             )
 
@@ -834,12 +797,7 @@ class RavenPreviewDatasetPreparationApplication:
                 key=lambda item: (str(item["split"]), str(item["cropId"])),
             )
 
-        fingerprint = self._selection_fingerprint(
-            source_fingerprint,
-            records,
-            seed=config.seed,
-        )
-
+        fingerprint = self._selection_fingerprint(source_fingerprint, records, seed=config.seed)
         payload: dict[str, Any] = {
             "schema": PREVIEW_DATASET_SCHEMA,
             "sourceFingerprint": source_fingerprint,
@@ -848,8 +806,11 @@ class RavenPreviewDatasetPreparationApplication:
             "modelScope": "tuning",
             "fixedPreviewSet": True,
             "deterministic": True,
-            "authoredSourceAuthority": "native-4k-eve-full-index",
-            "minimumAuthoredDimension": RAVEN_MIN_AUTHORED_DIMENSION,
+            "authoredSourceAuthority": "native-eve-full-index-semantic",
+            "authoredResolutionPolicy": "preserve-native-no-pretraining-upscale",
+            "renderTargetIndependentOfTextureResolution": True,
+            "minimumAuthoredDimension": crop_size,
+            "hullAuthorityProbe": hull_probe,
             "asset": {
                 "displayName": selected.display_name,
                 "typeId": selected.type_id,
@@ -860,7 +821,7 @@ class RavenPreviewDatasetPreparationApplication:
                 "assetManifest": str(asset_manifest_path),
             },
             "splitPolicy": {
-                "type": "feature-stratified-non-overlapping-512-grid-v3-native-4k",
+                "type": "feature-stratified-non-overlapping-native-grid-v4",
                 "detailStrata": 4,
                 "maxTrainCrops": train_crops,
                 "maxValidationCrops": validation_crops,
@@ -880,38 +841,45 @@ class RavenPreviewDatasetPreparationApplication:
         }
         output_root.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
         print("=" * 64, flush=True)
-        print("NSAMDR RAVEN NATIVE-4K FEATURE-STRATIFIED DEVELOPMENT DATASET READY", flush=True)
+        print("NSAMDR RAVEN NATIVE-AUTHORED DEVELOPMENT DATASET READY", flush=True)
         print(f"Asset                    : {selected.display_name}", flush=True)
         print(f"Selection                 : {selected.canonical_key}", flush=True)
-        print(f"Authored authority        : native EVE full-index >= {RAVEN_MIN_AUTHORED_DIMENSION}px", flush=True)
+        print("Authored authority        : native EVE full-index semantic textures", flush=True)
+        print("Resolution policy         : preserve native; 4096 preview target is independent", flush=True)
+        for role in ("albedo", "normal"):
+            probe = hull_probe.get(role)
+            if isinstance(probe, dict) and probe.get("logical"):
+                if probe.get("error"):
+                    print(f"Hull {role:6s} probe       : {probe['logical']} ({probe['error']})", flush=True)
+                else:
+                    print(
+                        f"Hull {role:6s} probe       : {probe['width']}x{probe['height']} {probe['logical']}",
+                        flush=True,
+                    )
         print(f"Texture families          : {len(family_payloads)}", flush=True)
-        print(
-            f"Fixed train crops         : {payload['counts']['trainCrops']} (cap {train_crops})",
-            flush=True,
-        )
-        print(
-            f"Fixed held-out crops      : {payload['counts']['validationCrops']} (cap {validation_crops})",
-            flush=True,
-        )
+        print(f"Fixed train crops         : {payload['counts']['trainCrops']} (cap {train_crops})", flush=True)
+        print(f"Fixed held-out crops      : {payload['counts']['validationCrops']} (cap {validation_crops})", flush=True)
         print(f"Crop geometry             : {crop_size}x{crop_size}, non-overlapping", flush=True)
         print(f"Manifest                  : {manifest_path}", flush=True)
         print("=" * 64, flush=True)
         return payload
 
-    # Purpose: Implement main for RavenPreviewDatasetPreparationApplication.
-    # Called by: External callers and the owning workflow.
-    # Calls: prepare
     def main(self) -> int:
         parser = argparse.ArgumentParser(
             description="Build the deterministic feature-stratified Raven development dataset"
         )
         parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-        parser.add_argument("--config", type=Path, default=Path("tools/nsamdr/neural/configs/v9_preview_raven.json"))
+        parser.add_argument(
+            "--config",
+            type=Path,
+            default=Path("tools/nsamdr/neural/configs/v9_preview_raven.json"),
+        )
         parser.add_argument("--shared-cache", default=r"C:\CCP\EVE")
         parser.add_argument("--rebuild", action="store_true")
-        parser.add_argument("--train-crops", type=int, default=16, help="Maximum unique non-overlapping training regions")
-        parser.add_argument("--validation-crops", type=int, default=4, help="Maximum unique non-overlapping held-out regions")
+        parser.add_argument("--train-crops", type=int, default=16)
+        parser.add_argument("--validation-crops", type=int, default=4)
         args = parser.parse_args()
         repo_root = args.repo_root.resolve()
         config_path = args.config if args.config.is_absolute() else repo_root / args.config
@@ -925,6 +893,7 @@ class RavenPreviewDatasetPreparationApplication:
             validation_crops=max(1, args.validation_crops),
         )
         return 0
+
 
 _raven_preview_dataset_preparation_application = RavenPreviewDatasetPreparationApplication()
 _find_navy_raven = _raven_preview_dataset_preparation_application._find_navy_raven
