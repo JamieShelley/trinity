@@ -8,11 +8,13 @@ import torch
 
 from v9 import sr_first_contract as sr
 from v9 import sr_first_runtime_contract as runtime
+from v9 import sr_first_runtime_integrity_contract as integrity
 
 
 ROOT = Path(__file__).resolve().parents[3]
 V9 = ROOT / "tools/nsamdr/neural/v9"
 RUNTIME = V9 / "sr_first_runtime_contract.py"
+INTEGRITY = V9 / "sr_first_runtime_integrity_contract.py"
 ARCHITECTURE = ROOT / "tools/nsamdr/neural/raven_architecture_contract.py"
 CONFIGURATION = V9 / "application/configuration.py"
 
@@ -59,6 +61,20 @@ def test_v133_owns_one_detail_protection_policy() -> None:
     assert "DETAIL_PROTECTED_EXTRA_WEIGHT" not in source
     assert "preservation._loss_with_protected_preservation" not in source
     assert "backend._compute_losses_with_production_head_supervision = _active_sr_loss" in source
+
+
+def test_v133_final_runtime_integrity_requires_only_active_sr_graph() -> None:
+    source = INTEGRITY.read_text(encoding="utf-8")
+    ast.parse(source)
+    assert integrity.SR_RUNTIME_INTEGRITY_REVISION == "V13.3"
+    assert "boundary_refined_coverage" not in integrity._REQUIRED_OUTPUTS
+    assert "seam_authority" not in integrity._REQUIRED_OUTPUTS
+    assert "detail_candidate_albedo" in integrity._REQUIRED_OUTPUTS
+    assert "benefit_selector_probability" in integrity._REQUIRED_OUTPUTS
+    assert "executedRetiredComponents" in source
+    assert "retiredComponentsBypassed" in source
+    assert "service._run_final_qualification = _run_v133_runtime_integrity" in source
+    assert "<locals>" not in source
 
 
 def test_grid_excess_does_not_punish_a_real_target_edge() -> None:
