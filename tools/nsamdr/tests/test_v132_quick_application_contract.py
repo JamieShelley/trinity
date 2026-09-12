@@ -12,6 +12,7 @@ from v9.application.configuration import (
 )
 from v9.application.runner import TrainingApplication
 from v9 import sr_first_generalization_contract as v132
+from v9 import sr_first_runtime_contract as v133
 
 
 def _quick_config() -> V9Config:
@@ -26,6 +27,7 @@ def test_current_quick_schedule_is_native_sr_first() -> None:
     config = _quick_config()
     assert_sr_first_quick_config(config)
     assert v132.is_sr_first_quick_config(config)
+    assert v133.SR_RUNTIME_REVISION == "V13.3"
     assert config.identity_epochs == 0
     assert config.residual_epochs == 0
     assert config.seam_proof_epochs == 0
@@ -35,12 +37,20 @@ def test_current_quick_schedule_is_native_sr_first() -> None:
     assert config.physical_finetune_epochs == 3
     assert config.tile_size == 32
     assert config.batch_size == 1
+    assert config.detail_learning_rate == pytest.approx(1.0e-3)
 
 
-def test_pre_v132_quick_schedule_is_rejected() -> None:
+def test_pre_v133_quick_schedule_is_rejected() -> None:
     config = _quick_config()
     config.identity_epochs = 1
-    with pytest.raises(RuntimeError, match="Pre-V13.2 Quick schedules are retired"):
+    with pytest.raises(RuntimeError, match="Pre-V13.3 Quick schedules are retired"):
+        assert_sr_first_quick_config(config)
+
+
+def test_stale_detail_lr_schedule_is_rejected() -> None:
+    config = _quick_config()
+    config.detail_learning_rate = 1.0e-3 / 3.0
+    with pytest.raises(RuntimeError, match="proven V13.3 SR training regime"):
         assert_sr_first_quick_config(config)
 
 
@@ -53,7 +63,7 @@ def test_retired_hidden_quick_phases_are_rejected() -> None:
         "gate-proof",
         "boundary-hardening",
     ):
-        with pytest.raises(RuntimeError, match="retired by V13.2"):
+        with pytest.raises(RuntimeError, match="retired by V13.3"):
             assert_quick_stop_phase(phase)
     assert_quick_stop_phase(None)
     assert_quick_stop_phase("detail-reconstruction")
