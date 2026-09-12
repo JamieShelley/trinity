@@ -33,8 +33,10 @@ CANONICAL_SEMANTIC_OVERRIDES: dict[str, Any] = {
 
 # The only supported training workflow is V13.3 SR-first Quick:
 # deterministic B -> learned multi-map SR candidate C -> BenefitSelector -> F.
-# These are the ACTUAL active-phase learning rates. V13.3 owns phase LR directly;
-# no historical 3x/16x/20x wrapper is allowed to reinterpret these values.
+# detail_learning_rate is now the ACTUAL V13.3 detail-body LR; V13.3 owns that
+# phase directly, so historical 3x/16x wrappers cannot reinterpret it. The selector
+# compatibility value remains 1e-3/20 because the unchanged legacy selector phase
+# adapter still resolves it to the proven effective 1e-3.
 QUICK_WORK_BUDGET: dict[str, int | float] = {
     "identity_epochs": 0,
     "residual_epochs": 0,
@@ -54,7 +56,7 @@ QUICK_WORK_BUDGET: dict[str, int | float] = {
     "detail_win_fraction_required": 0.60,
     "detail_regression_fraction_max": 0.25,
     "detail_learning_rate": 1.0e-3,
-    "finetune_learning_rate": 1.0e-3,
+    "finetune_learning_rate": 1.0e-3 / 20.0,
     "weight_decay": 0.0,
 }
 
@@ -102,7 +104,7 @@ def assert_sr_first_quick_config(config: V9Config) -> None:
         "tile_size": 32,
         "batch_size": 1,
         "detail_learning_rate": 1.0e-3,
-        "finetune_learning_rate": 1.0e-3,
+        "finetune_learning_rate": 1.0e-3 / 20.0,
         "weight_decay": 0.0,
     }
     mismatches: list[str] = []
