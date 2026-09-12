@@ -65,7 +65,7 @@ from . import parallel_specialist_safety_contract as _parallel_specialist_safety
 _parallel_specialist_safety.install_parallel_specialist_safety_contract()
 
 from . import parallel_specialist_geometry_training_contract as _parallel_geometry_training
-_parallel_geometry_training.install_parallel_specialist_geometry_training_contract()
+_parallel_specialist_geometry_training.install_parallel_specialist_geometry_training_contract()
 
 from . import sr_first_contract as _sr_first
 _sr_first.install_sr_first_contract()
@@ -83,5 +83,10 @@ _sr_first_generalization.install_sr_first_generalization_contract()
 # The active runtime is B -> direct multi-map SR C -> BenefitSelector F.
 from . import sr_first_runtime_contract as _sr_first_runtime
 _sr_first_runtime.install_sr_first_runtime_contract()
+
+# Final strict-reload audit must enforce the same active graph and reject any
+# accidental execution of the checkpoint-only geometry/profile/seam modules.
+from . import sr_first_runtime_integrity_contract as _sr_runtime_integrity
+_sr_runtime_integrity.install_sr_first_runtime_integrity_contract()
 
 __all__ = ["V9Config", "FidelityResidualNetV9"]
