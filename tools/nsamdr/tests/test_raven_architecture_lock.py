@@ -12,9 +12,6 @@ NEURAL = ROOT / "tools" / "nsamdr" / "neural"
 
 
 class TestRavenArchitectureLock:
-    # Purpose: Implement load contract for TestRavenArchitectureLock.
-    # Called by: test_previewflight_accepts_only_exact_file_and_checkpoint_hashes, test_previewflight_rejects_candidate_mutation_before_renderer, test_previewflight_rejects_intermediate_or_unqualified_final, test_previewflight_rejects_partial_checkpoint_hash, test_required_component_inventory_is_the_complete_production_chain
-    # Calls: No same-class helper methods.
     def _load_contract(self):
         path = NEURAL / "raven_architecture_contract.py"
         spec = importlib.util.spec_from_file_location("nsamdr_architecture_contract_test", path)
@@ -23,22 +20,13 @@ class TestRavenArchitectureLock:
         spec.loader.exec_module(module)
         return module
 
-    # Purpose: Implement sha for TestRavenArchitectureLock.
-    # Called by: _qualified_preview_tree
-    # Calls: No same-class helper methods.
     def _sha(self, path: Path) -> str:
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
-    # Purpose: Implement write json for TestRavenArchitectureLock.
-    # Called by: _qualified_preview_tree, test_previewflight_rejects_intermediate_or_unqualified_final, test_previewflight_rejects_partial_checkpoint_hash
-    # Calls: No same-class helper methods.
     def _write_json(self, path: Path, value: object) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(value), encoding="utf-8")
 
-    # Purpose: Implement qualified preview tree for TestRavenArchitectureLock.
-    # Called by: test_previewflight_accepts_only_exact_file_and_checkpoint_hashes, test_previewflight_rejects_candidate_mutation_before_renderer, test_previewflight_rejects_intermediate_or_unqualified_final, test_previewflight_rejects_partial_checkpoint_hash
-    # Calls: _sha, _write_json
     def _qualified_preview_tree(self, tmp_path: Path) -> tuple[Path, Path, Path]:
         experiment = tmp_path / "EXP_0001"
         checkpoint = experiment / "checkpoints" / "final" / "nsamdr_v9_fidelity.pt"
@@ -81,10 +69,7 @@ class TestRavenArchitectureLock:
         )
         return experiment, source, candidate
 
-    # Purpose: Implement test required component inventory is the complete production chain for TestRavenArchitectureLock.
-    # Called by: External callers and the owning workflow.
-    # Calls: _load_contract
-    def test_required_component_inventory_is_the_complete_production_chain(self) -> None:
+    def test_required_component_inventory_separates_active_and_retired_graphs(self) -> None:
         contract = self._load_contract()
         assert tuple(contract._COMPONENT_PATHS) == (
             "GeometryNet",
@@ -101,10 +86,24 @@ class TestRavenArchitectureLock:
             "Confidence/Regret",
             "BenefitSelector",
         )
+        assert tuple(contract._ACTIVE_COMPONENTS) == (
+            "DetailNet",
+            "AlbedoHead",
+            "NormalHead",
+            "MaterialHead",
+            "Confidence/Regret",
+            "BenefitSelector",
+        )
+        assert tuple(contract._RETIRED_COMPONENTS) == (
+            "GeometryNet",
+            "Spline/SDF",
+            "ExplicitRefiner",
+            "BoundaryRenderer",
+            "BoundaryProfile",
+            "PhaseAwareSeamSR",
+            "SeamAuthority",
+        )
 
-    # Purpose: Implement test runner uses production trainer contract and preview only for TestRavenArchitectureLock.
-    # Called by: External callers and the owning workflow.
-    # Calls: No same-class helper methods.
     def test_runner_uses_production_trainer_contract_and_preview_only(self) -> None:
         source = (NEURAL / "run_nsamdr_v9_raven_tune_preview.py").read_text(encoding="utf-8")
         assert "train_nsamdr_v9_preview_experiment.py" in source
@@ -113,9 +112,6 @@ class TestRavenArchitectureLock:
         assert "capability_first" not in source
         assert "capability_generalization" not in source
 
-    # Purpose: Implement test previewflight accepts only exact file and checkpoint hashes for TestRavenArchitectureLock.
-    # Called by: External callers and the owning workflow.
-    # Calls: _load_contract, _qualified_preview_tree
     def test_previewflight_accepts_only_exact_file_and_checkpoint_hashes(self, tmp_path: Path) -> None:
         contract = self._load_contract()
         experiment, _source, _candidate = self._qualified_preview_tree(tmp_path)
@@ -125,9 +121,6 @@ class TestRavenArchitectureLock:
         assert report["pass"] is True
         assert {row["kind"] for row in report["verifiedFiles"]} == {"source", "candidate"}
 
-    # Purpose: Implement test previewflight rejects candidate mutation before renderer for TestRavenArchitectureLock.
-    # Called by: External callers and the owning workflow.
-    # Calls: _load_contract, _qualified_preview_tree
     def test_previewflight_rejects_candidate_mutation_before_renderer(self, tmp_path: Path) -> None:
         contract = self._load_contract()
         experiment, _source, candidate = self._qualified_preview_tree(tmp_path)
@@ -137,9 +130,6 @@ class TestRavenArchitectureLock:
         report = json.loads(output.read_text(encoding="utf-8"))
         assert any("candidate provenance SHA mismatch" in item for item in report["failures"])
 
-    # Purpose: Implement test previewflight rejects partial checkpoint hash for TestRavenArchitectureLock.
-    # Called by: External callers and the owning workflow.
-    # Calls: _load_contract, _qualified_preview_tree, _write_json
     def test_previewflight_rejects_partial_checkpoint_hash(self, tmp_path: Path) -> None:
         contract = self._load_contract()
         experiment, _source, _candidate = self._qualified_preview_tree(tmp_path)
@@ -150,11 +140,8 @@ class TestRavenArchitectureLock:
         output = experiment / "evidence" / "preview_contract.json"
         assert contract._previewflight(experiment, output) == 4
         report = json.loads(output.read_text(encoding="utf-8"))
-        assert any("partial or malformed checkpoint hash" in item for item in report["failures"])
+        assert any("malformed checkpoint hash" in item for item in report["failures"])
 
-    # Purpose: Implement test previewflight rejects intermediate or unqualified final for TestRavenArchitectureLock.
-    # Called by: External callers and the owning workflow.
-    # Calls: _load_contract, _qualified_preview_tree, _write_json
     def test_previewflight_rejects_intermediate_or_unqualified_final(self, tmp_path: Path) -> None:
         contract = self._load_contract()
         experiment, _source, _candidate = self._qualified_preview_tree(tmp_path)
@@ -168,6 +155,7 @@ class TestRavenArchitectureLock:
         report = json.loads(output.read_text(encoding="utf-8"))
         assert "final manifest status is not completed" in report["failures"]
         assert "final manifest is not qualified" in report["failures"]
+
 
 _test_raven_architecture_lock = TestRavenArchitectureLock()
 _load_contract = _test_raven_architecture_lock._load_contract
