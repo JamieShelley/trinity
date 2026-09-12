@@ -4,16 +4,13 @@ from .model import FidelityResidualNetV9
 from . import model as _model
 from . import edge_constrained_spline_graph as _edge_constrained_spline
 
-# V11.6 owns same-edge topology safety and must install before the local production
-# contract captures the spline/loss callables it extends.
+# Legacy V11/V12 modules are installed only to preserve strict checkpoint topology
+# and state-dict compatibility. V13.3 takes final ownership of active forward/loss/LR.
 _edge_constrained_spline.install()
 
 from . import local_boundary_production_contract as _local_boundary
 _edge_constrained_spline.install_schema(_local_boundary)
 
-# The local-boundary owner exposes selected unbound class functions as extension
-# methods. Keep Python descriptor binding explicit: model methods receive the model
-# instance, while training-module callbacks remain normal module callables.
 _local_boundary._geometry_init = _local_boundary.LocalBoundaryProductionContract._geometry_init
 _local_boundary._geometry_encode = _local_boundary.LocalBoundaryProductionContract._geometry_encode
 _local_boundary._geometry_forward = _local_boundary.LocalBoundaryProductionContract._geometry_forward
@@ -28,8 +25,6 @@ _local_boundary._architecture_contract = (
     _local_boundary.LocalBoundaryProductionContract._architecture_contract
 )
 
-# These helpers intentionally receive GeometryNet explicitly rather than binding as
-# instance methods; changing that calling convention would alter the production path.
 _model.GeometryNet._require_current_v11_instance = staticmethod(
     _local_boundary._local_boundary_production_contract._require_current_v11_instance
 )
@@ -37,9 +32,6 @@ _model.GeometryNet._geometry_encode = staticmethod(
     _local_boundary.LocalBoundaryProductionContract._geometry_encode
 )
 
-# V13 keeps the historical modules checkpoint-loadable, but only the SR candidate has
-# deployed pixel authority. Install the model compatibility stack before V13 captures
-# the production forward/loss callables it wraps.
 _local_boundary.install_local_boundary_model_contract()
 
 from . import authority_alignment_contract as _authority_alignment
@@ -75,20 +67,21 @@ _parallel_specialist_safety.install_parallel_specialist_safety_contract()
 from . import parallel_specialist_geometry_training_contract as _parallel_geometry_training
 _parallel_geometry_training.install_parallel_specialist_geometry_training_contract()
 
-# V13 production authority: deterministic B -> direct multi-map SR candidate C ->
-# BenefitSelector F. Geometry/profile/seam remain compatibility/evidence only.
 from . import sr_first_contract as _sr_first
 _sr_first.install_sr_first_contract()
 
 from . import sr_first_quality_contract as _sr_first_quality
 _sr_first_quality.install_sr_first_quality_contract()
 
-# V13.2 allows the canonical Quick schedule to set retired stage epochs to zero and
-# adds representative held-out Raven qualification around the same production model.
 from . import sr_first_quick_config_contract as _sr_first_quick_config
 _sr_first_quick_config.install_sr_first_quick_config_contract()
 
 from . import sr_first_generalization_contract as _sr_first_generalization
 _sr_first_generalization.install_sr_first_generalization_contract()
+
+# Final V13.3 authority. Everything above this line is compatibility/topology only.
+# The active runtime is B -> direct multi-map SR C -> BenefitSelector F.
+from . import sr_first_runtime_contract as _sr_first_runtime
+_sr_first_runtime.install_sr_first_runtime_contract()
 
 __all__ = ["V9Config", "FidelityResidualNetV9"]
