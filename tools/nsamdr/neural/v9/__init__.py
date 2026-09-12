@@ -65,7 +65,7 @@ from . import parallel_specialist_safety_contract as _parallel_specialist_safety
 _parallel_specialist_safety.install_parallel_specialist_safety_contract()
 
 from . import parallel_specialist_geometry_training_contract as _parallel_geometry_training
-_parallel_specialist_geometry_training.install_parallel_specialist_geometry_training_contract()
+_parallel_geometry_training.install_parallel_specialist_geometry_training_contract()
 
 from . import sr_first_contract as _sr_first
 _sr_first.install_sr_first_contract()
@@ -88,5 +88,10 @@ _sr_first_runtime.install_sr_first_runtime_contract()
 # accidental execution of the checkpoint-only geometry/profile/seam modules.
 from . import sr_first_runtime_integrity_contract as _sr_runtime_integrity
 _sr_runtime_integrity.install_sr_first_runtime_integrity_contract()
+
+# Final trainer ownership retires the legacy trainer validator/component inventory,
+# freezes checkpoint-only modules, and bypasses historical startup microproof work.
+from . import sr_first_trainer_contract as _sr_trainer
+_sr_trainer.install_sr_first_trainer_contract()
 
 __all__ = ["V9Config", "FidelityResidualNetV9"]
