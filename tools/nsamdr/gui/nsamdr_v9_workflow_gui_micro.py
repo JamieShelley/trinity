@@ -61,12 +61,12 @@ _micro = base.Stage(
 _quick = base.Stage(
     "quick",
     "4",
-    "V13.2 SR Raven Quick",
+    "V13.3 SR Raven Quick",
     _existing["quick"].command,
     (
-        "Train only the SR candidate C and BenefitSelector F on representative Raven crops, "
+        "Train only the active SR candidate C and BenefitSelector F on representative Raven crops, "
         "then require a deterministic 32-patch held-out visual-fidelity qualification. "
-        "The retired G/profile/seam curriculum cannot run or be resumed in Quick."
+        "Retired geometry/profile/seam modules remain checkpoint-compatible but are not executed."
     ),
     True,
 )
@@ -77,7 +77,7 @@ _train = base.Stage(
     _existing["train"].command,
     (
         "Temporarily disabled because Full still contains the retired geometry/profile/seam "
-        "curriculum. It will be re-enabled only after the V13.2 Quick proof passes and Full "
+        "curriculum. It will be re-enabled only after the V13.3 Quick proof passes and Full "
         "is converted to the same SR-first authority."
     ),
     False,
@@ -266,9 +266,9 @@ def _select_parallel(self: base.App, stage: base.Stage, status: str) -> None:
     self._clear_form()
     self._label_row("Authority", "DIAGNOSTIC ONLY — cannot create/promote a production final")
     self._label_row("Prerequisite", "Direct Residual Capacity must pass first")
-    self._label_row("Production change", "Structure/seam support is forced to zero for this proof, therefore fused U must equal direct D exactly")
+    self._label_row("Production change", "Structure/seam support is forced to zero for this proof, therefore fused U must equal D exactly")
     self._label_row("Selector evidence", "B + isolated U(=D) + observable LR support + calibrated detail support / zero conflict")
-    self._label_row("Geometry/seam", "Execute in the production graph but have zero fusion authority during D integration qualification")
+    self._label_row("Geometry/seam", "Execute in this historical diagnostic only; V13.3 Quick does not execute them")
     self._label_row("Pass 1", "Direct detail candidate reaches the same 50% edge / 25% global recovery target")
     self._label_row("Pass 2", "Production U equals D and BenefitSelector retains at least 85% of both recoveries")
     self._row("Shared cache", "cache", r"C:\CCP\EVE")
@@ -327,7 +327,7 @@ def _config_value(payload: dict, snake: str, camel: str, default: object = None)
     return payload.get(camel, default)
 
 
-def _is_v132_quick_experiment(self: base.App, experiment_id: str) -> bool:
+def _is_v133_quick_experiment(self: base.App, experiment_id: str) -> bool:
     directory = self._experiments_root() / experiment_id
     try:
         experiment = json.loads((directory / "experiment.json").read_text(encoding="utf-8"))
@@ -347,18 +347,24 @@ def _is_v132_quick_experiment(self: base.App, experiment_id: str) -> bool:
             return False
         if int(_config_value(config, "physical_finetune_epochs", "physicalFinetuneEpochs", 0)) <= 0:
             return False
+        if int(_config_value(config, "tile_size", "tileSize", 0)) != 32:
+            return False
+        if int(_config_value(config, "batch_size", "batchSize", 0)) != 1:
+            return False
         if float(_config_value(config, "detail_albedo_max_delta", "detailAlbedoMaxDelta", 0.0)) < 0.40 - 1.0e-8:
+            return False
+        if abs(float(_config_value(config, "detail_learning_rate", "detailLearningRate", 0.0)) - 1.0e-3) > 1.0e-12:
             return False
         return True
     except (OSError, ValueError, TypeError):
         return False
 
 
-def _v132_quick_experiment_ids(self: base.App) -> list[str]:
+def _v133_quick_experiment_ids(self: base.App) -> list[str]:
     return [
         experiment_id
         for experiment_id in self._experiment_ids()
-        if _is_v132_quick_experiment(self, experiment_id)
+        if _is_v133_quick_experiment(self, experiment_id)
     ]
 
 
@@ -366,14 +372,15 @@ def _select_quick(self: base.App, stage: base.Stage, status: str) -> None:
     note = " — interrupted; SR-first resume available" if status == "interrupted" else ""
     self.description.set(f"{stage.number}. {stage.label} — {stage.description}{note}")
     self._clear_form()
-    experiments = ["new", *_v132_quick_experiment_ids(self)]
+    experiments = ["new", *_v133_quick_experiment_ids(self)]
     self._row("Experiment", "experiment", "new", experiments)
     self._label_row("Production authority", "B -> multi-map SR candidate C -> BenefitSelector F")
-    self._label_row("Retired specialists", "G/profile/seam are frozen compatibility/evidence only; zero Quick optimiser authority")
+    self._label_row("Retired specialists", "Geometry/profile/seam are checkpoint compatibility only and are not executed by V13.3 Quick")
+    self._label_row("SR learning rate", "Detail body 0.001; albedo output head 0.003 (3x optimizer group)")
     self._label_row("SR work budget", "8 x 384 Raven patches = 3072 maximum SR updates at 32x32 LR")
     self._label_row("Selector budget", "3 x 384 patches = 1152 maximum selector updates")
     self._label_row("Held-out qualification", "32 deterministic Raven patches; median edge/global/gradient + catastrophe + preservation gates")
-    self._label_row("Resume policy", "Only V13.2 SR-first Quick experiments are listed; older Quick experiments are rejected")
+    self._label_row("Resume policy", "Only V13.3 SR-first Quick experiments are listed; V13.2 and older experiments are rejected")
     self._row("Shared cache", "cache", r"C:\CCP\EVE")
     self._row("Training regions", "train_crops", "16")
     self._row("Max held-out regions", "validation_crops", "4")
@@ -390,7 +397,7 @@ def _stage_lock_reason(self: base.App, stage_id: str) -> str | None:
     if stage_id == "train":
         return (
             "Full Training is temporarily disabled because it still contains the retired "
-            "geometry/profile/seam curriculum. Run V13.2 SR Raven Quick first; Full will be "
+            "geometry/profile/seam curriculum. Run V13.3 SR Raven Quick first; Full will be "
             "re-enabled only after it is converted to SR-first."
         )
     return _original_stage_lock_reason(self, stage_id)
