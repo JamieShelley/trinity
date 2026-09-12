@@ -31,8 +31,10 @@ CANONICAL_SEMANTIC_OVERRIDES: dict[str, Any] = {
     "preview_allow_unqualified_downstream": False,
 }
 
-# The only supported training workflow is V13.2 SR-first Quick:
+# The only supported training workflow is V13.3 SR-first Quick:
 # deterministic B -> learned multi-map SR candidate C -> BenefitSelector -> F.
+# These are the ACTUAL active-phase learning rates. V13.3 owns phase LR directly;
+# no historical 3x/16x/20x wrapper is allowed to reinterpret these values.
 QUICK_WORK_BUDGET: dict[str, int | float] = {
     "identity_epochs": 0,
     "residual_epochs": 0,
@@ -51,8 +53,8 @@ QUICK_WORK_BUDGET: dict[str, int | float] = {
     "detail_gradient_recovery_required": 0.30,
     "detail_win_fraction_required": 0.60,
     "detail_regression_fraction_max": 0.25,
-    "detail_learning_rate": 1.0e-3 / 3.0,
-    "finetune_learning_rate": 1.0e-3 / 20.0,
+    "detail_learning_rate": 1.0e-3,
+    "finetune_learning_rate": 1.0e-3,
     "weight_decay": 0.0,
 }
 
@@ -65,7 +67,7 @@ def is_sr_first_quick_config(config: V9Config) -> bool:
     Purpose:
         Identify the only training schedule that the current application supports.
     Called by:
-        assert_sr_first_quick_config(), V13.2 representative validation.
+        assert_sr_first_quick_config(), representative validation.
     Calls:
         No project functions.
     """
@@ -93,14 +95,14 @@ def assert_sr_first_quick_config(config: V9Config) -> None:
     """
     if not is_sr_first_quick_config(config):
         raise RuntimeError(
-            "Pre-V13.2 Quick schedules are retired; allocate a new SR-first Quick experiment."
+            "Pre-V13.3 Quick schedules are retired; allocate a new SR-first Quick experiment."
         )
 
     expected = {
         "tile_size": 32,
         "batch_size": 1,
-        "detail_learning_rate": 1.0e-3 / 3.0,
-        "finetune_learning_rate": 1.0e-3 / 20.0,
+        "detail_learning_rate": 1.0e-3,
+        "finetune_learning_rate": 1.0e-3,
         "weight_decay": 0.0,
     }
     mismatches: list[str] = []
@@ -113,7 +115,7 @@ def assert_sr_first_quick_config(config: V9Config) -> None:
             mismatches.append(f"{name}={actual!r} expected {value!r}")
     if mismatches:
         raise RuntimeError(
-            "Quick experiment does not use the proven V13 SR training regime: "
+            "Quick experiment does not use the proven V13.3 SR training regime: "
             + "; ".join(mismatches)
         )
 
@@ -130,7 +132,7 @@ def assert_quick_stop_phase(phase: str | None) -> None:
     """
     if phase not in _ALLOWED_QUICK_STOP_PHASES:
         raise RuntimeError(
-            f"stop-after phase {phase!r} was retired by V13.2; "
+            f"stop-after phase {phase!r} was retired by V13.3; "
             "only detail-reconstruction is available."
         )
 
