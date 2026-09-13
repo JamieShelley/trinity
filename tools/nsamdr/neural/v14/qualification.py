@@ -44,7 +44,6 @@ def _phase_independent_lattice(
     target_residual: torch.Tensor,
     scale: int,
 ) -> tuple[float, float, float]:
-    """Return worst candidate excess over authored residual across every LR-grid phase."""
     candidate_fractions: list[float] = []
     target_fractions: list[float] = []
     excesses: list[float] = []
@@ -123,6 +122,7 @@ def aggregate_candidate(metrics: list[dict[str, float]], config: V14Config) -> d
     material_values = [m["material_recovery"] for m in metrics]
     lattice_values = [m["lattice_cell_excess"] for m in metrics]
     protected_values = [m["protected_preservation"] for m in metrics]
+    enough_heldout = len(metrics) >= int(config.minimum_heldout_samples)
     result: dict[str, object] = {
         "medianGlobalRecovery": _median(global_values),
         "medianEdgeRecovery": _median(edge_values),
@@ -135,9 +135,12 @@ def aggregate_candidate(metrics: list[dict[str, float]], config: V14Config) -> d
         "maxLatticeCellExcess": max(lattice_values) if lattice_values else float("nan"),
         "medianProtectedPreservation": _median(protected_values),
         "sampleCount": len(metrics),
+        "minimumHeldOutSamplesRequired": int(config.minimum_heldout_samples),
+        "heldOutCoveragePass": enough_heldout,
     }
     result["passed"] = bool(
-        result["medianEdgeRecovery"] >= config.candidate_edge_recovery_required
+        enough_heldout
+        and result["medianEdgeRecovery"] >= config.candidate_edge_recovery_required
         and result["medianGlobalRecovery"] >= config.candidate_global_recovery_required
         and result["medianGradientRecovery"] >= config.candidate_gradient_recovery_required
         and result["positiveEdgeFraction"] >= config.candidate_positive_edge_fraction_required
@@ -164,7 +167,8 @@ def aggregate_final(
     final["selectorEdgeRetention"] = edge / max(candidate_edge, 1.0e-8)
     final["selectorGlobalRetention"] = glob / max(candidate_global, 1.0e-8)
     final["passed"] = bool(
-        edge >= 0.0
+        final["heldOutCoveragePass"]
+        and edge >= 0.0
         and glob >= 0.0
         and float(final["medianNormalRecovery"]) >= 0.0
         and float(final["medianMaterialRecovery"]) >= 0.0
