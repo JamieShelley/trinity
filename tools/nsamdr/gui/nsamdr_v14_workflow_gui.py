@@ -89,6 +89,11 @@ def _qualified_v14_final(directory: Path) -> bool:
 
 
 def _experiment_ids(self: base.App, *, completed_only: bool = False) -> list[str]:
+    # V14 experiments cannot resume. The non-completed listing is used only by the
+    # Quick experiment picker, which must therefore expose "new" only. Qualified
+    # immutable finals remain discoverable for Preview/status detection.
+    if not completed_only:
+        return []
     root = self._experiments_root()
     if not root.is_dir():
         return []
@@ -96,11 +101,8 @@ def _experiment_ids(self: base.App, *, completed_only: bool = False) -> list[str
     for directory in root.iterdir():
         if not directory.is_dir() or base.EXPERIMENT_RE.fullmatch(directory.name) is None:
             continue
-        if not _is_v14_experiment(directory):
-            continue
-        if completed_only and not _qualified_v14_final(directory):
-            continue
-        result.append(directory.name.upper())
+        if _is_v14_experiment(directory) and _qualified_v14_final(directory):
+            result.append(directory.name.upper())
     return sorted(result, key=lambda value: int(value.split("_")[1]))
 
 
@@ -116,8 +118,6 @@ def _args(self: base.App, stage_id: str) -> list[str]:
     values = _original_args(self, stage_id)
     if stage_id != "quick":
         return values
-    # V14 experiments are immutable. Resume is intentionally gone; every architecture/
-    # objective change gets a fresh experiment with explicit provenance.
     cleaned: list[str] = []
     index = 0
     while index < len(values):
