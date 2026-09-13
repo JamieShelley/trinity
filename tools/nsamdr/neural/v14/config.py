@@ -14,6 +14,7 @@ class V14Config:
     validation_hr_size: int = 512
     validation_lr_size: int = 128
     native_validation_max_families: int = 4
+    minimum_heldout_samples: int = 4
     tiles_per_epoch: int = 192
     validation_tiles: int = 32
     clean_epochs: int = 4
@@ -58,8 +59,14 @@ class V14Config:
             raise ValueError("validation_hr_size must equal validation_lr_size * scale")
         if self.production_overlap_lr * 2 >= self.production_tile_lr:
             raise ValueError("production overlap must be less than half the LR tile")
-        if min(self.tiles_per_epoch, self.validation_tiles, self.sr_epochs, self.selector_epochs) < 1:
-            raise ValueError("training work budgets must be positive")
+        if min(
+            self.tiles_per_epoch,
+            self.validation_tiles,
+            self.minimum_heldout_samples,
+            self.sr_epochs,
+            self.selector_epochs,
+        ) < 1:
+            raise ValueError("training and qualification work budgets must be positive")
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
