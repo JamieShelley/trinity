@@ -84,6 +84,11 @@ _sr_first_generalization.install_sr_first_generalization_contract()
 from . import sr_first_runtime_contract as _sr_first_runtime
 _sr_first_runtime.install_sr_first_runtime_contract()
 
+# Keep the unchanged canonical trainer's progress formatter compatible with the
+# V13.3 SR-only metric dictionary without restoring retired loss authority.
+from . import sr_first_training_telemetry_contract as _sr_training_telemetry
+_sr_training_telemetry.install_sr_first_training_telemetry_contract()
+
 # Final strict-reload audit must enforce the same active graph and reject any
 # accidental execution of the checkpoint-only geometry/profile/seam modules.
 from . import sr_first_runtime_integrity_contract as _sr_runtime_integrity
