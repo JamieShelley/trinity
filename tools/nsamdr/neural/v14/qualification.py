@@ -21,16 +21,41 @@ def _recovery(baseline_error: torch.Tensor, candidate_error: torch.Tensor) -> fl
     return (b - c) / max(b, 1.0e-8)
 
 
-def _cell_projection_fraction(residual: torch.Tensor, scale: int) -> float:
-    magnitude = float(residual.abs().mean().item())
+def _phase_cell_projection_fraction(residual: torch.Tensor, scale: int, oy: int, ox: int) -> float:
+    h, w = residual.shape[-2:]
+    usable_h = ((h - oy) // scale) * scale
+    usable_w = ((w - ox) // scale) * scale
+    if usable_h < scale or usable_w < scale:
+        return 0.0
+    value = residual[..., oy:oy + usable_h, ox:ox + usable_w].float()
+    magnitude = float(value.abs().mean().item())
     if magnitude < 1.0e-5:
         return 0.0
     projected = F.interpolate(
-        F.avg_pool2d(residual.float(), scale, scale),
-        size=residual.shape[-2:],
+        F.avg_pool2d(value, scale, scale),
+        size=value.shape[-2:],
         mode="nearest",
     )
     return float(projected.abs().mean().item() / max(magnitude, 1.0e-8))
+
+
+def _phase_independent_lattice(
+    residual: torch.Tensor,
+    target_residual: torch.Tensor,
+    scale: int,
+) -> tuple[float, float, float]:
+    """Return worst candidate excess over authored residual across every LR-grid phase."""
+    candidate_fractions: list[float] = []
+    target_fractions: list[float] = []
+    excesses: list[float] = []
+    for oy in range(scale):
+        for ox in range(scale):
+            candidate = _phase_cell_projection_fraction(residual, scale, oy, ox)
+            target = _phase_cell_projection_fraction(target_residual, scale, oy, ox)
+            candidate_fractions.append(candidate)
+            target_fractions.append(target)
+            excesses.append(candidate - target)
+    return max(excesses), max(candidate_fractions), max(target_fractions)
 
 
 def sample_metrics(outputs: dict[str, torch.Tensor], batch: dict[str, torch.Tensor], *, final: bool = False) -> dict[str, float]:
@@ -62,9 +87,9 @@ def sample_metrics(outputs: dict[str, torch.Tensor], batch: dict[str, torch.Tens
     material_recovery = _recovery((baseline_m - target_m).abs(), (value_m - target_m).abs())
     residual = value - baseline
     target_residual = target - baseline
-    lattice_candidate = _cell_projection_fraction(residual, 4)
-    lattice_target = _cell_projection_fraction(target_residual, 4)
-    lattice_excess = lattice_candidate - lattice_target
+    lattice_excess, lattice_candidate, lattice_target = _phase_independent_lattice(
+        residual, target_residual, 4
+    )
 
     protected = (baseline - target).abs().amax(dim=1, keepdim=True) <= (2.0 / 255.0)
     if bool(protected.any().item()):
@@ -141,9 +166,12 @@ def aggregate_final(
     final["passed"] = bool(
         edge >= 0.0
         and glob >= 0.0
+        and float(final["medianNormalRecovery"]) >= 0.0
+        and float(final["medianMaterialRecovery"]) >= 0.0
         and final["selectorEdgeRetention"] >= config.selector_edge_retention_required
         and final["selectorGlobalRetention"] >= config.selector_global_retention_required
         and protected >= config.protected_preservation_required
         and float(final["worstGlobalRecovery"]) >= config.candidate_worst_recovery_min
+        and float(final["maxLatticeCellExcess"]) <= config.candidate_lattice_cell_excess_max
     )
     return final
