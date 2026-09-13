@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 
 import torch
 
@@ -48,6 +49,25 @@ def _diagnostics(experiment: Path, root: Path) -> Path:
     base = diagnostics / f"{experiment.name}_V14_DIAGNOSTICS"
     archive = Path(shutil.make_archive(str(base), "zip", root_dir=experiment))
     return archive
+
+
+def _start_live_view(repo_root: Path, experiment: Path) -> subprocess.Popen[bytes]:
+    script = repo_root / "tools/nsamdr/neural/v14/live_view.py"
+    command = [sys.executable, "-u", str(script), "--experiment-dir", str(experiment)]
+    print("[v14-workflow] live A/B/C/F viewer: " + subprocess.list2cmdline(command), flush=True)
+    return subprocess.Popen(command, cwd=repo_root)
+
+
+def _stop_live_view(experiment: Path, process: subprocess.Popen[bytes] | None) -> None:
+    if process is None:
+        return
+    stop = experiment / "previews" / "live" / "viewer.stop"
+    stop.parent.mkdir(parents=True, exist_ok=True)
+    stop.write_text("stop\n", encoding="utf-8")
+    try:
+        process.wait(timeout=3.0)
+    except subprocess.TimeoutExpired:
+        process.terminate()
 
 
 def parser() -> argparse.ArgumentParser:
@@ -99,28 +119,47 @@ def main(argv: list[str] | None = None) -> int:
         "createdUnix": time.time(),
         "source": "V14 HR-first clean architecture",
     }
-    (experiment / "experiment.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    manifest_path = experiment / "experiment.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     device = torch.device("cuda" if args.preview_device in {"cuda", "auto"} and torch.cuda.is_available() else "cpu")
     if args.preview_device == "cuda" and device.type != "cuda":
         raise RuntimeError("V14 Raven Quick requested CUDA but CUDA is unavailable")
 
-    trainer = V14Trainer(
-        repo_root,
-        experiment,
-        config,
-        device=device,
-        workers=args.workers,
-        prefetch_factor=args.prefetch_factor,
-        amp_precision=args.amp_precision,
-        live_preview_target_size=args.live_preview_target_size if args.live_preview_during_training else 0,
-    )
-    result = trainer.run()
-    manifest.update(result)
-    manifest["status"] = result["status"]
-    manifest["qualified"] = bool(result.get("qualified"))
-    manifest["finishedUnix"] = time.time()
-    (experiment / "experiment.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    viewer: subprocess.Popen[bytes] | None = None
+    if args.live_preview_during_training:
+        viewer = _start_live_view(repo_root, experiment)
+
+    try:
+        trainer = V14Trainer(
+            repo_root,
+            experiment,
+            config,
+            device=device,
+            workers=args.workers,
+            prefetch_factor=args.prefetch_factor,
+            amp_precision=args.amp_precision,
+            live_preview_target_size=args.live_preview_target_size if args.live_preview_during_training else 0,
+        )
+        result = trainer.run()
+        manifest.update(result)
+        manifest["status"] = result["status"]
+        manifest["qualified"] = bool(result.get("qualified"))
+        manifest["finishedUnix"] = time.time()
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except Exception as exc:
+        manifest["status"] = "failed"
+        manifest["qualified"] = False
+        manifest["finishedUnix"] = time.time()
+        manifest["error"] = f"{type(exc).__name__}: {exc}"
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        (experiment / "failure_traceback.txt").write_text(traceback.format_exc(), encoding="utf-8")
+        archive = _diagnostics(experiment, repo_root)
+        print(f"[v14-workflow] FAILED diagnostics: {archive}", flush=True)
+        raise
+    finally:
+        _stop_live_view(experiment, viewer)
+
     archive = _diagnostics(experiment, repo_root)
     print(f"[v14-workflow] diagnostics: {archive}", flush=True)
     if result["qualified"]:
