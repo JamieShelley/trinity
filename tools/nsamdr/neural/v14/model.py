@@ -8,7 +8,7 @@ from .baseline import Baseline4x, normalize_xy
 from .config import V14Config
 
 
-MODEL_SCHEMA = "NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V14_0"
+MODEL_SCHEMA = "NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V14_1"
 
 
 class ResidualBlock(nn.Module):
@@ -30,18 +30,26 @@ class ZeroHead(nn.Conv2d):
 
 
 class LRContextEncoder(nn.Module):
-    """Encode LR physical evidence into learned 4x sub-pixel context."""
+    """Encode LR physical evidence without assigning any 4x output phase ownership."""
 
-    def __init__(self, channels: int, blocks: int, scale: int) -> None:
+    def __init__(self, channels: int, blocks: int) -> None:
         super().__init__()
         self.stem = nn.Conv2d(8, channels, 3, padding=1)
         self.body = nn.Sequential(*(ResidualBlock(channels) for _ in range(blocks)))
-        self.phase = nn.Conv2d(channels, channels * scale * scale, 3, padding=1)
-        self.shuffle = nn.PixelShuffle(scale)
 
     def forward(self, lr_maps: torch.Tensor) -> torch.Tensor:
-        x = self.body(F.gelu(self.stem(lr_maps.float())))
-        return self.shuffle(self.phase(x))
+        return self.body(F.gelu(self.stem(lr_maps.float())))
+
+
+class HRContextAdapter(nn.Module):
+    """Adapt phase-neutral resized LR context after it has entered HR coordinates."""
+
+    def __init__(self, channels: int) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(channels, channels, 3, padding=1)
+
+    def forward(self, context_hr: torch.Tensor) -> torch.Tensor:
+        return F.gelu(self.conv(context_hr.float()))
 
 
 class HRRefinementTrunk(nn.Module):
@@ -118,7 +126,7 @@ class BenefitSelector(nn.Module):
 
 
 class NSAMDRV14(nn.Module):
-    """Clean V14 production graph: B -> HR-first multi-map C -> BenefitSelector F."""
+    """V14.1 production graph: B -> phase-neutral HR-first C -> BenefitSelector F."""
 
     def __init__(self, config: V14Config | None = None) -> None:
         super().__init__()
@@ -128,8 +136,8 @@ class NSAMDRV14(nn.Module):
         self.context_encoder = LRContextEncoder(
             self.config.lr_context_channels,
             self.config.lr_blocks,
-            self.config.scale,
         )
+        self.context_adapter = HRContextAdapter(self.config.lr_context_channels)
         self.hr_refiner = HRRefinementTrunk(
             self.config.lr_context_channels,
             self.config.hr_channels,
@@ -145,7 +153,19 @@ class NSAMDRV14(nn.Module):
     ) -> dict[str, torch.Tensor]:
         b_albedo, b_normal, b_material = self.baseline(lr_albedo, lr_normal, lr_material)
         lr_maps = torch.cat((lr_albedo.float(), lr_normal.float(), lr_material.float()), dim=1)
-        context_hr = self.context_encoder(lr_maps)
+
+        # LR evidence remains an ordinary LR feature field. It is moved into HR coordinates
+        # with phase-neutral interpolation, then adapted by a conventional HR convolution.
+        # No PixelShuffle/sub-pixel phase tensor is allowed to own output positions.
+        context_lr = self.context_encoder(lr_maps)
+        context_hr = F.interpolate(
+            context_lr.float(),
+            size=b_albedo.shape[-2:],
+            mode="bilinear",
+            align_corners=False,
+        )
+        context_hr = self.context_adapter(context_hr)
+
         baseline_maps = torch.cat((b_albedo, b_normal, b_material), dim=1)
         residual = self.hr_refiner(baseline_maps, context_hr)
 
@@ -180,7 +200,7 @@ class NSAMDRV14(nn.Module):
     def set_candidate_training(self) -> None:
         for parameter in self.parameters():
             parameter.requires_grad_(False)
-        for module in (self.context_encoder, self.hr_refiner):
+        for module in (self.context_encoder, self.context_adapter, self.hr_refiner):
             for parameter in module.parameters():
                 parameter.requires_grad_(True)
 
@@ -193,14 +213,16 @@ class NSAMDRV14(nn.Module):
     def architecture_contract(self) -> dict[str, object]:
         return {
             "schema": MODEL_SCHEMA,
-            "revision": "V14",
+            "revision": "V14.1",
             "scale": self.config.scale,
-            "productionForward": "LR -> deterministic B + subpixel context -> HR multi-map refinement C -> physical-map-aware BenefitSelector F",
+            "productionForward": "LR -> deterministic B + phase-neutral resized LR context -> HR multi-map refinement C -> physical-map-aware BenefitSelector F",
+            "contextUpsampling": "bilinear-phase-neutral + HR 3x3 adapter",
             "candidateIdentityAtInitialization": "C == B",
-            "activeComponents": ("baseline", "context_encoder", "hr_refiner", "selector"),
+            "activeComponents": ("baseline", "context_encoder", "context_adapter", "hr_refiner", "selector"),
             "retiredComponents": (),
             "geometryPixelAuthority": False,
             "seamPixelAuthority": False,
             "profilePixelAuthority": False,
+            "lrPhaseGridPixelAuthority": False,
             "selectorUsesPhysicalMaps": True,
         }
