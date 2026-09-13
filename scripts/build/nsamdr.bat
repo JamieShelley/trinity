@@ -7,7 +7,7 @@ if not defined PYTHON set "PYTHON=%ROOT%\artifacts\nsamdr\python-env\Scripts\pyt
 if not exist "%PYTHON%" set "PYTHON=%ROOT%\artifacts\nsamdr\python-env-cpu\Scripts\python.exe"
 if not exist "%PYTHON%" set "PYTHON=python"
 if /I "%~1"=="gui" (
-    "%PYTHON%" -u "%ROOT%\tools\nsamdr\gui\nsamdr_v9_workflow_gui_micro.py"
+    "%PYTHON%" -u "%ROOT%\tools\nsamdr\gui\nsamdr_v14_workflow_gui.py"
     exit /b %ERRORLEVEL%
 )
 "%PYTHON%" -u "%ROOT%\tools\nsamdr\nsamdr_cli.py" %*
