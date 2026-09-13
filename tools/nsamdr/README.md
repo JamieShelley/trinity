@@ -34,196 +34,190 @@ From the Trinity repository root:
 scripts\build\nsamdr.bat gui
 ```
 
-The current production-development path is **V13 SR-first**.
+The current production-development path is **V14 HR-first SR**.
 
 ---
 
 ## 1. A / B / C / F contract
 
 All learned reconstruction is judged relative to a deterministic 4x baseline made from
-the same degraded LR input.
+the same LR evidence.
 
-- **A — authored target**: held-out high-resolution EVE texture. Available only during
-  training and qualification.
+- **A — authored target**: genuine authored high-resolution EVE pixels. Available only
+  during training and qualification.
 - **B — deterministic baseline**: bicubic albedo, normalized bilinear normal XY and
-  nearest-neighbour physical material channels.
-- **C — SR candidate**: the learned 4x residual reconstruction over B.
-- **F — final output**: the local safety-selected result between B and C.
+  nearest-neighbour material channels.
+- **C — SR candidate**: learned 4x residual reconstruction over B.
+- **F — final output**: local BenefitSelector result between B and C.
 
 The production relationship is:
 
 ```text
-C = B + bounded learned residual
+C = B + learned HR residual
 F = B + selector * (C - B)
 ```
 
-A candidate is useful only when it moves the reconstruction from B toward A. A worse
-candidate is a failure; qualification must not declare success merely because the final
-selector hides a fundamentally bad C.
+A candidate is useful only when it moves B materially toward A. A selector is not allowed
+to hide a fundamentally bad C and call the experiment successful.
 
-For regions where B is already correct, the protected-preservation requirement remains:
+For regions where B is already correct, final protected preservation remains:
 
 ```text
 protectedPreservationRate >= 0.990
 ```
 
-A protected training/qualification pixel is one whose B value is already within `2/255`
-of A in every albedo channel. At least 99% of those pixels must remain within `1/255` of
-B. These target-derived labels are training/qualification information only. Production
-inference never receives authored HR.
-
 ---
 
-## 2. Current V13 production architecture
+## 2. V14 production architecture
 
-The previous geometry-first `G -> profile -> seam -> detail` reconstruction curriculum
-has been retired from Quick production authority. It consumed substantial training work
-without producing sufficient rendered visual improvement.
+V13 proved that a candidate built primarily from an LR-grid latent representation could
+be locally capable but failed representative Raven reconstruction. The final V13.3 run
+reached only a tiny positive recovery and effectively zero gradient recovery. V14 is a
+clean architecture replacement, not another V13 loss-weight adjustment.
 
-The current architecture is deliberately simpler:
+The V14 production graph is:
 
 ```mermaid
 flowchart LR
-    LR[Authored LR material maps] --> B[Deterministic 4x baseline B]
-    LR --> E[LR-observable structural / physical evidence]
-    B --> SR[V13 multi-map residual SR]
-    E --> SR
-    SR --> C[SR candidate C]
+    LR[LR aligned physical maps] --> B[Deterministic 4x baseline B]
+    LR --> ENC[LR context encoder]
+    ENC --> PS[Learned 4x sub-pixel context]
+    B --> HR[HR refinement trunk]
+    PS --> HR
+    HR --> C[Candidate C = B + residual]
     B --> SEL[BenefitSelector]
     C --> SEL
-    E --> SEL
-    SEL --> F[Final physical output F]
+    LR --> SEL
+    SEL --> F[Final F]
 ```
 
-Production pixel authority is therefore:
+The critical invariant is that the **residual-generating reconstruction trunk reasons in
+output-resolution coordinates around B**. LR features provide context but do not directly
+paint one coarse LR cell into one 4x output block.
 
-```text
-LR evidence
-    -> deterministic baseline B
-    -> multi-map SR candidate C
-    -> BenefitSelector
-    -> final F
-```
-
-The SR decoder reconstructs residuals for the aligned physical maps rather than forcing
-a separate vector/spline renderer to redraw the texture first.
-
-Structural information is still useful, but as **observable conditioning and loss
-supervision**, not as a mandatory upstream pixel-authority stage. LR-derived edge/SDF,
-gradient, normal-edge, material-edge, orientation and curvature evidence can guide the
-SR network toward continuous manufactured structure without requiring a geometric
-renderer to reproduce the final texture directly.
-
-Some historical geometry/seam modules and state-dict keys may remain in the canonical
-model while checkpoint compatibility is being reduced. They are not part of the active
-V13 Quick training authority.
+V14 contains no production GeometryNet, spline/SDF renderer, boundary renderer, profile
+specialist or seam-restoration stage.
 
 ---
 
-## 3. Production invariants
+## 3. Clean model ownership
 
-`FidelityResidualNetV9` remains the canonical production model while the V13 transition
-is completed.
+The canonical production implementation lives under:
 
-The only deployable model call is:
-
-```python
-outputs = model(inputs)
+```text
+tools/nsamdr/neural/v14/
 ```
 
-Production inference consumes **LR-authored evidence only**. It does not receive:
+The production package contains the model, deterministic baseline, dataset loader,
+losses, trainer, qualification, checkpoint handling and tiled inference directly.
 
-- authored HR targets;
-- oracle geometry;
-- forced specialist authority;
-- training labels;
-- cached diagnostic corrections.
+V14 does not install historical monkey-patch contracts. V9-V13 modules may remain only
+as isolated legacy/source-preparation code and must not execute in the V14 production
+model or trainer.
 
-The failure identity remains B. Unsupported or low-confidence learned behaviour must
-reduce toward the deterministic baseline rather than damage the source.
+The V14 checkpoint schema is:
 
-One checkpoint reconstructs the aligned physical outputs. A final checkpoint must
-strict-load into the same production model and pass fresh direct `model(inputs)`
-qualification without diagnostic-only overrides.
+```text
+NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V14_0
+```
+
+V13 checkpoints are intentionally incompatible.
 
 ---
 
-## 4. V13 SR candidate
+## 4. Native authored resolution
 
-The learned candidate is a bounded residual over B:
+Training truth must always come from the **highest genuine native authored semantic map
+available**. A lower-resolution texture must never be enlarged first and then treated as
+new high-resolution truth.
 
-```text
-C_albedo   = clamp(B_albedo   + residual_albedo)
-C_normal   = normalize(B_normal + residual_normal)
-C_material = clamp(B_material + residual_material)
-```
-
-The current albedo residual headroom is:
+Examples:
 
 ```text
-max |residual_albedo| = 0.40
+native 4096 asset -> supervise 1024 -> 4096
+native 2048 asset -> supervise  512 -> 2048
+native 1024 asset -> supervise  256 -> 1024
 ```
 
-This was increased from the earlier 0.20 cap after the single-patch Raven proof showed
-that the smaller bound was directly limiting reconstruction of high-contrast authored
-features.
+The current Raven Navy Issue SOF semantic material set used by the development workflow
+is native **1024x1024**, so Raven can provide genuine `256 -> 1024` supervision but not a
+genuine authored `1024 -> 4096` target.
 
-The SR objective is visual-fidelity driven. It includes baseline-relative reconstruction
-terms such as:
+Production still applies the learned 4x model to native Raven input:
 
-- global reconstruction error;
-- edge-weighted reconstruction error;
-- gradient recovery;
-- Laplacian / high-frequency recovery;
-- regret relative to B;
-- direct residual supervision;
-- normal/material physical-map reconstruction;
-- protected-B preservation.
+```text
+native EVE 1024 -> NSAMDR 4096
+```
 
-The purpose is straightforward: reconstruct the authored HR texture as accurately as
-the LR evidence permits, while strongly weighting structural edges and physically
-important transitions.
+That final 4096 result is learned reconstruction, not supervised 4096 ground truth for
+this specific Raven asset.
 
 ---
 
-## 5. BenefitSelector safety
+## 5. Training geometry and curriculum
 
-The BenefitSelector decides locally how much of C should replace B:
+V14 Quick increases spatial context from the old `32 -> 128` regime to:
 
 ```text
-F = B + p * (C - B)
+training crop      : 128 LR -> 512 HR
+held-out crop      : 128 LR -> 512 HR
+native Raven check : 256 LR -> 1024 HR when native 1K maps are available
+production         : 1024 LR -> 4096 HR via tiled inference
 ```
 
-where `p` is learned from production-visible evidence.
+The SR curriculum is deliberately split by task:
 
-The selector is not a license for C to be poor. The SR candidate must already improve
-B. The selector then removes unsafe/local regressions while retaining most of the useful
-candidate gain.
+1. **clean SR** — mathematically defined area reduction teaches the 4x inverse problem;
+2. **robust SR** — only after clean reconstruction is being learned, mild EVE-like blur,
+   quantisation and chroma/normal damage are introduced;
+3. **BenefitSelector** — trained only if C passes candidate qualification.
 
-Selector checkpoint choice treats protected preservation as a **constraint**, not a
-score to maximize indefinitely. Once the required 99% preservation is satisfied,
-additional preservation should not be rewarded by unnecessarily throwing away visible
-reconstruction quality.
+This separation exists so a failed SR architecture cannot be obscured by aggressive
+synthetic corruption.
 
 ---
 
-## 6. Qualification
+## 6. Candidate objective
 
-### Fixed-patch capacity proof
+Candidate C is trained to reconstruct authored truth directly. V14 uses a small set of
+non-overlapping objectives:
 
-The V13/V13.1 Raven SR diagnostic exists to answer one narrow question quickly:
+- direct albedo reconstruction;
+- gradient and Laplacian/high-frequency reconstruction;
+- multiscale reconstruction;
+- direct residual supervision against `A - B`;
+- aligned normal reconstruction;
+- aligned material reconstruction.
 
-> Can the production SR path visibly reconstruct more of A than deterministic B on a
-> hard authored Raven patch?
+There is no stacked candidate-preservation penalty whose easiest solution is `C ~= B`.
+Already-correct regions naturally have `A - B ~= 0`; direct residual supervision teaches
+zero correction there. Hard final safety remains the BenefitSelector's responsibility.
 
-It is a capacity proof, not final production qualification.
+---
 
-### V13.2 representative Raven qualification
+## 7. Pixelation / LR-lattice rejection
 
-Raven Quick now trains the SR-first path across multiple Raven crops and evaluates a
-held-out bank of **32 patches**.
+Blockiness is a qualification failure, not a weight that is repeatedly tuned until a run
+looks acceptable.
 
-Current qualification requirements are:
+V14 compares how strongly `C - B` is explained by a cell-constant 4x projection against
+the same measurement for the true residual `A - B`. A candidate that is materially more
+LR-cell-like than the authored correction is rejected even if average L1 moves slightly
+toward A.
+
+Every training epoch publishes an explicit contact sheet:
+
+```text
+A AUTHORED | B BASELINE | C V14 SR | F SELECTED
+```
+
+with the real LR/HR dimensions recorded in the live-preview metadata.
+
+---
+
+## 8. Qualification
+
+Candidate qualification remains demanding and baseline-relative:
 
 | Requirement | Threshold |
 | --- | ---: |
@@ -234,145 +228,78 @@ Current qualification requirements are:
 | Positive-global patch fraction | >= 75% |
 | Median normal recovery | >= 0% |
 | Median material recovery | >= 0% |
-| Worst candidate/final recovery | >= -10% |
+| Worst candidate recovery | >= -10% |
+| Max excess LR-lattice cell projection vs authored residual | <= 15% |
+
+Only after C passes does the selector train.
+
+Final qualification additionally requires:
+
+| Requirement | Threshold |
+| --- | ---: |
 | Selector edge retention | >= 90% |
 | Selector global retention | >= 90% |
 | Protected-B preservation | >= 99% |
+| Worst final recovery | >= -10% |
 
-One catastrophic patch can therefore reject an otherwise good median result.
-
-The current Quick work budget uses the proven small-patch SR regime:
-
-```text
-LR tile size       : 32x32
-batch size         : 1
-SR training        : 8 x 384 = 3072 updates
-selector training  : 3 x 384 = 1152 updates
-held-out validation: 32 patches
-albedo residual cap: 0.40
-```
-
-The intention is to prove generalisation over many authored patches before spending a
-large Full-training budget.
+A catastrophic patch can reject an otherwise good median result.
 
 ---
 
-## 7. Raven Quick and Full Training
+## 9. Quick and Full invariant
 
-The non-negotiable target is that Raven Quick and Full Training differ only in **work
-budget and dataset scale**.
+Raven Quick and Full Training must use the same:
 
-They must converge on the same:
-
-- production model;
+- V14 production model;
 - module graph;
-- SR objective;
+- 4x baseline;
+- candidate objective;
 - selector behaviour;
-- inference call;
+- tiled inference implementation;
 - checkpoint schema;
-- final qualification/provenance contract.
+- qualification/provenance contract.
 
-There is no Raven-only final network.
+They may differ only in work budget and dataset scale.
 
-### Current status
-
-**Raven Quick has been converted to the V13 SR-first authority.**
-
-**Full Training is intentionally disabled until its old curriculum is converted to the
-same V13 SR-first path.** Running the old Full curriculum would reintroduce retired
-geometry/profile/seam training and violate the architecture invariant above.
-
-The next production milestone is therefore:
-
-```text
-clean V13.2 Raven Quick pass
-    -> freeze SR-first architecture
-    -> convert Full Training to identical B -> C -> F authority
-    -> train across the broader authored EVE dataset
-    -> immutable checkpoint qualification
-    -> native EVE visual validation
-```
+Full Training remains disabled until Raven V14 candidate qualification passes. Once the
+architecture is proven, Full should preferentially use the highest-native-resolution EVE
+semantic families available, especially genuine 4K families that directly supervise the
+production `1024 -> 4096` task.
 
 ---
 
-## 8. What remains to reach the project goal
+## 10. Checkpoint and provenance
 
-The core reconstruction architecture is no longer the primary unknown. Remaining work
-is mainly generalisation and production proof:
+A qualified V14 experiment promotes exactly one checkpoint to:
 
-1. **Raven Quick generalisation** — prove the cleaned V13.2 path across the held-out
-   representative Raven bank.
-2. **Full conversion** — remove the remaining old Full-training curriculum and use the
-   same SR-first authority as Quick.
-3. **Full authored EVE training** — train across a broader set of ships, materials,
-   contours, decals and physical-map combinations.
-4. **Held-out EVE qualification** — verify that improvements are not Raven-specific and
-   that no class of authored texture suffers material regression.
-5. **Immutable final checkpoint** — strict-load the exact final state and re-run direct
-   production qualification.
-6. **Bake physical maps from that exact checkpoint** — no post-model repair or hidden
-   candidate cleanup.
-7. **Native renderer proof** — compare the original source and NSAMDR final result under
-   the same mesh, shader, sampler, camera, LOD and render settings.
+```text
+checkpoints/final/nsamdr_v14.pt
+```
 
-The project is complete only when the system produces a repeatable visual improvement
-on representative held-out EVE assets, not merely when a diagnostic metric is green.
+The final manifest records its full SHA-256 and schema. The checkpoint must strict-load
+into a fresh `NSAMDRV14` instance before preview/baking.
+
+No post-model repair, hidden sharpening or candidate cleanup is permitted.
 
 ---
 
-## 9. Checkpoint and provenance
+## 11. Production inference
 
-The canonical final checkpoint for an experiment is:
+Production 4K output uses tiled inference so the HR-first trunk does not require a full
+4096 feature tensor in memory at once. Overlapping LR tiles are reconstructed at 4x and
+blended in output space.
 
-```text
-checkpoints/final/nsamdr_v9_fidelity.pt
-```
-
-The experiment workflow records the resolved configuration and complete production
-state, copies the qualified checkpoint to the final path, calculates its full SHA-256,
-marks the final copy immutable/read-only, records provenance in `final_manifest.json`,
-bakes candidate physical maps from that exact checkpoint and re-verifies provenance
-before preview.
-
-Missing, stale, intermediate, mutated or unqualified artifacts fail closed. Prefix
-hashes, visual similarity and filenames such as `best` are not provenance.
-
----
-
-## 10. Experiment and diagnostics layout
-
-Production experiments live under:
+For Raven this is:
 
 ```text
-artifacts/nsamdr/experiments/EXP_####/
+1024 native LR physical maps
+        -> overlapping 128 LR tiles
+        -> V14 512 HR tile reconstruction
+        -> overlap blend
+        -> 4096 final physical maps
 ```
 
-An experiment contains the resolved configuration, training log, metrics/evidence,
-checkpoint state, final provenance and previews. Failed experiments remain diagnostic
-and cannot produce a qualified final preview.
-
-Non-promotable diagnostics live under:
-
-```text
-artifacts/nsamdr/diagnostics/
-```
-
-Capacity diagnostics are evidence only. They cannot be promoted into a production final
-checkpoint merely because they overfit a patch successfully.
-
----
-
-## 11. Renderer behaviour
-
-The native final preview contains two directly comparable panes:
-
-- **A RAW SOURCE**
-- **B NSAMDR FINAL**
-
-Both must use the same mesh, camera, shader path, sampler, LOD and render settings. The
-NSAMDR pane samples physical maps baked from the immutable production checkpoint.
-
-There must be no candidate-only renderer sharpening, cleanup or post-model repair.
+The same model call and weights are used in Quick, qualification and production.
 
 ---
 
@@ -387,54 +314,27 @@ scripts\build\nsamdr.bat preview EXP_####
 scripts\build\nsamdr.bat validate
 ```
 
-`full-train` remains intentionally unavailable for production use until Full has been
-converted to the same V13 SR-first architecture:
-
-```bat
-scripts\build\nsamdr.bat full-train
-```
-
-The native OBJ launcher is an internal preview bridge, not a second checkpoint or
-training surface.
+Historical V9-named Python entry-point filenames may remain temporarily as **thin command
+compatibility shims** so the batch/GUI surface does not change. They must delegate directly
+to V14 and contain no old training/model implementation.
 
 ---
 
-## 13. Source ownership
+## 13. Completion condition
 
-Application and training orchestration use composition over inheritance. Compatibility
-entry points should remain thin. Dead diagnostic versions, retired Quick orchestration
-and unused geometry/seam training routes should be deleted rather than left as hidden
-alternate production paths.
+The project is not complete because a metric is green or because a selector can hide a
+bad candidate.
 
-Checkpoint/model compatibility code may remain only while the current V13 model still
-requires it. Compatibility is not production authority.
-
-See `OOP_ARCHITECTURE.md` and `NSAMDR_OOP_CLASS_HIERARCHY.mmd` for the application-layer
-structure.
-
----
-
-## 14. Research direction
-
-NSAMDR is an engineering system rather than a direct implementation of one paper. The
-current SR-first direction is primarily influenced by residual super-resolution methods
-such as VDSR, LapSRN and SwinIR: preserve a known reconstruction path and learn the
-missing information rather than repainting the entire image.
-
-Geometry/vectorization work remains useful as evidence, regularisation and diagnostic
-research, particularly for continuous contours and manufactured edges, but it is no
-longer required to own production pixels before the SR network may reconstruct them.
-
----
-
-## Non-negotiable invariant
-
-> Raven Quick, Full Training, Preview and production inference must converge on the same
-> production SR-first model and immutable checkpoint contract. Work budget and dataset
-> scale may change; the deployable architecture may not.
-
-And the ultimate acceptance criterion remains visual:
+The ultimate acceptance criterion remains visual:
 
 > **Given representative held-out EVE authored textures, NSAMDR FINAL must look
 > materially closer to the authored high-resolution target than deterministic 4x B,
 > while preserving already-correct regions and aligned physical-map behaviour.**
+
+The first V14 milestone is therefore narrow and falsifiable:
+
+```text
+prove that HR-first candidate C materially beats B on held-out Raven reconstruction
+```
+
+If it cannot, reassess the SR architecture rather than repeatedly adjusting constants.
