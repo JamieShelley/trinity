@@ -89,25 +89,27 @@ class NSAMDRV14ContractTests(unittest.TestCase):
         for forbidden in ("geometry_net", "boundary_renderer", "seam_restorer"):
             self.assertFalse(hasattr(model, forbidden))
 
-    def test_candidate_loss_backpropagates_through_hr_path(self) -> None:
+    def test_candidate_loss_reaches_phase_neutral_context_after_zero_head_first_step(self) -> None:
         config = self._config()
         model = NSAMDRV14(config)
         model.set_candidate_training()
+        parameters = [parameter for parameter in model.parameters() if parameter.requires_grad]
+        optimizer = torch.optim.AdamW(parameters, lr=1.0e-3)
         albedo, normal, material = self._batch()
-        outputs = model(albedo, normal, material)
-        batch = {
-            "target_albedo": (outputs["baseline_albedo"].detach() * 0.9 + 0.05).clamp(0, 1),
-            "target_normal": outputs["baseline_normal"].detach(),
-            "target_material": outputs["baseline_material"].detach(),
-        }
-        losses = candidate_loss(outputs, batch, config)
-        self.assertTrue(torch.isfinite(losses["total"]))
-        losses["total"].backward()
-        refiner_gradient = sum(
-            float(parameter.grad.abs().sum())
-            for parameter in model.hr_refiner.parameters()
-            if parameter.grad is not None
-        )
+
+        for _step in range(2):
+            optimizer.zero_grad(set_to_none=True)
+            outputs = model(albedo, normal, material)
+            batch = {
+                "target_albedo": (outputs["baseline_albedo"].detach() * 0.9 + 0.05).clamp(0, 1),
+                "target_normal": outputs["baseline_normal"].detach(),
+                "target_material": outputs["baseline_material"].detach(),
+            }
+            losses = candidate_loss(outputs, batch, config)
+            self.assertTrue(torch.isfinite(losses["total"]))
+            losses["total"].backward()
+            optimizer.step()
+
         adapter_gradient = sum(
             float(parameter.grad.abs().sum())
             for parameter in model.context_adapter.parameters()
@@ -116,6 +118,11 @@ class NSAMDRV14ContractTests(unittest.TestCase):
         encoder_gradient = sum(
             float(parameter.grad.abs().sum())
             for parameter in model.context_encoder.parameters()
+            if parameter.grad is not None
+        )
+        refiner_gradient = sum(
+            float(parameter.grad.abs().sum())
+            for parameter in model.hr_refiner.parameters()
             if parameter.grad is not None
         )
         self.assertGreater(refiner_gradient, 0.0)
