@@ -1,4 +1,4 @@
-"""NSAMDR V14 clean HR-first production model."""
+"""NSAMDR V14.1 phase-neutral HR-first production model."""
 from .config import V14Config
 from .model import MODEL_SCHEMA, NSAMDRV14
 
