@@ -11,9 +11,17 @@ import traceback
 
 import torch
 
-from .config import V14Config
-from .model import MODEL_SCHEMA
-from .trainer import V14Trainer
+if __package__ in {None, ""}:
+    NEURAL_ROOT = Path(__file__).resolve().parent.parent
+    if str(NEURAL_ROOT) not in sys.path:
+        sys.path.insert(0, str(NEURAL_ROOT))
+    from v14.config import V14Config
+    from v14.model import MODEL_SCHEMA
+    from v14.trainer import V14Trainer
+else:
+    from .config import V14Config
+    from .model import MODEL_SCHEMA
+    from .trainer import V14Trainer
 
 
 def _next_experiment(root: Path) -> str:
@@ -82,6 +90,7 @@ def _write_architecture_participation(experiment: Path, trainer: V14Trainer) -> 
         and contract.get("geometryPixelAuthority") is False
         and contract.get("seamPixelAuthority") is False
         and contract.get("profilePixelAuthority") is False
+        and contract.get("selectorUsesPhysicalMaps") is True
     )
     payload = {
         "schema": "NSAMDR_V14_ARCHITECTURE_PARTICIPATION_V1",
