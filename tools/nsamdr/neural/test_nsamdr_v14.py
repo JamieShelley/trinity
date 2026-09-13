@@ -14,7 +14,7 @@ from v14.config import V14Config
 from v14.inference import tiled_inference
 from v14.losses import candidate_loss, selector_loss
 from v14.model import BenefitSelector, MODEL_SCHEMA, NSAMDRV14
-from v14.qualification import sample_metrics
+from v14.qualification import aggregate_candidate, sample_metrics
 
 
 class NSAMDRV14ContractTests(unittest.TestCase):
@@ -32,7 +32,8 @@ class NSAMDRV14ContractTests(unittest.TestCase):
             production_tile_lr=8,
             production_overlap_lr=2,
             tiles_per_epoch=1,
-            validation_tiles=1,
+            validation_tiles=4,
+            minimum_heldout_samples=4,
             clean_epochs=1,
             robust_epochs=1,
             selector_epochs=1,
@@ -134,6 +135,33 @@ class NSAMDRV14ContractTests(unittest.TestCase):
         }
         metrics = sample_metrics(fake, batch, final=False)
         self.assertGreater(metrics["lattice_cell_excess"], 0.0)
+
+    def test_native_scale_telemetry_cannot_satisfy_heldout_coverage(self) -> None:
+        config = self._config()
+        passing = {
+            "global_recovery": 0.80,
+            "edge_recovery": 0.80,
+            "gradient_recovery": 0.80,
+            "normal_recovery": 0.20,
+            "material_recovery": 0.20,
+            "lattice_cell_excess": 0.0,
+            "lattice_candidate_fraction": 0.1,
+            "lattice_target_fraction": 0.1,
+            "protected_preservation": 1.0,
+            "target_size": 1024.0,
+        }
+        native_only = [{**passing, "heldout_sample": 0.0} for _ in range(8)]
+        report = aggregate_candidate(native_only, config)
+        self.assertEqual(report["sampleCount"], 0)
+        self.assertEqual(report["nativeScaleTelemetry"]["sampleCount"], 8)
+        self.assertFalse(report["heldOutCoveragePass"])
+        self.assertFalse(report["passed"])
+
+        heldout = [{**passing, "heldout_sample": 1.0, "target_size": 32.0} for _ in range(4)]
+        report = aggregate_candidate([*native_only, *heldout], config)
+        self.assertEqual(report["sampleCount"], 4)
+        self.assertTrue(report["heldOutCoveragePass"])
+        self.assertTrue(report["passed"])
 
     def test_tiled_inference_keeps_exact_four_x_dimensions_and_normalizes_normals(self) -> None:
         model = NSAMDRV14(self._config()).eval()
