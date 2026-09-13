@@ -107,6 +107,11 @@ def sample_metrics(outputs: dict[str, torch.Tensor], batch: dict[str, torch.Tens
         "lattice_candidate_fraction": lattice_candidate,
         "lattice_target_fraction": lattice_target,
         "protected_preservation": protected_rate,
+        # Fixed validation-crop samples contain record_index. Full-native Raven checks
+        # deliberately do not. Native checks may overlap training regions, so they are
+        # valuable scale telemetry but must never make a held-out qualification pass.
+        "heldout_sample": 1.0 if "record_index" in batch else 0.0,
+        "target_size": float(target.shape[-1]),
     }
 
 
@@ -114,15 +119,32 @@ def _median(items: list[float]) -> float:
     return float(statistics.median(items)) if items else float("nan")
 
 
+def _telemetry(metrics: list[dict[str, float]]) -> dict[str, object]:
+    if not metrics:
+        return {"sampleCount": 0}
+    return {
+        "sampleCount": len(metrics),
+        "targetSizes": sorted({int(m.get("target_size", 0.0)) for m in metrics}),
+        "medianGlobalRecovery": _median([m["global_recovery"] for m in metrics]),
+        "medianEdgeRecovery": _median([m["edge_recovery"] for m in metrics]),
+        "medianGradientRecovery": _median([m["gradient_recovery"] for m in metrics]),
+        "medianNormalRecovery": _median([m["normal_recovery"] for m in metrics]),
+        "medianMaterialRecovery": _median([m["material_recovery"] for m in metrics]),
+        "maxLatticeCellExcess": max(m["lattice_cell_excess"] for m in metrics),
+    }
+
+
 def aggregate_candidate(metrics: list[dict[str, float]], config: V14Config) -> dict[str, object]:
-    global_values = [m["global_recovery"] for m in metrics]
-    edge_values = [m["edge_recovery"] for m in metrics]
-    grad_values = [m["gradient_recovery"] for m in metrics]
-    normal_values = [m["normal_recovery"] for m in metrics]
-    material_values = [m["material_recovery"] for m in metrics]
-    lattice_values = [m["lattice_cell_excess"] for m in metrics]
-    protected_values = [m["protected_preservation"] for m in metrics]
-    enough_heldout = len(metrics) >= int(config.minimum_heldout_samples)
+    heldout = [m for m in metrics if float(m.get("heldout_sample", 1.0)) >= 0.5]
+    native = [m for m in metrics if float(m.get("heldout_sample", 1.0)) < 0.5]
+    global_values = [m["global_recovery"] for m in heldout]
+    edge_values = [m["edge_recovery"] for m in heldout]
+    grad_values = [m["gradient_recovery"] for m in heldout]
+    normal_values = [m["normal_recovery"] for m in heldout]
+    material_values = [m["material_recovery"] for m in heldout]
+    lattice_values = [m["lattice_cell_excess"] for m in heldout]
+    protected_values = [m["protected_preservation"] for m in heldout]
+    enough_heldout = len(heldout) >= int(config.minimum_heldout_samples)
     result: dict[str, object] = {
         "medianGlobalRecovery": _median(global_values),
         "medianEdgeRecovery": _median(edge_values),
@@ -134,9 +156,10 @@ def aggregate_candidate(metrics: list[dict[str, float]], config: V14Config) -> d
         "worstGlobalRecovery": min(global_values) if global_values else float("nan"),
         "maxLatticeCellExcess": max(lattice_values) if lattice_values else float("nan"),
         "medianProtectedPreservation": _median(protected_values),
-        "sampleCount": len(metrics),
+        "sampleCount": len(heldout),
         "minimumHeldOutSamplesRequired": int(config.minimum_heldout_samples),
         "heldOutCoveragePass": enough_heldout,
+        "nativeScaleTelemetry": _telemetry(native),
     }
     result["passed"] = bool(
         enough_heldout
