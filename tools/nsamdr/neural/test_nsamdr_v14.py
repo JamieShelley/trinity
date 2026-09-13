@@ -58,10 +58,27 @@ class NSAMDRV14ContractTests(unittest.TestCase):
         self.assertTrue(torch.equal(outputs["candidate_material"], outputs["baseline_material"]))
         self.assertLess(float((outputs["candidate_normal"] - outputs["baseline_normal"]).abs().max()), 1.0e-6)
 
+    def test_context_path_is_phase_neutral_and_remains_lr_until_resize(self) -> None:
+        config = self._config()
+        model = NSAMDRV14(config).eval()
+        albedo, normal, material = self._batch()
+        lr_maps = torch.cat((albedo, normal, material), dim=1)
+        with torch.no_grad():
+            context_lr = model.context_encoder(lr_maps)
+        self.assertEqual(tuple(context_lr.shape[-2:]), tuple(albedo.shape[-2:]))
+        self.assertFalse(any(isinstance(module, torch.nn.PixelShuffle) for module in model.modules()))
+        self.assertFalse(hasattr(model.context_encoder, "phase"))
+        self.assertFalse(hasattr(model.context_encoder, "shuffle"))
+        contract = model.architecture_contract()
+        self.assertEqual(contract["revision"], "V14.1")
+        self.assertEqual(contract["contextUpsampling"], "bilinear-phase-neutral + HR 3x3 adapter")
+        self.assertFalse(contract["lrPhaseGridPixelAuthority"])
+
     def test_architecture_contains_no_retired_pixel_authority(self) -> None:
         model = NSAMDRV14(self._config())
         contract = model.architecture_contract()
         self.assertEqual(contract["schema"], MODEL_SCHEMA)
+        self.assertEqual(model.config.schema, MODEL_SCHEMA)
         self.assertEqual(tuple(contract["retiredComponents"]), ())
         self.assertFalse(contract["geometryPixelAuthority"])
         self.assertFalse(contract["seamPixelAuthority"])
@@ -72,7 +89,7 @@ class NSAMDRV14ContractTests(unittest.TestCase):
         for forbidden in ("geometry_net", "boundary_renderer", "seam_restorer"):
             self.assertFalse(hasattr(model, forbidden))
 
-    def test_candidate_loss_backpropagates_through_hr_refiner(self) -> None:
+    def test_candidate_loss_backpropagates_through_hr_path(self) -> None:
         config = self._config()
         model = NSAMDRV14(config)
         model.set_candidate_training()
@@ -86,12 +103,24 @@ class NSAMDRV14ContractTests(unittest.TestCase):
         losses = candidate_loss(outputs, batch, config)
         self.assertTrue(torch.isfinite(losses["total"]))
         losses["total"].backward()
-        gradient_sum = sum(
+        refiner_gradient = sum(
             float(parameter.grad.abs().sum())
             for parameter in model.hr_refiner.parameters()
             if parameter.grad is not None
         )
-        self.assertGreater(gradient_sum, 0.0)
+        adapter_gradient = sum(
+            float(parameter.grad.abs().sum())
+            for parameter in model.context_adapter.parameters()
+            if parameter.grad is not None
+        )
+        encoder_gradient = sum(
+            float(parameter.grad.abs().sum())
+            for parameter in model.context_encoder.parameters()
+            if parameter.grad is not None
+        )
+        self.assertGreater(refiner_gradient, 0.0)
+        self.assertGreater(adapter_gradient, 0.0)
+        self.assertGreater(encoder_gradient, 0.0)
 
     def test_selector_loss_backpropagates_only_through_selector(self) -> None:
         model = NSAMDRV14(self._config())
@@ -113,6 +142,7 @@ class NSAMDRV14ContractTests(unittest.TestCase):
         )
         self.assertGreater(selector_gradient, 0.0)
         self.assertTrue(all(parameter.grad is None for parameter in model.hr_refiner.parameters()))
+        self.assertTrue(all(parameter.grad is None for parameter in model.context_adapter.parameters()))
         self.assertTrue(all(parameter.grad is None for parameter in model.context_encoder.parameters()))
 
     def test_lattice_metric_penalizes_extra_cell_constant_residual(self) -> None:
