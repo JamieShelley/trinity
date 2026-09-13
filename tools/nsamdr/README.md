@@ -222,10 +222,15 @@ with the real LR/HR dimensions recorded in the live-preview metadata.
 
 ## 8. Qualification
 
-Candidate qualification remains demanding and baseline-relative:
+Candidate qualification remains demanding and baseline-relative. Only fixed disjoint
+held-out crop records count toward pass/fail, and at least **4 independent held-out
+samples** are required. Full-native Raven `256 -> 1024` checks are recorded separately as
+scale telemetry because they can spatially overlap training regions; they can expose a
+production-scale failure but can never manufacture a held-out pass.
 
 | Requirement | Threshold |
 | --- | ---: |
+| Independent held-out samples | >= 4 |
 | Median candidate edge recovery | >= 60% |
 | Median candidate global recovery | >= 45% |
 | Median candidate gradient recovery | >= 35% |
