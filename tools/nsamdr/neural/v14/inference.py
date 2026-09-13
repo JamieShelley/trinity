@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import torch
 
+from .baseline import normalize_xy
 from .model import NSAMDRV14
 
 
@@ -68,4 +69,7 @@ def tiled_inference(
                 accum[key][..., oy:oy + ph, ox:ox + pw] += outputs[key].float() * win
             weight[..., oy:oy + ph, ox:ox + pw] += win
 
-    return {key: value / weight.clamp_min(1.0e-6) for key, value in accum.items()}
+    result = {key: value / weight.clamp_min(1.0e-6) for key, value in accum.items()}
+    for key in ("baseline_normal", "candidate_normal", "normal"):
+        result[key] = normalize_xy(result[key])
+    return result
