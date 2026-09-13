@@ -101,7 +101,8 @@ def main(argv: list[str] | None = None) -> int:
             f"so native {albedo.shape[1]} produces {natural_target}",
             flush=True,
         )
-    out = experiment / "previews" / "final_v14"
+    previews_root = experiment / "previews"
+    out = previews_root / "final_v14"
     out.mkdir(parents=True, exist_ok=True)
     value = outputs["albedo"][0].detach().cpu()
     image = np.round(value.permute(1, 2, 0).clamp(0, 1).numpy() * 255).astype(np.uint8)
@@ -120,8 +121,14 @@ def main(argv: list[str] | None = None) -> int:
         "scale": int(model.config.scale),
         "outputDirectory": str(out.resolve()),
     }
-    (out / "preview_manifest.json").write_text(
-        json.dumps(preview_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    manifest_text = json.dumps(preview_manifest, indent=2, sort_keys=True) + "\n"
+    (out / "preview_manifest.json").write_text(manifest_text, encoding="utf-8")
+    # The base GUI watches this stable path when marking Preview complete.
+    gui_manifest = dict(preview_manifest)
+    gui_manifest["status"] = "launched"
+    (previews_root / "preview_manifest.json").write_text(
+        json.dumps(gui_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
     )
     print(f"[v14-preview] baked native {albedo.shape[1]} -> {outputs['albedo'].shape[-1]} physical maps: {out}", flush=True)
     return 0
