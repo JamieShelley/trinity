@@ -30,7 +30,7 @@ class ZeroHead(nn.Conv2d):
 
 
 class LRContextEncoder(nn.Module):
-    """Encode LR physical evidence and learn sub-pixel phase context with PixelShuffle."""
+    """Encode LR physical evidence into learned 4x sub-pixel context."""
 
     def __init__(self, channels: int, blocks: int, scale: int) -> None:
         super().__init__()
@@ -45,7 +45,7 @@ class LRContextEncoder(nn.Module):
 
 
 class HRRefinementTrunk(nn.Module):
-    """Generate the missing signal while reasoning in final-output coordinates."""
+    """Generate missing physical-map signal while reasoning in output coordinates."""
 
     def __init__(self, context_channels: int, channels: int, blocks: int) -> None:
         super().__init__()
@@ -72,12 +72,19 @@ def _gray_gradient(value: torch.Tensor) -> torch.Tensor:
 
 
 class BenefitSelector(nn.Module):
-    """Production-visible local safety selector. It cannot see authored HR targets."""
+    """Production-visible safety selector over the aligned physical-map candidate.
+
+    The selector cannot see authored HR. It sees B, C, their physical-map delta and
+    upsampled LR evidence so one shared gate can reject a candidate when albedo looks
+    attractive but normal/material behaviour does not.
+    """
+
+    FEATURE_CHANNELS = 35  # 4 x eight-map groups + three albedo edge maps.
 
     def __init__(self, channels: int) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(12, channels, 3, padding=1),
+            nn.Conv2d(self.FEATURE_CHANNELS, channels, 3, padding=1),
             nn.GELU(),
             ResidualBlock(channels),
             ResidualBlock(channels),
@@ -88,29 +95,46 @@ class BenefitSelector(nn.Module):
 
     def forward(
         self,
-        baseline_albedo: torch.Tensor,
-        candidate_albedo: torch.Tensor,
-        lr_albedo: torch.Tensor,
+        baseline_maps: torch.Tensor,
+        candidate_maps: torch.Tensor,
+        lr_maps: torch.Tensor,
     ) -> torch.Tensor:
-        delta = (candidate_albedo.float() - baseline_albedo.float()).abs()
-        bgrad = _gray_gradient(baseline_albedo)
-        cgrad = _gray_gradient(candidate_albedo)
-        lr_edge = _gray_gradient(lr_albedo)
-        lr_edge = F.interpolate(lr_edge, size=baseline_albedo.shape[-2:], mode="bilinear", align_corners=False)
-        features = torch.cat((baseline_albedo.float(), candidate_albedo.float(), delta, bgrad, cgrad, lr_edge), dim=1)
+        target_size = baseline_maps.shape[-2:]
+        delta = (candidate_maps.float() - baseline_maps.float()).abs()
+        lr_hr = F.interpolate(lr_maps.float(), size=target_size, mode="bilinear", align_corners=False)
+        bgrad = _gray_gradient(baseline_maps[:, :3])
+        cgrad = _gray_gradient(candidate_maps[:, :3])
+        lr_edge = F.interpolate(
+            _gray_gradient(lr_maps[:, :3]),
+            size=target_size,
+            mode="bilinear",
+            align_corners=False,
+        )
+        features = torch.cat(
+            (baseline_maps.float(), candidate_maps.float(), delta, lr_hr, bgrad, cgrad, lr_edge),
+            dim=1,
+        )
         return self.net(features)
 
 
 class NSAMDRV14(nn.Module):
-    """Clean V14 production graph: B -> HR-first C -> BenefitSelector F."""
+    """Clean V14 production graph: B -> HR-first multi-map C -> BenefitSelector F."""
 
     def __init__(self, config: V14Config | None = None) -> None:
         super().__init__()
         self.config = config or V14Config()
         self.config.validate()
         self.baseline = Baseline4x(self.config.scale)
-        self.context_encoder = LRContextEncoder(self.config.lr_context_channels, self.config.lr_blocks, self.config.scale)
-        self.hr_refiner = HRRefinementTrunk(self.config.lr_context_channels, self.config.hr_channels, self.config.hr_blocks)
+        self.context_encoder = LRContextEncoder(
+            self.config.lr_context_channels,
+            self.config.lr_blocks,
+            self.config.scale,
+        )
+        self.hr_refiner = HRRefinementTrunk(
+            self.config.lr_context_channels,
+            self.config.hr_channels,
+            self.config.hr_blocks,
+        )
         self.selector = BenefitSelector(self.config.selector_channels)
 
     def forward(
@@ -128,8 +152,9 @@ class NSAMDRV14(nn.Module):
         c_albedo = (b_albedo + residual["albedo"] * self.config.albedo_residual_cap).clamp(0.0, 1.0)
         c_normal = normalize_xy(b_normal + residual["normal"] * self.config.normal_residual_cap)
         c_material = (b_material + residual["material"] * self.config.material_residual_cap).clamp(0.0, 1.0)
+        candidate_maps = torch.cat((c_albedo, c_normal, c_material), dim=1)
 
-        selector_logits = self.selector(b_albedo, c_albedo, lr_albedo)
+        selector_logits = self.selector(baseline_maps, candidate_maps, lr_maps)
         gate = torch.sigmoid(selector_logits.float())
         f_albedo = (b_albedo * (1.0 - gate) + c_albedo * gate).clamp(0.0, 1.0)
         f_normal = normalize_xy(b_normal * (1.0 - gate) + c_normal * gate)
@@ -170,11 +195,12 @@ class NSAMDRV14(nn.Module):
             "schema": MODEL_SCHEMA,
             "revision": "V14",
             "scale": self.config.scale,
-            "productionForward": "LR -> deterministic B + learned subpixel context -> HR refinement C -> BenefitSelector F",
+            "productionForward": "LR -> deterministic B + subpixel context -> HR multi-map refinement C -> physical-map-aware BenefitSelector F",
             "candidateIdentityAtInitialization": "C == B",
             "activeComponents": ("baseline", "context_encoder", "hr_refiner", "selector"),
             "retiredComponents": (),
             "geometryPixelAuthority": False,
             "seamPixelAuthority": False,
             "profilePixelAuthority": False,
+            "selectorUsesPhysicalMaps": True,
         }
