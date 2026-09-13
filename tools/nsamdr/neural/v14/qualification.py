@@ -15,13 +15,44 @@ def _gradient_map(value: torch.Tensor) -> torch.Tensor:
     return dx + dy
 
 
-def _recovery(baseline_error: torch.Tensor, candidate_error: torch.Tensor) -> float:
-    b = float(baseline_error.mean().item())
-    c = float(candidate_error.mean().item())
-    return (b - c) / max(b, 1.0e-8)
+def _detail_band(value: torch.Tensor, radius: int) -> torch.Tensor:
+    kernel = radius * 2 + 1
+    smooth = F.avg_pool2d(
+        value.float(),
+        kernel_size=kernel,
+        stride=1,
+        padding=radius,
+    )
+    return value.float() - smooth
 
 
-def _phase_cell_projection_fraction(residual: torch.Tensor, scale: int, oy: int, ox: int) -> float:
+def _recovery(
+    baseline_error: torch.Tensor,
+    candidate_error: torch.Tensor,
+) -> float:
+    baseline = float(baseline_error.mean().item())
+    candidate = float(candidate_error.mean().item())
+    return (baseline - candidate) / max(baseline, 1.0e-8)
+
+
+def _detail_recovery(
+    baseline: torch.Tensor,
+    value: torch.Tensor,
+    target: torch.Tensor,
+    radius: int,
+) -> float:
+    target_band = _detail_band(target, radius)
+    baseline_error = (_detail_band(baseline, radius) - target_band).abs()
+    value_error = (_detail_band(value, radius) - target_band).abs()
+    return _recovery(baseline_error, value_error)
+
+
+def _phase_cell_projection_fraction(
+    residual: torch.Tensor,
+    scale: int,
+    oy: int,
+    ox: int,
+) -> float:
     h, w = residual.shape[-2:]
     usable_h = ((h - oy) // scale) * scale
     usable_w = ((w - ox) // scale) * scale
@@ -49,15 +80,30 @@ def _phase_independent_lattice(
     excesses: list[float] = []
     for oy in range(scale):
         for ox in range(scale):
-            candidate = _phase_cell_projection_fraction(residual, scale, oy, ox)
-            target = _phase_cell_projection_fraction(target_residual, scale, oy, ox)
+            candidate = _phase_cell_projection_fraction(
+                residual,
+                scale,
+                oy,
+                ox,
+            )
+            target = _phase_cell_projection_fraction(
+                target_residual,
+                scale,
+                oy,
+                ox,
+            )
             candidate_fractions.append(candidate)
             target_fractions.append(target)
             excesses.append(candidate - target)
     return max(excesses), max(candidate_fractions), max(target_fractions)
 
 
-def sample_metrics(outputs: dict[str, torch.Tensor], batch: dict[str, torch.Tensor], *, final: bool = False) -> dict[str, float]:
+def sample_metrics(
+    outputs: dict[str, torch.Tensor],
+    batch: dict[str, torch.Tensor],
+    *,
+    final: bool = False,
+) -> dict[str, float]:
     target = batch["target_albedo"].float()
     target_n = batch["target_normal"].float()
     target_m = batch["target_material"].float()
@@ -68,48 +114,85 @@ def sample_metrics(outputs: dict[str, torch.Tensor], batch: dict[str, torch.Tens
     value_n = outputs["normal" if final else "candidate_normal"].float()
     value_m = outputs["material" if final else "candidate_material"].float()
 
-    b_error = (baseline - target).abs().mean(dim=1, keepdim=True)
-    v_error = (value - target).abs().mean(dim=1, keepdim=True)
-    global_recovery = _recovery(b_error, v_error)
+    baseline_error = (baseline - target).abs().mean(dim=1, keepdim=True)
+    value_error = (value - target).abs().mean(dim=1, keepdim=True)
+    global_recovery = _recovery(baseline_error, value_error)
 
     target_grad = _gradient_map(target)
     baseline_grad_error = (_gradient_map(baseline) - target_grad).abs()
     value_grad_error = (_gradient_map(value) - target_grad).abs()
-    gradient_recovery = _recovery(baseline_grad_error, value_grad_error)
-
-    edge_weight = 1.0 + 4.0 * target_grad / target_grad.mean().clamp_min(1.0e-6)
-    b_edge = (b_error * edge_weight).mean()
-    v_edge = (v_error * edge_weight).mean()
-    edge_recovery = float((b_edge - v_edge).item() / max(float(b_edge.item()), 1.0e-8))
-
-    normal_recovery = _recovery((baseline_n - target_n).abs(), (value_n - target_n).abs())
-    material_recovery = _recovery((baseline_m - target_m).abs(), (value_m - target_m).abs())
-    residual = value - baseline
-    target_residual = target - baseline
-    lattice_excess, lattice_candidate, lattice_target = _phase_independent_lattice(
-        residual, target_residual, 4
+    gradient_recovery = _recovery(
+        baseline_grad_error,
+        value_grad_error,
     )
 
-    protected = (baseline - target).abs().amax(dim=1, keepdim=True) <= (2.0 / 255.0)
+    edge_weight = 1.0 + 4.0 * target_grad / target_grad.mean().clamp_min(1.0e-6)
+    baseline_edge = (baseline_error * edge_weight).mean()
+    value_edge = (value_error * edge_weight).mean()
+    edge_recovery = float(
+        (baseline_edge - value_edge).item()
+        / max(float(baseline_edge.item()), 1.0e-8)
+    )
+
+    normal_recovery = _recovery(
+        (baseline_n - target_n).abs(),
+        (value_n - target_n).abs(),
+    )
+    material_recovery = _recovery(
+        (baseline_m - target_m).abs(),
+        (value_m - target_m).abs(),
+    )
+
+    residual = value - baseline
+    target_residual = target - baseline
+    lattice_excess, lattice_candidate, lattice_target = (
+        _phase_independent_lattice(residual, target_residual, 4)
+    )
+
+    protected = (
+        (baseline - target).abs().amax(dim=1, keepdim=True)
+        <= (2.0 / 255.0)
+    )
     if bool(protected.any().item()):
-        preserved = (value - baseline).abs().amax(dim=1, keepdim=True) <= (1.0 / 255.0)
-        protected_rate = float(preserved[protected].float().mean().item())
+        preserved = (
+            (value - baseline).abs().amax(dim=1, keepdim=True)
+            <= (1.0 / 255.0)
+        )
+        protected_rate = float(
+            preserved[protected].float().mean().item()
+        )
     else:
         protected_rate = 1.0
 
     return {
         "global_recovery": global_recovery,
+        "albedo_recovery": global_recovery,
         "edge_recovery": edge_recovery,
         "gradient_recovery": gradient_recovery,
+        "detail_recovery_1px": _detail_recovery(
+            baseline,
+            value,
+            target,
+            1,
+        ),
+        "detail_recovery_2px": _detail_recovery(
+            baseline,
+            value,
+            target,
+            2,
+        ),
+        "detail_recovery_4px": _detail_recovery(
+            baseline,
+            value,
+            target,
+            4,
+        ),
         "normal_recovery": normal_recovery,
         "material_recovery": material_recovery,
         "lattice_cell_excess": lattice_excess,
         "lattice_candidate_fraction": lattice_candidate,
         "lattice_target_fraction": lattice_target,
         "protected_preservation": protected_rate,
-        # Fixed validation-crop samples contain record_index. Full-native Raven checks
-        # deliberately do not. Native checks may overlap training regions, so they are
-        # valuable scale telemetry but must never make a held-out qualification pass.
         "heldout_sample": 1.0 if "record_index" in batch else 0.0,
         "target_size": float(target.shape[-1]),
     }
@@ -119,59 +202,145 @@ def _median(items: list[float]) -> float:
     return float(statistics.median(items)) if items else float("nan")
 
 
+def _optional_median(
+    metrics: list[dict[str, float]],
+    key: str,
+) -> float:
+    return _median(
+        [
+            float(metric[key])
+            for metric in metrics
+            if key in metric
+        ]
+    )
+
+
 def _telemetry(metrics: list[dict[str, float]]) -> dict[str, object]:
     if not metrics:
         return {"sampleCount": 0}
     return {
         "sampleCount": len(metrics),
-        "targetSizes": sorted({int(m.get("target_size", 0.0)) for m in metrics}),
-        "medianGlobalRecovery": _median([m["global_recovery"] for m in metrics]),
-        "medianEdgeRecovery": _median([m["edge_recovery"] for m in metrics]),
-        "medianGradientRecovery": _median([m["gradient_recovery"] for m in metrics]),
-        "medianNormalRecovery": _median([m["normal_recovery"] for m in metrics]),
-        "medianMaterialRecovery": _median([m["material_recovery"] for m in metrics]),
-        "maxLatticeCellExcess": max(m["lattice_cell_excess"] for m in metrics),
+        "targetSizes": sorted(
+            {int(metric.get("target_size", 0.0)) for metric in metrics}
+        ),
+        "medianGlobalRecovery": _median(
+            [metric["global_recovery"] for metric in metrics]
+        ),
+        "medianEdgeRecovery": _median(
+            [metric["edge_recovery"] for metric in metrics]
+        ),
+        "medianGradientRecovery": _median(
+            [metric["gradient_recovery"] for metric in metrics]
+        ),
+        "medianDetailRecovery1px": _optional_median(
+            metrics,
+            "detail_recovery_1px",
+        ),
+        "medianDetailRecovery2px": _optional_median(
+            metrics,
+            "detail_recovery_2px",
+        ),
+        "medianDetailRecovery4px": _optional_median(
+            metrics,
+            "detail_recovery_4px",
+        ),
+        "medianNormalRecovery": _median(
+            [metric["normal_recovery"] for metric in metrics]
+        ),
+        "medianMaterialRecovery": _median(
+            [metric["material_recovery"] for metric in metrics]
+        ),
+        "maxLatticeCellExcess": max(
+            metric["lattice_cell_excess"] for metric in metrics
+        ),
     }
 
 
-def aggregate_candidate(metrics: list[dict[str, float]], config: V14Config) -> dict[str, object]:
-    heldout = [m for m in metrics if float(m.get("heldout_sample", 1.0)) >= 0.5]
-    native = [m for m in metrics if float(m.get("heldout_sample", 1.0)) < 0.5]
-    global_values = [m["global_recovery"] for m in heldout]
-    edge_values = [m["edge_recovery"] for m in heldout]
-    grad_values = [m["gradient_recovery"] for m in heldout]
-    normal_values = [m["normal_recovery"] for m in heldout]
-    material_values = [m["material_recovery"] for m in heldout]
-    lattice_values = [m["lattice_cell_excess"] for m in heldout]
-    protected_values = [m["protected_preservation"] for m in heldout]
+def aggregate_candidate(
+    metrics: list[dict[str, float]],
+    config: V14Config,
+) -> dict[str, object]:
+    heldout = [
+        metric
+        for metric in metrics
+        if float(metric.get("heldout_sample", 1.0)) >= 0.5
+    ]
+    native = [
+        metric
+        for metric in metrics
+        if float(metric.get("heldout_sample", 1.0)) < 0.5
+    ]
+    global_values = [metric["global_recovery"] for metric in heldout]
+    edge_values = [metric["edge_recovery"] for metric in heldout]
+    grad_values = [metric["gradient_recovery"] for metric in heldout]
+    normal_values = [metric["normal_recovery"] for metric in heldout]
+    material_values = [metric["material_recovery"] for metric in heldout]
+    lattice_values = [
+        metric["lattice_cell_excess"] for metric in heldout
+    ]
+    protected_values = [
+        metric["protected_preservation"] for metric in heldout
+    ]
     enough_heldout = len(heldout) >= int(config.minimum_heldout_samples)
+
     result: dict[str, object] = {
         "medianGlobalRecovery": _median(global_values),
         "medianEdgeRecovery": _median(edge_values),
         "medianGradientRecovery": _median(grad_values),
+        "medianDetailRecovery1px": _optional_median(
+            heldout,
+            "detail_recovery_1px",
+        ),
+        "medianDetailRecovery2px": _optional_median(
+            heldout,
+            "detail_recovery_2px",
+        ),
+        "medianDetailRecovery4px": _optional_median(
+            heldout,
+            "detail_recovery_4px",
+        ),
         "medianNormalRecovery": _median(normal_values),
         "medianMaterialRecovery": _median(material_values),
-        "positiveGlobalFraction": sum(v > 0 for v in global_values) / max(1, len(global_values)),
-        "positiveEdgeFraction": sum(v > 0 for v in edge_values) / max(1, len(edge_values)),
-        "worstGlobalRecovery": min(global_values) if global_values else float("nan"),
-        "maxLatticeCellExcess": max(lattice_values) if lattice_values else float("nan"),
+        "positiveGlobalFraction": (
+            sum(value > 0 for value in global_values)
+            / max(1, len(global_values))
+        ),
+        "positiveEdgeFraction": (
+            sum(value > 0 for value in edge_values)
+            / max(1, len(edge_values))
+        ),
+        "worstGlobalRecovery": (
+            min(global_values) if global_values else float("nan")
+        ),
+        "maxLatticeCellExcess": (
+            max(lattice_values) if lattice_values else float("nan")
+        ),
         "medianProtectedPreservation": _median(protected_values),
         "sampleCount": len(heldout),
-        "minimumHeldOutSamplesRequired": int(config.minimum_heldout_samples),
+        "minimumHeldOutSamplesRequired": int(
+            config.minimum_heldout_samples
+        ),
         "heldOutCoveragePass": enough_heldout,
         "nativeScaleTelemetry": _telemetry(native),
     }
     result["passed"] = bool(
         enough_heldout
-        and result["medianEdgeRecovery"] >= config.candidate_edge_recovery_required
-        and result["medianGlobalRecovery"] >= config.candidate_global_recovery_required
-        and result["medianGradientRecovery"] >= config.candidate_gradient_recovery_required
-        and result["positiveEdgeFraction"] >= config.candidate_positive_edge_fraction_required
-        and result["positiveGlobalFraction"] >= config.candidate_positive_global_fraction_required
+        and result["medianEdgeRecovery"]
+        >= config.candidate_edge_recovery_required
+        and result["medianGlobalRecovery"]
+        >= config.candidate_global_recovery_required
+        and result["medianGradientRecovery"]
+        >= config.candidate_gradient_recovery_required
+        and result["positiveEdgeFraction"]
+        >= config.candidate_positive_edge_fraction_required
+        and result["positiveGlobalFraction"]
+        >= config.candidate_positive_global_fraction_required
         and result["medianNormalRecovery"] >= 0.0
         and result["medianMaterialRecovery"] >= 0.0
-        and result["worstGlobalRecovery"] >= config.candidate_worst_recovery_min
-        and result["maxLatticeCellExcess"] <= config.candidate_lattice_cell_excess_max
+        and result["worstGlobalRecovery"]
+        >= config.candidate_worst_recovery_min
+        and result["maxLatticeCellExcess"]
+        <= config.candidate_lattice_cell_excess_max
     )
     return result
 
@@ -185,20 +354,29 @@ def aggregate_final(
     candidate_edge = float(candidate["medianEdgeRecovery"])
     candidate_global = float(candidate["medianGlobalRecovery"])
     edge = float(final["medianEdgeRecovery"])
-    glob = float(final["medianGlobalRecovery"])
+    global_recovery = float(final["medianGlobalRecovery"])
     protected = float(final["medianProtectedPreservation"])
-    final["selectorEdgeRetention"] = edge / max(candidate_edge, 1.0e-8)
-    final["selectorGlobalRetention"] = glob / max(candidate_global, 1.0e-8)
+
+    final["selectorEdgeRetention"] = (
+        edge / max(candidate_edge, 1.0e-8)
+    )
+    final["selectorGlobalRetention"] = (
+        global_recovery / max(candidate_global, 1.0e-8)
+    )
     final["passed"] = bool(
         final["heldOutCoveragePass"]
         and edge >= 0.0
-        and glob >= 0.0
+        and global_recovery >= 0.0
         and float(final["medianNormalRecovery"]) >= 0.0
         and float(final["medianMaterialRecovery"]) >= 0.0
-        and final["selectorEdgeRetention"] >= config.selector_edge_retention_required
-        and final["selectorGlobalRetention"] >= config.selector_global_retention_required
+        and final["selectorEdgeRetention"]
+        >= config.selector_edge_retention_required
+        and final["selectorGlobalRetention"]
+        >= config.selector_global_retention_required
         and protected >= config.protected_preservation_required
-        and float(final["worstGlobalRecovery"]) >= config.candidate_worst_recovery_min
-        and float(final["maxLatticeCellExcess"]) <= config.candidate_lattice_cell_excess_max
+        and float(final["worstGlobalRecovery"])
+        >= config.candidate_worst_recovery_min
+        and float(final["maxLatticeCellExcess"])
+        <= config.candidate_lattice_cell_excess_max
     )
     return final
