@@ -22,20 +22,21 @@ if __package__ in {None, ""}:
     from v14.checkpoint import save_checkpoint
     from v14.config import V14Config
     from v14.dataset import load_manifest
-    from v14.losses import candidate_loss
-    from v14.mini_diagnostics import (
+    from v14.diagnostic_support import (
+        DIAGNOSTIC_REVISION,
         DIAGNOSTIC_SCHEMA,
-        _archive,
-        _autocast,
-        _dataset_sample,
-        _detail_score,
-        _device,
-        _prepare_dataset,
-        _record_key,
-        _run_directory,
-        _save_probe,
-        _write_report,
+        archive_run,
+        autocast_context,
+        dataset_sample,
+        detail_score,
+        device_from_name,
+        make_run_directory,
+        prepare_raven_dataset,
+        record_key,
+        save_probe,
+        write_report,
     )
+    from v14.losses import candidate_loss
     from v14.model import MODEL_SCHEMA, NSAMDRV14
     from v14.qualification import sample_metrics
 else:
@@ -43,20 +44,21 @@ else:
     from .checkpoint import save_checkpoint
     from .config import V14Config
     from .dataset import load_manifest
-    from .losses import candidate_loss
-    from .mini_diagnostics import (
+    from .diagnostic_support import (
+        DIAGNOSTIC_REVISION,
         DIAGNOSTIC_SCHEMA,
-        _archive,
-        _autocast,
-        _dataset_sample,
-        _detail_score,
-        _device,
-        _prepare_dataset,
-        _record_key,
-        _run_directory,
-        _save_probe,
-        _write_report,
+        archive_run,
+        autocast_context,
+        dataset_sample,
+        detail_score,
+        device_from_name,
+        make_run_directory,
+        prepare_raven_dataset,
+        record_key,
+        save_probe,
+        write_report,
     )
+    from .losses import candidate_loss
     from .model import MODEL_SCHEMA, NSAMDRV14
     from .qualification import sample_metrics
 
@@ -95,12 +97,9 @@ class CapacityDiagnostic:
 
     def _passes(self, metrics: dict[str, float]) -> bool:
         return bool(
-            metrics.get("edge_recovery", -1.0)
-            >= self.thresholds.edge_recovery
-            and metrics.get("global_recovery", -1.0)
-            >= self.thresholds.global_recovery
-            and metrics.get("gradient_recovery", -1.0)
-            >= self.thresholds.gradient_recovery
+            metrics.get("edge_recovery", -1.0) >= self.thresholds.edge_recovery
+            and metrics.get("global_recovery", -1.0) >= self.thresholds.global_recovery
+            and metrics.get("gradient_recovery", -1.0) >= self.thresholds.gradient_recovery
             and metrics.get("lattice_cell_excess", 1.0)
             <= self.config.candidate_lattice_cell_excess_max
         )
@@ -123,21 +122,14 @@ class CapacityDiagnostic:
         metrics: dict[str, float],
         passed: bool,
     ) -> dict[str, float | int | bool]:
-        saturation = CapacityArtifactWriter.residual_cap_saturation(
-            outputs,
-            self.config,
-        )
+        saturation = CapacityArtifactWriter.residual_cap_saturation(outputs, self.config)
         allocated, reserved = self._vram_telemetry()
         return {
             "step": step,
             "loss": float(loss.detach().item()),
             "gradientNormPreClip": grad_norm,
             "residualMagnitude": float(
-                outputs["candidate_residual_albedo"]
-                .float()
-                .abs()
-                .mean()
-                .item()
+                outputs["candidate_residual_albedo"].float().abs().mean().item()
             ),
             "globalRecovery": float(metrics["global_recovery"]),
             "edgeRecovery": float(metrics["edge_recovery"]),
@@ -158,7 +150,7 @@ class CapacityDiagnostic:
         }
 
     def run(self) -> int:
-        _prepare_dataset(self.args, self.repo_root)
+        prepare_raven_dataset(self.args, self.repo_root)
         manifest = load_manifest(self.repo_root, self.config)
         records = [
             record
@@ -168,21 +160,17 @@ class CapacityDiagnostic:
         if not records:
             raise RuntimeError("V14.2 capacity diagnostic found no Raven training regions")
 
-        record = max(records, key=_detail_score)
-        batch = _dataset_sample(record, self.config, self.device)
+        record = max(records, key=detail_score)
+        batch = dataset_sample(record, self.config, self.device)
         model = NSAMDRV14(self.config).to(self.device)
         model.set_candidate_training()
-        parameters = [
-            parameter
-            for parameter in model.parameters()
-            if parameter.requires_grad
-        ]
+        parameters = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.AdamW(
             parameters,
             lr=float(self.args.learning_rate),
             weight_decay=self.config.weight_decay,
         )
-        run_dir = _run_directory(self.repo_root, "capacity")
+        run_dir = make_run_directory(self.repo_root, "capacity")
         writer = CapacityArtifactWriter(run_dir)
 
         if self.device.type == "cuda":
@@ -194,17 +182,15 @@ class CapacityDiagnostic:
             flush=True,
         )
         print(f"Model schema  : {MODEL_SCHEMA}", flush=True)
-        print(f"Region        : {_record_key(record)}", flush=True)
+        print(f"Region        : {record_key(record)}", flush=True)
         print(
-            f"Geometry      : {self.config.train_lr_size} -> "
-            f"{self.config.train_hr_size}",
+            f"Geometry      : {self.config.train_lr_size} -> {self.config.train_hr_size}",
             flush=True,
         )
         print(f"Maximum steps : {self.args.steps}", flush=True)
         print(f"Learning rate : {self.args.learning_rate}", flush=True)
         print(
-            "Pass rule     : global/edge/gradient recovery + "
-            "<=15% excess LR-lattice projection",
+            "Pass rule     : global/edge/gradient recovery + <=15% excess LR-lattice projection",
             flush=True,
         )
         print("=" * 78, flush=True)
@@ -217,7 +203,7 @@ class CapacityDiagnostic:
         for step in range(1, int(self.args.steps) + 1):
             model.train()
             optimizer.zero_grad(set_to_none=True)
-            with _autocast(self.device, self.args.amp_precision):
+            with autocast_context(self.device, self.args.amp_precision):
                 outputs = model(
                     batch["lr_albedo"],
                     batch["lr_normal"],
@@ -226,9 +212,7 @@ class CapacityDiagnostic:
                 losses = candidate_loss(outputs, batch, self.config)
             losses["total"].backward()
             grad_norm = float(
-                torch.nn.utils.clip_grad_norm_(parameters, 1.0)
-                .detach()
-                .item()
+                torch.nn.utils.clip_grad_norm_(parameters, 1.0).detach().item()
             )
             optimizer.step()
 
@@ -241,7 +225,7 @@ class CapacityDiagnostic:
                 continue
 
             model.eval()
-            with torch.no_grad(), _autocast(
+            with torch.no_grad(), autocast_context(
                 self.device,
                 self.args.amp_precision,
             ):
@@ -294,17 +278,14 @@ class CapacityDiagnostic:
         )
 
         model.eval()
-        with torch.no_grad(), _autocast(
-            self.device,
-            self.args.amp_precision,
-        ):
+        with torch.no_grad(), autocast_context(self.device, self.args.amp_precision):
             outputs = model(
                 batch["lr_albedo"],
                 batch["lr_normal"],
                 batch["lr_material"],
             )
 
-        probe_path = _save_probe(
+        probe_path = save_probe(
             run_dir,
             batch,
             outputs,
@@ -321,12 +302,12 @@ class CapacityDiagnostic:
         report = {
             "schema": DIAGNOSTIC_SCHEMA,
             "mode": "capacity",
-            "revision": "V14.2",
+            "revision": DIAGNOSTIC_REVISION,
             "passed": passed,
             "promotable": False,
             "modelSchema": MODEL_SCHEMA,
             "architecture": model.architecture_contract(),
-            "record": _record_key(record),
+            "record": record_key(record),
             "metrics": last_metrics,
             "stopStep": stop_step,
             "maximumSteps": int(self.args.steps),
@@ -345,8 +326,8 @@ class CapacityDiagnostic:
             "diagnosticImages": diagnostic_images,
             "datasetFingerprint": manifest.get("fingerprint"),
         }
-        _write_report(run_dir, report)
-        archive = _archive(run_dir)
+        write_report(run_dir, report)
+        archive = archive_run(run_dir)
 
         print(f"[v14.2-capacity] report      : {run_dir / 'report.json'}", flush=True)
         print(f"[v14.2-capacity] curve       : {curve_path}", flush=True)
@@ -359,38 +340,33 @@ class CapacityDiagnostic:
 
 
 def parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    p = argparse.ArgumentParser(
         description="NSAMDR V14.2 multi-scale RCAN Raven capacity diagnostic"
     )
-    parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-    parser.add_argument("--shared-cache", default=r"C:\CCP\EVE")
-    parser.add_argument("--rebuild-dataset", action="store_true")
-    parser.add_argument("--prepare-train-regions", type=int, default=16)
-    parser.add_argument("--prepare-validation-regions", type=int, default=4)
-    parser.add_argument(
-        "--device",
-        choices=("cuda", "cpu", "auto"),
-        default="cuda",
-    )
-    parser.add_argument(
-        "--amp-precision",
-        choices=("auto", "bf16", "fp16"),
-        default="auto",
-    )
-    parser.add_argument("--steps", type=int, default=3072)
-    parser.add_argument("--report-every", type=int, default=32)
-    parser.add_argument("--learning-rate", type=float, default=1.0e-3)
-    parser.add_argument("--required-edge-recovery", type=float, default=0.60)
-    parser.add_argument("--required-global-recovery", type=float, default=0.45)
-    parser.add_argument("--required-gradient-recovery", type=float, default=0.35)
-    return parser
+    p.add_argument("--repo-root", type=Path, default=Path.cwd())
+    p.add_argument("--shared-cache", default=r"C:\CCP\EVE")
+    p.add_argument("--rebuild-dataset", action="store_true")
+    p.add_argument("--prepare-train-regions", type=int, default=16)
+    p.add_argument("--prepare-validation-regions", type=int, default=4)
+    p.add_argument("--device", choices=("cuda", "cpu", "auto"), default="cuda")
+    p.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
+    p.add_argument("--steps", type=int, default=3072)
+    p.add_argument("--report-every", type=int, default=32)
+    p.add_argument("--learning-rate", type=float, default=1.0e-3)
+    p.add_argument("--required-edge-recovery", type=float, default=0.60)
+    p.add_argument("--required-global-recovery", type=float, default=0.45)
+    p.add_argument("--required-gradient-recovery", type=float, default=0.35)
+    return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     repo_root = args.repo_root.resolve()
-    device = _device(args.device)
-    return CapacityDiagnostic(args, repo_root, device).run()
+    return CapacityDiagnostic(
+        args,
+        repo_root,
+        device_from_name(args.device),
+    ).run()
 
 
 if __name__ == "__main__":
