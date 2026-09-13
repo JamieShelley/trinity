@@ -98,19 +98,22 @@ class RavenSRDataset(Dataset[dict[str, torch.Tensor]]):
     ) -> None:
         self.config = config
         self.split = split
-        self.length = max(1, int(length))
         self.seed = int(seed)
         self.degradation = degradation
         self.records = [record for record in manifest["crops"] if record.get("split") == split]
         if not self.records:
             raise RuntimeError(f"V14 dataset has no {split} crops")
+        requested = max(1, int(length))
+        # Validation records are already deterministic disjoint authored regions. Never
+        # repeat them to manufacture a larger held-out sample count.
+        self.length = requested if split == "train" else min(requested, len(self.records))
 
     def __len__(self) -> int:
         return self.length
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
         rng = random.Random(self.seed + int(index) * 1_000_003)
-        record = self.records[int(index) % len(self.records)] if self.split != "train" else self.records[rng.randrange(len(self.records))]
+        record = self.records[int(index)] if self.split != "train" else self.records[rng.randrange(len(self.records))]
         with np.load(record["path"], allow_pickle=False) as bundle:
             albedo = np.asarray(bundle["albedo"], dtype=np.uint8).astype(np.float32) / 255.0
             normal = np.asarray(bundle["normal"], dtype=np.uint8)[..., :2].astype(np.float32) / 127.5 - 1.0
