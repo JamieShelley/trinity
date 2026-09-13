@@ -12,6 +12,7 @@ import traceback
 import torch
 
 from .config import V14Config
+from .model import MODEL_SCHEMA
 from .trainer import V14Trainer
 
 
@@ -68,6 +69,34 @@ def _stop_live_view(experiment: Path, process: subprocess.Popen[bytes] | None) -
         process.wait(timeout=3.0)
     except subprocess.TimeoutExpired:
         process.terminate()
+
+
+def _write_architecture_participation(experiment: Path, trainer: V14Trainer) -> None:
+    contract = trainer.model.architecture_contract()
+    active = tuple(contract.get("activeComponents", ()))
+    retired = tuple(contract.get("retiredComponents", ()))
+    passed = bool(
+        contract.get("schema") == MODEL_SCHEMA
+        and active == ("baseline", "context_encoder", "hr_refiner", "selector")
+        and retired == ()
+        and contract.get("geometryPixelAuthority") is False
+        and contract.get("seamPixelAuthority") is False
+        and contract.get("profilePixelAuthority") is False
+    )
+    payload = {
+        "schema": "NSAMDR_V14_ARCHITECTURE_PARTICIPATION_V1",
+        "pass": passed,
+        "modelSchema": contract.get("schema"),
+        "activeComponents": active,
+        "retiredComponents": retired,
+        "parameterCount": sum(parameter.numel() for parameter in trainer.model.parameters()),
+        "contract": contract,
+    }
+    (experiment / "architecture_participation.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    if not passed:
+        raise RuntimeError("V14 architecture participation contract failed")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -141,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
             amp_precision=args.amp_precision,
             live_preview_target_size=args.live_preview_target_size if args.live_preview_during_training else 0,
         )
+        _write_architecture_participation(experiment, trainer)
         result = trainer.run()
         manifest.update(result)
         manifest["status"] = result["status"]
