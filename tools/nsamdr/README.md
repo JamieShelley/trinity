@@ -95,6 +95,10 @@ The critical invariant is that the **residual-generating reconstruction trunk re
 output-resolution coordinates around B**. LR features provide context but do not directly
 paint one coarse LR cell into one 4x output block.
 
+The BenefitSelector sees the aligned albedo, normal and material baseline/candidate maps,
+their residual magnitude and LR-visible evidence. One shared gate therefore protects the
+aligned physical output rather than judging albedo in isolation.
+
 V14 contains no production GeometryNet, spline/SDF renderer, boundary renderer, profile
 specialist or seam-restoration stage.
 
@@ -203,7 +207,8 @@ looks acceptable.
 V14 compares how strongly `C - B` is explained by a cell-constant 4x projection against
 the same measurement for the true residual `A - B`. A candidate that is materially more
 LR-cell-like than the authored correction is rejected even if average L1 moves slightly
-toward A.
+toward A. The test is evaluated over every possible 4x lattice phase rather than only one
+fixed cell alignment.
 
 Every training epoch publishes an explicit contact sheet:
 
@@ -239,8 +244,11 @@ Final qualification additionally requires:
 | --- | ---: |
 | Selector edge retention | >= 90% |
 | Selector global retention | >= 90% |
+| Median final normal recovery | >= 0% |
+| Median final material recovery | >= 0% |
 | Protected-B preservation | >= 99% |
 | Worst final recovery | >= -10% |
+| Max excess LR-lattice cell projection vs authored residual | <= 15% |
 
 A catastrophic patch can reject an otherwise good median result.
 
@@ -277,7 +285,8 @@ checkpoints/final/nsamdr_v14.pt
 ```
 
 The final manifest records its full SHA-256 and schema. The checkpoint must strict-load
-into a fresh `NSAMDRV14` instance before preview/baking.
+into a fresh `NSAMDRV14` instance before preview/baking, and preview re-verifies the exact
+checkpoint hash before producing physical maps.
 
 No post-model repair, hidden sharpening or candidate cleanup is permitted.
 
@@ -287,7 +296,7 @@ No post-model repair, hidden sharpening or candidate cleanup is permitted.
 
 Production 4K output uses tiled inference so the HR-first trunk does not require a full
 4096 feature tensor in memory at once. Overlapping LR tiles are reconstructed at 4x and
-blended in output space.
+blended in output space; blended normal XY maps are renormalized after overlap assembly.
 
 For Raven this is:
 
@@ -314,9 +323,11 @@ scripts\build\nsamdr.bat preview EXP_####
 scripts\build\nsamdr.bat validate
 ```
 
-Historical V9-named Python entry-point filenames may remain temporarily as **thin command
-compatibility shims** so the batch/GUI surface does not change. They must delegate directly
-to V14 and contain no old training/model implementation.
+The production command surface routes directly to V14. Historical V9/V13 trainers,
+checkpoint validators, diagnostic GUI stages and SR runtime monkey-patch contracts are
+not production entry points. One legacy-named Raven source-preparation file remains only
+to preserve the already-correct native EVE extraction logic; it has no model or pixel
+authority.
 
 ---
 
