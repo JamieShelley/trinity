@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
+"""Historical command shim: smoke-test the V14 production architecture."""
 from __future__ import annotations
 
 import argparse
-import random
-import sys
 from pathlib import Path
+import sys
 
 import torch
 
@@ -12,92 +12,62 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from v9.config import V9Config
-from v9.dataset import _pack_sample, _synthetic_geometry_sample
-from v9.losses import compute_losses
-from v9.model import FidelityResidualNetV9, parameter_count
+from v14.config import V14Config
+from v14.losses import candidate_loss
+from v14.model import MODEL_SCHEMA, NSAMDRV14
 
 
-class NSAMDRSmokeTestApplication:
-    # Purpose: Implement main for NSAMDRSmokeTestApplication.
-    # Called by: External callers and the owning workflow.
-    # Calls: No same-class helper methods.
-    def main(self) -> int:
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
-        args = parser.parse_args()
-        if args.device == "cuda" and not torch.cuda.is_available():
-            raise SystemExit("CUDA unavailable")
-        device = torch.device(args.device)
-
-        cfg = V9Config(
-            tile_size=32,
-            widths=(32, 32, 48, 64),
-            blocks_per_level=(1, 1, 1, 1),
-            decoder_blocks=(1, 1, 1),
-            attention_heads=4,
-            batch_size=1,
-            synthetic_geometry_probability=1.0,
-        )
-        cfg.validate()
-        model = FidelityResidualNetV9(cfg).to(device)
-
-        # Identity contract remains exact even after adding the geometry branch.
-        x = torch.rand(1, 17, 32, 32, device=device)
-        x[:, 3:5] = x[:, 3:5] * 2.0 - 1.0
-        model.set_phase("sdf-bootstrap")
-        with torch.no_grad():
-            identity = model(x)
-        max_delta = float((identity["albedo"] - identity["baseline_albedo"]).abs().max().cpu())
-        if max_delta > 1e-7:
-            raise SystemExit(f"V9 identity initialization failed: max delta={max_delta}")
-
-        # Exercise the real exact-geometry generation/degradation path and every
-        # boundary-coherence loss in forward/backward.
-        rng = random.Random(20260807)
-        target_size = cfg.tile_size * cfg.target_scale
-        albedo, normal, material, sdf, orientation, edge = _synthetic_geometry_sample(
-            target_size, cfg, rng
-        )
-        sample = _pack_sample(
-            albedo, normal, material, 1.0, sdf, orientation, edge,
-            cfg, rng, geometry_exact=1.0,
-        )
-        batch: dict[str, torch.Tensor] = {}
-        for key, value in sample.items():
-            batch[key] = value.unsqueeze(0).to(device)
-
-        model.set_phase("boundary-hardening")
-        outputs = model(batch["input"])
-        losses = compute_losses(outputs, batch, cfg, "boundary-hardening")
-        losses["total"].backward()
-        if not torch.isfinite(losses["total"]):
-            raise SystemExit("non-finite V9 geometric smoke loss")
-        for name in (
-            "geometric_alignment", "tangent_coherence", "curvature_coherence", "sdf_curvature"
-        ):
-            if name not in losses or not torch.isfinite(losses[name]):
-                raise SystemExit(f"missing/non-finite V9 geometric loss: {name}")
-
-        expected = {
-            "albedo": (1, 3, target_size, target_size),
-            "normal_xy": (1, 2, target_size, target_size),
-            "confidence": (1, 1, target_size, target_size),
-            "albedo_delta_fine": (1, 3, target_size, target_size),
-        }
-        for key, shape in expected.items():
-            if tuple(outputs[key].shape) != shape:
-                raise SystemExit(f"bad {key} shape: {tuple(outputs[key].shape)}")
-
-        print(
-            f"NSAMDR V9 geometric smoke passed device={device} "
-            f"parameters={parameter_count(model):,} identityDelta={max_delta:.9f} "
-            f"total={float(losses['total'].detach().cpu()):.6f}"
-        )
-        return 0
-
-_n_s_a_m_d_r_smoke_test_application = NSAMDRSmokeTestApplication()
-main = _n_s_a_m_d_r_smoke_test_application.main
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
+    args = parser.parse_args()
+    if args.device == "cuda" and not torch.cuda.is_available():
+        raise SystemExit("CUDA requested but unavailable")
+    device = torch.device(args.device)
+    config = V14Config(
+        train_lr_size=32,
+        train_hr_size=128,
+        validation_lr_size=32,
+        validation_hr_size=128,
+        lr_context_channels=12,
+        lr_blocks=2,
+        hr_channels=12,
+        hr_blocks=2,
+        selector_channels=8,
+        production_tile_lr=32,
+        production_overlap_lr=4,
+        tiles_per_epoch=1,
+        validation_tiles=1,
+        clean_epochs=1,
+        robust_epochs=1,
+        selector_epochs=1,
+    )
+    model = NSAMDRV14(config).to(device)
+    contract = model.architecture_contract()
+    if contract["schema"] != MODEL_SCHEMA or tuple(contract["retiredComponents"]) != ():
+        raise SystemExit("V14 clean architecture contract failed")
+    torch.manual_seed(14)
+    albedo = torch.rand(1, 3, 32, 32, device=device)
+    normal = torch.rand(1, 2, 32, 32, device=device) * 0.8 - 0.4
+    material = torch.rand(1, 3, 32, 32, device=device)
+    outputs = model(albedo, normal, material)
+    if tuple(outputs["albedo"].shape[-2:]) != (128, 128):
+        raise SystemExit("V14 model did not perform exact 4x reconstruction")
+    if not torch.equal(outputs["candidate_albedo"], outputs["baseline_albedo"]):
+        raise SystemExit("V14 zero-init candidate is not exact baseline B")
+    batch = {
+        "target_albedo": outputs["baseline_albedo"].detach(),
+        "target_normal": outputs["baseline_normal"].detach(),
+        "target_material": outputs["baseline_material"].detach(),
+    }
+    losses = candidate_loss(outputs, batch, config)
+    if not torch.isfinite(losses["total"]):
+        raise SystemExit("V14 candidate loss is non-finite")
+    print("NSAMDR V14 architecture smoke test passed")
+    print(f"  device={device}")
+    print(f"  parameters={sum(p.numel() for p in model.parameters()):,}")
+    print(f"  schema={MODEL_SCHEMA}")
+    return 0
 
 
 if __name__ == "__main__":
