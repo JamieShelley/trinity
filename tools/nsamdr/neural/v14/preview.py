@@ -9,12 +9,12 @@ import numpy as np
 import torch
 
 from .checkpoint import load_checkpoint
-from .dataset import _normalise_xy, _read_rgb
+from .dataset import _canonical_native_family
 from .inference import tiled_inference
 
 
-def _batch_rgb(image: np.ndarray) -> torch.Tensor:
-    return torch.from_numpy(image.transpose(2, 0, 1).copy()).unsqueeze(0)
+def _batch(value: np.ndarray) -> torch.Tensor:
+    return torch.from_numpy(value.transpose(2, 0, 1).copy()).unsqueeze(0)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -33,20 +33,26 @@ def main(argv: list[str] | None = None) -> int:
     model, _ = load_checkpoint(checkpoint, device)
     manifest = json.loads((root / model.config.dataset_manifest).read_text(encoding="utf-8"))
     family = manifest["families"][0]
-    albedo = _read_rgb(Path(family["albedo"])).astype(np.float32) / 255.0
-    normal = _read_rgb(Path(family["normal"]))[:, :, :2].astype(np.float32) / 127.5 - 1.0
-    normal = _normalise_xy(normal)
-    material_path = Path(str(family.get("material") or ""))
-    material = _read_rgb(material_path).astype(np.float32) / 255.0 if material_path.is_file() else np.zeros_like(albedo)
-    lr_a = _batch_rgb(albedo).to(device)
-    lr_n = torch.from_numpy(normal.transpose(2, 0, 1).copy()).unsqueeze(0).to(device)
-    lr_m = _batch_rgb(material).to(device)
+    canonical = _canonical_native_family(family)
+    if canonical is None:
+        raise RuntimeError("V14 preview could not resolve the first native physical-map family")
+    albedo, normal, material = canonical
+    lr_a = _batch(albedo).to(device)
+    lr_n = _batch(normal).to(device)
+    lr_m = _batch(material).to(device)
     model.eval()
     outputs = tiled_inference(
         model, lr_a, lr_n, lr_m,
         tile_lr=model.config.production_tile_lr,
         overlap_lr=model.config.production_overlap_lr,
     )
+    natural_target = int(albedo.shape[1] * model.config.scale)
+    if int(args.target_size) != natural_target:
+        print(
+            f"[v14-preview] requested target-size={args.target_size}; V14 production scale is fixed 4x, "
+            f"so native {albedo.shape[1]} produces {natural_target}",
+            flush=True,
+        )
     out = experiment / "previews" / "final_v14"
     out.mkdir(parents=True, exist_ok=True)
     value = outputs["albedo"][0].detach().cpu()
