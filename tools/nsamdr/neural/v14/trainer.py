@@ -87,6 +87,8 @@ class V14Trainer:
                     outputs = self.model(batch["lr_albedo"], batch["lr_normal"], batch["lr_material"])
                 metrics.append(sample_metrics(outputs, batch, final=final))
 
+            # Full-native 256->1024 style checks are included when the dataset exposes
+            # native 1K semantic maps. They are never resized upward to create targets.
             for sample in self.native_samples:
                 batch = {key: value.to(self.device) for key, value in sample.items() if isinstance(value, torch.Tensor)}
                 with self._autocast():
@@ -150,10 +152,6 @@ class V14Trainer:
             flush=True,
         )
 
-    def _reload(self, path: Path) -> tuple[NSAMDRV14, dict[str, Any]]:
-        from .checkpoint import load_checkpoint
-        return load_checkpoint(path, self.device)
-
     def _train_candidate(self) -> tuple[Path, dict[str, object]]:
         self.model.set_candidate_training()
         parameters = [p for p in self.model.parameters() if p.requires_grad]
@@ -162,7 +160,7 @@ class V14Trainer:
             lr=self.config.sr_learning_rate,
             weight_decay=self.config.weight_decay,
         )
-        best_score = -1.0e9
+        best_key = (-1, -1.0e9)
         best_path: Path | None = None
         best_report: dict[str, object] | None = None
 
@@ -216,19 +214,25 @@ class V14Trainer:
                 flush=True,
             )
             self._save_preview(epoch, f"sr-{degradation}")
-            if score > best_score:
-                best_score = score
+            selection_key = (1 if bool(report["passed"]) else 0, score)
+            if selection_key > best_key:
+                best_key = selection_key
                 best_path = checkpoint
                 best_report = report
 
         if best_path is None or best_report is None:
             raise RuntimeError("V14 candidate training produced no checkpoint")
+        # Candidate qualification must describe the selected checkpoint, not merely the final epoch.
         model, _ = self._reload(best_path)
         self.model = model
         _metrics, selected_report = self._validate(final=False)
         selected_report["selectedCheckpoint"] = str(best_path.resolve())
         selected_report["selectedEpoch"] = int(best_report["epoch"])
         return best_path, selected_report
+
+    def _reload(self, path: Path) -> tuple[NSAMDRV14, dict[str, Any]]:
+        from .checkpoint import load_checkpoint
+        return load_checkpoint(path, self.device)
 
     def _train_selector(self, candidate_path: Path, candidate_report: dict[str, object]) -> tuple[Path, dict[str, object]]:
         self.model, _ = self._reload(candidate_path)
@@ -237,7 +241,7 @@ class V14Trainer:
         optimizer = torch.optim.AdamW(parameters, lr=self.config.selector_learning_rate, weight_decay=self.config.weight_decay)
         best_path: Path | None = None
         best_report: dict[str, object] | None = None
-        best_score = -1.0e9
+        best_key = (-1, -1.0e9)
         for step in range(1, self.config.selector_epochs + 1):
             epoch = self.config.sr_epochs + step
             loader = self._loader("train", self.config.tiles_per_epoch, "robust", self.config.seed + 900 + step)
@@ -276,13 +280,20 @@ class V14Trainer:
                 flush=True,
             )
             self._save_preview(epoch, "selector")
-            if score > best_score:
-                best_score = score
+            selection_key = (1 if bool(report["passed"]) else 0, score)
+            if selection_key > best_key:
+                best_key = selection_key
                 best_path = checkpoint
                 best_report = report
         if best_path is None or best_report is None:
             raise RuntimeError("V14 selector training produced no checkpoint")
-        return best_path, best_report
+        # Re-qualify a fresh strict-loaded copy of the exact selected checkpoint.
+        self.model, _ = self._reload(best_path)
+        final_metrics, _ = self._validate(final=True)
+        selected_report = aggregate_final(candidate_report, final_metrics, self.config)
+        selected_report["selectedCheckpoint"] = str(best_path.resolve())
+        selected_report["selectedEpoch"] = int(best_report["epoch"])
+        return best_path, selected_report
 
     def run(self) -> dict[str, object]:
         architecture = self.model.architecture_contract()
