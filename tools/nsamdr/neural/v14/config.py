@@ -7,7 +7,7 @@ import json
 
 @dataclass
 class V14Config:
-    schema: str = "NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V14_0"
+    schema: str = "NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V14_1"
     scale: int = 4
     train_hr_size: int = 512
     train_lr_size: int = 128
@@ -52,7 +52,7 @@ class V14Config:
 
     def validate(self) -> None:
         if self.scale != 4:
-            raise ValueError("V14 currently supports exactly 4x reconstruction")
+            raise ValueError("V14.1 currently supports exactly 4x reconstruction")
         if self.train_hr_size != self.train_lr_size * self.scale:
             raise ValueError("train_hr_size must equal train_lr_size * scale")
         if self.validation_hr_size != self.validation_lr_size * self.scale:
