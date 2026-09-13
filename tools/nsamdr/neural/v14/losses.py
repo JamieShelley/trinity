@@ -22,10 +22,12 @@ def _laplacian(value: torch.Tensor) -> torch.Tensor:
 def _pyramid_l1(candidate: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     values = []
     for scale in (2, 4):
-        values.append(F.l1_loss(
-            F.avg_pool2d(candidate.float(), scale, scale),
-            F.avg_pool2d(target.float(), scale, scale),
-        ))
+        values.append(
+            F.l1_loss(
+                F.avg_pool2d(candidate.float(), scale, scale),
+                F.avg_pool2d(target.float(), scale, scale),
+            )
+        )
     return sum(values) / len(values)
 
 
@@ -83,27 +85,52 @@ def candidate_loss(
     }
 
 
+def _joint_pixel_error(
+    albedo: torch.Tensor,
+    normal: torch.Tensor,
+    material: torch.Tensor,
+    target_albedo: torch.Tensor,
+    target_normal: torch.Tensor,
+    target_material: torch.Tensor,
+) -> torch.Tensor:
+    albedo_error = (albedo.float() - target_albedo.float()).abs().mean(dim=1, keepdim=True)
+    normal_error = (normal.float() - target_normal.float()).abs().mean(dim=1, keepdim=True)
+    material_error = (material.float() - target_material.float()).abs().mean(dim=1, keepdim=True)
+    return albedo_error + 0.25 * normal_error + 0.25 * material_error
+
+
 def selector_loss(
     outputs: dict[str, torch.Tensor],
     batch: dict[str, torch.Tensor],
 ) -> dict[str, torch.Tensor]:
-    b = outputs["baseline_albedo"].detach().float()
-    c = outputs["candidate_albedo"].detach().float()
-    f = outputs["albedo"].float()
-    target = batch["target_albedo"].float()
+    ba = outputs["baseline_albedo"].detach().float()
+    bn = outputs["baseline_normal"].detach().float()
+    bm = outputs["baseline_material"].detach().float()
+    ca = outputs["candidate_albedo"].detach().float()
+    cn = outputs["candidate_normal"].detach().float()
+    cm = outputs["candidate_material"].detach().float()
+    fa = outputs["albedo"].float()
+    fn = outputs["normal"].float()
+    fm = outputs["material"].float()
+    ta = batch["target_albedo"].float()
+    tn = batch["target_normal"].float()
+    tm = batch["target_material"].float()
     logits = outputs["selector_logits"].float()
 
-    b_error = (b - target).abs().mean(dim=1, keepdim=True)
-    c_error = (c - target).abs().mean(dim=1, keepdim=True)
-    oracle = (c_error + 1.0e-5 < b_error).float()
-    protected = ((b - target).abs().amax(dim=1, keepdim=True) <= (2.0 / 255.0))
-    excessive_candidate_drift = ((c - b).abs().amax(dim=1, keepdim=True) > (1.0 / 255.0))
+    baseline_error = _joint_pixel_error(ba, bn, bm, ta, tn, tm)
+    candidate_error = _joint_pixel_error(ca, cn, cm, ta, tn, tm)
+    oracle = (candidate_error + 1.0e-5 < baseline_error).float()
+
+    # Already-correct authored albedo remains a hard safety constraint. A shared
+    # physical-map gate cannot accept a candidate that visibly moves those pixels.
+    protected = (ba - ta).abs().amax(dim=1, keepdim=True) <= (2.0 / 255.0)
+    excessive_candidate_drift = (ca - ba).abs().amax(dim=1, keepdim=True) > (1.0 / 255.0)
     oracle = torch.where(protected & excessive_candidate_drift, torch.zeros_like(oracle), oracle)
 
     classification = F.binary_cross_entropy_with_logits(logits, oracle)
-    reconstruction = F.l1_loss(f, target)
-    fgx, fgy = _gradient(f)
-    tgx, tgy = _gradient(target)
+    reconstruction = _joint_pixel_error(fa, fn, fm, ta, tn, tm).mean()
+    fgx, fgy = _gradient(fa)
+    tgx, tgy = _gradient(ta)
     gradient = (fgx - tgx).abs().mean() + (fgy - tgy).abs().mean()
     total = classification + reconstruction * 2.0 + gradient * 0.25
     return {
