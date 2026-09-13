@@ -63,6 +63,14 @@ def promote_final(source: Path, experiment_dir: Path, qualification: dict[str, o
     final_dir.mkdir(parents=True, exist_ok=True)
     destination = final_dir / "nsamdr_v14.pt"
     shutil.copy2(source, destination)
+
+    # Promotion is not trusted until the exact copied bytes strict-load into a fresh
+    # production model. This verifies the same artifact later used by preview/baking.
+    reloaded, payload = load_checkpoint(destination, torch.device("cpu"))
+    contract = reloaded.architecture_contract()
+    if contract.get("schema") != MODEL_SCHEMA or tuple(contract.get("retiredComponents", ())) != ():
+        raise RuntimeError("V14 promoted checkpoint failed clean production architecture verification")
+
     digest = sha256_file(destination)
     manifest = {
         "schema": "NSAMDR_V14_FINAL_MANIFEST_V1",
@@ -75,6 +83,15 @@ def promote_final(source: Path, experiment_dir: Path, qualification: dict[str, o
             "schema": MODEL_SCHEMA,
             "immutable": True,
             "selectionKind": "production-final",
+            "strictReloadVerified": True,
+            "epoch": int(payload.get("epoch", 0)),
+            "phase": str(payload.get("phase", "")),
+        },
+        "productionRuntimeIntegrity": {
+            "passed": True,
+            "strictReload": True,
+            "modelSchema": MODEL_SCHEMA,
+            "architecture": contract,
         },
         "qualification": qualification,
     }
