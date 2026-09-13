@@ -3,18 +3,60 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
 import cv2
 import numpy as np
 import torch
 
-from .checkpoint import load_checkpoint
-from .dataset import _canonical_native_family
-from .inference import tiled_inference
+if __package__ in {None, ""}:
+    NEURAL_ROOT = Path(__file__).resolve().parent.parent
+    if str(NEURAL_ROOT) not in sys.path:
+        sys.path.insert(0, str(NEURAL_ROOT))
+    from v14.checkpoint import load_checkpoint, sha256_file
+    from v14.dataset import _canonical_native_family
+    from v14.inference import tiled_inference
+    from v14.model import MODEL_SCHEMA
+else:
+    from .checkpoint import load_checkpoint, sha256_file
+    from .dataset import _canonical_native_family
+    from .inference import tiled_inference
+    from .model import MODEL_SCHEMA
+
+
+FINAL_SCHEMA = "NSAMDR_V14_FINAL_MANIFEST_V1"
 
 
 def _batch(value: np.ndarray) -> torch.Tensor:
     return torch.from_numpy(value.transpose(2, 0, 1).copy()).unsqueeze(0)
+
+
+def _qualified_checkpoint(experiment: Path) -> Path:
+    manifest_path = experiment / "final_manifest.json"
+    if not manifest_path.is_file():
+        raise RuntimeError(f"V14 final manifest is missing: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    checkpoint_record = dict(manifest.get("checkpoint") or {})
+    if (
+        manifest.get("schema") != FINAL_SCHEMA
+        or manifest.get("status") != "completed"
+        or manifest.get("qualified") is not True
+        or manifest.get("selectionKind") != "production-final"
+        or checkpoint_record.get("schema") != MODEL_SCHEMA
+        or checkpoint_record.get("immutable") is not True
+    ):
+        raise RuntimeError("V14 preview requires a completed qualified immutable production final")
+    checkpoint = (experiment / str(checkpoint_record.get("path") or "")).resolve()
+    checkpoint.relative_to((experiment / "checkpoints" / "final").resolve())
+    if not checkpoint.is_file():
+        raise RuntimeError(f"V14 final checkpoint is missing: {checkpoint}")
+    expected = str(checkpoint_record.get("sha256") or "")
+    actual = sha256_file(checkpoint)
+    if not expected or actual != expected:
+        raise RuntimeError(
+            f"V14 final checkpoint provenance mismatch: expected={expected or '<missing>'} actual={actual}"
+        )
+    return checkpoint
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -27,13 +69,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = args.repo_root.resolve()
     experiment = root / "artifacts" / "nsamdr" / "experiments" / args.experiment
-    final_manifest = json.loads((experiment / "final_manifest.json").read_text(encoding="utf-8"))
-    checkpoint = experiment / final_manifest["checkpoint"]["path"]
+    checkpoint = _qualified_checkpoint(experiment)
     device = torch.device("cuda" if args.device in {"cuda", "auto"} and torch.cuda.is_available() else "cpu")
+    if args.device == "cuda" and device.type != "cuda":
+        raise RuntimeError("V14 preview requested CUDA but CUDA is unavailable")
     model, _ = load_checkpoint(checkpoint, device)
     manifest = json.loads((root / model.config.dataset_manifest).read_text(encoding="utf-8"))
-    family = manifest["families"][0]
-    canonical = _canonical_native_family(family)
+    families = list(manifest.get("families") or [])
+    if not families:
+        raise RuntimeError("V14 preview dataset manifest contains no native material families")
+    canonical = _canonical_native_family(families[0])
     if canonical is None:
         raise RuntimeError("V14 preview could not resolve the first native physical-map family")
     albedo, normal, material = canonical
@@ -42,7 +87,10 @@ def main(argv: list[str] | None = None) -> int:
     lr_m = _batch(material).to(device)
     model.eval()
     outputs = tiled_inference(
-        model, lr_a, lr_n, lr_m,
+        model,
+        lr_a,
+        lr_n,
+        lr_m,
         tile_lr=model.config.production_tile_lr,
         overlap_lr=model.config.production_overlap_lr,
     )
@@ -62,6 +110,19 @@ def main(argv: list[str] | None = None) -> int:
     value = outputs["material"][0].detach().cpu()
     image = np.round(value.permute(1, 2, 0).clamp(0, 1).numpy() * 255).astype(np.uint8)
     cv2.imwrite(str(out / "material_4x.png"), image[:, :, ::-1])
+    preview_manifest = {
+        "schema": "NSAMDR_V14_PREVIEW_V1",
+        "status": "baked",
+        "experiment": experiment.name,
+        "checkpointSha256": sha256_file(checkpoint),
+        "nativeSourceSize": [int(albedo.shape[1]), int(albedo.shape[0])],
+        "outputSize": [int(outputs["albedo"].shape[-1]), int(outputs["albedo"].shape[-2])],
+        "scale": int(model.config.scale),
+        "outputDirectory": str(out.resolve()),
+    }
+    (out / "preview_manifest.json").write_text(
+        json.dumps(preview_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(f"[v14-preview] baked native {albedo.shape[1]} -> {outputs['albedo'].shape[-1]} physical maps: {out}", flush=True)
     return 0
 
