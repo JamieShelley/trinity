@@ -4,25 +4,21 @@
 
 **NSAMDR** means **Neural Structure-Aware Material Detail Reconstruction**.
 
-The goal is to reconstruct EVE ship material textures at **4x** from lower-resolution
-authored maps. The result must preserve the original art direction and physical-map
-alignment.
+The system reconstructs EVE ship material textures at **4x** from lower-resolution authored maps.
+The output must preserve authored structure and physical-map alignment.
 
 NSAMDR must:
 
 - remove interpolation blur and pixel stair-stepping;
-- recover crisp manufactured seams, panel boundaries, and contours;
-- recover evidence-supported high-frequency hull detail;
+- recover manufactured seams, panel boundaries, contours, and supported high-frequency detail;
 - reconstruct aligned albedo, normal, and material behaviour;
-- preserve regions that deterministic reconstruction already gets right;
+- preserve regions where the deterministic reconstruction is already correct;
 - avoid unsupported texture invention;
 - fall back to the deterministic result when the learned result is worse.
 
 [![NSAMDR example reconstruction](./EXAMPLE.png)](./EXAMPLE.png)
 
-`EXAMPLE.png` is the visual target. The final texture must look like a credible
-higher-resolution version of the authored EVE asset. It must not look like a generic
-sharpen filter or invented artwork.
+`EXAMPLE.png` is the visual target. The final texture must look like a credible higher-resolution version of the authored EVE asset.
 
 ---
 
@@ -34,20 +30,16 @@ From the Trinity repository root:
 scripts\build\nsamdr.bat gui
 ```
 
-The current production-development path is **V14.3 stable multi-scale phase-neutral
-HR-first SR**.
+The current production-development path is **V14.4 stable multi-scale phase-neutral HR-first SR**.
 
 ---
 
 ## 1. A / B / C / F contract
 
-All learned reconstruction is judged against a deterministic 4x baseline from the same LR
-evidence.
+All learned reconstruction is judged against a deterministic 4x baseline from the same LR evidence.
 
-- **A — authored target**: genuine authored high-resolution EVE pixels. A is available
-  only during training and qualification.
-- **B — deterministic baseline**: bicubic albedo, normalized bilinear normal XY, and
-  nearest-neighbour material channels.
+- **A — authored target**: genuine authored high-resolution EVE pixels. A is available only during training and qualification.
+- **B — deterministic baseline**: bicubic albedo, normalized bilinear normal XY, and nearest-neighbour material channels.
 - **C — SR candidate**: learned 4x residual reconstruction over B.
 - **F — final output**: local BenefitSelector result between B and C.
 
@@ -58,8 +50,7 @@ C = project(B + predicted residual)
 F = B + selector * (C - B)
 ```
 
-C must materially improve B. The selector cannot hide a poor C and make the experiment
-pass.
+C must materially improve B. The selector cannot hide a poor C and make the experiment pass.
 
 For regions where B is already correct:
 
@@ -69,47 +60,53 @@ protectedPreservationRate >= 0.990
 
 ---
 
-## 2. Why V14.3 exists
+## 2. Revision history and current hypothesis
 
-V14.0 used a learned 4x sub-pixel path. It produced too much LR-grid structure.
+### V14.0
 
-V14.1 removed PixelShuffle. It moved LR context into HR coordinates with bilinear resize
-and an HR convolution. This reduced LR-lattice excess to approximately 7% in Capacity.
-V14.1 still failed the edge gate at 58.02% against 60%.
+V14.0 used a learned 4x sub-pixel path. It produced excessive LR-grid structure.
 
-V14.2 replaced the small HR trunk with a deeper three-scale RCAN-style reconstruction
-network. The first Capacity run did not provide a valid capacity result. The optimizer
-collapsed into a saturated state. Normal residual saturation approached 100%, material
-saturation also became extreme, and the total gradient norm became zero for the remainder
-of the run.
+### V14.1
 
-V14.3 keeps the V14.2 model capacity. It changes the optimization path so Capacity can test
-that model correctly.
+V14.1 removed PixelShuffle. LR context moved into HR coordinates with bilinear resize and an HR convolution.
+This reduced LR-lattice excess to approximately 7% in Capacity.
 
-V14.3 adds:
-
-- identity initialization for each RCAB residual branch;
-- identity initialization for each ResidualGroup branch;
-- raw zero-initialized physical-map heads;
-- `softsign` residual bounding instead of `tanh`;
-- direct residual supervision before albedo/material clamp and normal normalization;
-- explicit Capacity divergence detection;
-- `best_checkpoint.pt`, `last_stable_checkpoint.pt`, and `divergence_report.json`.
-
-V14.3 does **not** change:
+V14.1 still failed the edge gate:
 
 ```text
-Capacity maximum steps = 3072
-Capacity learning rate = 0.001
-global gate             = 45%
-edge gate               = 60%
-gradient gate           = 35%
-lattice gate            = 15%
+global recovery   = 53.00%   PASS
+gradient recovery = 46.15%   PASS
+edge recovery     = 58.02%   FAIL, required 60%
+lattice excess    =  7.0%    PASS
 ```
+
+### V14.2
+
+V14.2 replaced the small HR trunk with a deeper three-scale RCAN-style reconstruction network.
+The first Capacity run diverged into residual saturation and then lost useful gradients.
+
+### V14.3
+
+V14.3 added identity-safe residual initialization, raw map heads, softsign residual bounding, pre-projection residual supervision, and explicit divergence detection.
+
+The V14.3 Capacity run still diverged. It reached persistent cap saturation on albedo, normal, and material at the previous Capacity learning rate of `0.001`.
+
+### V14.4
+
+V14.4 keeps the V14.3 network topology. It changes only the stability path:
+
+- Capacity uses the production SR learning rate: `0.0002`;
+- each `ResidualGroup` applies a `0.10` group residual scale;
+- bounded residuals use a straight-through clamp instead of softsign;
+- direct residual supervision remains before physical projection;
+- divergence detection remains active;
+- raw residual magnitude is recorded separately from bounded residual saturation.
+
+V14.4 does **not** change the Capacity step budget or qualification gates.
 
 ---
 
-## 3. V14.3 production architecture
+## 3. V14.4 production architecture
 
 ### 3.1 Top-level graph
 
@@ -123,8 +120,8 @@ flowchart LR
     B --> REF[MultiScaleHRRefinementTrunk]
     ADAPT --> REF
     REF --> RAW[Raw map residual heads]
-    RAW --> SOFT[Softsign + residual caps]
-    SOFT --> PRE[Pre-projection predicted residual]
+    RAW --> LIMIT[Straight-through ResidualLimiter]
+    LIMIT --> PRE[Bounded pre-projection residual]
     PRE --> PROJ[Physical projection]
     B --> PROJ
     PROJ --> C[Candidate C]
@@ -146,7 +143,7 @@ All learned decoder resizing uses:
 ```text
 bilinear resize
 +
-normal HR convolution
+normal convolution
 ```
 
 ### 3.2 Multi-scale HR reconstruction
@@ -209,26 +206,11 @@ B physical maps + HR context
         raw residual values
 ```
 
-The lower-resolution feature levels increase the receptive field. They do not directly
-generate output pixels.
+The lower-resolution feature levels increase the receptive field. They do not directly generate output pixels.
 
 ### 3.3 Identity-safe residual initialization
 
-Each RCAB has this structure:
-
-```text
-input
-  |
-  +-----------------------------+
-  |                             |
-  v                             |
-3x3 convolution                 |
-GELU                            |
-3x3 convolution, zero init      |
-channel attention               |
-  |                             |
-  +------ scaled residual ------+
-```
+Each RCAB has a zero-initialized second convolution.
 
 Therefore:
 
@@ -238,7 +220,9 @@ RCAB(x) == x
 
 at initialization.
 
-Each `ResidualGroup` also has a zero-initialized final 3x3 convolution. Therefore:
+Each `ResidualGroup` also has a zero-initialized final convolution.
+
+Therefore:
 
 ```text
 ResidualGroup(x) == x
@@ -246,19 +230,36 @@ ResidualGroup(x) == x
 
 at initialization.
 
-The deep network starts as an identity hierarchy instead of an arbitrary high-amplitude
-residual transform.
+The RCAB residual scale remains `0.20`.
 
-### 3.4 Stable residual bounding
-
-Each map tail returns an unconstrained raw residual. It does not apply `tanh`.
-
-The production composition applies:
+V14.4 also applies:
 
 ```text
-bounded = softsign(raw) * residualCap
-softsign(x) = x / (1 + abs(x))
+ResidualGroup output = x + 0.10 * groupResidual
 ```
+
+This limits internal feature amplification without reducing the configured physical residual caps.
+
+### 3.4 Straight-through residual limiter
+
+Each map tail returns an unconstrained raw residual.
+
+`ResidualLimiter` applies the physical cap in the forward pass:
+
+```text
+bounded = clamp(raw, -cap, +cap)
+```
+
+The implementation uses a straight-through gradient:
+
+```python
+bounded = raw + (raw.clamp(-cap, cap) - raw).detach()
+```
+
+Forward behaviour is a hard clamp.
+Backward behaviour passes the residual gradient through the limiter.
+
+This lets optimization recover if a raw residual exceeds its physical range.
 
 The configured caps remain:
 
@@ -268,9 +269,7 @@ normal   = 0.20
 material = 0.25
 ```
 
-The bounded result is named the **predicted residual**.
-
-The physical candidate is then produced as:
+The physical candidate is:
 
 ```text
 albedo C   = clamp(B + predicted residual, 0, 1)
@@ -285,36 +284,26 @@ before training:
 
 raw residual       = 0
 predicted residual = 0
-C                   = B
+C                  = B
 ```
 
 ### 3.5 Pre-projection residual supervision
 
-Direct residual loss uses:
+Direct residual loss supervises the bounded predicted residual before albedo/material clamp or normal normalization.
 
-```text
-predicted residual
-```
-
-before albedo/material clamp or normal normalization.
-
-The target remains the capped authored correction:
+The target is:
 
 ```text
 clamp(A - B, -residualCap, +residualCap)
 ```
 
-This separation is important.
-
-The reconstruction losses still evaluate physical candidate C. The direct residual loss
-no longer depends on the post-projection value `C - B`. Therefore, a valid physical clamp
-cannot remove the only useful gradient for the residual predictor.
+Physical reconstruction losses still evaluate C.
 
 ---
 
 ## 4. OOP ownership
 
-The V14.3 production implementation is under:
+The production implementation is under:
 
 ```text
 tools/nsamdr/neural/v14/
@@ -322,22 +311,32 @@ tools/nsamdr/neural/v14/
 
 ### `config.py`
 
-`V14Config` owns model dimensions, block counts, training geometry, residual caps,
-qualification thresholds, and production tiling configuration.
+`V14Config` owns:
+
+- model dimensions;
+- block counts;
+- `residual_group_scale`;
+- training geometry;
+- optimizer defaults;
+- residual caps;
+- qualification thresholds;
+- production tiling configuration.
 
 The model schema is:
 
 ```text
-NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V14_3
+NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V14_4
 ```
 
-V14.2 and older checkpoints are incompatible.
+V14.3 and older checkpoints are incompatible.
 
 ### `refinement.py`
 
 This file owns reconstruction components:
 
 ```text
+ZeroHead
+ResidualLimiter
 ChannelAttention
 RCAB
 ResidualGroup
@@ -345,7 +344,6 @@ DownsampleFeatures
 UpsampleAndFuse
 PhysicalMapTail
 MultiScaleHRRefinementTrunk
-ZeroHead
 ```
 
 ### `model.py`
@@ -356,38 +354,35 @@ This file owns production composition:
 LRContextEncoder
 HRContextAdapter
 MultiScaleHRRefinementTrunk
+ResidualLimiter instances
 BenefitSelector
 NSAMDRV14
 ```
 
-It also owns the softsign residual bounding and physical projection order.
-
 ### `losses.py`
 
-This file owns candidate and selector objectives. Candidate residual supervision uses the
-bounded pre-projection residual.
+This file owns candidate and selector objectives.
+Candidate residual supervision uses the bounded pre-projection residual.
 
 ### `training_stability.py`
 
-`DivergenceMonitor` owns Capacity stability detection. It does not change gradients,
-optimizer values, or qualification thresholds.
+`DivergenceMonitor` owns Capacity stability detection.
+It does not modify gradients, optimizer values, or qualification thresholds.
 
 ### `capacity_artifacts.py`
 
-`CapacityArtifactWriter` owns Capacity images and residual-cap telemetry.
+`CapacityArtifactWriter` owns Capacity images, bounded saturation telemetry, and raw residual magnitude telemetry.
 
 ### `capacity_diagnostic.py`
 
-`CapacityDiagnostic` owns one complete Capacity run and checkpoint/report lifecycle.
-
-The diagnostic uses the exact production candidate path. It does not define a special SR
-network.
+`CapacityDiagnostic` owns one complete Capacity run and its checkpoint/report lifecycle.
+It uses the exact production candidate path.
 
 ---
 
-## 5. Capacity divergence contract
+## 5. Capacity stability contract
 
-Capacity now has three possible outcomes:
+Capacity has three possible outcomes:
 
 ```text
 PASS
@@ -402,12 +397,11 @@ A run diverges if one of these conditions occurs:
 - loss becomes non-finite;
 - gradient norm becomes non-finite;
 - total gradient becomes zero for three consecutive reports after learning has started;
-- any bounded residual map remains at or above 95% cap saturation for three consecutive
-  reports.
+- any bounded residual map remains at or above 95% cap saturation for three consecutive reports.
 
 A divergence result can never count as Capacity PASS.
 
-The run writes:
+Capacity writes:
 
 ```text
 best_checkpoint.pt
@@ -421,26 +415,84 @@ error_comparison.png
 detail_band_comparison.png
 ```
 
-`best_checkpoint.pt` and `last_stable_checkpoint.pt` are diagnostic artifacts only. They
-cannot promote a production final.
+`best_checkpoint.pt` and `last_stable_checkpoint.pt` are diagnostic artifacts only.
+They cannot promote a production final.
 
 ---
 
-## 6. Gradient checkpointing
+## 6. Capacity configuration
 
-V14.3 uses activation checkpointing at `ResidualGroup` boundaries during candidate
-training.
+V14.4 Capacity uses:
 
-Checkpointing is not applied to each convolution.
+```text
+one deterministic high-detail Raven region
+geometry             = 128 LR -> 512 HR
+maximum steps        = 3072
+learning rate        = 0.0002
+optimizer            = AdamW
+```
 
-The purpose is to keep the `128 -> 512` training geometry while controlling HR activation
-memory.
+The learning rate now matches the production candidate SR rate.
 
-Checkpointing is disabled during evaluation and inference.
+Qualification remains:
+
+```text
+global recovery   >= 45%
+edge recovery     >= 60%
+gradient recovery >= 35%
+lattice excess    <= 15%
+```
+
+Do not increase the step budget or relax these gates to obtain a pass.
+
+Additional telemetry does not affect pass or fail:
+
+```text
+1-pixel detail recovery
+2-pixel detail recovery
+4-pixel detail recovery
+albedo recovery
+normal recovery
+material recovery
+bounded residual-cap saturation by map
+raw residual magnitude by map
+gradient norm before clipping
+peak allocated VRAM
+peak reserved VRAM
+```
 
 ---
 
-## 7. Native authored resolution
+## 7. Diagnostic ladder
+
+### 1. V14.4 HR Residual Capacity
+
+This is the current gate.
+
+A `PASS` unlocks Multi-Region.
+A stable `FAIL` means the RCAN model family has completed a valid local-capacity test and must be reassessed.
+A `DIVERGED` result means numerical stability is still unresolved.
+
+### 2. V14.4 Multi-Region SR Mini
+
+This stage tests whether local reconstruction gains generalize to disjoint Raven regions.
+
+### 3. V14.4 Selector Retention Mini
+
+This stage freezes a passing candidate and trains only BenefitSelector.
+
+### 4. V14.4 Raven Quick
+
+This is the first promotable experiment.
+It performs representative held-out qualification.
+
+### 5. Full Training
+
+Full Training remains disabled until Raven Quick qualifies.
+
+---
+
+## 8. Native authored resolution
 
 Training truth must come from the highest genuine native authored semantic map available.
 A lower-resolution texture must not be enlarged and then used as new HR truth.
@@ -453,7 +505,7 @@ native 2048 asset -> supervise  512 -> 2048
 native 1024 asset -> supervise  256 -> 1024
 ```
 
-The current Raven Navy Issue semantic material set is native **1024x1024**.
+The current Raven semantic material set is native **1024x1024**.
 
 Raven can provide genuine:
 
@@ -479,9 +531,9 @@ native EVE 1024 -> NSAMDR 4096
 
 ---
 
-## 8. Training geometry and curriculum
+## 9. Training geometry and curriculum
 
-V14.3 Quick uses:
+V14.4 Quick uses:
 
 ```text
 training crop      : 128 LR -> 512 HR
@@ -498,7 +550,7 @@ The SR curriculum remains:
 
 ---
 
-## 9. Candidate objective
+## 10. Candidate objective
 
 C is trained with:
 
@@ -516,86 +568,27 @@ Hard final safety remains the BenefitSelector's responsibility.
 
 ---
 
-## 10. LR-lattice rejection
+## 11. LR-lattice rejection
 
 Blockiness remains a qualification failure.
 
-NSAMDR compares the cell-constant 4x projection of `C - B` with the same measurement for
-`A - B`. The measurement checks every possible 4x lattice phase.
+NSAMDR compares the cell-constant 4x projection of `C - B` with the same measurement for `A - B`.
+The measurement checks every possible 4x lattice phase.
 
-The current maximum remains:
+The maximum remains:
 
 ```text
 max excess LR-lattice cell projection <= 15%
 ```
 
-V14.3 does not relax this limit.
+V14.4 does not relax this limit.
 
 ---
 
-## 11. Capacity gates and telemetry
+## 12. Qualification
 
-Capacity pass or fail still uses only:
-
-```text
-global recovery   >= 45%
-edge recovery     >= 60%
-gradient recovery >= 35%
-lattice excess    <= 15%
-```
-
-Additional telemetry does not affect pass or fail:
-
-```text
-1-pixel detail recovery
-2-pixel detail recovery
-4-pixel detail recovery
-albedo recovery
-normal recovery
-material recovery
-albedo residual-cap saturation
-normal residual-cap saturation
-material residual-cap saturation
-gradient norm before clipping
-peak allocated VRAM
-peak reserved VRAM
-```
-
----
-
-## 12. Diagnostic ladder
-
-### 1. V14.3 HR Residual Capacity
-
-```text
-one deterministic high-detail Raven region
-128 -> 512
-maximum 3072 steps
-learning rate 0.001
-```
-
-The stage must return PASS before Multi-Region can run.
-
-### 2. V14.3 Multi-Region SR Mini
-
-This stage tests whether local reconstruction capacity generalizes to disjoint Raven
-regions.
-
-### 3. V14.3 Selector Retention Mini
-
-This stage freezes a passing candidate. Only BenefitSelector trains.
-
-### 4. V14.3 Raven Quick
-
-This is the first promotable experiment. It performs representative held-out
-qualification.
-
----
-
-## 13. Qualification
-
-Only fixed disjoint held-out crop records count toward candidate pass or fail. At least
-**4 independent held-out samples** are required.
+Only fixed disjoint held-out crop records count toward candidate pass or fail.
+At least **4 independent held-out samples** are required for Quick.
 
 | Requirement | Threshold |
 | --- | ---: |
@@ -626,11 +619,11 @@ Final qualification also requires:
 
 ---
 
-## 14. Quick and Full invariant
+## 13. Quick and Full invariant
 
 Raven Quick and Full Training must use the same:
 
-- V14.3 production model;
+- V14.4 production model;
 - module graph;
 - deterministic 4x baseline;
 - candidate objective;
@@ -641,10 +634,8 @@ Raven Quick and Full Training must use the same:
 
 They can differ only in work budget and dataset scale.
 
-Full Training remains disabled until V14.3 Raven Quick qualifies.
-
-When Full is enabled, it must prefer the highest-native-resolution EVE semantic families
-available. Genuine 4K families are especially important because they directly supervise:
+When Full is enabled, it must prefer the highest-native-resolution EVE semantic families available.
+Genuine 4K families are especially important because they directly supervise:
 
 ```text
 1024 -> 4096
@@ -652,7 +643,7 @@ available. Genuine 4K families are especially important because they directly su
 
 ---
 
-## 15. Checkpoint and provenance
+## 14. Checkpoint and provenance
 
 A qualified experiment promotes one checkpoint to:
 
@@ -662,30 +653,35 @@ checkpoints/final/nsamdr_v14.pt
 
 The final manifest records the SHA-256 and model schema.
 
-The checkpoint must strict-load into a fresh V14.3 model before preview or baking.
+The checkpoint must strict-load into a fresh V14.4 model before preview or baking.
 
 No post-model repair, hidden sharpening, or candidate cleanup is permitted.
 
 ---
 
-## 16. Production inference
+## 15. Production inference
+
+Production 4K output uses tiled inference.
 
 For Raven:
 
 ```text
 1024 native LR physical maps
-        -> overlapping 128 LR tiles
-        -> V14.3 512 HR tile reconstruction
-        -> overlap blend
-        -> 4096 final physical maps
+        ->
+overlapping 128 LR tiles
+        ->
+V14.4 512 HR tile reconstruction
+        ->
+overlap blend
+        ->
+4096 final physical maps
 ```
 
-The same model code and weights are used in diagnostics, Quick, qualification, and
-production inference.
+The same model code and weights are used in diagnostics, Quick, qualification, and production inference.
 
 ---
 
-## 17. Commands
+## 16. Commands
 
 ```bat
 scripts\build\nsamdr.bat gui
@@ -696,24 +692,18 @@ scripts\build\nsamdr.bat validate
 
 ---
 
-## 18. Completion condition
+## 17. Completion condition
 
 The project is not complete because one metric is green.
-
 The project is not complete because the selector can hide a bad candidate.
 
 The completion condition is:
 
-> **Given representative held-out EVE authored textures, NSAMDR FINAL must look
-> materially closer to the authored high-resolution target than deterministic 4x B,
-> while it preserves already-correct regions and aligned physical-map behaviour.**
+> **Given representative held-out EVE authored textures, NSAMDR FINAL must look materially closer to the authored high-resolution target than deterministic 4x B, while it preserves already-correct regions and aligned physical-map behaviour.**
 
-The immediate V14.3 milestone is:
+The immediate V14.4 milestone is:
 
 ```text
-run the unchanged Capacity test with the stabilized V14.2 model capacity
-
-PASS     -> freeze candidate architecture and continue to Multi-Region
-FAIL     -> treat the result as a genuine capacity failure
-DIVERGED -> correct the remaining numerical fault before changing model capacity
+complete one stable Capacity run without divergence
+and satisfy all four Capacity gates
 ```
