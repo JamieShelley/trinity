@@ -20,7 +20,7 @@ from .qualification import sample_metrics
 
 
 DIAGNOSTIC_SCHEMA = "NSAMDR_V14_MINI_DIAGNOSTIC_V1"
-DIAGNOSTIC_REVISION = "V14.2"
+DIAGNOSTIC_REVISION = "V14.3"
 
 
 def device_from_name(name: str) -> torch.device:
@@ -28,7 +28,7 @@ def device_from_name(name: str) -> torch.device:
         return torch.device("cpu")
     if name == "cuda":
         if not torch.cuda.is_available():
-            raise RuntimeError("V14.2 diagnostic requested CUDA but CUDA is unavailable")
+            raise RuntimeError("V14.3 diagnostic requested CUDA but CUDA is unavailable")
         return torch.device("cuda")
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -58,7 +58,7 @@ def prepare_raven_dataset(args: Any, repo_root: Path) -> None:
     if args.rebuild_dataset:
         command.append("--rebuild")
     print(
-        "[v14.2-diagnostic] prepare authored Raven dataset: "
+        "[v14.3-diagnostic] prepare authored Raven dataset: "
         + subprocess.list2cmdline(command),
         flush=True,
     )
@@ -230,7 +230,7 @@ def save_probe(
     panels: list[tuple[str, np.ndarray]] = [
         ("A AUTHORED", u8(batch["target_albedo"])),
         ("B BASELINE", u8(outputs["baseline_albedo"])),
-        ("C V14.2 SR", u8(outputs["candidate_albedo"])),
+        ("C V14.3 SR", u8(outputs["candidate_albedo"])),
     ]
     if include_final:
         panels.append(("F SELECTED", u8(outputs["albedo"])))
