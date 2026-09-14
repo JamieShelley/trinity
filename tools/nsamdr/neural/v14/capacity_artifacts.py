@@ -11,7 +11,7 @@ from .config import V14Config
 
 
 class CapacityArtifactWriter:
-    """Write V14.3 capacity telemetry images without affecting pass or fail."""
+    """Write V14.4 capacity telemetry images without affecting pass or fail."""
 
     def __init__(self, run_dir: Path) -> None:
         self.run_dir = run_dir
@@ -213,4 +213,20 @@ class CapacityArtifactWriter:
                 (tensors[key].abs() >= threshold).float().mean().item()
             )
             for key, threshold in thresholds.items()
+        }
+
+    @staticmethod
+    def raw_residual_magnitude(
+        outputs: dict[str, torch.Tensor],
+    ) -> dict[str, float]:
+        """Measure the mean absolute raw residual before V14.4 limiting."""
+
+        tensors = {
+            "albedo": outputs["candidate_raw_residual_albedo"].float(),
+            "normal": outputs["candidate_raw_residual_normal"].float(),
+            "material": outputs["candidate_raw_residual_material"].float(),
+        }
+        return {
+            key: float(value.abs().mean().item())
+            for key, value in tensors.items()
         }
