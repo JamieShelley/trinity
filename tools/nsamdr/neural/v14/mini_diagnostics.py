@@ -39,14 +39,19 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--required-gradient-recovery", type=float, default=0.35)
     p.add_argument("--train-regions", type=int, default=4)
     p.add_argument("--validation-regions", type=int, default=4)
-    p.add_argument("--epochs", type=int, default=3)
-    p.add_argument("--tiles-per-epoch", type=int, default=64)
+    p.add_argument("--max-steps", type=int, default=2560)
+    p.add_argument("--validate-every", type=int, default=256)
     p.add_argument("--learning-rate", type=float, default=2.0e-4)
 
+    # Selector keeps its existing epoch-based mini budget.
+    p.add_argument("--tiles-per-epoch", type=int, default=64)
     p.add_argument("--selector-epochs", type=int, default=2)
     p.add_argument("--selector-learning-rate", type=float, default=2.0e-4)
     p.add_argument("--required-retention", type=float, default=0.90)
     p.add_argument("--protected-preservation", type=float, default=0.99)
+
+    # Compatibility for stale direct V16 Multi-Region commands.
+    p.add_argument("--epochs", type=int, default=3, help=argparse.SUPPRESS)
     return p
 
 
