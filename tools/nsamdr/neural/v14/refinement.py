@@ -34,15 +34,25 @@ class ChannelAttention(nn.Module):
 
 
 class RCAB(nn.Module):
-    """Residual channel-attention block used by the V14.2 HR reconstruction path."""
+    """Residual channel-attention block with an identity-safe initial state."""
 
-    def __init__(self, channels: int, attention_reduction: int, residual_scale: float = 0.20) -> None:
+    def __init__(
+        self,
+        channels: int,
+        attention_reduction: int,
+        residual_scale: float = 0.20,
+    ) -> None:
         super().__init__()
         self.conv1 = nn.Conv2d(channels, channels, 3, padding=1)
         self.conv2 = nn.Conv2d(channels, channels, 3, padding=1)
         self.act = nn.GELU()
         self.attention = ChannelAttention(channels, attention_reduction)
         self.residual_scale = float(residual_scale)
+
+        # The residual branch starts at zero. This makes RCAB(x) == x at
+        # initialization and prevents the deep trunk from starting with a large signal.
+        nn.init.zeros_(self.conv2.weight)
+        nn.init.zeros_(self.conv2.bias)
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
         residual = self.conv2(self.act(self.conv1(value)))
@@ -51,7 +61,7 @@ class RCAB(nn.Module):
 
 
 class ResidualGroup(nn.Module):
-    """RCAB group with a local skip and optional activation checkpointing."""
+    """RCAB group with a local identity skip and optional activation checkpointing."""
 
     def __init__(
         self,
@@ -67,6 +77,11 @@ class ResidualGroup(nn.Module):
         )
         self.tail = nn.Conv2d(channels, channels, 3, padding=1)
         self.use_gradient_checkpointing = bool(use_gradient_checkpointing)
+
+        # The group residual also starts at zero. This keeps each deep group at
+        # identity until optimization learns a useful correction.
+        nn.init.zeros_(self.tail.weight)
+        nn.init.zeros_(self.tail.bias)
 
     def _forward_impl(self, value: torch.Tensor) -> torch.Tensor:
         return value + self.tail(self.blocks(value))
@@ -114,7 +129,7 @@ class UpsampleAndFuse(nn.Module):
 
 
 class PhysicalMapTail(nn.Module):
-    """Map-specific refinement before a zero-initialized residual head."""
+    """Map-specific refinement followed by a raw zero-initialized residual head."""
 
     def __init__(
         self,
@@ -135,7 +150,10 @@ class PhysicalMapTail(nn.Module):
         self.head = ZeroHead(channels, out_channels)
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
-        return torch.tanh(self.head(self.refinement(value)))
+        # Do not apply tanh here. V14.3 bounds raw residuals with softsign in the
+        # production composition so the supervised pre-projection residual keeps a
+        # useful gradient when physical-map projection reaches a boundary.
+        return self.head(self.refinement(value))
 
 
 class MultiScaleHRRefinementTrunk(nn.Module):
@@ -160,7 +178,12 @@ class MultiScaleHRRefinementTrunk(nn.Module):
         use_gradient_checkpointing: bool,
     ) -> None:
         super().__init__()
-        self.stem = nn.Conv2d(baseline_channels + context_channels, hr_channels, 3, padding=1)
+        self.stem = nn.Conv2d(
+            baseline_channels + context_channels,
+            hr_channels,
+            3,
+            padding=1,
+        )
 
         self.hr_encoder = ResidualGroup(
             hr_channels,
@@ -189,14 +212,22 @@ class MultiScaleHRRefinementTrunk(nn.Module):
             use_gradient_checkpointing=use_gradient_checkpointing,
         )
 
-        self.up_half = UpsampleAndFuse(quarter_channels, half_channels, half_channels)
+        self.up_half = UpsampleAndFuse(
+            quarter_channels,
+            half_channels,
+            half_channels,
+        )
         self.half_decoder = ResidualGroup(
             half_channels,
             half_decoder_blocks,
             attention_reduction,
             use_gradient_checkpointing=use_gradient_checkpointing,
         )
-        self.up_hr = UpsampleAndFuse(half_channels, hr_channels, hr_channels)
+        self.up_hr = UpsampleAndFuse(
+            half_channels,
+            hr_channels,
+            hr_channels,
+        )
         self.hr_decoder = ResidualGroup(
             hr_channels,
             hr_decoder_blocks,
