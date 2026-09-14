@@ -4,7 +4,6 @@ from functools import partial
 
 import torch
 from torch import nn
-from torch.nn import functional as F
 from torch.utils.checkpoint import checkpoint
 
 
@@ -154,7 +153,6 @@ class SingleScaleHRRefinementTrunk(nn.Module):
         stem = self.stem(torch.cat((baseline.float(), context_hr.float()), dim=1))
         value = self.body(stem)
         value = stem + self.body_tail(value)
-        value = F.relu(value, inplace=False)
         return {
             "albedo": self.albedo_tail(value),
             "normal": self.normal_tail(value),
