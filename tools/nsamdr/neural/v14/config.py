@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 
 
-MODEL_SCHEMA = "NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V14_2"
+MODEL_SCHEMA = "NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V14_3"
 
 
 @dataclass
@@ -73,7 +73,7 @@ class V14Config:
         if self.schema != MODEL_SCHEMA:
             raise ValueError(f"config schema must be {MODEL_SCHEMA}")
         if self.scale != 4:
-            raise ValueError("V14.2 currently supports exactly 4x reconstruction")
+            raise ValueError("V14.3 currently supports exactly 4x reconstruction")
         if self.train_hr_size != self.train_lr_size * self.scale:
             raise ValueError("train_hr_size must equal train_lr_size * scale")
         if self.validation_hr_size != self.validation_lr_size * self.scale:
@@ -98,7 +98,7 @@ class V14Config:
             self.selector_channels,
         )
         if min(architecture_values) < 1:
-            raise ValueError("all V14.2 architecture dimensions and block counts must be positive")
+            raise ValueError("all V14.3 architecture dimensions and block counts must be positive")
 
         work_values = (
             self.tiles_per_epoch,
@@ -117,7 +117,10 @@ class V14Config:
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
 
     @classmethod
     def load(cls, path: Path) -> "V14Config":
