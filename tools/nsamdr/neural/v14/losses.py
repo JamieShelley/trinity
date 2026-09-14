@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from torch.nn import functional as F
 
-from .config import V14Config
+from .config import V15Config
 
 
 def _gradient(value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -36,7 +36,7 @@ def _pyramid_l1(candidate: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 def candidate_loss(
     outputs: dict[str, torch.Tensor],
     batch: dict[str, torch.Tensor],
-    config: V14Config,
+    config: V15Config,
 ) -> dict[str, torch.Tensor]:
     ca = outputs["candidate_albedo"].float()
     cn = outputs["candidate_normal"].float()
@@ -68,9 +68,7 @@ def candidate_loss(
         config.material_residual_cap,
     )
 
-    # V14.3 supervises the bounded predicted residual before clamp/normalization.
-    # This preserves a useful residual-learning gradient if physical projection reaches
-    # a valid-map boundary.
+    # Supervise the bounded residual before physical clamp or normal normalization.
     residual = (
         F.l1_loss(
             outputs["predicted_residual_albedo"].float(),
