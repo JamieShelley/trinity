@@ -11,7 +11,7 @@ from .config import V14Config
 
 
 class CapacityArtifactWriter:
-    """Write V14.2 capacity telemetry images without affecting pass or fail."""
+    """Write V14.3 capacity telemetry images without affecting pass or fail."""
 
     def __init__(self, run_dir: Path) -> None:
         self.run_dir = run_dir
@@ -84,10 +84,7 @@ class CapacityArtifactWriter:
         name: str,
         panels: list[tuple[str, np.ndarray]],
     ) -> Path:
-        rendered = [
-            self._label(panel, label)
-            for label, panel in panels
-        ]
+        rendered = [self._label(panel, label) for label, panel in panels]
         canvas = np.concatenate(rendered, axis=1)
         path = self.run_dir / name
         cv2.imwrite(str(path), canvas)
@@ -131,14 +128,8 @@ class CapacityArtifactWriter:
         return self._write_panels(
             "error_comparison.png",
             [
-                (
-                    "|A-B|",
-                    self._gray_u8(baseline_error / maximum),
-                ),
-                (
-                    "|A-C|",
-                    self._gray_u8(candidate_error / maximum),
-                ),
+                ("|A-B|", self._gray_u8(baseline_error / maximum)),
+                ("|A-C|", self._gray_u8(candidate_error / maximum)),
             ],
         )
 
@@ -171,10 +162,7 @@ class CapacityArtifactWriter:
                     ),
                 ]
             )
-        return self._write_panels(
-            "detail_band_comparison.png",
-            panels,
-        )
+        return self._write_panels("detail_band_comparison.png", panels)
 
     def write_all(
         self,
@@ -201,32 +189,28 @@ class CapacityArtifactWriter:
                 candidate,
             ),
         }
-        return {
-            key: str(path.resolve())
-            for key, path in paths.items()
-        }
+        return {key: str(path.resolve()) for key, path in paths.items()}
 
     @staticmethod
     def residual_cap_saturation(
         outputs: dict[str, torch.Tensor],
         config: V14Config,
     ) -> dict[str, float]:
+        """Measure bounded pre-projection residuals near their configured caps."""
+
         thresholds = {
             "albedo": float(config.albedo_residual_cap) * 0.98,
             "normal": float(config.normal_residual_cap) * 0.98,
             "material": float(config.material_residual_cap) * 0.98,
         }
         tensors = {
-            "albedo": outputs["candidate_residual_albedo"].float(),
-            "normal": outputs["candidate_residual_normal"].float(),
-            "material": outputs["candidate_residual_material"].float(),
+            "albedo": outputs["predicted_residual_albedo"].float(),
+            "normal": outputs["predicted_residual_normal"].float(),
+            "material": outputs["predicted_residual_material"].float(),
         }
         return {
             key: float(
-                (tensors[key].abs() >= threshold)
-                .float()
-                .mean()
-                .item()
+                (tensors[key].abs() >= threshold).float().mean().item()
             )
             for key, threshold in thresholds.items()
         }
