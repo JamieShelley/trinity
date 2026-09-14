@@ -5,12 +5,12 @@ from torch import nn
 from torch.nn import functional as F
 
 from .baseline import Baseline4x, normalize_xy
-from .config import MODEL_SCHEMA, V15Config
-from .refinement import SingleScaleHRRefinementTrunk
+from .config import MODEL_SCHEMA, V16Config
+from .refinement import SwinIRHRRefinementTrunk
 
 
 class FeatureResidualBlock(nn.Module):
-    """Small residual block for LR context and selector features."""
+    """Small convolutional residual block for LR context and selector features."""
 
     def __init__(self, channels: int) -> None:
         super().__init__()
@@ -109,14 +109,14 @@ class BenefitSelector(nn.Module):
         return self.net(features)
 
 
-class NSAMDRV15(nn.Module):
-    """V15.0 production graph with a single-resolution EDSR-style HR backbone."""
+class NSAMDRV16(nn.Module):
+    """V16.0 production graph with SwinIR-style HR deep feature extraction."""
 
     BASELINE_CHANNELS = 8
 
-    def __init__(self, config: V15Config | None = None) -> None:
+    def __init__(self, config: V16Config | None = None) -> None:
         super().__init__()
-        self.config = config or V15Config()
+        self.config = config or V16Config()
         self.config.validate()
 
         self.baseline = Baseline4x(self.config.scale)
@@ -125,14 +125,17 @@ class NSAMDRV15(nn.Module):
             self.config.lr_blocks,
         )
         self.context_adapter = HRContextAdapter(self.config.lr_context_channels)
-        self.hr_refiner = SingleScaleHRRefinementTrunk(
+        self.hr_refiner = SwinIRHRRefinementTrunk(
             baseline_channels=self.BASELINE_CHANNELS,
             context_channels=self.config.lr_context_channels,
             channels=self.config.hr_channels,
-            blocks=self.config.hr_blocks,
+            groups=self.config.swin_groups,
+            blocks_per_group=self.config.swin_blocks_per_group,
+            num_heads=self.config.swin_num_heads,
+            window_size=self.config.swin_window_size,
+            mlp_ratio=self.config.swin_mlp_ratio,
             map_tail_blocks=self.config.map_tail_blocks,
-            residual_scale=self.config.residual_scale,
-            checkpoint_segment_blocks=self.config.checkpoint_segment_blocks,
+            tail_residual_scale=self.config.tail_residual_scale,
             use_gradient_checkpointing=self.config.use_gradient_checkpointing,
         )
         self.selector = BenefitSelector(self.config.selector_channels)
@@ -153,8 +156,6 @@ class NSAMDRV15(nn.Module):
 
     @staticmethod
     def _bounded_residual(raw: torch.Tensor, cap: float) -> torch.Tensor:
-        # V14.1 used this bounded output path and completed Capacity without numerical
-        # collapse. V15 restores it while increasing capacity only in the HR body.
         return torch.tanh(raw.float()) * float(cap)
 
     def forward(
@@ -249,26 +250,31 @@ class NSAMDRV15(nn.Module):
     def architecture_contract(self) -> dict[str, object]:
         return {
             "schema": MODEL_SCHEMA,
-            "revision": "V15.0",
+            "revision": "V16.0",
             "scale": self.config.scale,
             "productionForward": (
                 "LR -> deterministic B + phase-neutral LR context -> "
-                "single-resolution EDSR-style HR residual body -> "
+                "SwinIR-style fixed-HR residual-Swin deep feature extraction -> "
                 "tanh bounded physical-map residual -> C -> "
                 "physical-map-aware BenefitSelector F"
             ),
-            "backbone": "EDSR-style-single-resolution-HR",
+            "backbone": "SwinIR-style-fixed-HR-RSTB",
             "contextUpsampling": "bilinear-phase-neutral + HR 3x3 adapter",
             "decoderUpsampling": "none",
             "residualBounding": "tanh",
             "residualSupervision": "bounded-pre-physical-projection",
-            "residualScale": float(self.config.residual_scale),
             "candidateIdentityAtInitialization": "C == B",
+            "swinGroups": int(self.config.swin_groups),
+            "swinLayersPerGroup": int(self.config.swin_blocks_per_group),
+            "swinDepth": int(self.config.swin_depth),
+            "attentionWindowSize": int(self.config.swin_window_size),
+            "attentionHeads": int(self.config.swin_num_heads),
+            "embeddingChannels": int(self.config.hr_channels),
             "activeComponents": (
                 "baseline",
                 "context_encoder",
                 "context_adapter",
-                "single_scale_hr_refiner",
+                "swinir_hr_refiner",
                 "albedo_tail",
                 "normal_tail",
                 "material_tail",
@@ -276,9 +282,9 @@ class NSAMDRV15(nn.Module):
             ),
             "retiredComponents": (
                 "multiscale_hr_refiner",
+                "single_scale_edsr_refiner",
                 "downsample_features",
                 "upsample_and_fuse",
-                "channel_attention",
                 "straight_through_residual_limiter",
             ),
             "geometryPixelAuthority": False,
@@ -288,6 +294,8 @@ class NSAMDRV15(nn.Module):
             "multiscaleFeatureHierarchy": False,
             "batchNormalizationUsed": False,
             "channelAttentionUsed": False,
+            "windowAttentionUsed": True,
+            "shiftedWindowAttentionUsed": True,
             "pixelShuffleUsed": False,
             "transposedConvolutionUsed": False,
             "selectorUsesPhysicalMaps": True,
@@ -297,5 +305,6 @@ class NSAMDRV15(nn.Module):
         }
 
 
-# Compatibility alias for existing imports in the v14 package path.
-NSAMDRV14 = NSAMDRV15
+# Compatibility aliases for existing module imports under the v14 package path.
+NSAMDRV15 = NSAMDRV16
+NSAMDRV14 = NSAMDRV16
