@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""NSAMDR V14.2 GUI surface.
+"""NSAMDR V14.3 GUI surface.
 
-The diagnostic ladder uses the exact V14.2 production model. Historical V9-V13
+The diagnostic ladder uses the exact V14.3 production model. Historical V9-V13
 geometry, SDF, seam, and profile implementations are not restored.
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ if str(NEURAL_ROOT) not in sys.path:
 from v14.config import MODEL_SCHEMA
 
 
-VERSION = "V14.2"
+VERSION = "V14.3"
 EXPERIMENT_SCHEMA = "NSAMDR_V14_EXPERIMENT_V1"
 FINAL_SCHEMA = "NSAMDR_V14_FINAL_MANIFEST_V1"
 MINI_SCHEMA = "NSAMDR_V14_MINI_DIAGNOSTIC_V1"
@@ -42,8 +42,8 @@ _capacity = base.Stage(
     f"{VERSION} HR Residual Capacity",
     ("v14-mini-capacity",),
     (
-        "Fast non-promotable overfit proof on one deterministic high-detail "
-        "Raven region. Tests the exact V14.2 multi-scale candidate C."
+        "Fast non-promotable overfit proof on one deterministic high-detail Raven "
+        "region. Tests the stable V14.3 multi-scale candidate C."
     ),
     False,
 )
@@ -53,8 +53,8 @@ _multiregion = base.Stage(
     f"{VERSION} Multi-Region SR Mini",
     ("v14-mini-multiregion",),
     (
-        "Small disjoint-region generalisation proof for the exact V14.2 "
-        "candidate C. Requires Capacity first."
+        "Small disjoint-region generalisation proof for the exact V14.3 candidate C. "
+        "Requires Capacity first."
     ),
     False,
 )
@@ -63,10 +63,7 @@ _selector = base.Stage(
     "3",
     f"{VERSION} Selector Retention Mini",
     ("v14-mini-selector",),
-    (
-        "Train only BenefitSelector from the latest passing V14.2 "
-        "multi-region candidate."
-    ),
+    "Train only BenefitSelector from the latest passing V14.3 multi-region candidate.",
     False,
 )
 _quick = base.Stage(
@@ -75,7 +72,7 @@ _quick = base.Stage(
     f"{VERSION} HR-First Raven Quick",
     _existing["quick"].command,
     (
-        "Train the multi-scale phase-neutral 4x candidate C on representative "
+        "Train the stable multi-scale phase-neutral 4x candidate C on representative "
         "Raven evidence. Train BenefitSelector only after C qualifies."
     ),
     True,
@@ -85,7 +82,7 @@ _train = base.Stage(
     "5",
     "Full Training (disabled)",
     _existing["train"].command,
-    "Disabled until V14.2 Raven Quick meets the README qualification gates.",
+    "Disabled until V14.3 Raven Quick meets the README qualification gates.",
     False,
 )
 _preview = base.Stage(
@@ -93,7 +90,7 @@ _preview = base.Stage(
     "6",
     f"Qualified {VERSION} Preview",
     _existing["preview"].command,
-    "Bake and inspect 4x physical maps from a qualified immutable V14.2 checkpoint.",
+    "Bake and inspect 4x physical maps from a qualified immutable V14.3 checkpoint.",
     False,
 )
 
@@ -116,7 +113,7 @@ _original_dispatcher_argv = base.App._dispatcher_argv
 
 
 class V14ArtifactInspector:
-    """Read V14.2 experiment and diagnostic artifacts for GUI state."""
+    """Read V14.3 experiment and diagnostic artifacts for GUI state."""
 
     def __init__(self, app: base.App) -> None:
         self.app = app
@@ -181,6 +178,7 @@ class V14ArtifactInspector:
                 continue
             if (
                 payload.get("schema") == MINI_SCHEMA
+                and payload.get("revision") == VERSION
                 and payload.get("mode") == mode
                 and payload.get("modelSchema") == MODEL_SCHEMA
                 and payload.get("passed") is True
@@ -353,9 +351,22 @@ def _select_capacity(self: base.App, stage: base.Stage, status: str) -> None:
     )
     self.description.set(f"{stage.number}. {stage.label} - {stage.description}{note}")
     self._clear_form()
-    self._label_row("Authority", "DIAGNOSTIC ONLY - cannot create or promote a production final")
-    self._label_row("Model", "Exact V14.2 phase-neutral multi-scale RCAN candidate C")
-    self._label_row("Architecture", "48/64/96-channel HR, 1/2, 1/4 residual hierarchy with map-specific tails")
+    self._label_row(
+        "Authority",
+        "DIAGNOSTIC ONLY - cannot create or promote a production final",
+    )
+    self._label_row(
+        "Model",
+        "Exact V14.3 stable phase-neutral multi-scale RCAN candidate C",
+    )
+    self._label_row(
+        "Stability",
+        "Identity-initialized residual groups + softsign residuals + pre-projection residual supervision",
+    )
+    self._label_row(
+        "Divergence guard",
+        "Stops on non-finite values, persistent zero gradient, or persistent >95% residual saturation",
+    )
     self._label_row("Forbidden paths", "No PixelShuffle and no ConvTranspose2d")
     self._label_row("Geometry", "128 LR -> 512 authored HR")
     self._label_row("Purpose", "C must materially beat B without LR-grid imprint")
@@ -369,8 +380,14 @@ def _select_capacity(self: base.App, stage: base.Stage, status: str) -> None:
     self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
     self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
     self._check("Rebuild fixed Raven dataset", "rebuild", False)
-    self._label_row("Telemetry", "1/2/4-pixel detail recovery, residual saturation, gradient norm, and VRAM")
-    self._label_row("Artifacts", "A/B/C probe, edge/error/detail images, curve, checkpoint, report, ZIP")
+    self._label_row(
+        "Telemetry",
+        "1/2/4-pixel detail recovery, residual saturation, gradient norm, and VRAM",
+    )
+    self._label_row(
+        "Artifacts",
+        "A/B/C images, curve, best checkpoint, last stable checkpoint, report, and diagnostics ZIP",
+    )
 
 
 def _select_multiregion(self: base.App, stage: base.Stage, status: str) -> None:
@@ -378,10 +395,16 @@ def _select_multiregion(self: base.App, stage: base.Stage, status: str) -> None:
     note = f" - LOCKED: {lock}" if lock else ""
     self.description.set(f"{stage.number}. {stage.label} - {stage.description}{note}")
     self._clear_form()
-    self._label_row("Authority", "DIAGNOSTIC ONLY - cannot create or promote a production final")
+    self._label_row(
+        "Authority",
+        "DIAGNOSTIC ONLY - cannot create or promote a production final",
+    )
     self._label_row("Prerequisite", f"{VERSION} HR Residual Capacity must pass")
-    self._label_row("Model", "Same exact V14.2 candidate C as Raven Quick")
-    self._label_row("Purpose", "Check whether local SR gain survives across disjoint Raven regions")
+    self._label_row("Model", f"Same exact {VERSION} candidate C as Raven Quick")
+    self._label_row(
+        "Purpose",
+        "Check whether local SR gain survives across disjoint Raven regions",
+    )
     self._label_row("Training", "Clean SR only; robustness is excluded from this mini proof")
     self._row("Shared cache", "cache", r"C:\CCP\EVE")
     self._row("Training regions", "mini_train_regions", "4", ("2", "4", "8"))
@@ -404,9 +427,12 @@ def _select_selector(self: base.App, stage: base.Stage, status: str) -> None:
     note = f" - LOCKED: {lock}" if lock else ""
     self.description.set(f"{stage.number}. {stage.label} - {stage.description}{note}")
     self._clear_form()
-    self._label_row("Authority", "DIAGNOSTIC ONLY - cannot create or promote a production final")
+    self._label_row(
+        "Authority",
+        "DIAGNOSTIC ONLY - cannot create or promote a production final",
+    )
     self._label_row("Prerequisite", f"Latest passing {VERSION} Multi-Region SR Mini")
-    self._label_row("Candidate", "Frozen V14.2 C; only BenefitSelector trains")
+    self._label_row("Candidate", f"Frozen {VERSION} C; only BenefitSelector trains")
     self._row("Shared cache", "cache", r"C:\CCP\EVE")
     self._row("Selector epochs", "selector_epochs", "2", ("1", "2", "3"))
     self._row("Tiles per epoch", "selector_tiles", "64", ("32", "64", "96"))
@@ -427,9 +453,9 @@ def _selected(self: base.App) -> None:
         _original_selected(self)
         if stage_id == "quick":
             self.description.set(
-                "4. V14.2 HR-First Raven Quick - phase-neutral LR context, "
-                "multi-scale RCAN HR reconstruction, held-out qualification, "
-                "then BenefitSelector only after C passes."
+                "4. V14.3 HR-First Raven Quick - stable phase-neutral LR context, "
+                "multi-scale RCAN HR reconstruction, held-out qualification, then "
+                "BenefitSelector only after C passes."
             )
             if "control" in self.vars:
                 self.vars["control"].set("auto")
