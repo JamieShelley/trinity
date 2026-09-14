@@ -10,29 +10,39 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from v14.config import MODEL_SCHEMA, V15Config
+from v14.config import MODEL_SCHEMA, V16Config
 from v14.inference import tiled_inference
 from v14.losses import candidate_loss, selector_loss
-from v14.model import BenefitSelector, NSAMDRV15
+from v14.model import BenefitSelector, NSAMDRV16
 from v14.qualification import aggregate_candidate, sample_metrics
-from v14.refinement import EDSRResidualBlock, SingleScaleHRRefinementTrunk
+from v14.refinement import (
+    ResidualSwinTransformerGroup,
+    SwinIRHRRefinementTrunk,
+    SwinTransformerLayer,
+    WindowAttention,
+    window_partition,
+    window_reverse,
+)
 from v14.training_stability import DivergenceMonitor
 
 
-class NSAMDRV15ContractTests(unittest.TestCase):
-    def _config(self) -> V15Config:
-        config = V15Config(
+class NSAMDRV16ContractTests(unittest.TestCase):
+    def _config(self) -> V16Config:
+        config = V16Config(
             train_lr_size=8,
             train_hr_size=32,
             validation_lr_size=8,
             validation_hr_size=32,
             lr_context_channels=8,
             lr_blocks=1,
-            hr_channels=8,
-            hr_blocks=4,
+            hr_channels=24,
+            swin_groups=2,
+            swin_blocks_per_group=2,
+            swin_num_heads=4,
+            swin_window_size=4,
+            swin_mlp_ratio=2.0,
             map_tail_blocks=1,
-            residual_scale=0.10,
-            checkpoint_segment_blocks=2,
+            tail_residual_scale=0.10,
             use_gradient_checkpointing=False,
             selector_channels=8,
             production_tile_lr=8,
@@ -51,7 +61,7 @@ class NSAMDRV15ContractTests(unittest.TestCase):
         self,
         size: int = 8,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        torch.manual_seed(15)
+        torch.manual_seed(16)
         albedo = torch.rand(1, 3, size, size)
         normal = torch.rand(1, 2, size, size) * 0.8 - 0.4
         material = torch.rand(1, 3, size, size)
@@ -65,17 +75,31 @@ class NSAMDRV15ContractTests(unittest.TestCase):
             if parameter.grad is not None
         )
 
+    def test_window_partition_round_trip(self) -> None:
+        value = torch.arange(2 * 8 * 12 * 6, dtype=torch.float32).view(2, 8, 12, 6)
+        windows = window_partition(value, 4)
+        restored = window_reverse(windows, 4, 8, 12)
+        self.assertTrue(torch.equal(value, restored))
+
     def test_initial_candidate_is_exact_baseline(self) -> None:
-        model = NSAMDRV15(self._config()).eval()
+        model = NSAMDRV16(self._config()).eval()
         albedo, normal, material = self._batch()
         with torch.no_grad():
             outputs = model(albedo, normal, material)
 
         self.assertEqual(tuple(outputs["candidate_albedo"].shape[-2:]), (32, 32))
-        self.assertTrue(torch.equal(outputs["candidate_albedo"], outputs["baseline_albedo"]))
-        self.assertTrue(torch.equal(outputs["candidate_material"], outputs["baseline_material"]))
+        self.assertTrue(
+            torch.equal(outputs["candidate_albedo"], outputs["baseline_albedo"])
+        )
+        self.assertTrue(
+            torch.equal(outputs["candidate_material"], outputs["baseline_material"])
+        )
         self.assertLess(
-            float((outputs["candidate_normal"] - outputs["baseline_normal"]).abs().max()),
+            float(
+                (
+                    outputs["candidate_normal"] - outputs["baseline_normal"]
+                ).abs().max()
+            ),
             1.0e-6,
         )
         for key in (
@@ -87,7 +111,7 @@ class NSAMDRV15ContractTests(unittest.TestCase):
 
     def test_tanh_residuals_stay_inside_caps(self) -> None:
         config = self._config()
-        model = NSAMDRV15(config).eval()
+        model = NSAMDRV16(config).eval()
         with torch.no_grad():
             for head in (
                 model.hr_refiner.albedo_tail.head,
@@ -112,17 +136,39 @@ class NSAMDRV15ContractTests(unittest.TestCase):
             config.material_residual_cap,
         )
 
-    def test_backbone_is_single_resolution_and_bn_free(self) -> None:
-        model = NSAMDRV15(self._config()).eval()
+    def test_backbone_contains_shifted_window_attention(self) -> None:
+        model = NSAMDRV16(self._config()).eval()
         refiner = model.hr_refiner
-        self.assertIsInstance(refiner, SingleScaleHRRefinementTrunk)
+        self.assertIsInstance(refiner, SwinIRHRRefinementTrunk)
         self.assertTrue(
-            all(isinstance(block, EDSRResidualBlock) for block in refiner.body.blocks)
+            all(
+                isinstance(group, ResidualSwinTransformerGroup)
+                for group in refiner.groups
+            )
         )
-        self.assertFalse(any(isinstance(module, torch.nn.BatchNorm2d) for module in model.modules()))
-        self.assertFalse(any(isinstance(module, torch.nn.PixelShuffle) for module in model.modules()))
-        self.assertFalse(any(isinstance(module, torch.nn.ConvTranspose2d) for module in model.modules()))
+        layers = [
+            module
+            for module in refiner.modules()
+            if isinstance(module, SwinTransformerLayer)
+        ]
+        self.assertEqual(len(layers), 4)
+        self.assertTrue(any(layer.shift_size == 0 for layer in layers))
+        self.assertTrue(any(layer.shift_size == 2 for layer in layers))
+        self.assertTrue(
+            any(isinstance(module, WindowAttention) for module in refiner.modules())
+        )
+        self.assertFalse(
+            any(isinstance(module, torch.nn.BatchNorm2d) for module in model.modules())
+        )
+        self.assertFalse(
+            any(isinstance(module, torch.nn.PixelShuffle) for module in model.modules())
+        )
+        self.assertFalse(
+            any(isinstance(module, torch.nn.ConvTranspose2d) for module in model.modules())
+        )
 
+    def test_phase_neutral_context_enters_hr_coordinates(self) -> None:
+        model = NSAMDRV16(self._config()).eval()
         albedo, normal, material = self._batch()
         lr_maps = torch.cat((albedo, normal, material), dim=1)
         with torch.no_grad():
@@ -132,38 +178,54 @@ class NSAMDRV15ContractTests(unittest.TestCase):
         self.assertEqual(tuple(context_lr.shape[-2:]), (8, 8))
         self.assertEqual(tuple(context_hr.shape[-2:]), (32, 32))
 
-    def test_architecture_contract_matches_v15(self) -> None:
-        model = NSAMDRV15(self._config())
+    def test_architecture_contract_matches_v16(self) -> None:
+        config = self._config()
+        model = NSAMDRV16(config)
         contract = model.architecture_contract()
         self.assertEqual(contract["schema"], MODEL_SCHEMA)
-        self.assertEqual(contract["revision"], "V15.0")
-        self.assertEqual(contract["backbone"], "EDSR-style-single-resolution-HR")
+        self.assertEqual(contract["revision"], "V16.0")
+        self.assertEqual(contract["backbone"], "SwinIR-style-fixed-HR-RSTB")
         self.assertEqual(contract["decoderUpsampling"], "none")
         self.assertEqual(contract["residualBounding"], "tanh")
+        self.assertEqual(contract["attentionWindowSize"], 4)
+        self.assertEqual(contract["attentionHeads"], 4)
+        self.assertEqual(contract["swinGroups"], 2)
+        self.assertEqual(contract["swinLayersPerGroup"], 2)
+        self.assertEqual(contract["swinDepth"], 4)
         self.assertFalse(contract["multiscaleFeatureHierarchy"])
         self.assertFalse(contract["batchNormalizationUsed"])
-        self.assertFalse(contract["channelAttentionUsed"])
+        self.assertTrue(contract["windowAttentionUsed"])
+        self.assertTrue(contract["shiftedWindowAttentionUsed"])
         self.assertFalse(contract["pixelShuffleUsed"])
         self.assertFalse(contract["transposedConvolutionUsed"])
         self.assertTrue(contract["selectorUsesPhysicalMaps"])
-        self.assertEqual(model.selector.net[0].in_channels, BenefitSelector.FEATURE_CHANNELS)
+        self.assertEqual(
+            model.selector.net[0].in_channels,
+            BenefitSelector.FEATURE_CHANNELS,
+        )
         self.assertEqual(BenefitSelector.FEATURE_CHANNELS, 35)
 
-    def test_candidate_training_reaches_backbone_and_map_tails(self) -> None:
+    def test_candidate_training_reaches_attention_and_map_tails(self) -> None:
         config = self._config()
-        model = NSAMDRV15(config)
+        model = NSAMDRV16(config)
         model.set_candidate_training()
         parameters = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.Adam(parameters, lr=2.0e-4)
         albedo, normal, material = self._batch()
 
-        for _step in range(5):
+        for _step in range(4):
             optimizer.zero_grad(set_to_none=True)
             outputs = model(albedo, normal, material)
             batch = {
-                "target_albedo": (outputs["baseline_albedo"].detach() * 0.88 + 0.06).clamp(0, 1),
-                "target_normal": (outputs["baseline_normal"].detach() * 0.90).clamp(-0.999, 0.999),
-                "target_material": (outputs["baseline_material"].detach() * 0.85 + 0.075).clamp(0, 1),
+                "target_albedo": (
+                    outputs["baseline_albedo"].detach() * 0.88 + 0.06
+                ).clamp(0, 1),
+                "target_normal": (
+                    outputs["baseline_normal"].detach() * 0.90
+                ).clamp(-0.999, 0.999),
+                "target_material": (
+                    outputs["baseline_material"].detach() * 0.85 + 0.075
+                ).clamp(0, 1),
             }
             losses = candidate_loss(outputs, batch, config)
             self.assertTrue(torch.isfinite(losses["total"]))
@@ -173,7 +235,7 @@ class NSAMDRV15ContractTests(unittest.TestCase):
         modules = (
             model.context_encoder,
             model.context_adapter,
-            model.hr_refiner.body,
+            model.hr_refiner.groups,
             model.hr_refiner.albedo_tail,
             model.hr_refiner.normal_tail,
             model.hr_refiner.material_tail,
@@ -182,19 +244,27 @@ class NSAMDRV15ContractTests(unittest.TestCase):
             self.assertGreater(self._gradient_sum(module), 0.0)
 
     def test_selector_training_freezes_reconstruction(self) -> None:
-        model = NSAMDRV15(self._config())
+        model = NSAMDRV16(self._config())
         model.set_selector_training()
         albedo, normal, material = self._batch()
         outputs = model(albedo, normal, material)
         batch = {
-            "target_albedo": (outputs["baseline_albedo"].detach() * 0.92 + 0.04).clamp(0, 1),
-            "target_normal": (outputs["baseline_normal"].detach() * 0.95).clamp(-0.999, 0.999),
-            "target_material": (outputs["baseline_material"].detach() * 0.90 + 0.05).clamp(0, 1),
+            "target_albedo": (
+                outputs["baseline_albedo"].detach() * 0.92 + 0.04
+            ).clamp(0, 1),
+            "target_normal": (
+                outputs["baseline_normal"].detach() * 0.95
+            ).clamp(-0.999, 0.999),
+            "target_material": (
+                outputs["baseline_material"].detach() * 0.90 + 0.05
+            ).clamp(0, 1),
         }
         losses = selector_loss(outputs, batch)
         losses["total"].backward()
         self.assertGreater(self._gradient_sum(model.selector), 0.0)
-        self.assertTrue(all(parameter.grad is None for parameter in model.hr_refiner.parameters()))
+        self.assertTrue(
+            all(parameter.grad is None for parameter in model.hr_refiner.parameters())
+        )
 
     def test_divergence_monitor_rejects_persistent_saturation(self) -> None:
         monitor = DivergenceMonitor(saturation_patience_reports=3)
@@ -216,15 +286,19 @@ class NSAMDRV15ContractTests(unittest.TestCase):
 
     def test_lattice_metric_penalizes_extra_cell_constant_residual(self) -> None:
         config = self._config()
-        model = NSAMDRV15(config).eval()
+        model = NSAMDRV16(config).eval()
         albedo, normal, material = self._batch()
         with torch.no_grad():
             outputs = model(albedo, normal, material)
         baseline = outputs["baseline_albedo"].detach()
         target = baseline.clone()
-        target[..., 10:22, 9:23] = (target[..., 10:22, 9:23] + 0.08).clamp(0, 1)
+        target[..., 10:22, 9:23] = (
+            target[..., 10:22, 9:23] + 0.08
+        ).clamp(0, 1)
         candidate = baseline.clone()
-        candidate[..., 8:24, 8:24] = (candidate[..., 8:24, 8:24] + 0.08).clamp(0, 1)
+        candidate[..., 8:24, 8:24] = (
+            candidate[..., 8:24, 8:24] + 0.08
+        ).clamp(0, 1)
         fake = dict(outputs)
         fake["candidate_albedo"] = candidate
         batch = {
@@ -255,7 +329,7 @@ class NSAMDRV15ContractTests(unittest.TestCase):
         self.assertFalse(report["passed"])
 
     def test_tiled_inference_keeps_four_x_and_normalizes_normals(self) -> None:
-        model = NSAMDRV15(self._config()).eval()
+        model = NSAMDRV16(self._config()).eval()
         albedo, normal, material = self._batch(size=12)
         with torch.no_grad():
             outputs = tiled_inference(
