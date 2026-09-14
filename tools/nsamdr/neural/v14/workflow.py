@@ -15,11 +15,11 @@ if __package__ in {None, ""}:
     NEURAL_ROOT = Path(__file__).resolve().parent.parent
     if str(NEURAL_ROOT) not in sys.path:
         sys.path.insert(0, str(NEURAL_ROOT))
-    from v14.config import V15Config
+    from v14.config import V16Config
     from v14.model import MODEL_SCHEMA
     from v14.trainer import V14Trainer
 else:
-    from .config import V15Config
+    from .config import V16Config
     from .model import MODEL_SCHEMA
     from .trainer import V14Trainer
 
@@ -53,7 +53,7 @@ def _prepare_dataset(args: argparse.Namespace, repo_root: Path) -> None:
     if args.rebuild_dataset:
         command.append("--rebuild")
     print(
-        "[v15.0-workflow] prepare authored Raven dataset: "
+        "[v16.0-workflow] prepare authored Raven dataset: "
         + subprocess.list2cmdline(command),
         flush=True,
     )
@@ -67,7 +67,7 @@ def _prepare_dataset(args: argparse.Namespace, repo_root: Path) -> None:
 def _diagnostics(experiment: Path, root: Path) -> Path:
     diagnostics = root / "artifacts/nsamdr/diagnostics"
     diagnostics.mkdir(parents=True, exist_ok=True)
-    base = diagnostics / f"{experiment.name}_V15_0_DIAGNOSTICS"
+    base = diagnostics / f"{experiment.name}_V16_0_DIAGNOSTICS"
     return Path(shutil.make_archive(str(base), "zip", root_dir=experiment))
 
 
@@ -84,7 +84,7 @@ def _start_live_view(
         str(experiment),
     ]
     print(
-        "[v15.0-workflow] live A/B/C/F viewer: "
+        "[v16.0-workflow] live A/B/C/F viewer: "
         + subprocess.list2cmdline(command),
         flush=True,
     )
@@ -117,7 +117,7 @@ def _write_architecture_participation(
         "baseline",
         "context_encoder",
         "context_adapter",
-        "single_scale_hr_refiner",
+        "swinir_hr_refiner",
         "albedo_tail",
         "normal_tail",
         "material_tail",
@@ -125,15 +125,15 @@ def _write_architecture_participation(
     )
     expected_retired = (
         "multiscale_hr_refiner",
+        "single_scale_edsr_refiner",
         "downsample_features",
         "upsample_and_fuse",
-        "channel_attention",
         "straight_through_residual_limiter",
     )
     passed = bool(
         contract.get("schema") == MODEL_SCHEMA
-        and contract.get("revision") == "V15.0"
-        and contract.get("backbone") == "EDSR-style-single-resolution-HR"
+        and contract.get("revision") == "V16.0"
+        and contract.get("backbone") == "SwinIR-style-fixed-HR-RSTB"
         and active == expected_active
         and retired == expected_retired
         and contract.get("geometryPixelAuthority") is False
@@ -142,7 +142,8 @@ def _write_architecture_participation(
         and contract.get("lrPhaseGridPixelAuthority") is False
         and contract.get("multiscaleFeatureHierarchy") is False
         and contract.get("batchNormalizationUsed") is False
-        and contract.get("channelAttentionUsed") is False
+        and contract.get("windowAttentionUsed") is True
+        and contract.get("shiftedWindowAttentionUsed") is True
         and contract.get("pixelShuffleUsed") is False
         and contract.get("transposedConvolutionUsed") is False
         and contract.get("contextUpsampling")
@@ -151,16 +152,20 @@ def _write_architecture_participation(
         and contract.get("residualBounding") == "tanh"
         and contract.get("residualSupervision")
         == "bounded-pre-physical-projection"
-        and abs(float(contract.get("residualScale", -1.0)) - 0.10) < 1.0e-9
+        and int(contract.get("attentionWindowSize", -1)) == 8
+        and int(contract.get("swinGroups", -1)) == 6
+        and int(contract.get("swinLayersPerGroup", -1)) == 6
         and contract.get("selectorUsesPhysicalMaps") is True
     )
     payload = {
-        "schema": "NSAMDR_V15_ARCHITECTURE_PARTICIPATION_V1",
+        "schema": "NSAMDR_V16_ARCHITECTURE_PARTICIPATION_V1",
         "pass": passed,
         "modelSchema": contract.get("schema"),
         "activeComponents": active,
         "retiredComponents": retired,
-        "parameterCount": sum(parameter.numel() for parameter in trainer.model.parameters()),
+        "parameterCount": sum(
+            parameter.numel() for parameter in trainer.model.parameters()
+        ),
         "contract": contract,
     }
     (experiment / "architecture_participation.json").write_text(
@@ -168,14 +173,12 @@ def _write_architecture_participation(
         encoding="utf-8",
     )
     if not passed:
-        raise RuntimeError("V15.0 architecture participation contract failed")
+        raise RuntimeError("V16.0 architecture participation contract failed")
 
 
 def parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=(
-            "NSAMDR V15.0 single-resolution phase-neutral HR-first Raven workflow"
-        )
+        description="NSAMDR V16.0 SwinIR-style phase-neutral HR-first Raven workflow"
     )
     parser.add_argument("--training-mode", choices=("quick", "full"), default="quick")
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
@@ -209,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = args.repo_root.resolve()
     if args.training_mode != "quick":
         print(
-            "ERROR: V15.0 Full Training remains disabled until Raven HR-first candidate qualifies.",
+            "ERROR: V16.0 Full Training remains disabled until Raven HR-first candidate qualifies.",
             file=sys.stderr,
         )
         return 2
@@ -225,11 +228,11 @@ def main(argv: list[str] | None = None) -> int:
     experiment = experiments / experiment_id
     if experiment.exists() and any(experiment.iterdir()):
         raise RuntimeError(
-            f"V15.0 experiments are immutable; choose new instead of reusing {experiment_id}"
+            f"V16.0 experiments are immutable; choose new instead of reusing {experiment_id}"
         )
     experiment.mkdir(parents=True, exist_ok=True)
 
-    config = V15Config()
+    config = V16Config()
     config.validate()
     config.save(experiment / "resolved_config.json")
     manifest = {
@@ -240,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
         "modelSchema": config.schema,
         "trainingMode": args.training_mode,
         "createdUnix": time.time(),
-        "source": "V15.0 single-resolution phase-neutral EDSR-style HR-first architecture",
+        "source": "V16.0 SwinIR-style fixed-HR phase-neutral architecture",
     }
     manifest_path = experiment / "experiment.json"
     manifest_path.write_text(
@@ -251,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     use_cuda = args.preview_device in {"cuda", "auto"} and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
     if args.preview_device == "cuda" and device.type != "cuda":
-        raise RuntimeError("V15.0 Raven Quick requested CUDA but CUDA is unavailable")
+        raise RuntimeError("V16.0 Raven Quick requested CUDA but CUDA is unavailable")
 
     viewer: subprocess.Popen[bytes] | None = None
     if args.live_preview_during_training:
@@ -294,18 +297,18 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
         archive = _diagnostics(experiment, repo_root)
-        print(f"[v15.0-workflow] FAILED diagnostics: {archive}", flush=True)
+        print(f"[v16.0-workflow] FAILED diagnostics: {archive}", flush=True)
         raise
     finally:
         _stop_live_view(experiment, viewer)
 
     archive = _diagnostics(experiment, repo_root)
-    print(f"[v15.0-workflow] diagnostics: {archive}", flush=True)
+    print(f"[v16.0-workflow] diagnostics: {archive}", flush=True)
     if result["qualified"]:
-        print(f"[v15.0-workflow] QUALIFIED {experiment_id}", flush=True)
+        print(f"[v16.0-workflow] QUALIFIED {experiment_id}", flush=True)
         return 0
     print(
-        f"[v15.0-workflow] REJECTED {experiment_id}: {result.get('failedStage')}",
+        f"[v16.0-workflow] REJECTED {experiment_id}: {result.get('failedStage')}",
         flush=True,
     )
     return 2
