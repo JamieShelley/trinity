@@ -363,6 +363,7 @@ class MultiRegionDiagnostic:
                 config,
             )
             diagnosis = self._diagnosis(train_report, validation_report)
+            generalisation_pass = diagnosis == "passed"
             curve_item: dict[str, object] = {
                 "step": step,
                 "meanTrainingLossSincePreviousEvaluation": (
@@ -399,7 +400,7 @@ class MultiRegionDiagnostic:
             )
 
             score = self._score(validation_report)
-            key = (1 if bool(validation_report["passed"]) else 0, score)
+            key = (1 if generalisation_pass else 0, score)
             if best_validation_report is None or key > best_key:
                 best_key = key
                 best_step = step
@@ -419,11 +420,11 @@ class MultiRegionDiagnostic:
                     },
                 )
 
-            if bool(validation_report["passed"]):
+            if generalisation_pass:
                 early_pass = True
                 print(
                     f"[v16.0-multiregion] early PASS at step {step}; "
-                    "existing qualification gates are satisfied",
+                    "training and held-out qualification gates are satisfied",
                     flush=True,
                 )
                 break
@@ -450,6 +451,7 @@ class MultiRegionDiagnostic:
             selected_train_report,
             selected_validation_report,
         )
+        selected_pass = selected_diagnosis == "passed"
 
         preview_batch = dataset_sample(validation_records[0], config, self.device)
         selected_model.eval()
@@ -470,7 +472,7 @@ class MultiRegionDiagnostic:
             "schema": DIAGNOSTIC_SCHEMA,
             "revision": DIAGNOSTIC_REVISION,
             "mode": "multiregion",
-            "passed": bool(selected_validation_report["passed"]),
+            "passed": selected_pass,
             "promotable": False,
             "modelSchema": MODEL_SCHEMA,
             "diagnosis": selected_diagnosis,
@@ -497,7 +499,7 @@ class MultiRegionDiagnostic:
             "datasetFingerprint": manifest.get("fingerprint"),
         }
         write_report(run_dir, report)
-        return (0 if bool(selected_validation_report["passed"]) else 2), run_dir
+        return (0 if selected_pass else 2), run_dir
 
 
 def parser() -> argparse.ArgumentParser:
