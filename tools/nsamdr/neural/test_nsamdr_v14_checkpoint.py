@@ -16,7 +16,7 @@ from v14.model import MODEL_SCHEMA
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate one NSAMDR V14.2 checkpoint")
+    parser = argparse.ArgumentParser(description="Validate one NSAMDR V14.3 checkpoint")
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
@@ -27,14 +27,14 @@ def main() -> int:
     if not checkpoint.is_absolute():
         checkpoint = (root / checkpoint).resolve()
     if not checkpoint.is_file():
-        raise SystemExit(f"missing V14.2 checkpoint: {checkpoint}")
+        raise SystemExit(f"missing V14.3 checkpoint: {checkpoint}")
 
     if args.device == "cuda" and not torch.cuda.is_available():
         raise SystemExit("CUDA checkpoint validation requested but CUDA is unavailable")
     device = torch.device(args.device)
     model, payload = load_checkpoint(checkpoint, device)
     if payload.get("schema") != MODEL_SCHEMA:
-        raise SystemExit("V14.2 checkpoint schema mismatch")
+        raise SystemExit("V14.3 checkpoint schema mismatch")
 
     size = 16
     albedo = torch.rand(1, 3, size, size, device=device)
@@ -43,28 +43,43 @@ def main() -> int:
     with torch.no_grad():
         output = model(albedo, normal, material)
     expected = size * 4
-    for key in ("baseline_albedo", "candidate_albedo", "albedo", "normal", "material"):
+    for key in (
+        "baseline_albedo",
+        "candidate_albedo",
+        "albedo",
+        "normal",
+        "material",
+        "predicted_residual_albedo",
+        "predicted_residual_normal",
+        "predicted_residual_material",
+    ):
         if tuple(output[key].shape[-2:]) != (expected, expected):
-            raise SystemExit(f"V14.2 checkpoint output shape mismatch for {key}: {tuple(output[key].shape)}")
+            raise SystemExit(
+                f"V14.3 checkpoint output shape mismatch for {key}: {tuple(output[key].shape)}"
+            )
         if not bool(torch.isfinite(output[key]).all().item()):
-            raise SystemExit(f"V14.2 checkpoint produced non-finite output: {key}")
+            raise SystemExit(f"V14.3 checkpoint produced non-finite output: {key}")
 
     contract = model.architecture_contract()
     if (
         contract.get("schema") != MODEL_SCHEMA
-        or contract.get("revision") != "V14.2"
+        or contract.get("revision") != "V14.3"
         or tuple(contract.get("retiredComponents", ())) != ()
         or contract.get("pixelShuffleUsed") is not False
         or contract.get("transposedConvolutionUsed") is not False
+        or contract.get("residualBounding") != "softsign"
+        or contract.get("residualSupervision")
+        != "bounded-pre-physical-projection"
+        or contract.get("identityInitializedDeepResiduals") is not True
     ):
-        raise SystemExit("V14.2 architecture contract mismatch")
+        raise SystemExit("V14.3 architecture contract mismatch")
 
     if any(isinstance(module, torch.nn.PixelShuffle) for module in model.modules()):
-        raise SystemExit("V14.2 checkpoint unexpectedly contains PixelShuffle")
+        raise SystemExit("V14.3 checkpoint unexpectedly contains PixelShuffle")
     if any(isinstance(module, torch.nn.ConvTranspose2d) for module in model.modules()):
-        raise SystemExit("V14.2 checkpoint unexpectedly contains ConvTranspose2d")
+        raise SystemExit("V14.3 checkpoint unexpectedly contains ConvTranspose2d")
 
-    print("NSAMDR V14.2 checkpoint validation passed")
+    print("NSAMDR V14.3 checkpoint validation passed")
     print(f"  checkpoint={checkpoint}")
     print(f"  schema={MODEL_SCHEMA}")
     print(f"  parameters={sum(p.numel() for p in model.parameters()):,}")
