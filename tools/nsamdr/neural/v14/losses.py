@@ -15,7 +15,9 @@ def _gradient(value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
 
 def _laplacian(value: torch.Tensor) -> torch.Tensor:
     gray = value.float().mean(dim=1, keepdim=True)
-    kernel = gray.new_tensor([[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]]).view(1, 1, 3, 3)
+    kernel = gray.new_tensor(
+        [[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]]
+    ).view(1, 1, 3, 3)
     return F.conv2d(gray, kernel, padding=1)
 
 
@@ -53,13 +55,37 @@ def candidate_loss(
     laplacian = F.l1_loss(_laplacian(ca), _laplacian(ta))
     pyramid = _pyramid_l1(ca, ta)
 
-    target_residual_a = (ta - ba).clamp(-config.albedo_residual_cap, config.albedo_residual_cap)
-    target_residual_n = (tn - bn).clamp(-config.normal_residual_cap, config.normal_residual_cap)
-    target_residual_m = (tm - bm).clamp(-config.material_residual_cap, config.material_residual_cap)
+    target_residual_a = (ta - ba).clamp(
+        -config.albedo_residual_cap,
+        config.albedo_residual_cap,
+    )
+    target_residual_n = (tn - bn).clamp(
+        -config.normal_residual_cap,
+        config.normal_residual_cap,
+    )
+    target_residual_m = (tm - bm).clamp(
+        -config.material_residual_cap,
+        config.material_residual_cap,
+    )
+
+    # V14.3 supervises the bounded predicted residual before clamp/normalization.
+    # This preserves a useful residual-learning gradient if physical projection reaches
+    # a valid-map boundary.
     residual = (
-        F.l1_loss(outputs["candidate_residual_albedo"].float(), target_residual_a)
-        + 0.25 * F.l1_loss(outputs["candidate_residual_normal"].float(), target_residual_n)
-        + 0.25 * F.l1_loss(outputs["candidate_residual_material"].float(), target_residual_m)
+        F.l1_loss(
+            outputs["predicted_residual_albedo"].float(),
+            target_residual_a,
+        )
+        + 0.25
+        * F.l1_loss(
+            outputs["predicted_residual_normal"].float(),
+            target_residual_n,
+        )
+        + 0.25
+        * F.l1_loss(
+            outputs["predicted_residual_material"].float(),
+            target_residual_m,
+        )
     )
     normal = F.l1_loss(cn, tn)
     material = F.l1_loss(cm, tm)
@@ -93,9 +119,15 @@ def _joint_pixel_error(
     target_normal: torch.Tensor,
     target_material: torch.Tensor,
 ) -> torch.Tensor:
-    albedo_error = (albedo.float() - target_albedo.float()).abs().mean(dim=1, keepdim=True)
-    normal_error = (normal.float() - target_normal.float()).abs().mean(dim=1, keepdim=True)
-    material_error = (material.float() - target_material.float()).abs().mean(dim=1, keepdim=True)
+    albedo_error = (
+        (albedo.float() - target_albedo.float()).abs().mean(dim=1, keepdim=True)
+    )
+    normal_error = (
+        (normal.float() - target_normal.float()).abs().mean(dim=1, keepdim=True)
+    )
+    material_error = (
+        (material.float() - target_material.float()).abs().mean(dim=1, keepdim=True)
+    )
     return albedo_error + 0.25 * normal_error + 0.25 * material_error
 
 
@@ -121,11 +153,15 @@ def selector_loss(
     candidate_error = _joint_pixel_error(ca, cn, cm, ta, tn, tm)
     oracle = (candidate_error + 1.0e-5 < baseline_error).float()
 
-    # Already-correct authored albedo remains a hard safety constraint. A shared
-    # physical-map gate cannot accept a candidate that visibly moves those pixels.
     protected = (ba - ta).abs().amax(dim=1, keepdim=True) <= (2.0 / 255.0)
-    excessive_candidate_drift = (ca - ba).abs().amax(dim=1, keepdim=True) > (1.0 / 255.0)
-    oracle = torch.where(protected & excessive_candidate_drift, torch.zeros_like(oracle), oracle)
+    excessive_candidate_drift = (
+        (ca - ba).abs().amax(dim=1, keepdim=True) > (1.0 / 255.0)
+    )
+    oracle = torch.where(
+        protected & excessive_candidate_drift,
+        torch.zeros_like(oracle),
+        oracle,
+    )
 
     classification = F.binary_cross_entropy_with_logits(logits, oracle)
     reconstruction = _joint_pixel_error(fa, fn, fm, ta, tn, tm).mean()
