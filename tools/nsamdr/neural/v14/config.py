@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 
 
-MODEL_SCHEMA = "NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V14_3"
+MODEL_SCHEMA = "NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V14_4"
 
 
 @dataclass
@@ -41,6 +41,7 @@ class V14Config:
     hr_decoder_blocks: int = 4
     map_tail_blocks: int = 2
     attention_reduction: int = 8
+    residual_group_scale: float = 0.10
     use_gradient_checkpointing: bool = True
 
     selector_channels: int = 24
@@ -73,7 +74,7 @@ class V14Config:
         if self.schema != MODEL_SCHEMA:
             raise ValueError(f"config schema must be {MODEL_SCHEMA}")
         if self.scale != 4:
-            raise ValueError("V14.3 currently supports exactly 4x reconstruction")
+            raise ValueError("V14.4 currently supports exactly 4x reconstruction")
         if self.train_hr_size != self.train_lr_size * self.scale:
             raise ValueError("train_hr_size must equal train_lr_size * scale")
         if self.validation_hr_size != self.validation_lr_size * self.scale:
@@ -98,7 +99,9 @@ class V14Config:
             self.selector_channels,
         )
         if min(architecture_values) < 1:
-            raise ValueError("all V14.3 architecture dimensions and block counts must be positive")
+            raise ValueError("all V14.4 architecture dimensions and block counts must be positive")
+        if not 0.0 < float(self.residual_group_scale) <= 1.0:
+            raise ValueError("residual_group_scale must be in (0, 1]")
 
         work_values = (
             self.tiles_per_epoch,
