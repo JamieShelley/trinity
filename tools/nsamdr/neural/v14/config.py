@@ -5,12 +5,12 @@ from pathlib import Path
 import json
 
 
-MODEL_SCHEMA = "NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V15_0"
+MODEL_SCHEMA = "NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V16_0"
 
 
 @dataclass
-class V15Config:
-    """Configuration for the V15.0 literature-aligned HR-first SR model."""
+class V16Config:
+    """Configuration for the V16.0 SwinIR-style HR-first candidate."""
 
     schema: str = MODEL_SCHEMA
     scale: int = 4
@@ -26,22 +26,26 @@ class V15Config:
     robust_epochs: int = 4
     selector_epochs: int = 3
 
-    # EDSR and RCAN use Adam-style optimization for pixel reconstruction. V15 keeps
-    # the production SR rate conservative because the candidate runs entirely at HR.
+    # Keep the conservative Adam learning rate used by the stable V15 candidate.
     sr_learning_rate: float = 2.0e-4
     selector_learning_rate: float = 2.0e-4
     weight_decay: float = 0.0
 
-    # LR evidence remains a context field. It never owns output phases.
+    # LR evidence remains phase-neutral context only.
     lr_context_channels: int = 32
     lr_blocks: int = 5
 
-    # V15.0 candidate backbone. This is one HR feature scale only.
-    hr_channels: int = 64
-    hr_blocks: int = 24
+    # V16.0 candidate backbone. The learned candidate stays at one HR spatial scale.
+    # The 6 x 6 residual-Swin layout and window size 8 follow the medium SwinIR pattern.
+    # The embedding width is reduced because NSAMDR performs attention at 512 HR pixels.
+    hr_channels: int = 96
+    swin_groups: int = 6
+    swin_blocks_per_group: int = 6
+    swin_num_heads: int = 6
+    swin_window_size: int = 8
+    swin_mlp_ratio: float = 2.0
     map_tail_blocks: int = 2
-    residual_scale: float = 0.10
-    checkpoint_segment_blocks: int = 4
+    tail_residual_scale: float = 0.10
     use_gradient_checkpointing: bool = True
 
     selector_channels: int = 24
@@ -70,11 +74,15 @@ class V15Config:
     def sr_epochs(self) -> int:
         return int(self.clean_epochs + self.robust_epochs)
 
+    @property
+    def swin_depth(self) -> int:
+        return int(self.swin_groups * self.swin_blocks_per_group)
+
     def validate(self) -> None:
         if self.schema != MODEL_SCHEMA:
             raise ValueError(f"config schema must be {MODEL_SCHEMA}")
         if self.scale != 4:
-            raise ValueError("V15.0 currently supports exactly 4x reconstruction")
+            raise ValueError("V16.0 currently supports exactly 4x reconstruction")
         if self.train_hr_size != self.train_lr_size * self.scale:
             raise ValueError("train_hr_size must equal train_lr_size * scale")
         if self.validation_hr_size != self.validation_lr_size * self.scale:
@@ -86,19 +94,23 @@ class V15Config:
             self.lr_context_channels,
             self.lr_blocks,
             self.hr_channels,
-            self.hr_blocks,
+            self.swin_groups,
+            self.swin_blocks_per_group,
+            self.swin_num_heads,
+            self.swin_window_size,
             self.map_tail_blocks,
-            self.checkpoint_segment_blocks,
             self.selector_channels,
         )
         if min(architecture_values) < 1:
-            raise ValueError("all V15.0 architecture dimensions and block counts must be positive")
-        if not 0.0 < float(self.residual_scale) <= 1.0:
-            raise ValueError("residual_scale must be in (0, 1]")
-        if self.checkpoint_segment_blocks > self.hr_blocks:
-            raise ValueError("checkpoint_segment_blocks must not exceed hr_blocks")
-        if self.hr_blocks % self.checkpoint_segment_blocks != 0:
-            raise ValueError("hr_blocks must be divisible by checkpoint_segment_blocks")
+            raise ValueError("all V16.0 architecture dimensions and counts must be positive")
+        if self.hr_channels % self.swin_num_heads != 0:
+            raise ValueError("hr_channels must be divisible by swin_num_heads")
+        if self.swin_window_size < 2 or self.swin_window_size % 2 != 0:
+            raise ValueError("swin_window_size must be an even integer >= 2")
+        if self.swin_mlp_ratio <= 0.0:
+            raise ValueError("swin_mlp_ratio must be positive")
+        if not 0.0 < float(self.tail_residual_scale) <= 1.0:
+            raise ValueError("tail_residual_scale must be in (0, 1]")
 
         work_values = (
             self.tiles_per_epoch,
@@ -113,6 +125,7 @@ class V15Config:
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
         payload["sr_epochs"] = self.sr_epochs
+        payload["swin_depth"] = self.swin_depth
         return payload
 
     def save(self, path: Path) -> None:
@@ -123,7 +136,7 @@ class V15Config:
         )
 
     @classmethod
-    def load(cls, path: Path) -> "V15Config":
+    def load(cls, path: Path) -> "V16Config":
         payload = json.loads(path.read_text(encoding="utf-8"))
         fields = cls.__dataclass_fields__
         kwargs = {key: value for key, value in payload.items() if key in fields}
@@ -132,5 +145,6 @@ class V15Config:
         return config
 
 
-# Compatibility alias for the existing package path. Active checkpoints use V15.0 schema.
-V14Config = V15Config
+# Compatibility aliases for the existing package path and helper modules.
+V15Config = V16Config
+V14Config = V16Config
