@@ -5,8 +5,8 @@ from torch import nn
 from torch.nn import functional as F
 
 from .baseline import Baseline4x, normalize_xy
-from .config import MODEL_SCHEMA, V14Config
-from .refinement import MultiScaleHRRefinementTrunk, ResidualLimiter
+from .config import MODEL_SCHEMA, V15Config
+from .refinement import SingleScaleHRRefinementTrunk
 
 
 class FeatureResidualBlock(nn.Module):
@@ -16,7 +16,7 @@ class FeatureResidualBlock(nn.Module):
         super().__init__()
         self.conv1 = nn.Conv2d(channels, channels, 3, padding=1)
         self.conv2 = nn.Conv2d(channels, channels, 3, padding=1)
-        self.act = nn.GELU()
+        self.act = nn.ReLU(inplace=False)
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
         residual = self.conv2(self.act(self.conv1(value)))
@@ -34,7 +34,7 @@ class LRContextEncoder(nn.Module):
         )
 
     def forward(self, lr_maps: torch.Tensor) -> torch.Tensor:
-        return self.body(F.gelu(self.stem(lr_maps.float())))
+        return self.body(F.relu(self.stem(lr_maps.float()), inplace=False))
 
 
 class HRContextAdapter(nn.Module):
@@ -45,7 +45,7 @@ class HRContextAdapter(nn.Module):
         self.conv = nn.Conv2d(channels, channels, 3, padding=1)
 
     def forward(self, context_hr: torch.Tensor) -> torch.Tensor:
-        return F.gelu(self.conv(context_hr.float()))
+        return F.relu(self.conv(context_hr.float()), inplace=False)
 
 
 def _gray_gradient(value: torch.Tensor) -> torch.Tensor:
@@ -64,7 +64,7 @@ class BenefitSelector(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             nn.Conv2d(self.FEATURE_CHANNELS, channels, 3, padding=1),
-            nn.GELU(),
+            nn.ReLU(inplace=False),
             FeatureResidualBlock(channels),
             FeatureResidualBlock(channels),
             nn.Conv2d(channels, 1, 3, padding=1),
@@ -109,14 +109,14 @@ class BenefitSelector(nn.Module):
         return self.net(features)
 
 
-class NSAMDRV14(nn.Module):
-    """V14.4 production graph with stable straight-through residual limiting."""
+class NSAMDRV15(nn.Module):
+    """V15.0 production graph with a single-resolution EDSR-style HR backbone."""
 
     BASELINE_CHANNELS = 8
 
-    def __init__(self, config: V14Config | None = None) -> None:
+    def __init__(self, config: V15Config | None = None) -> None:
         super().__init__()
-        self.config = config or V14Config()
+        self.config = config or V15Config()
         self.config.validate()
 
         self.baseline = Baseline4x(self.config.scale)
@@ -125,26 +125,16 @@ class NSAMDRV14(nn.Module):
             self.config.lr_blocks,
         )
         self.context_adapter = HRContextAdapter(self.config.lr_context_channels)
-        self.hr_refiner = MultiScaleHRRefinementTrunk(
+        self.hr_refiner = SingleScaleHRRefinementTrunk(
             baseline_channels=self.BASELINE_CHANNELS,
             context_channels=self.config.lr_context_channels,
-            hr_channels=self.config.hr_channels,
-            half_channels=self.config.half_channels,
-            quarter_channels=self.config.quarter_channels,
-            hr_encoder_blocks=self.config.hr_encoder_blocks,
-            half_encoder_blocks=self.config.half_encoder_blocks,
-            quarter_encoder_blocks=self.config.quarter_encoder_blocks,
-            bottleneck_blocks=self.config.bottleneck_blocks,
-            half_decoder_blocks=self.config.half_decoder_blocks,
-            hr_decoder_blocks=self.config.hr_decoder_blocks,
+            channels=self.config.hr_channels,
+            blocks=self.config.hr_blocks,
             map_tail_blocks=self.config.map_tail_blocks,
-            attention_reduction=self.config.attention_reduction,
-            residual_group_scale=self.config.residual_group_scale,
+            residual_scale=self.config.residual_scale,
+            checkpoint_segment_blocks=self.config.checkpoint_segment_blocks,
             use_gradient_checkpointing=self.config.use_gradient_checkpointing,
         )
-        self.albedo_limiter = ResidualLimiter(self.config.albedo_residual_cap)
-        self.normal_limiter = ResidualLimiter(self.config.normal_residual_cap)
-        self.material_limiter = ResidualLimiter(self.config.material_residual_cap)
         self.selector = BenefitSelector(self.config.selector_channels)
 
     def _phase_neutral_context(
@@ -160,6 +150,12 @@ class NSAMDRV14(nn.Module):
             align_corners=False,
         )
         return self.context_adapter(context_hr)
+
+    @staticmethod
+    def _bounded_residual(raw: torch.Tensor, cap: float) -> torch.Tensor:
+        # V14.1 used this bounded output path and completed Capacity without numerical
+        # collapse. V15 restores it while increasing capacity only in the HR body.
+        return torch.tanh(raw.float()) * float(cap)
 
     def forward(
         self,
@@ -183,12 +179,16 @@ class NSAMDRV14(nn.Module):
         )
 
         raw = self.hr_refiner(baseline_maps, context_hr)
-        predicted_albedo = self.albedo_limiter(raw["albedo"])
-        predicted_normal = self.normal_limiter(raw["normal"])
-        predicted_material = self.material_limiter(raw["material"])
+        predicted_albedo = self._bounded_residual(
+            raw["albedo"], self.config.albedo_residual_cap
+        )
+        predicted_normal = self._bounded_residual(
+            raw["normal"], self.config.normal_residual_cap
+        )
+        predicted_material = self._bounded_residual(
+            raw["material"], self.config.material_residual_cap
+        )
 
-        # Physical projection is separate from residual prediction. Candidate loss
-        # supervises the bounded residual before clamp/normalization changes it.
         c_albedo = (b_albedo + predicted_albedo).clamp(0.0, 1.0)
         c_normal = normalize_xy(b_normal + predicted_normal)
         c_material = (b_material + predicted_material).clamp(0.0, 1.0)
@@ -249,40 +249,53 @@ class NSAMDRV14(nn.Module):
     def architecture_contract(self) -> dict[str, object]:
         return {
             "schema": MODEL_SCHEMA,
-            "revision": "V14.4",
+            "revision": "V15.0",
             "scale": self.config.scale,
             "productionForward": (
                 "LR -> deterministic B + phase-neutral LR context -> "
-                "identity-initialized scaled multi-scale RCAN HR refinement -> "
-                "straight-through bounded residual -> physical projection C -> "
+                "single-resolution EDSR-style HR residual body -> "
+                "tanh bounded physical-map residual -> C -> "
                 "physical-map-aware BenefitSelector F"
             ),
+            "backbone": "EDSR-style-single-resolution-HR",
             "contextUpsampling": "bilinear-phase-neutral + HR 3x3 adapter",
-            "decoderUpsampling": "bilinear-phase-neutral + HR convolution",
-            "residualBounding": "straight-through-clamp",
+            "decoderUpsampling": "none",
+            "residualBounding": "tanh",
             "residualSupervision": "bounded-pre-physical-projection",
-            "residualGroupScale": float(self.config.residual_group_scale),
+            "residualScale": float(self.config.residual_scale),
             "candidateIdentityAtInitialization": "C == B",
             "activeComponents": (
                 "baseline",
                 "context_encoder",
                 "context_adapter",
-                "multiscale_hr_refiner",
+                "single_scale_hr_refiner",
                 "albedo_tail",
                 "normal_tail",
                 "material_tail",
                 "selector",
             ),
-            "retiredComponents": (),
+            "retiredComponents": (
+                "multiscale_hr_refiner",
+                "downsample_features",
+                "upsample_and_fuse",
+                "channel_attention",
+                "straight_through_residual_limiter",
+            ),
             "geometryPixelAuthority": False,
             "seamPixelAuthority": False,
             "profilePixelAuthority": False,
             "lrPhaseGridPixelAuthority": False,
+            "multiscaleFeatureHierarchy": False,
+            "batchNormalizationUsed": False,
+            "channelAttentionUsed": False,
             "pixelShuffleUsed": False,
             "transposedConvolutionUsed": False,
             "selectorUsesPhysicalMaps": True,
-            "identityInitializedDeepResiduals": True,
             "gradientCheckpointing": bool(
                 self.config.use_gradient_checkpointing
             ),
         }
+
+
+# Compatibility alias for existing imports in the v14 package path.
+NSAMDRV14 = NSAMDRV15
