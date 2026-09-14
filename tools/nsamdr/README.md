@@ -20,6 +20,13 @@ NSAMDR must:
 
 `EXAMPLE.png` is the visual target.
 
+### V16 multi-family qualification target
+
+[![NSAMDR V16 final target outcome](./NSAMDR_V16_Final_Target_Outcome.jpg)](./NSAMDR_V16_Final_Target_Outcome.jpg)
+
+`NSAMDR_V16_Final_Target_Outcome.jpg` is a **target-state illustration**, not measured run output.
+It shows the expected Stage 2 result after the training authority is broadened from a small Raven/Golem crop set to several genuinely independent authored EVE texture families: strong train recovery, strong held-out recovery, aligned albedo/normal/material reconstruction, and no change to the proven V16 architecture or qualification gates.
+
 ---
 
 ## Quick start

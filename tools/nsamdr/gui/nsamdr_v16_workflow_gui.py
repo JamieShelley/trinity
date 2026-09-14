@@ -43,11 +43,11 @@ base.STAGES = (
     base.Stage(
         "diversity",
         "1A",
-        f"{VERSION} Raven Diversity Scan",
+        f"{VERSION} Caldari Battleship Diversity Scan",
         ("v16-diversity",),
         (
-            "CPU-only discovery of distinct native authored Raven/hull texture families. "
-            "Use this before another Multi-Region run after a generalisation failure."
+            "CPU-only discovery of distinct native authored Caldari battleship texture families. "
+            "Use this after a Stage 2 generalisation failure before another GPU run."
         ),
         False,
     ),
@@ -57,8 +57,8 @@ base.STAGES = (
         f"{VERSION} Multi-Region SR Mini",
         _existing["multiregion"].command,
         (
-            "Generalisation proof across hard pixel-disjoint Raven train and held-out "
-            "spatial domains. Windows may overlap only inside one split."
+            "Generalisation proof across hard pixel-disjoint authored battleship train and "
+            "held-out spatial domains. Windows may overlap only inside one split."
         ),
         False,
     ),
@@ -200,7 +200,7 @@ def _select_diversity(self: base.App, stage: base.Stage, status: str) -> None:
     )
     self._label_row(
         "Purpose",
-        "Find distinct native authored Raven/hull albedo+normal texture families in the local EVE cache.",
+        "Find distinct native authored Caldari battleship albedo+normal texture families in the local EVE cache.",
     )
     self._label_row(
         "Execution",
@@ -208,21 +208,21 @@ def _select_diversity(self: base.App, stage: base.Stage, status: str) -> None:
     )
     self._label_row(
         "Success",
-        "At least two unique authored texture families are available for a broader Stage 2 dataset.",
+        "At least four unique authored texture families are available for the controlled Stage 2 retest.",
     )
     self._label_row(
         "Dataset",
         "The canonical V16 training dataset is not modified by this scan.",
     )
     self._row("Shared cache", "cache", r"C:\CCP\EVE")
-    self._row("Candidate asset limit", "diversity_limit", "8", ("4", "8", "12", "16"))
+    self._row("Candidate asset limit", "diversity_limit", "64", ("16", "32", "64", "96"))
     self._label_row(
         "Artifacts",
-        r"artifacts\nsamdr\diagnostics\v16_mini\diversity_YYYYMMDD-HHMMSS\report.json + diagnostics ZIP",
+        r"artifacts\nsamdr\diagnostics\v16_mini\battleship_diversity_YYYYMMDD-HHMMSS\report.json + diagnostics ZIP",
     )
     self._label_row(
         "Next action",
-        "Use the report to select genuine authored families before rerunning Multi-Region SR Mini.",
+        "Only rerun Multi-Region when the report confirms at least four independent authored families.",
     )
 
 
@@ -236,7 +236,7 @@ def _select_multiregion(self: base.App, stage: base.Stage, status: str) -> None:
         "DIAGNOSTIC ONLY - cannot create or promote a production final",
     )
     self._label_row("Prerequisite", "V16.0 HR Residual Capacity must pass")
-    self._label_row("Model", "Frozen V16.0 architecture; this stage changes diagnostic budget only")
+    self._label_row("Model", "Frozen V16.0 architecture; this stage changes diagnostic data coverage only")
     self._label_row(
         "Split rule",
         "Train and held-out pixel domains are disjoint. Overlap inside one split is allowed.",
@@ -246,19 +246,23 @@ def _select_multiregion(self: base.App, stage: base.Stage, status: str) -> None:
         "Deterministic balanced round-robin across training regions",
     )
     self._label_row(
+        "Coverage retest",
+        "Default uses 8 training regions and 5120 steps: about 640 optimizer visits per region.",
+    )
+    self._label_row(
         "Telemetry",
-        "Train and held-out recovery are measured together to separate underfit from generalisation failure.",
+        "Train, held-out, and per-family recovery are measured together to separate underfit from generalisation failure.",
     )
     self._label_row(
         "Early stop",
         "Stop as soon as held-out data satisfies the existing qualification gates.",
     )
     self._row("Shared cache", "cache", r"C:\CCP\EVE")
-    self._row("Training regions", "mini_train_regions", "4", ("4", "8"))
+    self._row("Training regions", "mini_train_regions", "8", ("4", "8"))
     self._row("Held-out regions", "mini_validation_regions", "4", ("4", "8"))
     self._row("Dataset train cap", "prepare_train_regions", "16", ("8", "16"))
     self._row("Dataset held-out cap", "prepare_validation_regions", "4", ("4", "8"))
-    self._row("Maximum optimizer steps", "mini_max_steps", "2560", ("1280", "2560", "3072"))
+    self._row("Maximum optimizer steps", "mini_max_steps", "5120", ("2560", "3072", "4096", "5120"))
     self._row("Validation interval", "mini_validate_every", "256", ("128", "256", "512"))
     self._row("Learning rate", "mini_lr", "0.0002", ("0.0001", "0.0002", "0.0003"))
     self._row("Required edge recovery", "edge_recovery", "0.60", ("0.45", "0.60", "0.70"))
@@ -266,7 +270,7 @@ def _select_multiregion(self: base.App, stage: base.Stage, status: str) -> None:
     self._row("Required gradient recovery", "gradient_recovery", "0.35", ("0.20", "0.35", "0.45"))
     self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
     self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
-    self._check("Rebuild V16 Raven spatial dataset", "rebuild", False)
+    self._check("Rebuild V16 battleship spatial dataset", "rebuild", False)
 
 
 legacy._select_capacity = _select_capacity
@@ -282,14 +286,14 @@ def _args(self: base.App, stage_id: str) -> list[str]:
             "--shared-cache",
             self._value("cache", r"C:\CCP\EVE"),
             "--limit",
-            self._value("diversity_limit", "8"),
+            self._value("diversity_limit", "64"),
         ]
     if stage_id != "multiregion":
         return _legacy_args(self, stage_id)
     values = [
         *legacy._common_mini_args(self),
         "--train-regions",
-        self._value("mini_train_regions", "4"),
+        self._value("mini_train_regions", "8"),
         "--validation-regions",
         self._value("mini_validation_regions", "4"),
         "--prepare-train-regions",
@@ -297,7 +301,7 @@ def _args(self: base.App, stage_id: str) -> list[str]:
         "--prepare-validation-regions",
         self._value("prepare_validation_regions", "4"),
         "--max-steps",
-        self._value("mini_max_steps", "2560"),
+        self._value("mini_max_steps", "5120"),
         "--validate-every",
         self._value("mini_validate_every", "256"),
         "--learning-rate",
@@ -320,7 +324,10 @@ def _dispatcher_argv(
     if command == ("v16-diversity",):
         return [
             sys.executable,
-            str(self.repo / "tools/nsamdr/neural/discover_nsamdr_v16_raven_diversity.py"),
+            str(
+                self.repo
+                / "tools/nsamdr/neural/discover_nsamdr_v16_caldari_battleship_diversity.py"
+            ),
             "--repo-root",
             str(self.repo),
             *args,
