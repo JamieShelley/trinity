@@ -30,18 +30,20 @@ From the Trinity repository root:
 scripts\build\nsamdr.bat gui
 ```
 
-The active development model is **V15.0**.
+The active development model is **V16.0**.
 
 ---
 
 ## 1. A / B / C / F contract
 
-- **A — authored target**: genuine authored HR EVE pixels. A is training and qualification truth.
+All learned reconstruction is judged against a deterministic 4x baseline from the same LR evidence.
+
+- **A — authored target**: genuine authored HR EVE pixels. A is available during training and qualification only.
 - **B — deterministic baseline**: bicubic albedo, normalized bilinear normal XY, and nearest-neighbour material channels.
-- **C — SR candidate**: learned HR residual reconstruction over B.
+- **C — SR candidate**: learned physical-map residual reconstruction over B.
 - **F — final output**: local BenefitSelector result between B and C.
 
-The production relationship is:
+Production relationship:
 
 ```text
 C = project(B + predicted residual)
@@ -49,17 +51,29 @@ F = B + selector * (C - B)
 ```
 
 C must materially improve B before the selector can train.
+The selector cannot make a weak C pass qualification.
+
+For regions where B is already correct:
+
+```text
+protectedPreservationRate >= 0.990
+```
 
 ---
 
-## 2. Why V15.0 exists
+## 2. Evidence from V14 and V15
 
-### V14.1 result
+### V14.0
 
-V14.1 removed the PixelShuffle path and used phase-neutral LR context.
-It completed Capacity without numerical collapse.
+V14.0 used a learned sub-pixel path.
+It produced excessive 4x LR-grid structure.
 
-Its final Capacity result was:
+### V14.1
+
+V14.1 removed PixelShuffle from the candidate path.
+LR context moved into HR coordinates with bilinear resize and a normal HR convolution.
+
+Capacity completed without numerical collapse:
 
 ```text
 global recovery   = 53.00%   PASS
@@ -68,50 +82,109 @@ edge recovery     = 58.02%   FAIL, required 60%
 lattice excess    =  7.0%    PASS
 ```
 
-This showed that the phase-neutral single-resolution HR path was stable and close to the required reconstruction capacity.
+This established two useful facts:
 
-### V14.2 to V14.4 result
+1. Phase-neutral HR reconstruction is stable.
+2. A small local CNN reaches the required global and gradient recovery but remains weak on fine edge reconstruction.
 
-V14.2 introduced a custom multi-scale HR encoder/decoder with RCAN-style blocks.
-V14.3 and V14.4 added more stabilization around that topology.
+### V14.2 to V14.4
 
-All three revisions diverged during Capacity.
-The raw residuals grew rapidly and the candidate saturated.
+These revisions introduced a custom multi-scale RCAN-style HR encoder/decoder.
+They diverged during Capacity.
+The failure remained after lower learning rate, group residual scaling, identity-safe initialization, and bounded residual changes.
 
-V14.4 still diverged after these changes:
+The multi-scale custom branch is rejected.
+
+### V15.0
+
+V15.0 returned to one HR spatial scale and used an EDSR-style residual CNN.
+It completed the full Capacity test without divergence.
+
+Best stable result:
 
 ```text
-learning rate          0.0002
-ResidualGroup scale    0.10
-straight-through clamp enabled
-identity-safe residual initialization enabled
+global recovery   = 51.00%   PASS
+gradient recovery = 42.70%   PASS
+edge recovery     = 54.63%   FAIL, required 60%
+lattice excess    =  7.07%   PASS
 ```
 
-The repeated failure rejected the multi-scale V14 branch.
+The result is a stable capacity failure.
+It shows that a conventional local residual CNN remains below the required edge reconstruction level.
 
-### V15.0 decision
+### V16.0 decision
 
-V15.0 returns to the stable V14.1 spatial topology and increases capacity with a conventional single-resolution residual network.
+V16.0 changes only the deep candidate feature extractor.
+It replaces the V15 EDSR body with a **SwinIR-style residual Swin Transformer body**.
 
-The design follows the conservative parts of established SR architectures:
+The purpose is to increase spatial reasoning range while preserving the stable NSAMDR rules:
 
-- EDSR-style `Conv -> ReLU -> Conv` residual blocks;
-- no batch normalization;
-- residual scaling;
-- one long feature skip;
-- Adam optimization for candidate SR;
-- no feature-space encoder/decoder pyramid;
-- no PixelShuffle in the learned candidate path;
+- one HR spatial scale;
+- phase-neutral LR context;
+- deterministic baseline B;
+- no learned upsampler;
+- no PixelShuffle;
 - no transposed convolution;
-- no adversarial or perceptual hallucination objective.
-
-This is an adaptation of established SR practice to the NSAMDR requirement that learned reconstruction occurs around deterministic HR baseline B.
+- no GAN;
+- no perceptual hallucination objective;
+- zero-initialized physical-map output heads;
+- unchanged Capacity thresholds.
 
 ---
 
-## 3. V15.0 architecture
+## 3. Literature alignment
 
-### 3.1 Top-level graph
+The V16 candidate follows the deep-feature structure used by **SwinIR**:
+
+```text
+shallow feature extraction
+        |
+        v
+residual Swin Transformer groups
+        |
+        v
+long feature skip
+        |
+        v
+reconstruction
+```
+
+The active defaults use:
+
+```text
+embedding channels      96
+residual Swin groups     6
+Swin layers per group    6
+attention window         8 x 8
+attention heads          6
+MLP ratio                2.0
+```
+
+SwinIR commonly uses six residual Swin Transformer blocks, six Swin Transformer layers per block, window size 8, and six heads in its medium configuration.
+NSAMDR reduces the embedding width because attention runs at authored HR coordinates instead of low-resolution feature coordinates.
+
+The architecture also retains relevant EDSR practice:
+
+- no BatchNorm in the reconstruction path;
+- residual reconstruction;
+- a long feature skip;
+- Adam optimization.
+
+Relevant architecture references:
+
+- **EDSR — Lim et al., CVPR Workshops 2017**.
+- **SwinIR — Liang et al., ICCV Workshops 2021**.
+- **HAT — Chen et al., CVPR 2023**. HAT remains the next model family only if V16 gives a stable Capacity failure.
+
+NSAMDR does not copy the standard SwinIR SR upsampler.
+The difference is intentional.
+NSAMDR already has deterministic HR baseline B and must reconstruct only the supported residual around B.
+
+---
+
+## 4. V16.0 production architecture
+
+### 4.1 Top-level graph
 
 ```mermaid
 flowchart LR
@@ -122,9 +195,8 @@ flowchart LR
 
     B --> STEM[HR feature stem]
     ADAPT --> STEM
-    STEM --> BODY[24 EDSR-style HR residual blocks]
-    BODY --> LONG[Long HR feature skip]
-    STEM --> LONG
+    STEM --> GROUPS[6 residual Swin groups x 6 layers]
+    GROUPS --> LONG[3x3 body tail + long HR skip]
 
     LONG --> AT[Albedo tail]
     LONG --> NT[Normal tail]
@@ -146,90 +218,190 @@ flowchart LR
     SEL --> F[Final F]
 ```
 
-### 3.2 Candidate backbone
+Critical invariant:
+
+> **LR evidence can condition reconstruction, but it cannot own fixed 4x output phases.**
+
+---
+
+## 5. Phase-neutral LR context
+
+The LR input contains aligned physical evidence:
 
 ```text
-B physical maps + HR context
-            |
-            v
-      3x3 HR feature stem
-          64 channels
-            |
-            +----------------------------- long skip
-            |
-            v
-      24 residual blocks
-
-Each block:
-
-input
-  |
-  +-------------------------+
-  |                         |
-  v                         |
-3x3 convolution             |
-ReLU                        |
-3x3 convolution             |
-residual scale = 0.10       |
-  |                         |
-  +---------- add ----------+
-
-No BatchNorm.
-No change of spatial resolution.
-No channel attention.
-No feature pyramid.
-No decoder.
-            |
-            v
-       3x3 body tail
-            |
-            +------ add long skip
-            |
-            v
-      shared HR features
-       /       |       \
-      v        v        v
-  albedo    normal   material
-   tail      tail      tail
- 2 blocks   2 blocks   2 blocks
-    |          |          |
- ZeroHead   ZeroHead   ZeroHead
+albedo RGB       3 channels
+normal XY        2 channels
+material RGB     3 channels
+---------------------------
+total             8 channels
 ```
 
-The three `ZeroHead` layers guarantee:
+The context path is:
+
+```text
+8-channel LR maps
+      |
+      v
+LRContextEncoder
+      |
+      v
+bilinear resize to B dimensions
+      |
+      v
+3x3 HRContextAdapter
+```
+
+The context path does not create sub-pixel phase channels.
+
+Forbidden candidate paths are:
+
+```text
+PixelShuffle
+ConvTranspose2d
+learned 4x phase tensors
+HR encoder/decoder pyramid
+```
+
+---
+
+## 6. SwinIR-style HR deep feature extractor
+
+The candidate trunk receives:
+
+```text
+B physical maps   8 channels
+HR context       32 channels
+```
+
+It creates 96 HR features with a 3x3 stem.
+
+The complete active deep body is:
+
+```text
+HR stem, 96 channels
+      |
+      v
+Residual Swin Group 1
+  6 Swin layers
+      |
+      v
+Residual Swin Group 2
+  6 Swin layers
+      |
+      v
+Residual Swin Group 3
+  6 Swin layers
+      |
+      v
+Residual Swin Group 4
+  6 Swin layers
+      |
+      v
+Residual Swin Group 5
+  6 Swin layers
+      |
+      v
+Residual Swin Group 6
+  6 Swin layers
+      |
+      v
+3x3 body tail
+      |
+      +---------------- long skip from padded HR stem
+      |
+      v
+shared HR features
+```
+
+The body has **36 Swin Transformer layers**.
+It does not change spatial resolution.
+
+### 6.1 One Swin layer
+
+Each layer uses:
+
+```text
+input HR features
+      |
+LayerNorm
+      |
+window self-attention
+      |
+residual add
+      |
+LayerNorm
+      |
+MLP, ratio 2.0
+      |
+residual add
+```
+
+Layers alternate between:
+
+```text
+regular 8x8 windows
+shifted 8x8 windows with shift 4
+```
+
+The attention implementation includes learnable relative-position bias.
+The attention softmax executes in FP32 for numerical stability under BF16 or FP16 training.
+
+### 6.2 Residual Swin group
+
+Each group is:
+
+```text
+group input
+      |
+6 alternating Swin layers
+      |
+3x3 convolution
+      |
+add group input
+```
+
+Gradient checkpointing operates at group boundaries during training.
+
+---
+
+## 7. Physical-map reconstruction heads
+
+After the shared Swin body, each physical map has an independent convolutional tail:
+
+```text
+shared HR features
+      |
+      +-- albedo tail   -> ZeroHead(3)
+      |
+      +-- normal tail   -> ZeroHead(2)
+      |
+      +-- material tail -> ZeroHead(3)
+```
+
+Each tail contains two small residual convolution blocks.
+
+The zero heads guarantee:
 
 ```text
 before training:
 C == B
 ```
 
-### 3.3 Phase-neutral context
+This condition is mandatory.
 
-LR physical maps are encoded at LR.
-The context features move to HR with bilinear interpolation.
-A normal 3x3 HR convolution adapts the resized context.
+---
 
-The LR path does not create 4x phase channels.
+## 8. Residual bounds and physical projection
 
-Forbidden learned paths are:
+Each map tail produces a raw residual.
 
-```text
-PixelShuffle
-ConvTranspose2d
-learned 4x phase tensors
-multi-scale HR encoder/decoder
-```
-
-### 3.4 Residual output
-
-Each map tail predicts a raw residual.
-V15.0 applies:
+V16 applies:
 
 ```text
-predicted residual = tanh(raw) * residualCap
+predicted residual = tanh(raw residual) * residualCap
 ```
 
-The caps remain:
+Residual caps remain:
 
 ```text
 albedo   = 0.40
@@ -245,95 +417,72 @@ normal C   = normalize_xy(B + predicted residual)
 material C = clamp(B + predicted residual, 0, 1)
 ```
 
-The direct residual loss supervises the bounded residual before physical projection.
+Direct residual supervision uses the bounded residual **before** physical projection.
 
 ---
 
-## 4. Literature alignment
+## 9. Candidate objective
 
-V15.0 deliberately reduces custom architecture.
+V16 keeps the existing candidate objective unchanged.
 
-The relevant design references are:
+The loss contains:
 
-- **EDSR, Lim et al., CVPR Workshops 2017**: remove BatchNorm from SR residual blocks, use `Conv -> ReLU -> Conv`, and use residual scaling for large residual networks.
-- **RCAN, Zhang et al., ECCV 2018**: use residual-in-residual skip structure and channel attention to focus capacity on high-frequency reconstruction.
-- **SwinIR, Liang et al., ICCV Workshops 2021**: separate shallow feature extraction, deep feature extraction, and reconstruction with strong residual organization.
+```text
+albedo reconstruction L1
+gradient reconstruction
+Laplacian reconstruction
+2x and 4x average-pyramid reconstruction
+direct A-B residual reconstruction
+normal reconstruction
+material reconstruction
+```
 
-V15.0 uses the simpler EDSR direction first.
-It does not add RCAN attention or Swin Transformer blocks until a simpler stable residual model proves insufficient.
+The architecture test must not be combined with loss-weight changes.
 
-NSAMDR still differs from standard SISR in one important way:
-
-> The network reconstructs a residual around deterministic HR baseline B and uses aligned physical maps, instead of reconstructing RGB directly from LR and then owning every output pixel.
-
-That difference is intentional.
+The candidate must solve the same problem as V15.
+Only the deep feature extractor changes.
 
 ---
 
-## 5. OOP ownership
+## 10. BenefitSelector
 
-The active implementation remains under:
+BenefitSelector trains only after C qualifies.
 
-```text
-tools/nsamdr/neural/v14/
-```
-
-The package path is retained for compatibility with the existing workflow.
-The checkpoint schema, GUI, diagnostic revision, and architecture contract identify the active model as V15.0.
-
-### `config.py`
-
-`V15Config` owns the V15 architecture and training configuration.
-`V14Config` is a compatibility alias only.
-
-Model schema:
+It receives:
 
 ```text
-NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V15_0
+B physical maps
+C physical maps
+|C-B| physical-map delta
+bilinear HR LR evidence
+B albedo gradient
+C albedo gradient
+LR albedo edge evidence
 ```
 
-### `refinement.py`
+One shared gate controls aligned albedo, normal, and material selection.
 
-Owns:
+The selector must retain at least:
 
 ```text
-ZeroHead
-EDSRResidualBlock
-CheckpointedResidualBody
-PhysicalMapTail
-SingleScaleHRRefinementTrunk
+edge recovery retention   >= 90%
+global recovery retention >= 90%
+protected preservation    >= 99%
 ```
-
-### `model.py`
-
-Owns:
-
-```text
-LRContextEncoder
-HRContextAdapter
-SingleScaleHRRefinementTrunk
-BenefitSelector
-NSAMDRV15
-```
-
-`NSAMDRV14` is a compatibility alias only.
-
-### `capacity_diagnostic.py`
-
-Owns the non-promotable single-region Capacity proof.
-It uses the exact V15.0 candidate path.
 
 ---
 
-## 6. Capacity test
+## 11. Capacity test
 
-Capacity uses:
+Capacity is a non-promotable single-region overfit proof.
+It uses the exact V16 candidate path.
 
 ```text
 training pair       128 LR -> 512 authored HR
 maximum steps       3072
 learning rate       0.0002
 optimizer           Adam
+report interval     32 steps
 ```
 
 Pass criteria remain unchanged:
@@ -345,7 +494,7 @@ gradient recovery >= 35%
 lattice excess    <= 15%
 ```
 
-The test still has three outcomes:
+Valid outcomes are:
 
 ```text
 PASS
@@ -355,124 +504,277 @@ DIVERGED
 
 A `DIVERGED` result is not a Capacity result.
 
----
-
-## 7. Candidate objective
-
-The current objective remains unchanged for the V15.0 architecture test.
-
-It contains:
-
-- albedo L1 reconstruction;
-- gradient reconstruction;
-- Laplacian reconstruction;
-- multi-scale pooled reconstruction;
-- direct bounded residual supervision against `A - B`;
-- normal reconstruction;
-- material reconstruction.
-
-The objective is intentionally unchanged so the Capacity result isolates the architecture change.
-
-If V15.0 remains stable but fails Capacity, the next model comparison must use the same objective and the same qualification gates.
-
----
-
-## 8. Diagnostic ladder
+Capacity writes:
 
 ```text
-1. V15.0 HR Residual Capacity
-       |
-       v
-2. V15.0 Multi-Region SR Mini
-       |
-       v
-3. V15.0 Selector Retention Mini
-       |
-       v
-4. V15.0 Raven Quick
-       |
-       v
-5. Full Training
-       |
-       v
-6. Qualified V15.0 Preview
+report.json
+capacity_curve.json
+ABCF_probe.png
+edge_comparison.png
+error_comparison.png
+detail_band_comparison.png
+best_checkpoint.pt
+last_stable_checkpoint.pt
+candidate_checkpoint.pt        when the run does not diverge
+divergence_report.json         when the run diverges
 ```
 
-Do not proceed to Multi-Region until Capacity returns `PASS`.
-
----
-
-## 9. Native authored resolution
-
-Training truth must use genuine authored resolution.
-
-Examples:
+Telemetry includes:
 
 ```text
-native 4096 asset -> supervise 1024 -> 4096
-native 2048 asset -> supervise  512 -> 2048
-native 1024 asset -> supervise  256 -> 1024
+global recovery
+edge recovery
+gradient recovery
+1-pixel detail recovery
+2-pixel detail recovery
+4-pixel detail recovery
+albedo recovery
+normal recovery
+material recovery
+lattice excess
+raw residual magnitude
+residual-cap saturation
+gradient norm
+peak VRAM
 ```
 
-Raven is native 1024.
-It can provide genuine `256 -> 1024` supervision.
-It cannot create genuine `1024 -> 4096` truth.
+---
 
-Raven is the architecture proving ground.
-The production corpus must later include genuinely native 2K and 4K material families.
+## 12. Diagnostic ladder
+
+The GUI exposes:
+
+```text
+P0  Prepare CUDA environment
+1   V16.0 HR Residual Capacity
+2   V16.0 Multi-Region SR Mini
+3   V16.0 Selector Retention Mini
+4   V16.0 HR-First Raven Quick
+5   Full Training (disabled)
+6   Qualified V16.0 Preview
+```
+
+Rules:
+
+```text
+Capacity must PASS before Multi-Region.
+Multi-Region must PASS before Selector.
+Selector must PASS before Raven Quick is treated as fully proven.
+Full Training stays disabled until Raven Quick qualifies.
+```
+
+The mini diagnostic root is:
+
+```text
+artifacts/nsamdr/diagnostics/v16_mini/
+```
 
 ---
 
-## 10. Qualification
+## 13. Data contract
 
-Candidate qualification remains:
+Raven semantic maps are genuinely native 1024x1024.
+Raven therefore provides genuine:
 
-| Requirement | Threshold |
-| --- | ---: |
-| Independent held-out samples | >= 4 |
-| Median candidate edge recovery | >= 60% |
-| Median candidate global recovery | >= 45% |
-| Median candidate gradient recovery | >= 35% |
-| Positive-edge patch fraction | >= 75% |
-| Positive-global patch fraction | >= 75% |
-| Median normal recovery | >= 0% |
-| Median material recovery | >= 0% |
-| Worst candidate recovery | >= -10% |
-| Max excess LR-lattice cell projection | <= 15% |
+```text
+256 -> 1024
+```
 
-Only after C passes does BenefitSelector train.
+supervision.
 
-Final qualification remains:
+Training crops use:
 
-| Requirement | Threshold |
-| --- | ---: |
-| Selector edge retention | >= 90% |
-| Selector global retention | >= 90% |
-| Median final normal recovery | >= 0% |
-| Median final material recovery | >= 0% |
-| Protected-B preservation | >= 99% |
-| Worst final recovery | >= -10% |
-| Max excess LR-lattice cell projection | <= 15% |
+```text
+128 -> 512
+```
+
+from genuine authored 1K evidence.
+
+Raven does **not** create genuine 1024 -> 4096 truth.
+It cannot be used to manufacture a 4K target from a 1K source.
+
+For later Full training, prefer the highest genuinely native map families:
+
+```text
+native 4096 maps -> genuine 1024 -> 4096 supervision
+native 2048 maps -> genuine  512 -> 2048 supervision
+native 1024 maps -> genuine  256 -> 1024 supervision
+```
+
+The production model remains a common 4x reconstruction model.
 
 ---
 
-## 11. Current decision rule
+## 14. Qualification integrity
 
-For the next V15.0 Capacity run:
+Held-out qualification must come from independent validation records.
+
+Native full-scale Raven samples are telemetry only.
+They cannot satisfy minimum held-out coverage.
+
+Minimum held-out requirement:
+
+```text
+minimumHeldoutSamples = 4
+```
+
+If the dataset cannot provide four independent held-out regions, Quick must reject on held-out coverage.
+Do not relax the model gates to compensate for insufficient data diversity.
+
+---
+
+## 15. OOP ownership
+
+The active implementation remains under:
+
+```text
+tools/nsamdr/neural/v14/
+```
+
+The package path remains for compatibility.
+The active checkpoint schema and architecture contract identify V16.0.
+
+### `config.py`
+
+Owns:
+
+```text
+V16Config
+MODEL_SCHEMA
+```
+
+Active schema:
+
+```text
+NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V16_0
+```
+
+`V15Config` and `V14Config` are compatibility aliases only.
+
+### `refinement.py`
+
+Owns:
+
+```text
+ZeroHead
+ConvResidualBlock
+MLP
+WindowAttention
+SwinTransformerLayer
+ResidualSwinTransformerGroup
+PhysicalMapTail
+SwinIRHRRefinementTrunk
+window_partition
+window_reverse
+```
+
+### `model.py`
+
+Owns:
+
+```text
+LRContextEncoder
+HRContextAdapter
+BenefitSelector
+NSAMDRV16
+```
+
+`NSAMDRV15` and `NSAMDRV14` are compatibility aliases only.
+
+### `capacity_diagnostic.py`
+
+Owns the V16 single-region Capacity proof.
+
+### `multiregion_diagnostic.py`
+
+Owns the V16 disjoint-region candidate proof.
+
+### `selector_diagnostic.py`
+
+Owns the V16 selector-retention proof.
+
+### `trainer.py`
+
+Owns candidate training, candidate qualification, selector training, strict checkpoint reload, and final promotion.
+
+---
+
+## 16. Production inference
+
+Production inference remains tiled over LR input.
+
+Default geometry:
+
+```text
+LR tile      128
+LR overlap    16
+HR tile      512
+scale           4x
+```
+
+Overlap blending occurs after model inference.
+Normal XY is normalized again after tile blending.
+
+The V16 candidate itself does not use a learned spatial upsampler.
+B and phase-neutral LR context already define the HR coordinate system.
+
+---
+
+## 17. Decision after V16 Capacity
+
+The next run has a fixed decision rule.
 
 ```text
 PASS
--> freeze V15.0 candidate architecture
--> continue to Multi-Region
+  -> freeze V16 candidate architecture
+  -> run Multi-Region
 
 stable FAIL
--> V15.0 lacks sufficient reconstruction capacity
--> compare a stronger literature-backed model family
+  -> reject V16 SwinIR-style candidate
+  -> evaluate a HAT-style hybrid-attention trunk
 
 DIVERGED
--> stop
--> inspect the numerical failure before any further qualification run
+  -> treat as an implementation or numerical fault
+  -> do not proceed to Multi-Region
 ```
 
-Do not relax the gates.
-Do not increase the step budget to convert a failure into a pass.
+Do not respond to a stable FAIL by changing:
+
+```text
+Capacity thresholds
+step budget
+loss weights
+residual caps
+learning rate
+```
+
+The Capacity benchmark must remain comparable across model families.
+
+---
+
+## 18. Final visual proof
+
+The final target is not a metric-only result.
+
+A qualified production model must show a visible renderer-level improvement with the same:
+
+```text
+ship
+camera
+lighting
+LOD
+shader
+```
+
+The V16 or later final should show:
+
+- cleaner curved contours;
+- sharper supported panel boundaries;
+- better narrow-line reconstruction;
+- less interpolation stair-stepping;
+- aligned normal and material detail;
+- no obvious LR-grid blocks;
+- no invented logos or unsupported panels;
+- no generic AI texture appearance.
+
+If the improvement is not visible in the rendered asset, the README goal is not complete.
