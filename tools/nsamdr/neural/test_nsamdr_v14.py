@@ -15,7 +15,7 @@ from v14.inference import tiled_inference
 from v14.losses import candidate_loss, selector_loss
 from v14.model import BenefitSelector, NSAMDRV14
 from v14.qualification import aggregate_candidate, sample_metrics
-from v14.refinement import RCAB, ResidualGroup
+from v14.refinement import RCAB, ResidualGroup, ResidualLimiter
 from v14.training_stability import DivergenceMonitor
 
 
@@ -39,6 +39,7 @@ class NSAMDRV14ContractTests(unittest.TestCase):
             hr_decoder_blocks=1,
             map_tail_blocks=1,
             attention_reduction=4,
+            residual_group_scale=0.10,
             use_gradient_checkpointing=False,
             selector_channels=8,
             production_tile_lr=8,
@@ -100,7 +101,16 @@ class NSAMDRV14ContractTests(unittest.TestCase):
         ):
             self.assertEqual(float(outputs[key].abs().max()), 0.0)
 
-    def test_softsign_residuals_remain_inside_caps(self) -> None:
+    def test_straight_through_limiter_bounds_forward_and_preserves_gradient(self) -> None:
+        limiter = ResidualLimiter(0.40)
+        raw = torch.tensor([-2.0, -0.2, 0.0, 0.2, 2.0], requires_grad=True)
+        bounded = limiter(raw)
+        expected = torch.tensor([-0.4, -0.2, 0.0, 0.2, 0.4])
+        self.assertTrue(torch.allclose(bounded.detach(), expected))
+        bounded.sum().backward()
+        self.assertTrue(torch.equal(raw.grad, torch.ones_like(raw)))
+
+    def test_model_residuals_do_not_exceed_caps(self) -> None:
         config = self._config()
         model = NSAMDRV14(config).eval()
         with torch.no_grad():
@@ -114,15 +124,15 @@ class NSAMDRV14ContractTests(unittest.TestCase):
         with torch.no_grad():
             outputs = model(albedo, normal, material)
 
-        self.assertLess(
+        self.assertLessEqual(
             float(outputs["predicted_residual_albedo"].abs().max()),
             config.albedo_residual_cap,
         )
-        self.assertLess(
+        self.assertLessEqual(
             float(outputs["predicted_residual_normal"].abs().max()),
             config.normal_residual_cap,
         )
-        self.assertLess(
+        self.assertLessEqual(
             float(outputs["predicted_residual_material"].abs().max()),
             config.material_residual_cap,
         )
@@ -134,6 +144,7 @@ class NSAMDRV14ContractTests(unittest.TestCase):
             8,
             2,
             4,
+            residual_scale=0.10,
             use_gradient_checkpointing=False,
         ).eval()
         with torch.no_grad():
@@ -153,15 +164,19 @@ class NSAMDRV14ContractTests(unittest.TestCase):
             any(isinstance(module, torch.nn.PixelShuffle) for module in model.modules())
         )
         self.assertFalse(
-            any(isinstance(module, torch.nn.ConvTranspose2d) for module in model.modules())
+            any(
+                isinstance(module, torch.nn.ConvTranspose2d)
+                for module in model.modules()
+            )
         )
         contract = model.architecture_contract()
-        self.assertEqual(contract["revision"], "V14.3")
-        self.assertEqual(contract["residualBounding"], "softsign")
+        self.assertEqual(contract["revision"], "V14.4")
+        self.assertEqual(contract["residualBounding"], "straight-through-clamp")
         self.assertEqual(
             contract["residualSupervision"],
             "bounded-pre-physical-projection",
         )
+        self.assertAlmostEqual(float(contract["residualGroupScale"]), 0.10)
         self.assertTrue(contract["identityInitializedDeepResiduals"])
         self.assertFalse(contract["lrPhaseGridPixelAuthority"])
 
@@ -181,7 +196,7 @@ class NSAMDRV14ContractTests(unittest.TestCase):
         )
         self.assertEqual(BenefitSelector.FEATURE_CHANNELS, 35)
 
-    def test_candidate_training_reaches_v14_3_reconstruction_paths(self) -> None:
+    def test_candidate_training_reaches_v14_4_reconstruction_paths(self) -> None:
         config = self._config()
         model = NSAMDRV14(config)
         model.set_candidate_training()
@@ -190,7 +205,7 @@ class NSAMDRV14ContractTests(unittest.TestCase):
             for parameter in model.parameters()
             if parameter.requires_grad
         ]
-        optimizer = torch.optim.AdamW(parameters, lr=1.0e-3)
+        optimizer = torch.optim.AdamW(parameters, lr=config.sr_learning_rate)
         albedo, normal, material = self._batch()
 
         for _step in range(4):
