@@ -13,14 +13,14 @@ import cv2
 import numpy as np
 import torch
 
-from .config import V15Config
+from .config import V16Config
 from .dataset import RavenSRDataset
-from .model import NSAMDRV15
+from .model import NSAMDRV16
 from .qualification import sample_metrics
 
 
-DIAGNOSTIC_SCHEMA = "NSAMDR_V14_MINI_DIAGNOSTIC_V1"
-DIAGNOSTIC_REVISION = "V15.0"
+DIAGNOSTIC_SCHEMA = "NSAMDR_V16_MINI_DIAGNOSTIC_V1"
+DIAGNOSTIC_REVISION = "V16.0"
 
 
 def device_from_name(name: str) -> torch.device:
@@ -28,7 +28,7 @@ def device_from_name(name: str) -> torch.device:
         return torch.device("cpu")
     if name == "cuda":
         if not torch.cuda.is_available():
-            raise RuntimeError("V15.0 diagnostic requested CUDA but CUDA is unavailable")
+            raise RuntimeError("V16.0 diagnostic requested CUDA but CUDA is unavailable")
         return torch.device("cuda")
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -58,7 +58,7 @@ def prepare_raven_dataset(args: Any, repo_root: Path) -> None:
     if args.rebuild_dataset:
         command.append("--rebuild")
     print(
-        "[v15.0-diagnostic] prepare authored Raven dataset: "
+        "[v16.0-diagnostic] prepare authored Raven dataset: "
         + subprocess.list2cmdline(command),
         flush=True,
     )
@@ -70,7 +70,7 @@ def prepare_raven_dataset(args: Any, repo_root: Path) -> None:
 
 
 def make_run_directory(repo_root: Path, mode: str) -> Path:
-    root = repo_root / "artifacts/nsamdr/diagnostics/v14_mini"
+    root = repo_root / "artifacts/nsamdr/diagnostics/v16_mini"
     root.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
     path = root / f"{mode}_{stamp}"
@@ -136,7 +136,7 @@ def pseudo_manifest(
 
 def dataset_sample(
     record: dict[str, Any],
-    config: V15Config,
+    config: V16Config,
     device: torch.device,
 ) -> dict[str, torch.Tensor]:
     dataset = RavenSRDataset(
@@ -152,7 +152,7 @@ def dataset_sample(
 
 def iter_train_batches(
     manifest: dict[str, Any],
-    config: V15Config,
+    config: V16Config,
     count: int,
     *,
     seed: int,
@@ -172,9 +172,9 @@ def iter_train_batches(
 
 
 def validation_metrics(
-    model: NSAMDRV15,
+    model: NSAMDRV16,
     manifest: dict[str, Any],
-    config: V15Config,
+    config: V16Config,
     device: torch.device,
     precision: str,
     *,
@@ -229,7 +229,7 @@ def save_probe(
     panels: list[tuple[str, np.ndarray]] = [
         ("A AUTHORED", u8(batch["target_albedo"])),
         ("B BASELINE", u8(outputs["baseline_albedo"])),
-        ("C V15.0 SR", u8(outputs["candidate_albedo"])),
+        ("C V16.0 SR", u8(outputs["candidate_albedo"])),
     ]
     if include_final:
         panels.append(("F SELECTED", u8(outputs["albedo"])))
