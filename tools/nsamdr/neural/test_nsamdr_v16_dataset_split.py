@@ -13,6 +13,7 @@ if str(HERE) not in sys.path:
 from prepare_nsamdr_v16_raven_dataset import (
     V16RavenDatasetPreparationApplication,
 )
+from v14.multiregion_diagnostic import balanced_region_index
 
 
 class V16RavenSpatialSplitTests(unittest.TestCase):
@@ -81,6 +82,18 @@ class V16RavenSpatialSplitTests(unittest.TestCase):
             V16RavenDatasetPreparationApplication._sliding_positions(1100, 512)[-1],
             588,
         )
+
+    def test_multi_region_schedule_is_balanced_round_robin(self) -> None:
+        indices = [balanced_region_index(step, 4) for step in range(1, 17)]
+        self.assertEqual(indices, [0, 1, 2, 3] * 4)
+        counts = [indices.count(index) for index in range(4)]
+        self.assertEqual(counts, [4, 4, 4, 4])
+
+    def test_multi_region_schedule_rejects_invalid_inputs(self) -> None:
+        with self.assertRaises(ValueError):
+            balanced_region_index(0, 4)
+        with self.assertRaises(ValueError):
+            balanced_region_index(1, 0)
 
 
 if __name__ == "__main__":
