@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from functools import partial
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -7,7 +9,7 @@ from torch.utils.checkpoint import checkpoint
 
 
 class ZeroHead(nn.Conv2d):
-    """Zero-initialized physical-map head so candidate C starts exactly at baseline B."""
+    """Zero-initialized map head so candidate C starts exactly at baseline B."""
 
     def __init__(self, in_channels: int, out_channels: int) -> None:
         super().__init__(in_channels, out_channels, 3, padding=1)
@@ -15,269 +17,144 @@ class ZeroHead(nn.Conv2d):
         nn.init.zeros_(self.bias)
 
 
-class ResidualLimiter(nn.Module):
-    """Clamp a residual in the forward pass and pass gradients straight through."""
+class EDSRResidualBlock(nn.Module):
+    """EDSR-style residual block: Conv-ReLU-Conv with residual scaling and no BN."""
 
-    def __init__(self, cap: float) -> None:
+    def __init__(self, channels: int, residual_scale: float) -> None:
         super().__init__()
-        if cap <= 0.0:
-            raise ValueError("residual cap must be positive")
-        self.cap = float(cap)
-
-    def forward(self, raw: torch.Tensor) -> torch.Tensor:
-        value = raw.float()
-        clipped = value.clamp(-self.cap, self.cap)
-        return value + (clipped - value).detach()
-
-
-class ChannelAttention(nn.Module):
-    """Channel-only attention. It does not assign spatial pixel authority."""
-
-    def __init__(self, channels: int, reduction: int) -> None:
-        super().__init__()
-        hidden = max(4, channels // reduction)
-        self.pool = nn.AdaptiveAvgPool2d(1)
-        self.net = nn.Sequential(
-            nn.Conv2d(channels, hidden, 1),
-            nn.GELU(),
-            nn.Conv2d(hidden, channels, 1),
-            nn.Sigmoid(),
-        )
-
-    def forward(self, value: torch.Tensor) -> torch.Tensor:
-        return value * self.net(self.pool(value))
-
-
-class RCAB(nn.Module):
-    """Residual channel-attention block with an identity-safe initial state."""
-
-    def __init__(
-        self,
-        channels: int,
-        attention_reduction: int,
-        residual_scale: float = 0.20,
-    ) -> None:
-        super().__init__()
+        if not 0.0 < float(residual_scale) <= 1.0:
+            raise ValueError("residual_scale must be in (0, 1]")
         self.conv1 = nn.Conv2d(channels, channels, 3, padding=1)
         self.conv2 = nn.Conv2d(channels, channels, 3, padding=1)
-        self.act = nn.GELU()
-        self.attention = ChannelAttention(channels, attention_reduction)
+        self.act = nn.ReLU(inplace=False)
         self.residual_scale = float(residual_scale)
-
-        nn.init.zeros_(self.conv2.weight)
-        nn.init.zeros_(self.conv2.bias)
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
         residual = self.conv2(self.act(self.conv1(value)))
-        residual = self.attention(residual)
         return value + residual * self.residual_scale
 
 
-class ResidualGroup(nn.Module):
-    """RCAB group with an identity skip, group scaling, and optional checkpointing."""
+class CheckpointedResidualBody(nn.Module):
+    """Run one single-resolution residual body with optional block-segment checkpointing."""
 
     def __init__(
         self,
         channels: int,
         blocks: int,
-        attention_reduction: int,
-        *,
         residual_scale: float,
+        *,
+        checkpoint_segment_blocks: int,
         use_gradient_checkpointing: bool,
     ) -> None:
         super().__init__()
-        if not 0.0 < float(residual_scale) <= 1.0:
-            raise ValueError("ResidualGroup residual_scale must be in (0, 1]")
-        self.blocks = nn.Sequential(
-            *(RCAB(channels, attention_reduction) for _ in range(blocks))
+        if blocks < 1:
+            raise ValueError("blocks must be positive")
+        if checkpoint_segment_blocks < 1 or blocks % checkpoint_segment_blocks != 0:
+            raise ValueError("checkpoint_segment_blocks must divide blocks")
+        self.blocks = nn.ModuleList(
+            EDSRResidualBlock(channels, residual_scale) for _ in range(blocks)
         )
-        self.tail = nn.Conv2d(channels, channels, 3, padding=1)
-        self.residual_scale = float(residual_scale)
+        self.segment_blocks = int(checkpoint_segment_blocks)
         self.use_gradient_checkpointing = bool(use_gradient_checkpointing)
 
-        nn.init.zeros_(self.tail.weight)
-        nn.init.zeros_(self.tail.bias)
-
-    def _forward_impl(self, value: torch.Tensor) -> torch.Tensor:
-        residual = self.tail(self.blocks(value))
-        return value + residual * self.residual_scale
+    def _run_range(self, value: torch.Tensor, start: int, end: int) -> torch.Tensor:
+        for index in range(start, end):
+            value = self.blocks[index](value)
+        return value
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
-        if self.use_gradient_checkpointing and self.training and value.requires_grad:
-            return checkpoint(self._forward_impl, value, use_reentrant=False)
-        return self._forward_impl(value)
-
-
-class DownsampleFeatures(nn.Module):
-    """Reduce spatial size while increasing feature capacity."""
-
-    def __init__(self, in_channels: int, out_channels: int) -> None:
-        super().__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, 3, stride=2, padding=1)
-
-    def forward(self, value: torch.Tensor) -> torch.Tensor:
-        return F.gelu(self.conv(value))
-
-
-class UpsampleAndFuse(nn.Module):
-    """Phase-neutral bilinear resize followed by HR convolution and skip fusion."""
-
-    def __init__(self, in_channels: int, skip_channels: int, out_channels: int) -> None:
-        super().__init__()
-        self.adapter = nn.Conv2d(in_channels, out_channels, 3, padding=1)
-        self.skip_adapter = (
-            nn.Identity()
-            if skip_channels == out_channels
-            else nn.Conv2d(skip_channels, out_channels, 1)
-        )
-        self.fuse = nn.Conv2d(out_channels * 2, out_channels, 3, padding=1)
-
-    def forward(self, value: torch.Tensor, skip: torch.Tensor) -> torch.Tensor:
-        value = F.interpolate(
-            value,
-            size=skip.shape[-2:],
-            mode="bilinear",
-            align_corners=False,
-        )
-        value = F.gelu(self.adapter(value))
-        skip = self.skip_adapter(skip)
-        return F.gelu(self.fuse(torch.cat((value, skip), dim=1)))
+        for start in range(0, len(self.blocks), self.segment_blocks):
+            end = start + self.segment_blocks
+            if self.use_gradient_checkpointing and self.training and value.requires_grad:
+                run = partial(self._run_range, start=start, end=end)
+                value = checkpoint(run, value, use_reentrant=False)
+            else:
+                value = self._run_range(value, start, end)
+        return value
 
 
 class PhysicalMapTail(nn.Module):
-    """Map-specific refinement followed by a raw zero-initialized residual head."""
+    """Map-specific residual refinement followed by a zero-initialized raw head."""
 
     def __init__(
         self,
         channels: int,
         out_channels: int,
         blocks: int,
-        attention_reduction: int,
-        *,
-        residual_group_scale: float,
-        use_gradient_checkpointing: bool,
+        residual_scale: float,
     ) -> None:
         super().__init__()
-        self.refinement = ResidualGroup(
-            channels,
-            blocks,
-            attention_reduction,
-            residual_scale=residual_group_scale,
-            use_gradient_checkpointing=use_gradient_checkpointing,
+        self.blocks = nn.Sequential(
+            *(EDSRResidualBlock(channels, residual_scale) for _ in range(blocks))
         )
         self.head = ZeroHead(channels, out_channels)
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
-        return self.head(self.refinement(value))
+        return self.head(self.blocks(value))
 
 
-class MultiScaleHRRefinementTrunk(nn.Module):
-    """Deep phase-neutral multi-scale reconstruction trunk for candidate C."""
+class SingleScaleHRRefinementTrunk(nn.Module):
+    """V15.0 single-resolution HR residual backbone.
+
+    The trunk follows the EDSR pattern: shallow feature extraction, a deep residual body,
+    one long feature skip, and reconstruction heads. It never changes spatial resolution.
+    """
 
     def __init__(
         self,
         *,
         baseline_channels: int,
         context_channels: int,
-        hr_channels: int,
-        half_channels: int,
-        quarter_channels: int,
-        hr_encoder_blocks: int,
-        half_encoder_blocks: int,
-        quarter_encoder_blocks: int,
-        bottleneck_blocks: int,
-        half_decoder_blocks: int,
-        hr_decoder_blocks: int,
+        channels: int,
+        blocks: int,
         map_tail_blocks: int,
-        attention_reduction: int,
-        residual_group_scale: float,
+        residual_scale: float,
+        checkpoint_segment_blocks: int,
         use_gradient_checkpointing: bool,
     ) -> None:
         super().__init__()
         self.stem = nn.Conv2d(
             baseline_channels + context_channels,
-            hr_channels,
+            channels,
             3,
             padding=1,
         )
-
-        group_kwargs = {
-            "attention_reduction": attention_reduction,
-            "residual_scale": residual_group_scale,
-            "use_gradient_checkpointing": use_gradient_checkpointing,
-        }
-        self.hr_encoder = ResidualGroup(
-            hr_channels,
-            hr_encoder_blocks,
-            **group_kwargs,
+        self.body = CheckpointedResidualBody(
+            channels,
+            blocks,
+            residual_scale,
+            checkpoint_segment_blocks=checkpoint_segment_blocks,
+            use_gradient_checkpointing=use_gradient_checkpointing,
         )
-        self.down_half = DownsampleFeatures(hr_channels, half_channels)
-        self.half_encoder = ResidualGroup(
-            half_channels,
-            half_encoder_blocks,
-            **group_kwargs,
+        self.body_tail = nn.Conv2d(channels, channels, 3, padding=1)
+        self.albedo_tail = PhysicalMapTail(
+            channels,
+            3,
+            map_tail_blocks,
+            residual_scale,
         )
-        self.down_quarter = DownsampleFeatures(half_channels, quarter_channels)
-        self.quarter_encoder = ResidualGroup(
-            quarter_channels,
-            quarter_encoder_blocks,
-            **group_kwargs,
+        self.normal_tail = PhysicalMapTail(
+            channels,
+            2,
+            map_tail_blocks,
+            residual_scale,
         )
-        self.bottleneck = ResidualGroup(
-            quarter_channels,
-            bottleneck_blocks,
-            **group_kwargs,
+        self.material_tail = PhysicalMapTail(
+            channels,
+            3,
+            map_tail_blocks,
+            residual_scale,
         )
-
-        self.up_half = UpsampleAndFuse(
-            quarter_channels,
-            half_channels,
-            half_channels,
-        )
-        self.half_decoder = ResidualGroup(
-            half_channels,
-            half_decoder_blocks,
-            **group_kwargs,
-        )
-        self.up_hr = UpsampleAndFuse(
-            half_channels,
-            hr_channels,
-            hr_channels,
-        )
-        self.hr_decoder = ResidualGroup(
-            hr_channels,
-            hr_decoder_blocks,
-            **group_kwargs,
-        )
-
-        tail_kwargs = {
-            "blocks": map_tail_blocks,
-            "attention_reduction": attention_reduction,
-            "residual_group_scale": residual_group_scale,
-            "use_gradient_checkpointing": use_gradient_checkpointing,
-        }
-        self.albedo_tail = PhysicalMapTail(hr_channels, 3, **tail_kwargs)
-        self.normal_tail = PhysicalMapTail(hr_channels, 2, **tail_kwargs)
-        self.material_tail = PhysicalMapTail(hr_channels, 3, **tail_kwargs)
 
     def forward(
         self,
         baseline: torch.Tensor,
         context_hr: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
-        stem = F.gelu(
-            self.stem(torch.cat((baseline.float(), context_hr.float()), dim=1))
-        )
-
-        hr_skip = self.hr_encoder(stem)
-        half_skip = self.half_encoder(self.down_half(hr_skip))
-        quarter = self.quarter_encoder(self.down_quarter(half_skip))
-        value = self.bottleneck(quarter)
-
-        value = self.half_decoder(self.up_half(value, half_skip))
-        value = self.hr_decoder(self.up_hr(value, hr_skip))
-        value = value + stem
-
+        stem = self.stem(torch.cat((baseline.float(), context_hr.float()), dim=1))
+        value = self.body(stem)
+        value = stem + self.body_tail(value)
+        value = F.relu(value, inplace=False)
         return {
             "albedo": self.albedo_tail(value),
             "normal": self.normal_tail(value),
