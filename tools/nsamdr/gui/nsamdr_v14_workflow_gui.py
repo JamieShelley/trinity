@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""NSAMDR V14.3 GUI surface.
+"""NSAMDR V14.4 GUI surface.
 
-The diagnostic ladder uses the exact V14.3 production model. Historical V9-V13
+The diagnostic ladder uses the exact V14.4 production model. Historical V9-V13
 geometry, SDF, seam, and profile implementations are not restored.
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ if str(NEURAL_ROOT) not in sys.path:
 from v14.config import MODEL_SCHEMA
 
 
-VERSION = "V14.3"
+VERSION = "V14.4"
 EXPERIMENT_SCHEMA = "NSAMDR_V14_EXPERIMENT_V1"
 FINAL_SCHEMA = "NSAMDR_V14_FINAL_MANIFEST_V1"
 MINI_SCHEMA = "NSAMDR_V14_MINI_DIAGNOSTIC_V1"
@@ -43,7 +43,7 @@ _capacity = base.Stage(
     ("v14-mini-capacity",),
     (
         "Fast non-promotable overfit proof on one deterministic high-detail Raven "
-        "region. Tests the stable V14.3 multi-scale candidate C."
+        "region. Tests the stable V14.4 multi-scale candidate C."
     ),
     False,
 )
@@ -53,7 +53,7 @@ _multiregion = base.Stage(
     f"{VERSION} Multi-Region SR Mini",
     ("v14-mini-multiregion",),
     (
-        "Small disjoint-region generalisation proof for the exact V14.3 candidate C. "
+        "Small disjoint-region generalisation proof for the exact V14.4 candidate C. "
         "Requires Capacity first."
     ),
     False,
@@ -63,7 +63,7 @@ _selector = base.Stage(
     "3",
     f"{VERSION} Selector Retention Mini",
     ("v14-mini-selector",),
-    "Train only BenefitSelector from the latest passing V14.3 multi-region candidate.",
+    "Train only BenefitSelector from the latest passing V14.4 multi-region candidate.",
     False,
 )
 _quick = base.Stage(
@@ -82,7 +82,7 @@ _train = base.Stage(
     "5",
     "Full Training (disabled)",
     _existing["train"].command,
-    "Disabled until V14.3 Raven Quick meets the README qualification gates.",
+    "Disabled until V14.4 Raven Quick meets the README qualification gates.",
     False,
 )
 _preview = base.Stage(
@@ -90,7 +90,7 @@ _preview = base.Stage(
     "6",
     f"Qualified {VERSION} Preview",
     _existing["preview"].command,
-    "Bake and inspect 4x physical maps from a qualified immutable V14.3 checkpoint.",
+    "Bake and inspect 4x physical maps from a qualified immutable V14.4 checkpoint.",
     False,
 )
 
@@ -113,7 +113,7 @@ _original_dispatcher_argv = base.App._dispatcher_argv
 
 
 class V14ArtifactInspector:
-    """Read V14.3 experiment and diagnostic artifacts for GUI state."""
+    """Read V14.4 experiment and diagnostic artifacts for GUI state."""
 
     def __init__(self, app: base.App) -> None:
         self.app = app
@@ -248,7 +248,7 @@ def _args(self: base.App, stage_id: str) -> list[str]:
             "--steps",
             self._value("capacity_steps", "3072"),
             "--learning-rate",
-            self._value("capacity_lr", "0.001"),
+            self._value("capacity_lr", "0.0002"),
             "--report-every",
             self._value("capacity_report_every", "32"),
             "--required-edge-recovery",
@@ -357,11 +357,15 @@ def _select_capacity(self: base.App, stage: base.Stage, status: str) -> None:
     )
     self._label_row(
         "Model",
-        "Exact V14.3 stable phase-neutral multi-scale RCAN candidate C",
+        "Exact V14.4 stable phase-neutral multi-scale RCAN candidate C",
     )
     self._label_row(
         "Stability",
-        "Identity-initialized residual groups + softsign residuals + pre-projection residual supervision",
+        "0.10 ResidualGroup scaling + straight-through residual limiter + pre-projection supervision",
+    )
+    self._label_row(
+        "Optimizer",
+        "Capacity uses the production SR learning rate: 0.0002",
     )
     self._label_row(
         "Divergence guard",
@@ -372,7 +376,7 @@ def _select_capacity(self: base.App, stage: base.Stage, status: str) -> None:
     self._label_row("Purpose", "C must materially beat B without LR-grid imprint")
     self._row("Shared cache", "cache", r"C:\CCP\EVE")
     self._row("Maximum steps", "capacity_steps", "3072", ("1024", "2048", "3072"))
-    self._row("Learning rate", "capacity_lr", "0.001", ("0.0003", "0.001"))
+    self._row("Learning rate", "capacity_lr", "0.0002", ("0.0001", "0.0002", "0.0003"))
     self._row("Report interval", "capacity_report_every", "32", ("16", "32", "64"))
     self._row("Required edge recovery", "edge_recovery", "0.60", ("0.45", "0.60", "0.70"))
     self._row("Required global recovery", "global_recovery", "0.45", ("0.30", "0.45", "0.55"))
@@ -382,7 +386,7 @@ def _select_capacity(self: base.App, stage: base.Stage, status: str) -> None:
     self._check("Rebuild fixed Raven dataset", "rebuild", False)
     self._label_row(
         "Telemetry",
-        "1/2/4-pixel detail recovery, residual saturation, gradient norm, and VRAM",
+        "1/2/4-pixel detail, bounded saturation, raw residual magnitude, gradient norm, and VRAM",
     )
     self._label_row(
         "Artifacts",
@@ -453,9 +457,9 @@ def _selected(self: base.App) -> None:
         _original_selected(self)
         if stage_id == "quick":
             self.description.set(
-                "4. V14.3 HR-First Raven Quick - stable phase-neutral LR context, "
-                "multi-scale RCAN HR reconstruction, held-out qualification, then "
-                "BenefitSelector only after C passes."
+                "4. V14.4 HR-First Raven Quick - stable phase-neutral LR context, "
+                "scaled multi-scale RCAN HR reconstruction, held-out qualification, "
+                "then BenefitSelector only after C passes."
             )
             if "control" in self.vars:
                 self.vars["control"].set("auto")
