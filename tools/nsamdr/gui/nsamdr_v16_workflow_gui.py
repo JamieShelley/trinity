@@ -44,7 +44,10 @@ base.STAGES = (
         "2",
         f"{VERSION} Multi-Region SR Mini",
         _existing["multiregion"].command,
-        "Disjoint-region generalisation proof for the exact V16.0 candidate C.",
+        (
+            "Generalisation proof across hard pixel-disjoint Raven train and held-out "
+            "spatial domains. Windows may overlap only inside one split."
+        ),
         False,
     ),
     base.Stage(
@@ -164,7 +167,7 @@ def _select_capacity(self: base.App, stage: base.Stage, status: str) -> None:
     self._row("Required gradient recovery", "gradient_recovery", "0.35", ("0.20", "0.35", "0.45"))
     self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
     self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
-    self._check("Rebuild fixed Raven dataset", "rebuild", False)
+    self._check("Rebuild V16 Raven spatial dataset", "rebuild", False)
     self._label_row(
         "Telemetry",
         "1/2/4-pixel detail, residual saturation, raw residual magnitude, gradient norm, and VRAM",
