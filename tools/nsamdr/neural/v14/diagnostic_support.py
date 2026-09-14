@@ -41,7 +41,7 @@ def autocast_context(device: torch.device, precision: str):
 
 
 def prepare_raven_dataset(args: Any, repo_root: Path) -> None:
-    script = repo_root / "tools/nsamdr/neural/prepare_nsamdr_v9_raven_preview_dataset.py"
+    script = repo_root / "tools/nsamdr/neural/prepare_nsamdr_v16_raven_dataset.py"
     command = [
         sys.executable,
         "-u",
@@ -58,7 +58,7 @@ def prepare_raven_dataset(args: Any, repo_root: Path) -> None:
     if args.rebuild_dataset:
         command.append("--rebuild")
     print(
-        "[v16.0-diagnostic] prepare authored Raven dataset: "
+        "[v16.0-diagnostic] prepare authored Raven spatial-domain dataset: "
         + subprocess.list2cmdline(command),
         flush=True,
     )
