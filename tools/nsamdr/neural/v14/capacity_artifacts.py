@@ -7,11 +7,11 @@ import numpy as np
 import torch
 from torch.nn import functional as F
 
-from .config import V15Config
+from .config import V16Config
 
 
 class CapacityArtifactWriter:
-    """Write V15.0 Capacity telemetry images without affecting pass or fail."""
+    """Write V16.0 Capacity telemetry images without affecting pass or fail."""
 
     def __init__(self, run_dir: Path) -> None:
         self.run_dir = run_dir
@@ -112,14 +112,10 @@ class CapacityArtifactWriter:
         candidate: torch.Tensor,
     ) -> Path:
         baseline_error = (
-            (baseline.float() - target.float())
-            .abs()
-            .mean(dim=1, keepdim=True)
+            (baseline.float() - target.float()).abs().mean(dim=1, keepdim=True)
         )
         candidate_error = (
-            (candidate.float() - target.float())
-            .abs()
-            .mean(dim=1, keepdim=True)
+            (candidate.float() - target.float()).abs().mean(dim=1, keepdim=True)
         )
         maximum = torch.maximum(
             baseline_error.amax(),
@@ -152,14 +148,8 @@ class CapacityArtifactWriter:
             ).clamp_min(1.0e-8)
             panels.extend(
                 [
-                    (
-                        f"B {label} ERROR",
-                        self._gray_u8(baseline_error / maximum),
-                    ),
-                    (
-                        f"C {label} ERROR",
-                        self._gray_u8(candidate_error / maximum),
-                    ),
+                    (f"B {label} ERROR", self._gray_u8(baseline_error / maximum)),
+                    (f"C {label} ERROR", self._gray_u8(candidate_error / maximum)),
                 ]
             )
         return self._write_panels("detail_band_comparison.png", panels)
@@ -173,20 +163,10 @@ class CapacityArtifactWriter:
         baseline = outputs["baseline_albedo"]
         candidate = outputs["candidate_albedo"]
         paths = {
-            "edgeComparison": self.write_edge_comparison(
-                target,
-                baseline,
-                candidate,
-            ),
-            "errorComparison": self.write_error_comparison(
-                target,
-                baseline,
-                candidate,
-            ),
+            "edgeComparison": self.write_edge_comparison(target, baseline, candidate),
+            "errorComparison": self.write_error_comparison(target, baseline, candidate),
             "detailBandComparison": self.write_detail_band_comparison(
-                target,
-                baseline,
-                candidate,
+                target, baseline, candidate
             ),
         }
         return {key: str(path.resolve()) for key, path in paths.items()}
@@ -194,10 +174,8 @@ class CapacityArtifactWriter:
     @staticmethod
     def residual_cap_saturation(
         outputs: dict[str, torch.Tensor],
-        config: V15Config,
+        config: V16Config,
     ) -> dict[str, float]:
-        """Measure bounded pre-projection residuals near their configured caps."""
-
         thresholds = {
             "albedo": float(config.albedo_residual_cap) * 0.98,
             "normal": float(config.normal_residual_cap) * 0.98,
@@ -209,9 +187,7 @@ class CapacityArtifactWriter:
             "material": outputs["predicted_residual_material"].float(),
         }
         return {
-            key: float(
-                (tensors[key].abs() >= threshold).float().mean().item()
-            )
+            key: float((tensors[key].abs() >= threshold).float().mean().item())
             for key, threshold in thresholds.items()
         }
 
@@ -219,8 +195,6 @@ class CapacityArtifactWriter:
     def raw_residual_magnitude(
         outputs: dict[str, torch.Tensor],
     ) -> dict[str, float]:
-        """Measure mean absolute raw residual values before V15.0 tanh bounding."""
-
         tensors = {
             "albedo": outputs["candidate_raw_residual_albedo"].float(),
             "normal": outputs["candidate_raw_residual_normal"].float(),
