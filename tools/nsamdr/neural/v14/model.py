@@ -55,6 +55,12 @@ def _gray_gradient(value: torch.Tensor) -> torch.Tensor:
     return dx + dy
 
 
+def _bounded_residual(raw: torch.Tensor, cap: float) -> torch.Tensor:
+    """Map an unconstrained residual to (-cap, cap) with a non-dead softsign slope."""
+
+    return F.softsign(raw.float()) * float(cap)
+
+
 class BenefitSelector(nn.Module):
     """Select candidate C only where aligned physical-map evidence supports it."""
 
@@ -110,7 +116,7 @@ class BenefitSelector(nn.Module):
 
 
 class NSAMDRV14(nn.Module):
-    """V14.2 production graph: B -> deep phase-neutral multi-scale C -> selector F."""
+    """V14.3 production graph with stable pre-projection residual supervision."""
 
     BASELINE_CHANNELS = 8
 
@@ -177,17 +183,26 @@ class NSAMDRV14(nn.Module):
             lr_maps,
             b_albedo.shape[-2:],
         )
-        residual = self.hr_refiner(baseline_maps, context_hr)
 
-        c_albedo = (
-            b_albedo + residual["albedo"] * self.config.albedo_residual_cap
-        ).clamp(0.0, 1.0)
-        c_normal = normalize_xy(
-            b_normal + residual["normal"] * self.config.normal_residual_cap
+        raw = self.hr_refiner(baseline_maps, context_hr)
+        predicted_albedo = _bounded_residual(
+            raw["albedo"],
+            self.config.albedo_residual_cap,
         )
-        c_material = (
-            b_material + residual["material"] * self.config.material_residual_cap
-        ).clamp(0.0, 1.0)
+        predicted_normal = _bounded_residual(
+            raw["normal"],
+            self.config.normal_residual_cap,
+        )
+        predicted_material = _bounded_residual(
+            raw["material"],
+            self.config.material_residual_cap,
+        )
+
+        # Physical projection is separate from residual prediction. Candidate loss can
+        # supervise the bounded residual before clamp/normalization changes its gradient.
+        c_albedo = (b_albedo + predicted_albedo).clamp(0.0, 1.0)
+        c_normal = normalize_xy(b_normal + predicted_normal)
+        c_material = (b_material + predicted_material).clamp(0.0, 1.0)
         candidate_maps = torch.cat((c_albedo, c_normal, c_material), dim=1)
 
         selector_logits = self.selector(baseline_maps, candidate_maps, lr_maps)
@@ -206,6 +221,12 @@ class NSAMDRV14(nn.Module):
             "baseline_albedo": b_albedo,
             "baseline_normal": b_normal,
             "baseline_material": b_material,
+            "candidate_raw_residual_albedo": raw["albedo"],
+            "candidate_raw_residual_normal": raw["normal"],
+            "candidate_raw_residual_material": raw["material"],
+            "predicted_residual_albedo": predicted_albedo,
+            "predicted_residual_normal": predicted_normal,
+            "predicted_residual_material": predicted_material,
             "candidate_albedo": c_albedo,
             "candidate_normal": c_normal,
             "candidate_material": c_material,
@@ -239,15 +260,18 @@ class NSAMDRV14(nn.Module):
     def architecture_contract(self) -> dict[str, object]:
         return {
             "schema": MODEL_SCHEMA,
-            "revision": "V14.2",
+            "revision": "V14.3",
             "scale": self.config.scale,
             "productionForward": (
                 "LR -> deterministic B + phase-neutral LR context -> "
-                "multi-scale RCAN-style HR refinement C -> "
+                "identity-initialized multi-scale RCAN HR refinement -> "
+                "softsign bounded residual -> physical projection C -> "
                 "physical-map-aware BenefitSelector F"
             ),
             "contextUpsampling": "bilinear-phase-neutral + HR 3x3 adapter",
             "decoderUpsampling": "bilinear-phase-neutral + HR convolution",
+            "residualBounding": "softsign",
+            "residualSupervision": "bounded-pre-physical-projection",
             "candidateIdentityAtInitialization": "C == B",
             "activeComponents": (
                 "baseline",
@@ -267,6 +291,7 @@ class NSAMDRV14(nn.Module):
             "pixelShuffleUsed": False,
             "transposedConvolutionUsed": False,
             "selectorUsesPhysicalMaps": True,
+            "identityInitializedDeepResiduals": True,
             "gradientCheckpointing": bool(
                 self.config.use_gradient_checkpointing
             ),
