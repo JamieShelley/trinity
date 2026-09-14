@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""V14.2 multi-region candidate generalisation diagnostic."""
+"""V14.3 multi-region candidate generalisation diagnostic."""
 from __future__ import annotations
 
 import argparse
@@ -59,7 +59,7 @@ else:
 
 
 class MultiRegionDiagnostic:
-    """Test whether V14.2 candidate gains survive disjoint Raven regions."""
+    """Test whether V14.3 candidate gains survive disjoint Raven regions."""
 
     def __init__(
         self,
@@ -149,7 +149,7 @@ class MultiRegionDiagnostic:
         best_report: dict[str, object] | None = None
 
         print("=" * 76, flush=True)
-        print("V14.2 MULTI-REGION SR MINI - DIAGNOSTIC ONLY", flush=True)
+        print("V14.3 MULTI-REGION SR MINI - DIAGNOSTIC ONLY", flush=True)
         print(
             f"Train/held-out : {len(train_records)} / {len(validation_records)} disjoint regions",
             flush=True,
@@ -212,7 +212,7 @@ class MultiRegionDiagnostic:
                 model,
                 config,
                 epoch=epoch,
-                phase="v14.2-mini-multiregion",
+                phase="v14.3-mini-multiregion",
                 metrics=report,
             )
             print(
@@ -231,7 +231,7 @@ class MultiRegionDiagnostic:
                 best_report = report
 
         if best_path is None or best_report is None:
-            raise RuntimeError("V14.2 multi-region diagnostic produced no checkpoint")
+            raise RuntimeError("V14.3 multi-region diagnostic produced no checkpoint")
 
         selected_model, _payload = load_checkpoint(best_path, self.device)
         selected_metrics = validation_metrics(
@@ -279,7 +279,7 @@ class MultiRegionDiagnostic:
 
 
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="NSAMDR V14.2 multi-region SR diagnostic")
+    p = argparse.ArgumentParser(description="NSAMDR V14.3 multi-region SR diagnostic")
     p.add_argument("--repo-root", type=Path, default=Path.cwd())
     p.add_argument("--shared-cache", default=r"C:\CCP\EVE")
     p.add_argument("--rebuild-dataset", action="store_true")
@@ -304,9 +304,9 @@ def main(argv: list[str] | None = None) -> int:
     diagnostic = MultiRegionDiagnostic(args, repo_root, device_from_name(args.device))
     code, run_dir = diagnostic.run()
     archive = archive_run(run_dir)
-    print(f"[v14.2-multiregion] report      : {run_dir / 'report.json'}", flush=True)
-    print(f"[v14.2-multiregion] diagnostics : {archive}", flush=True)
-    print(f"[v14.2-multiregion] result      : {'PASS' if code == 0 else 'FAIL'}", flush=True)
+    print(f"[v14.3-multiregion] report      : {run_dir / 'report.json'}", flush=True)
+    print(f"[v14.3-multiregion] diagnostics : {archive}", flush=True)
+    print(f"[v14.3-multiregion] result      : {'PASS' if code == 0 else 'FAIL'}", flush=True)
     return code
 
 
