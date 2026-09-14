@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""V14.4 multi-region candidate generalisation diagnostic."""
+"""V15.0 multi-region candidate generalisation diagnostic."""
 from __future__ import annotations
 
 import argparse
@@ -14,7 +14,7 @@ if __package__ in {None, ""}:
     if str(NEURAL_ROOT) not in sys.path:
         sys.path.insert(0, str(NEURAL_ROOT))
     from v14.checkpoint import load_checkpoint, save_checkpoint
-    from v14.config import V14Config
+    from v14.config import V15Config
     from v14.dataset import load_manifest
     from v14.diagnostic_support import (
         DIAGNOSTIC_REVISION,
@@ -32,11 +32,11 @@ if __package__ in {None, ""}:
         write_report,
     )
     from v14.losses import candidate_loss
-    from v14.model import MODEL_SCHEMA, NSAMDRV14
+    from v14.model import MODEL_SCHEMA, NSAMDRV15
     from v14.qualification import aggregate_candidate
 else:
     from .checkpoint import load_checkpoint, save_checkpoint
-    from .config import V14Config
+    from .config import V15Config
     from .dataset import load_manifest
     from .diagnostic_support import (
         DIAGNOSTIC_REVISION,
@@ -54,12 +54,12 @@ else:
         write_report,
     )
     from .losses import candidate_loss
-    from .model import MODEL_SCHEMA, NSAMDRV14
+    from .model import MODEL_SCHEMA, NSAMDRV15
     from .qualification import aggregate_candidate
 
 
 class MultiRegionDiagnostic:
-    """Test whether V14.4 candidate gains survive disjoint Raven regions."""
+    """Test whether V15.0 candidate gains survive disjoint Raven regions."""
 
     def __init__(
         self,
@@ -71,8 +71,8 @@ class MultiRegionDiagnostic:
         self.repo_root = repo_root
         self.device = device
 
-    def _config(self) -> V14Config:
-        config = V14Config(
+    def _config(self) -> V15Config:
+        config = V15Config(
             minimum_heldout_samples=2,
             candidate_edge_recovery_required=float(self.args.required_edge_recovery),
             candidate_global_recovery_required=float(self.args.required_global_recovery),
@@ -136,26 +136,28 @@ class MultiRegionDiagnostic:
             return 2, run_dir
 
         subset_manifest = {"crops": [*train_records, *validation_records]}
-        model = NSAMDRV14(config).to(self.device)
+        model = NSAMDRV15(config).to(self.device)
         model.set_candidate_training()
         parameters = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.AdamW(
+        optimizer = torch.optim.Adam(
             parameters,
             lr=float(self.args.learning_rate),
-            weight_decay=config.weight_decay,
+            betas=(0.9, 0.999),
+            eps=1.0e-8,
         )
         best_key = (-1, -1.0e9)
         best_path: Path | None = None
         best_report: dict[str, object] | None = None
 
         print("=" * 76, flush=True)
-        print("V14.4 MULTI-REGION SR MINI - DIAGNOSTIC ONLY", flush=True)
+        print("V15.0 MULTI-REGION SR MINI - DIAGNOSTIC ONLY", flush=True)
         print(
             f"Train/held-out : {len(train_records)} / {len(validation_records)} disjoint regions",
             flush=True,
         )
         print(f"Epochs         : {self.args.epochs} clean SR", flush=True)
         print(f"Tiles/epoch    : {self.args.tiles_per_epoch}", flush=True)
+        print(f"Optimizer      : Adam, lr={self.args.learning_rate}", flush=True)
         print("=" * 76, flush=True)
 
         for epoch in range(1, int(self.args.epochs) + 1):
@@ -212,7 +214,7 @@ class MultiRegionDiagnostic:
                 model,
                 config,
                 epoch=epoch,
-                phase="v14.4-mini-multiregion",
+                phase="v15.0-mini-multiregion",
                 metrics=report,
             )
             print(
@@ -231,7 +233,7 @@ class MultiRegionDiagnostic:
                 best_report = report
 
         if best_path is None or best_report is None:
-            raise RuntimeError("V14.4 multi-region diagnostic produced no checkpoint")
+            raise RuntimeError("V15.0 multi-region diagnostic produced no checkpoint")
 
         selected_model, _payload = load_checkpoint(best_path, self.device)
         selected_metrics = validation_metrics(
@@ -279,7 +281,7 @@ class MultiRegionDiagnostic:
 
 
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="NSAMDR V14.4 multi-region SR diagnostic")
+    p = argparse.ArgumentParser(description="NSAMDR V15.0 multi-region SR diagnostic")
     p.add_argument("--repo-root", type=Path, default=Path.cwd())
     p.add_argument("--shared-cache", default=r"C:\CCP\EVE")
     p.add_argument("--rebuild-dataset", action="store_true")
@@ -304,9 +306,9 @@ def main(argv: list[str] | None = None) -> int:
     diagnostic = MultiRegionDiagnostic(args, repo_root, device_from_name(args.device))
     code, run_dir = diagnostic.run()
     archive = archive_run(run_dir)
-    print(f"[v14.4-multiregion] report      : {run_dir / 'report.json'}", flush=True)
-    print(f"[v14.4-multiregion] diagnostics : {archive}", flush=True)
-    print(f"[v14.4-multiregion] result      : {'PASS' if code == 0 else 'FAIL'}", flush=True)
+    print(f"[v15.0-multiregion] report      : {run_dir / 'report.json'}", flush=True)
+    print(f"[v15.0-multiregion] diagnostics : {archive}", flush=True)
+    print(f"[v15.0-multiregion] result      : {'PASS' if code == 0 else 'FAIL'}", flush=True)
     return code
 
 
