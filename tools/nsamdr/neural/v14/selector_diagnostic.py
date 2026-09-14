@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""V15.0 BenefitSelector retention diagnostic."""
+"""V16.0 BenefitSelector retention diagnostic."""
 from __future__ import annotations
 
 import argparse
@@ -56,7 +56,7 @@ else:
 def _latest_passing_multiregion(
     repo_root: Path,
 ) -> tuple[Path, dict[str, Any]]:
-    root = repo_root / "artifacts/nsamdr/diagnostics/v14_mini"
+    root = repo_root / "artifacts/nsamdr/diagnostics/v16_mini"
     candidates: list[tuple[float, Path, dict[str, Any]]] = []
     if root.is_dir():
         for path in root.glob("multiregion_*/report.json"):
@@ -76,14 +76,14 @@ def _latest_passing_multiregion(
                 candidates.append((path.stat().st_mtime, path, report))
     if not candidates:
         raise RuntimeError(
-            "Selector Retention Mini requires a passing V15.0 Multi-Region SR Mini first"
+            "Selector Retention Mini requires a passing V16.0 Multi-Region SR Mini first"
         )
     _mtime, path, report = max(candidates, key=lambda item: item[0])
     return path, report
 
 
 class SelectorRetentionDiagnostic:
-    """Freeze a passing V15.0 candidate and train only BenefitSelector."""
+    """Freeze a passing V16.0 candidate and train only BenefitSelector."""
 
     def __init__(
         self,
@@ -127,18 +127,18 @@ class SelectorRetentionDiagnostic:
         manifest = load_manifest(self.repo_root, config)
         if source_report.get("datasetFingerprint") != manifest.get("fingerprint"):
             raise RuntimeError(
-                "Raven dataset changed since the passing V15.0 multi-region mini; rerun it first"
+                "Raven dataset changed since the passing V16.0 multi-region mini; rerun it first"
             )
 
         train_records, validation_records = self._source_records(manifest, source_report)
         if len(train_records) < 2 or len(validation_records) < 2:
             raise RuntimeError(
-                "Passing V15.0 multi-region mini no longer resolves its original Raven regions"
+                "Passing V16.0 multi-region mini no longer resolves its original Raven regions"
             )
         source_candidate = dict(source_report.get("candidate") or {})
         if source_candidate.get("passed") is not True:
             raise RuntimeError(
-                "Passing V15.0 multi-region report has no qualified candidate block"
+                "Passing V16.0 multi-region report has no qualified candidate block"
             )
         subset_manifest = {"crops": [*train_records, *validation_records]}
 
@@ -156,7 +156,7 @@ class SelectorRetentionDiagnostic:
         best_report: dict[str, object] | None = None
 
         print("=" * 76, flush=True)
-        print("V15.0 SELECTOR RETENTION MINI - DIAGNOSTIC ONLY", flush=True)
+        print("V16.0 SELECTOR RETENTION MINI - DIAGNOSTIC ONLY", flush=True)
         print(f"Candidate source : {source_report_path.parent}", flush=True)
         print(f"Selector epochs  : {self.args.selector_epochs}", flush=True)
         print(f"Tiles/epoch      : {self.args.tiles_per_epoch}", flush=True)
@@ -208,10 +208,12 @@ class SelectorRetentionDiagnostic:
                 model,
                 config,
                 epoch=epoch,
-                phase="v15.0-mini-selector",
+                phase="v16.0-mini-selector",
                 metrics=report,
             )
-            score = float(report["medianGlobalRecovery"]) + float(report["medianEdgeRecovery"])
+            score = float(report["medianGlobalRecovery"]) + float(
+                report["medianEdgeRecovery"]
+            )
             key = (1 if bool(report["passed"]) else 0, score)
             if best_report is None or key > best_key:
                 best_key = key
@@ -229,7 +231,7 @@ class SelectorRetentionDiagnostic:
             )
 
         if best_path is None or best_report is None:
-            raise RuntimeError("V15.0 selector diagnostic produced no checkpoint")
+            raise RuntimeError("V16.0 selector diagnostic produced no checkpoint")
 
         selected_model, _payload = load_checkpoint(best_path, self.device)
         final_metrics = validation_metrics(
@@ -276,7 +278,7 @@ class SelectorRetentionDiagnostic:
 
 
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="NSAMDR V15.0 selector retention diagnostic")
+    p = argparse.ArgumentParser(description="NSAMDR V16.0 selector retention diagnostic")
     p.add_argument("--repo-root", type=Path, default=Path.cwd())
     p.add_argument("--device", choices=("cuda", "cpu", "auto"), default="cuda")
     p.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
@@ -294,9 +296,9 @@ def main(argv: list[str] | None = None) -> int:
     diagnostic = SelectorRetentionDiagnostic(args, repo_root, device_from_name(args.device))
     code, run_dir = diagnostic.run()
     archive = archive_run(run_dir)
-    print(f"[v15.0-selector] report      : {run_dir / 'report.json'}", flush=True)
-    print(f"[v15.0-selector] diagnostics : {archive}", flush=True)
-    print(f"[v15.0-selector] result      : {'PASS' if code == 0 else 'FAIL'}", flush=True)
+    print(f"[v16.0-selector] report      : {run_dir / 'report.json'}", flush=True)
+    print(f"[v16.0-selector] diagnostics : {archive}", flush=True)
+    print(f"[v16.0-selector] result      : {'PASS' if code == 0 else 'FAIL'}", flush=True)
     return code
 
 
