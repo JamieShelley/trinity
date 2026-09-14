@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""V15.0 single-region HR residual capacity proof.
+"""V16.0 single-region HR residual capacity proof.
 
 This diagnostic is non-promotable. It overfits one deterministic Raven region with the
 exact production candidate path. It tests whether C can beat B without LR-grid imprint.
@@ -21,7 +21,7 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(NEURAL_ROOT))
     from v14.capacity_artifacts import CapacityArtifactWriter
     from v14.checkpoint import save_checkpoint
-    from v14.config import V15Config
+    from v14.config import V16Config
     from v14.dataset import load_manifest
     from v14.diagnostic_support import (
         DIAGNOSTIC_REVISION,
@@ -38,13 +38,13 @@ if __package__ in {None, ""}:
         write_report,
     )
     from v14.losses import candidate_loss
-    from v14.model import MODEL_SCHEMA, NSAMDRV15
+    from v14.model import MODEL_SCHEMA, NSAMDRV16
     from v14.qualification import sample_metrics
     from v14.training_stability import DivergenceMonitor
 else:
     from .capacity_artifacts import CapacityArtifactWriter
     from .checkpoint import save_checkpoint
-    from .config import V15Config
+    from .config import V16Config
     from .dataset import load_manifest
     from .diagnostic_support import (
         DIAGNOSTIC_REVISION,
@@ -61,7 +61,7 @@ else:
         write_report,
     )
     from .losses import candidate_loss
-    from .model import MODEL_SCHEMA, NSAMDRV15
+    from .model import MODEL_SCHEMA, NSAMDRV16
     from .qualification import sample_metrics
     from .training_stability import DivergenceMonitor
 
@@ -74,7 +74,7 @@ class CapacityThresholds:
 
 
 class CapacityDiagnostic:
-    """Own one complete V15.0 Capacity run."""
+    """Own one complete V16.0 Capacity run."""
 
     def __init__(
         self,
@@ -90,7 +90,7 @@ class CapacityDiagnostic:
             global_recovery=float(args.required_global_recovery),
             gradient_recovery=float(args.required_gradient_recovery),
         )
-        self.config = V15Config(
+        self.config = V16Config(
             minimum_heldout_samples=1,
             candidate_edge_recovery_required=self.thresholds.edge_recovery,
             candidate_global_recovery_required=self.thresholds.global_recovery,
@@ -183,7 +183,7 @@ class CapacityDiagnostic:
     ) -> Path:
         path = run_dir / "divergence_report.json"
         payload = {
-            "schema": "NSAMDR_V15_CAPACITY_DIVERGENCE_V1",
+            "schema": "NSAMDR_V16_CAPACITY_DIVERGENCE_V1",
             "revision": DIAGNOSTIC_REVISION,
             "modelSchema": MODEL_SCHEMA,
             "step": int(step),
@@ -197,7 +197,10 @@ class CapacityDiagnostic:
             ),
             "lastHistoryEntry": history[-1] if history else None,
         }
-        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         return path
 
     def run(self) -> int:
@@ -207,15 +210,14 @@ class CapacityDiagnostic:
             record for record in manifest["crops"] if record.get("split") == "train"
         ]
         if not records:
-            raise RuntimeError("V15.0 Capacity found no Raven training regions")
+            raise RuntimeError("V16.0 Capacity found no Raven training regions")
 
         record = max(records, key=detail_score)
         batch = dataset_sample(record, self.config, self.device)
-        model = NSAMDRV15(self.config).to(self.device)
+        model = NSAMDRV16(self.config).to(self.device)
         model.set_candidate_training()
         parameters = [p for p in model.parameters() if p.requires_grad]
 
-        # Use the conventional Adam optimizer used by EDSR/RCAN-style SR training.
         optimizer = torch.optim.Adam(
             parameters,
             lr=float(self.args.learning_rate),
@@ -230,15 +232,27 @@ class CapacityDiagnostic:
             torch.cuda.reset_peak_memory_stats(self.device)
 
         print("=" * 78, flush=True)
-        print("V15.0 HR RESIDUAL CAPACITY - SINGLE-RESOLUTION EDSR DIAGNOSTIC", flush=True)
+        print("V16.0 HR RESIDUAL CAPACITY - SWINIR-STYLE HR DIAGNOSTIC", flush=True)
         print(f"Model schema  : {MODEL_SCHEMA}", flush=True)
         print(f"Region        : {record_key(record)}", flush=True)
-        print(f"Geometry      : {self.config.train_lr_size} -> {self.config.train_hr_size}", flush=True)
-        print(f"Backbone      : {self.config.hr_blocks} HR residual blocks, {self.config.hr_channels} channels", flush=True)
+        print(
+            f"Geometry      : {self.config.train_lr_size} -> {self.config.train_hr_size}",
+            flush=True,
+        )
+        print(
+            "Backbone      : "
+            f"{self.config.swin_groups} RSTB x {self.config.swin_blocks_per_group} layers, "
+            f"{self.config.hr_channels} channels, window {self.config.swin_window_size}, "
+            f"{self.config.swin_num_heads} heads",
+            flush=True,
+        )
         print(f"Maximum steps : {self.args.steps}", flush=True)
         print(f"Learning rate : {self.args.learning_rate}", flush=True)
         print("Optimizer     : Adam", flush=True)
-        print("Pass rule     : global/edge/gradient recovery + <=15% LR-lattice excess", flush=True)
+        print(
+            "Pass rule     : global/edge/gradient recovery + <=15% LR-lattice excess",
+            flush=True,
+        )
         print("=" * 78, flush=True)
 
         history: list[dict[str, object]] = []
@@ -306,7 +320,8 @@ class CapacityDiagnostic:
             last_evaluated = evaluated
             last_metrics = sample_metrics(evaluated, batch, final=False)
             saturation = CapacityArtifactWriter.residual_cap_saturation(
-                evaluated, self.config
+                evaluated,
+                self.config,
             )
             stability = monitor.observe_report(
                 loss=loss_value,
@@ -349,7 +364,10 @@ class CapacityDiagnostic:
                 diverged = True
                 divergence_reason = stability.reason
                 stop_step = step
-                print(f"[v15.0-capacity] DIVERGED at step {step}: {divergence_reason}", flush=True)
+                print(
+                    f"[v16.0-capacity] DIVERGED at step {step}: {divergence_reason}",
+                    flush=True,
+                )
                 break
 
             save_checkpoint(
@@ -357,7 +375,7 @@ class CapacityDiagnostic:
                 model,
                 self.config,
                 epoch=0,
-                phase="v15.0-mini-capacity-last-stable",
+                phase="v16.0-mini-capacity-last-stable",
                 metrics=last_metrics,
             )
             stable_written = True
@@ -370,14 +388,17 @@ class CapacityDiagnostic:
                     model,
                     self.config,
                     epoch=0,
-                    phase="v15.0-mini-capacity-best",
+                    phase="v16.0-mini-capacity-best",
                     metrics=last_metrics,
                 )
                 best_written = True
 
             if passed:
                 stop_step = step
-                print(f"[v15.0-capacity] PASS at step {step}; stopping early.", flush=True)
+                print(
+                    f"[v16.0-capacity] PASS at step {step}; stopping early.",
+                    flush=True,
+                )
                 break
 
         if last_evaluated is None:
@@ -398,14 +419,17 @@ class CapacityDiagnostic:
                 model,
                 self.config,
                 epoch=0,
-                phase="v15.0-mini-capacity",
+                phase="v16.0-mini-capacity",
                 metrics=last_metrics,
             )
 
         probe_path = save_probe(run_dir, batch, last_evaluated, include_final=False)
         diagnostic_images = writer.write_all(batch, last_evaluated)
         curve_path = run_dir / "capacity_curve.json"
-        curve_path.write_text(json.dumps(history, indent=2) + "\n", encoding="utf-8")
+        curve_path.write_text(
+            json.dumps(history, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
         divergence_report: Path | None = None
         if diverged:
@@ -447,10 +471,18 @@ class CapacityDiagnostic:
                 "gradientRecovery": self.thresholds.gradient_recovery,
                 "maxLatticeCellExcess": self.config.candidate_lattice_cell_excess_max,
             },
-            "candidateCheckpoint": str(final_checkpoint.resolve()) if final_checkpoint else None,
-            "bestCheckpoint": str(best_checkpoint.resolve()) if best_written else None,
-            "lastStableCheckpoint": str(last_stable_checkpoint.resolve()) if stable_written else None,
-            "divergenceReport": str(divergence_report.resolve()) if divergence_report else None,
+            "candidateCheckpoint": (
+                str(final_checkpoint.resolve()) if final_checkpoint else None
+            ),
+            "bestCheckpoint": (
+                str(best_checkpoint.resolve()) if best_written else None
+            ),
+            "lastStableCheckpoint": (
+                str(last_stable_checkpoint.resolve()) if stable_written else None
+            ),
+            "divergenceReport": (
+                str(divergence_report.resolve()) if divergence_report else None
+            ),
             "recoveryCurve": str(curve_path.resolve()),
             "probe": str(probe_path.resolve()),
             "diagnosticImages": diagnostic_images,
@@ -459,10 +491,10 @@ class CapacityDiagnostic:
         write_report(run_dir, report)
         archive = archive_run(run_dir)
 
-        print(f"[v15.0-capacity] report      : {run_dir / 'report.json'}", flush=True)
-        print(f"[v15.0-capacity] curve       : {curve_path}", flush=True)
-        print(f"[v15.0-capacity] diagnostics : {archive}", flush=True)
-        print(f"[v15.0-capacity] result      : {status}", flush=True)
+        print(f"[v16.0-capacity] report      : {run_dir / 'report.json'}", flush=True)
+        print(f"[v16.0-capacity] curve       : {curve_path}", flush=True)
+        print(f"[v16.0-capacity] diagnostics : {archive}", flush=True)
+        print(f"[v16.0-capacity] result      : {status}", flush=True)
         if diverged:
             return 3
         return 0 if passed else 2
@@ -470,7 +502,7 @@ class CapacityDiagnostic:
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="NSAMDR V15.0 single-resolution EDSR Raven capacity diagnostic"
+        description="NSAMDR V16.0 SwinIR-style Raven capacity diagnostic"
     )
     p.add_argument("--repo-root", type=Path, default=Path.cwd())
     p.add_argument("--shared-cache", default=r"C:\CCP\EVE")
@@ -484,7 +516,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--learning-rate",
         type=float,
-        default=V15Config().sr_learning_rate,
+        default=V16Config().sr_learning_rate,
     )
     p.add_argument("--required-edge-recovery", type=float, default=0.60)
     p.add_argument("--required-global-recovery", type=float, default=0.45)
