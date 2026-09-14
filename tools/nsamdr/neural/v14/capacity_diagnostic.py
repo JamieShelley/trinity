@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""V14.2 single-region HR residual capacity proof.
+"""V14.3 single-region HR residual capacity proof.
 
 This diagnostic is non-promotable. It overfits one deterministic Raven region with the
 exact production candidate path. It tests whether C can beat B without LR-grid imprint.
+It also stops early when optimization is no longer a valid capacity test.
 """
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
 import json
+import math
 from pathlib import Path
 import sys
 
@@ -39,6 +41,7 @@ if __package__ in {None, ""}:
     from v14.losses import candidate_loss
     from v14.model import MODEL_SCHEMA, NSAMDRV14
     from v14.qualification import sample_metrics
+    from v14.training_stability import DivergenceMonitor
 else:
     from .capacity_artifacts import CapacityArtifactWriter
     from .checkpoint import save_checkpoint
@@ -61,6 +64,7 @@ else:
     from .losses import candidate_loss
     from .model import MODEL_SCHEMA, NSAMDRV14
     from .qualification import sample_metrics
+    from .training_stability import DivergenceMonitor
 
 
 @dataclass(frozen=True)
@@ -71,7 +75,7 @@ class CapacityThresholds:
 
 
 class CapacityDiagnostic:
-    """Own one complete V14.2 capacity run."""
+    """Own one complete V14.3 capacity run."""
 
     def __init__(
         self,
@@ -99,9 +103,18 @@ class CapacityDiagnostic:
         return bool(
             metrics.get("edge_recovery", -1.0) >= self.thresholds.edge_recovery
             and metrics.get("global_recovery", -1.0) >= self.thresholds.global_recovery
-            and metrics.get("gradient_recovery", -1.0) >= self.thresholds.gradient_recovery
+            and metrics.get("gradient_recovery", -1.0)
+            >= self.thresholds.gradient_recovery
             and metrics.get("lattice_cell_excess", 1.0)
             <= self.config.candidate_lattice_cell_excess_max
+        )
+
+    @staticmethod
+    def _diagnostic_score(metrics: dict[str, float]) -> float:
+        return float(
+            metrics.get("global_recovery", -1.0)
+            + metrics.get("edge_recovery", -1.0)
+            + metrics.get("gradient_recovery", -1.0)
         )
 
     def _vram_telemetry(self) -> tuple[float, float]:
@@ -116,20 +129,22 @@ class CapacityDiagnostic:
         self,
         *,
         step: int,
-        loss: torch.Tensor,
+        loss_value: float,
         grad_norm: float,
         outputs: dict[str, torch.Tensor],
         metrics: dict[str, float],
+        saturation: dict[str, float],
         passed: bool,
-    ) -> dict[str, float | int | bool]:
-        saturation = CapacityArtifactWriter.residual_cap_saturation(outputs, self.config)
+        diverged: bool,
+        divergence_reason: str | None,
+    ) -> dict[str, float | int | bool | str | None]:
         allocated, reserved = self._vram_telemetry()
         return {
             "step": step,
-            "loss": float(loss.detach().item()),
+            "loss": loss_value,
             "gradientNormPreClip": grad_norm,
             "residualMagnitude": float(
-                outputs["candidate_residual_albedo"].float().abs().mean().item()
+                outputs["predicted_residual_albedo"].float().abs().mean().item()
             ),
             "globalRecovery": float(metrics["global_recovery"]),
             "edgeRecovery": float(metrics["edge_recovery"]),
@@ -147,7 +162,44 @@ class CapacityDiagnostic:
             "peakAllocatedVRAMGiB": allocated,
             "peakReservedVRAMGiB": reserved,
             "passed": passed,
+            "diverged": diverged,
+            "divergenceReason": divergence_reason,
         }
+
+    def _write_divergence_report(
+        self,
+        run_dir: Path,
+        *,
+        step: int,
+        reason: str,
+        monitor: DivergenceMonitor,
+        history: list[dict[str, object]],
+        best_checkpoint: Path | None,
+        last_stable_checkpoint: Path | None,
+    ) -> Path:
+        path = run_dir / "divergence_report.json"
+        payload = {
+            "schema": "NSAMDR_V14_CAPACITY_DIVERGENCE_V1",
+            "revision": DIAGNOSTIC_REVISION,
+            "modelSchema": MODEL_SCHEMA,
+            "step": int(step),
+            "reason": reason,
+            "monitor": monitor.state(),
+            "bestCheckpoint": (
+                str(best_checkpoint.resolve()) if best_checkpoint is not None else None
+            ),
+            "lastStableCheckpoint": (
+                str(last_stable_checkpoint.resolve())
+                if last_stable_checkpoint is not None
+                else None
+            ),
+            "lastHistoryEntry": history[-1] if history else None,
+        }
+        path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return path
 
     def run(self) -> int:
         prepare_raven_dataset(self.args, self.repo_root)
@@ -158,7 +210,7 @@ class CapacityDiagnostic:
             if record.get("split") == "train"
         ]
         if not records:
-            raise RuntimeError("V14.2 capacity diagnostic found no Raven training regions")
+            raise RuntimeError("V14.3 capacity diagnostic found no Raven training regions")
 
         record = max(records, key=detail_score)
         batch = dataset_sample(record, self.config, self.device)
@@ -172,13 +224,14 @@ class CapacityDiagnostic:
         )
         run_dir = make_run_directory(self.repo_root, "capacity")
         writer = CapacityArtifactWriter(run_dir)
+        monitor = DivergenceMonitor()
 
         if self.device.type == "cuda":
             torch.cuda.reset_peak_memory_stats(self.device)
 
         print("=" * 78, flush=True)
         print(
-            "V14.2 HR RESIDUAL CAPACITY - MULTI-SCALE RCAN DIAGNOSTIC ONLY",
+            "V14.3 HR RESIDUAL CAPACITY - STABLE MULTI-SCALE RCAN DIAGNOSTIC ONLY",
             flush=True,
         )
         print(f"Model schema  : {MODEL_SCHEMA}", flush=True)
@@ -193,12 +246,24 @@ class CapacityDiagnostic:
             "Pass rule     : global/edge/gradient recovery + <=15% excess LR-lattice projection",
             flush=True,
         )
+        print(
+            "Stability     : stop on non-finite values, persistent zero gradient, or persistent >95% residual saturation",
+            flush=True,
+        )
         print("=" * 78, flush=True)
 
-        history: list[dict[str, float | int | bool]] = []
+        history: list[dict[str, object]] = []
         last_metrics: dict[str, float] = {}
         passed = False
+        diverged = False
+        divergence_reason: str | None = None
         stop_step = int(self.args.steps)
+        best_score = -math.inf
+        best_checkpoint = run_dir / "best_checkpoint.pt"
+        last_stable_checkpoint = run_dir / "last_stable_checkpoint.pt"
+        best_checkpoint_written = False
+        last_stable_written = False
+        last_evaluated: dict[str, torch.Tensor] | None = None
 
         for step in range(1, int(self.args.steps) + 1):
             model.train()
@@ -210,10 +275,29 @@ class CapacityDiagnostic:
                     batch["lr_material"],
                 )
                 losses = candidate_loss(outputs, batch, self.config)
+
+            loss_value = float(losses["total"].detach().float().item())
+            scalar_decision = monitor.check_scalar_integrity(loss=loss_value)
+            if scalar_decision.diverged:
+                diverged = True
+                divergence_reason = scalar_decision.reason
+                stop_step = step
+                break
+
             losses["total"].backward()
             grad_norm = float(
-                torch.nn.utils.clip_grad_norm_(parameters, 1.0).detach().item()
+                torch.nn.utils.clip_grad_norm_(parameters, 1.0).detach().float().item()
             )
+            scalar_decision = monitor.check_scalar_integrity(
+                loss=loss_value,
+                gradient_norm=grad_norm,
+            )
+            if scalar_decision.diverged:
+                diverged = True
+                divergence_reason = scalar_decision.reason
+                stop_step = step
+                break
+
             optimizer.step()
 
             should_report = (
@@ -234,15 +318,28 @@ class CapacityDiagnostic:
                     batch["lr_normal"],
                     batch["lr_material"],
                 )
+            last_evaluated = evaluated
             last_metrics = sample_metrics(evaluated, batch, final=False)
-            passed = self._passes(last_metrics)
+            saturation = CapacityArtifactWriter.residual_cap_saturation(
+                evaluated,
+                self.config,
+            )
+            decision = monitor.observe_report(
+                loss=loss_value,
+                gradient_norm=grad_norm,
+                saturation=saturation,
+            )
+            passed = self._passes(last_metrics) and not decision.diverged
             entry = self._history_entry(
                 step=step,
-                loss=losses["total"],
+                loss_value=loss_value,
                 grad_norm=grad_norm,
                 outputs=evaluated,
                 metrics=last_metrics,
+                saturation=saturation,
                 passed=passed,
+                diverged=decision.diverged,
+                divergence_reason=decision.reason,
             )
             history.append(entry)
 
@@ -256,54 +353,114 @@ class CapacityDiagnostic:
                 f"d2={entry['detailRecovery2px']*100:+.1f}% "
                 f"d4={entry['detailRecovery4px']*100:+.1f}% "
                 f"lattice={entry['latticeCellExcess']*100:+.1f}% "
+                f"sat={max(saturation.values())*100:.1f}% "
                 f"VRAM={entry['peakAllocatedVRAMGiB']:.2f}GiB",
                 flush=True,
             )
-            if passed:
+
+            if decision.diverged:
+                diverged = True
+                divergence_reason = decision.reason
                 stop_step = step
                 print(
-                    f"[v14.2-capacity] PASS at step {step}; stopping early.",
+                    f"[v14.3-capacity] DIVERGED at step {step}: {divergence_reason}",
                     flush=True,
                 )
                 break
 
-        checkpoint_path = run_dir / "candidate_checkpoint.pt"
-        save_checkpoint(
-            checkpoint_path,
-            model,
-            self.config,
-            epoch=0,
-            phase="v14.2-mini-capacity",
-            metrics=last_metrics,
-        )
+            save_checkpoint(
+                last_stable_checkpoint,
+                model,
+                self.config,
+                epoch=0,
+                phase="v14.3-mini-capacity-last-stable",
+                metrics=last_metrics,
+            )
+            last_stable_written = True
 
-        model.eval()
-        with torch.no_grad(), autocast_context(self.device, self.args.amp_precision):
-            outputs = model(
-                batch["lr_albedo"],
-                batch["lr_normal"],
-                batch["lr_material"],
+            score = self._diagnostic_score(last_metrics)
+            if score > best_score:
+                best_score = score
+                save_checkpoint(
+                    best_checkpoint,
+                    model,
+                    self.config,
+                    epoch=0,
+                    phase="v14.3-mini-capacity-best",
+                    metrics=last_metrics,
+                )
+                best_checkpoint_written = True
+
+            if passed:
+                stop_step = step
+                print(
+                    f"[v14.3-capacity] PASS at step {step}; stopping early.",
+                    flush=True,
+                )
+                break
+
+        if last_evaluated is None:
+            model.eval()
+            with torch.no_grad(), autocast_context(
+                self.device,
+                self.args.amp_precision,
+            ):
+                last_evaluated = model(
+                    batch["lr_albedo"],
+                    batch["lr_normal"],
+                    batch["lr_material"],
+                )
+            last_metrics = sample_metrics(last_evaluated, batch, final=False)
+
+        final_checkpoint: Path | None = None
+        if not diverged:
+            final_checkpoint = run_dir / "candidate_checkpoint.pt"
+            save_checkpoint(
+                final_checkpoint,
+                model,
+                self.config,
+                epoch=0,
+                phase="v14.3-mini-capacity",
+                metrics=last_metrics,
             )
 
         probe_path = save_probe(
             run_dir,
             batch,
-            outputs,
+            last_evaluated,
             include_final=False,
         )
-        diagnostic_images = writer.write_all(batch, outputs)
+        diagnostic_images = writer.write_all(batch, last_evaluated)
         curve_path = run_dir / "capacity_curve.json"
         curve_path.write_text(
             json.dumps(history, indent=2) + "\n",
             encoding="utf-8",
         )
 
+        divergence_report: Path | None = None
+        if diverged:
+            divergence_report = self._write_divergence_report(
+                run_dir,
+                step=stop_step,
+                reason=divergence_reason or "unknown",
+                monitor=monitor,
+                history=history,
+                best_checkpoint=(best_checkpoint if best_checkpoint_written else None),
+                last_stable_checkpoint=(
+                    last_stable_checkpoint if last_stable_written else None
+                ),
+            )
+
         allocated, reserved = self._vram_telemetry()
+        status = "DIVERGED" if diverged else ("PASS" if passed else "FAIL")
         report = {
             "schema": DIAGNOSTIC_SCHEMA,
             "mode": "capacity",
             "revision": DIAGNOSTIC_REVISION,
-            "passed": passed,
+            "status": status.lower(),
+            "passed": bool(passed and not diverged),
+            "diverged": diverged,
+            "divergenceReason": divergence_reason,
             "promotable": False,
             "modelSchema": MODEL_SCHEMA,
             "architecture": model.architecture_contract(),
@@ -314,13 +471,27 @@ class CapacityDiagnostic:
             "learningRate": float(self.args.learning_rate),
             "peakAllocatedVRAMGiB": allocated,
             "peakReservedVRAMGiB": reserved,
+            "stabilityMonitor": monitor.state(),
             "thresholds": {
                 "edgeRecovery": self.thresholds.edge_recovery,
                 "globalRecovery": self.thresholds.global_recovery,
                 "gradientRecovery": self.thresholds.gradient_recovery,
                 "maxLatticeCellExcess": self.config.candidate_lattice_cell_excess_max,
             },
-            "candidateCheckpoint": str(checkpoint_path.resolve()),
+            "candidateCheckpoint": (
+                str(final_checkpoint.resolve()) if final_checkpoint is not None else None
+            ),
+            "bestCheckpoint": (
+                str(best_checkpoint.resolve()) if best_checkpoint_written else None
+            ),
+            "lastStableCheckpoint": (
+                str(last_stable_checkpoint.resolve()) if last_stable_written else None
+            ),
+            "divergenceReport": (
+                str(divergence_report.resolve())
+                if divergence_report is not None
+                else None
+            ),
             "recoveryCurve": str(curve_path.resolve()),
             "probe": str(probe_path.resolve()),
             "diagnosticImages": diagnostic_images,
@@ -329,19 +500,18 @@ class CapacityDiagnostic:
         write_report(run_dir, report)
         archive = archive_run(run_dir)
 
-        print(f"[v14.2-capacity] report      : {run_dir / 'report.json'}", flush=True)
-        print(f"[v14.2-capacity] curve       : {curve_path}", flush=True)
-        print(f"[v14.2-capacity] diagnostics : {archive}", flush=True)
-        print(
-            f"[v14.2-capacity] result      : {'PASS' if passed else 'FAIL'}",
-            flush=True,
-        )
+        print(f"[v14.3-capacity] report      : {run_dir / 'report.json'}", flush=True)
+        print(f"[v14.3-capacity] curve       : {curve_path}", flush=True)
+        print(f"[v14.3-capacity] diagnostics : {archive}", flush=True)
+        print(f"[v14.3-capacity] result      : {status}", flush=True)
+        if diverged:
+            return 3
         return 0 if passed else 2
 
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="NSAMDR V14.2 multi-scale RCAN Raven capacity diagnostic"
+        description="NSAMDR V14.3 stable multi-scale RCAN Raven capacity diagnostic"
     )
     p.add_argument("--repo-root", type=Path, default=Path.cwd())
     p.add_argument("--shared-cache", default=r"C:\CCP\EVE")
