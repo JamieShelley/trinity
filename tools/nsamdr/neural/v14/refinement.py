@@ -15,6 +15,21 @@ class ZeroHead(nn.Conv2d):
         nn.init.zeros_(self.bias)
 
 
+class ResidualLimiter(nn.Module):
+    """Clamp a residual in the forward pass and pass gradients straight through."""
+
+    def __init__(self, cap: float) -> None:
+        super().__init__()
+        if cap <= 0.0:
+            raise ValueError("residual cap must be positive")
+        self.cap = float(cap)
+
+    def forward(self, raw: torch.Tensor) -> torch.Tensor:
+        value = raw.float()
+        clipped = value.clamp(-self.cap, self.cap)
+        return value + (clipped - value).detach()
+
+
 class ChannelAttention(nn.Module):
     """Channel-only attention. It does not assign spatial pixel authority."""
 
@@ -49,8 +64,6 @@ class RCAB(nn.Module):
         self.attention = ChannelAttention(channels, attention_reduction)
         self.residual_scale = float(residual_scale)
 
-        # The residual branch starts at zero. This makes RCAB(x) == x at
-        # initialization and prevents the deep trunk from starting with a large signal.
         nn.init.zeros_(self.conv2.weight)
         nn.init.zeros_(self.conv2.bias)
 
@@ -61,7 +74,7 @@ class RCAB(nn.Module):
 
 
 class ResidualGroup(nn.Module):
-    """RCAB group with a local identity skip and optional activation checkpointing."""
+    """RCAB group with an identity skip, group scaling, and optional checkpointing."""
 
     def __init__(
         self,
@@ -69,22 +82,25 @@ class ResidualGroup(nn.Module):
         blocks: int,
         attention_reduction: int,
         *,
+        residual_scale: float,
         use_gradient_checkpointing: bool,
     ) -> None:
         super().__init__()
+        if not 0.0 < float(residual_scale) <= 1.0:
+            raise ValueError("ResidualGroup residual_scale must be in (0, 1]")
         self.blocks = nn.Sequential(
             *(RCAB(channels, attention_reduction) for _ in range(blocks))
         )
         self.tail = nn.Conv2d(channels, channels, 3, padding=1)
+        self.residual_scale = float(residual_scale)
         self.use_gradient_checkpointing = bool(use_gradient_checkpointing)
 
-        # The group residual also starts at zero. This keeps each deep group at
-        # identity until optimization learns a useful correction.
         nn.init.zeros_(self.tail.weight)
         nn.init.zeros_(self.tail.bias)
 
     def _forward_impl(self, value: torch.Tensor) -> torch.Tensor:
-        return value + self.tail(self.blocks(value))
+        residual = self.tail(self.blocks(value))
+        return value + residual * self.residual_scale
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
         if self.use_gradient_checkpointing and self.training and value.requires_grad:
@@ -138,6 +154,7 @@ class PhysicalMapTail(nn.Module):
         blocks: int,
         attention_reduction: int,
         *,
+        residual_group_scale: float,
         use_gradient_checkpointing: bool,
     ) -> None:
         super().__init__()
@@ -145,14 +162,12 @@ class PhysicalMapTail(nn.Module):
             channels,
             blocks,
             attention_reduction,
+            residual_scale=residual_group_scale,
             use_gradient_checkpointing=use_gradient_checkpointing,
         )
         self.head = ZeroHead(channels, out_channels)
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
-        # Do not apply tanh here. V14.3 bounds raw residuals with softsign in the
-        # production composition so the supervised pre-projection residual keeps a
-        # useful gradient when physical-map projection reaches a boundary.
         return self.head(self.refinement(value))
 
 
@@ -175,6 +190,7 @@ class MultiScaleHRRefinementTrunk(nn.Module):
         hr_decoder_blocks: int,
         map_tail_blocks: int,
         attention_reduction: int,
+        residual_group_scale: float,
         use_gradient_checkpointing: bool,
     ) -> None:
         super().__init__()
@@ -185,31 +201,32 @@ class MultiScaleHRRefinementTrunk(nn.Module):
             padding=1,
         )
 
+        group_kwargs = {
+            "attention_reduction": attention_reduction,
+            "residual_scale": residual_group_scale,
+            "use_gradient_checkpointing": use_gradient_checkpointing,
+        }
         self.hr_encoder = ResidualGroup(
             hr_channels,
             hr_encoder_blocks,
-            attention_reduction,
-            use_gradient_checkpointing=use_gradient_checkpointing,
+            **group_kwargs,
         )
         self.down_half = DownsampleFeatures(hr_channels, half_channels)
         self.half_encoder = ResidualGroup(
             half_channels,
             half_encoder_blocks,
-            attention_reduction,
-            use_gradient_checkpointing=use_gradient_checkpointing,
+            **group_kwargs,
         )
         self.down_quarter = DownsampleFeatures(half_channels, quarter_channels)
         self.quarter_encoder = ResidualGroup(
             quarter_channels,
             quarter_encoder_blocks,
-            attention_reduction,
-            use_gradient_checkpointing=use_gradient_checkpointing,
+            **group_kwargs,
         )
         self.bottleneck = ResidualGroup(
             quarter_channels,
             bottleneck_blocks,
-            attention_reduction,
-            use_gradient_checkpointing=use_gradient_checkpointing,
+            **group_kwargs,
         )
 
         self.up_half = UpsampleAndFuse(
@@ -220,8 +237,7 @@ class MultiScaleHRRefinementTrunk(nn.Module):
         self.half_decoder = ResidualGroup(
             half_channels,
             half_decoder_blocks,
-            attention_reduction,
-            use_gradient_checkpointing=use_gradient_checkpointing,
+            **group_kwargs,
         )
         self.up_hr = UpsampleAndFuse(
             half_channels,
@@ -231,31 +247,18 @@ class MultiScaleHRRefinementTrunk(nn.Module):
         self.hr_decoder = ResidualGroup(
             hr_channels,
             hr_decoder_blocks,
-            attention_reduction,
-            use_gradient_checkpointing=use_gradient_checkpointing,
+            **group_kwargs,
         )
 
-        self.albedo_tail = PhysicalMapTail(
-            hr_channels,
-            3,
-            map_tail_blocks,
-            attention_reduction,
-            use_gradient_checkpointing=use_gradient_checkpointing,
-        )
-        self.normal_tail = PhysicalMapTail(
-            hr_channels,
-            2,
-            map_tail_blocks,
-            attention_reduction,
-            use_gradient_checkpointing=use_gradient_checkpointing,
-        )
-        self.material_tail = PhysicalMapTail(
-            hr_channels,
-            3,
-            map_tail_blocks,
-            attention_reduction,
-            use_gradient_checkpointing=use_gradient_checkpointing,
-        )
+        tail_kwargs = {
+            "blocks": map_tail_blocks,
+            "attention_reduction": attention_reduction,
+            "residual_group_scale": residual_group_scale,
+            "use_gradient_checkpointing": use_gradient_checkpointing,
+        }
+        self.albedo_tail = PhysicalMapTail(hr_channels, 3, **tail_kwargs)
+        self.normal_tail = PhysicalMapTail(hr_channels, 2, **tail_kwargs)
+        self.material_tail = PhysicalMapTail(hr_channels, 3, **tail_kwargs)
 
     def forward(
         self,
