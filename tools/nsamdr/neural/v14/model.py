@@ -6,7 +6,7 @@ from torch.nn import functional as F
 
 from .baseline import Baseline4x, normalize_xy
 from .config import MODEL_SCHEMA, V14Config
-from .refinement import MultiScaleHRRefinementTrunk
+from .refinement import MultiScaleHRRefinementTrunk, ResidualLimiter
 
 
 class FeatureResidualBlock(nn.Module):
@@ -53,12 +53,6 @@ def _gray_gradient(value: torch.Tensor) -> torch.Tensor:
     dx = F.pad((gray[..., :, 1:] - gray[..., :, :-1]).abs(), (0, 1, 0, 0))
     dy = F.pad((gray[..., 1:, :] - gray[..., :-1, :]).abs(), (0, 0, 0, 1))
     return dx + dy
-
-
-def _bounded_residual(raw: torch.Tensor, cap: float) -> torch.Tensor:
-    """Map an unconstrained residual to (-cap, cap) with a non-dead softsign slope."""
-
-    return F.softsign(raw.float()) * float(cap)
 
 
 class BenefitSelector(nn.Module):
@@ -116,7 +110,7 @@ class BenefitSelector(nn.Module):
 
 
 class NSAMDRV14(nn.Module):
-    """V14.3 production graph with stable pre-projection residual supervision."""
+    """V14.4 production graph with stable straight-through residual limiting."""
 
     BASELINE_CHANNELS = 8
 
@@ -145,8 +139,12 @@ class NSAMDRV14(nn.Module):
             hr_decoder_blocks=self.config.hr_decoder_blocks,
             map_tail_blocks=self.config.map_tail_blocks,
             attention_reduction=self.config.attention_reduction,
+            residual_group_scale=self.config.residual_group_scale,
             use_gradient_checkpointing=self.config.use_gradient_checkpointing,
         )
+        self.albedo_limiter = ResidualLimiter(self.config.albedo_residual_cap)
+        self.normal_limiter = ResidualLimiter(self.config.normal_residual_cap)
+        self.material_limiter = ResidualLimiter(self.config.material_residual_cap)
         self.selector = BenefitSelector(self.config.selector_channels)
 
     def _phase_neutral_context(
@@ -185,21 +183,12 @@ class NSAMDRV14(nn.Module):
         )
 
         raw = self.hr_refiner(baseline_maps, context_hr)
-        predicted_albedo = _bounded_residual(
-            raw["albedo"],
-            self.config.albedo_residual_cap,
-        )
-        predicted_normal = _bounded_residual(
-            raw["normal"],
-            self.config.normal_residual_cap,
-        )
-        predicted_material = _bounded_residual(
-            raw["material"],
-            self.config.material_residual_cap,
-        )
+        predicted_albedo = self.albedo_limiter(raw["albedo"])
+        predicted_normal = self.normal_limiter(raw["normal"])
+        predicted_material = self.material_limiter(raw["material"])
 
-        # Physical projection is separate from residual prediction. Candidate loss can
-        # supervise the bounded residual before clamp/normalization changes its gradient.
+        # Physical projection is separate from residual prediction. Candidate loss
+        # supervises the bounded residual before clamp/normalization changes it.
         c_albedo = (b_albedo + predicted_albedo).clamp(0.0, 1.0)
         c_normal = normalize_xy(b_normal + predicted_normal)
         c_material = (b_material + predicted_material).clamp(0.0, 1.0)
@@ -260,18 +249,19 @@ class NSAMDRV14(nn.Module):
     def architecture_contract(self) -> dict[str, object]:
         return {
             "schema": MODEL_SCHEMA,
-            "revision": "V14.3",
+            "revision": "V14.4",
             "scale": self.config.scale,
             "productionForward": (
                 "LR -> deterministic B + phase-neutral LR context -> "
-                "identity-initialized multi-scale RCAN HR refinement -> "
-                "softsign bounded residual -> physical projection C -> "
+                "identity-initialized scaled multi-scale RCAN HR refinement -> "
+                "straight-through bounded residual -> physical projection C -> "
                 "physical-map-aware BenefitSelector F"
             ),
             "contextUpsampling": "bilinear-phase-neutral + HR 3x3 adapter",
             "decoderUpsampling": "bilinear-phase-neutral + HR convolution",
-            "residualBounding": "softsign",
+            "residualBounding": "straight-through-clamp",
             "residualSupervision": "bounded-pre-physical-projection",
+            "residualGroupScale": float(self.config.residual_group_scale),
             "candidateIdentityAtInitialization": "C == B",
             "activeComponents": (
                 "baseline",
