@@ -58,8 +58,12 @@ else:
     from .qualification import aggregate_candidate
 
 
+MIN_TRAIN_REGIONS = 4
+MIN_VALIDATION_REGIONS = 4
+
+
 class MultiRegionDiagnostic:
-    """Test whether V16.0 candidate gains survive disjoint Raven regions."""
+    """Test whether V16.0 candidate gains survive held-out Raven spatial domains."""
 
     def __init__(
         self,
@@ -73,7 +77,7 @@ class MultiRegionDiagnostic:
 
     def _config(self) -> V16Config:
         config = V16Config(
-            minimum_heldout_samples=2,
+            minimum_heldout_samples=MIN_VALIDATION_REGIONS,
             candidate_edge_recovery_required=float(self.args.required_edge_recovery),
             candidate_global_recovery_required=float(self.args.required_global_recovery),
             candidate_gradient_recovery_required=float(self.args.required_gradient_recovery),
@@ -104,10 +108,12 @@ class MultiRegionDiagnostic:
         self.args.prepare_train_regions = max(
             int(self.args.prepare_train_regions),
             int(self.args.train_regions),
+            MIN_TRAIN_REGIONS,
         )
         self.args.prepare_validation_regions = max(
             int(self.args.prepare_validation_regions),
             int(self.args.validation_regions),
+            MIN_VALIDATION_REGIONS,
         )
         prepare_raven_dataset(self.args, self.repo_root)
         config = self._config()
@@ -115,7 +121,10 @@ class MultiRegionDiagnostic:
         train_records, validation_records = self._records(manifest)
         run_dir = make_run_directory(self.repo_root, "multiregion")
 
-        if len(train_records) < 2 or len(validation_records) < 2:
+        if (
+            len(train_records) < MIN_TRAIN_REGIONS
+            or len(validation_records) < MIN_VALIDATION_REGIONS
+        ):
             write_report(
                 run_dir,
                 {
@@ -125,12 +134,13 @@ class MultiRegionDiagnostic:
                     "modelSchema": MODEL_SCHEMA,
                     "passed": False,
                     "promotable": False,
-                    "reason": "insufficient-disjoint-regions",
+                    "reason": "insufficient-spatial-domain-regions",
                     "trainRegions": len(train_records),
                     "validationRegions": len(validation_records),
-                    "requiredTrainRegions": 2,
-                    "requiredValidationRegions": 2,
+                    "requiredTrainRegions": MIN_TRAIN_REGIONS,
+                    "requiredValidationRegions": MIN_VALIDATION_REGIONS,
                     "datasetFingerprint": manifest.get("fingerprint"),
+                    "datasetSplitPolicy": manifest.get("splitPolicy"),
                 },
             )
             return 2, run_dir
@@ -152,7 +162,12 @@ class MultiRegionDiagnostic:
         print("=" * 76, flush=True)
         print("V16.0 MULTI-REGION SR MINI - DIAGNOSTIC ONLY", flush=True)
         print(
-            f"Train/held-out : {len(train_records)} / {len(validation_records)} disjoint regions",
+            f"Train/held-out : {len(train_records)} / {len(validation_records)} windows",
+            flush=True,
+        )
+        print(
+            "Split rule     : train and validation pixel domains are disjoint; "
+            "windows may overlap only inside one split",
             flush=True,
         )
         print(f"Epochs         : {self.args.epochs} clean SR", flush=True)
@@ -272,6 +287,9 @@ class MultiRegionDiagnostic:
             "candidateCheckpoint": str(best_path.resolve()),
             "trainRecords": [str(record["path"]) for record in train_records],
             "validationRecords": [str(record["path"]) for record in validation_records],
+            "trainSourceBoxes": [record.get("source_box") for record in train_records],
+            "validationSourceBoxes": [record.get("source_box") for record in validation_records],
+            "datasetSplitPolicy": manifest.get("splitPolicy"),
             "probe": str(probe_path.resolve()),
             "datasetFingerprint": manifest.get("fingerprint"),
         }
