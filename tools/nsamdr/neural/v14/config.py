@@ -5,11 +5,13 @@ from pathlib import Path
 import json
 
 
-MODEL_SCHEMA = "NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V14_4"
+MODEL_SCHEMA = "NSAMDR_HR_FIRST_MULTI_MAP_SR_4X_V15_0"
 
 
 @dataclass
-class V14Config:
+class V15Config:
+    """Configuration for the V15.0 literature-aligned HR-first SR model."""
+
     schema: str = MODEL_SCHEMA
     scale: int = 4
     train_hr_size: int = 512
@@ -23,25 +25,23 @@ class V14Config:
     clean_epochs: int = 4
     robust_epochs: int = 4
     selector_epochs: int = 3
+
+    # EDSR and RCAN use Adam-style optimization for pixel reconstruction. V15 keeps
+    # the production SR rate conservative because the candidate runs entirely at HR.
     sr_learning_rate: float = 2.0e-4
     selector_learning_rate: float = 2.0e-4
-    weight_decay: float = 1.0e-5
+    weight_decay: float = 0.0
 
+    # LR evidence remains a context field. It never owns output phases.
     lr_context_channels: int = 32
     lr_blocks: int = 5
 
-    hr_channels: int = 48
-    half_channels: int = 64
-    quarter_channels: int = 96
-    hr_encoder_blocks: int = 4
-    half_encoder_blocks: int = 4
-    quarter_encoder_blocks: int = 6
-    bottleneck_blocks: int = 6
-    half_decoder_blocks: int = 4
-    hr_decoder_blocks: int = 4
+    # V15.0 candidate backbone. This is one HR feature scale only.
+    hr_channels: int = 64
+    hr_blocks: int = 24
     map_tail_blocks: int = 2
-    attention_reduction: int = 8
-    residual_group_scale: float = 0.10
+    residual_scale: float = 0.10
+    checkpoint_segment_blocks: int = 4
     use_gradient_checkpointing: bool = True
 
     selector_channels: int = 24
@@ -74,7 +74,7 @@ class V14Config:
         if self.schema != MODEL_SCHEMA:
             raise ValueError(f"config schema must be {MODEL_SCHEMA}")
         if self.scale != 4:
-            raise ValueError("V14.4 currently supports exactly 4x reconstruction")
+            raise ValueError("V15.0 currently supports exactly 4x reconstruction")
         if self.train_hr_size != self.train_lr_size * self.scale:
             raise ValueError("train_hr_size must equal train_lr_size * scale")
         if self.validation_hr_size != self.validation_lr_size * self.scale:
@@ -86,22 +86,19 @@ class V14Config:
             self.lr_context_channels,
             self.lr_blocks,
             self.hr_channels,
-            self.half_channels,
-            self.quarter_channels,
-            self.hr_encoder_blocks,
-            self.half_encoder_blocks,
-            self.quarter_encoder_blocks,
-            self.bottleneck_blocks,
-            self.half_decoder_blocks,
-            self.hr_decoder_blocks,
+            self.hr_blocks,
             self.map_tail_blocks,
-            self.attention_reduction,
+            self.checkpoint_segment_blocks,
             self.selector_channels,
         )
         if min(architecture_values) < 1:
-            raise ValueError("all V14.4 architecture dimensions and block counts must be positive")
-        if not 0.0 < float(self.residual_group_scale) <= 1.0:
-            raise ValueError("residual_group_scale must be in (0, 1]")
+            raise ValueError("all V15.0 architecture dimensions and block counts must be positive")
+        if not 0.0 < float(self.residual_scale) <= 1.0:
+            raise ValueError("residual_scale must be in (0, 1]")
+        if self.checkpoint_segment_blocks > self.hr_blocks:
+            raise ValueError("checkpoint_segment_blocks must not exceed hr_blocks")
+        if self.hr_blocks % self.checkpoint_segment_blocks != 0:
+            raise ValueError("hr_blocks must be divisible by checkpoint_segment_blocks")
 
         work_values = (
             self.tiles_per_epoch,
@@ -126,10 +123,14 @@ class V14Config:
         )
 
     @classmethod
-    def load(cls, path: Path) -> "V14Config":
+    def load(cls, path: Path) -> "V15Config":
         payload = json.loads(path.read_text(encoding="utf-8"))
         fields = cls.__dataclass_fields__
         kwargs = {key: value for key, value in payload.items() if key in fields}
         config = cls(**kwargs)
         config.validate()
         return config
+
+
+# Compatibility alias for the existing package path. Active checkpoints use V15.0 schema.
+V14Config = V15Config
