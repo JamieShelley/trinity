@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import math
 from pathlib import Path
 import sys
 from typing import Any
@@ -15,7 +17,7 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(NEURAL_ROOT))
     from v14.checkpoint import load_checkpoint, save_checkpoint
     from v14.config import V16Config
-    from v14.dataset import load_manifest
+    from v14.dataset import RavenSRDataset, load_manifest
     from v14.diagnostic_support import (
         DIAGNOSTIC_REVISION,
         DIAGNOSTIC_SCHEMA,
@@ -24,10 +26,11 @@ if __package__ in {None, ""}:
         dataset_sample,
         detail_score,
         device_from_name,
-        iter_train_batches,
         make_run_directory,
         prepare_raven_dataset,
+        pseudo_manifest,
         save_probe,
+        to_device_batch,
         validation_metrics,
         write_report,
     )
@@ -37,7 +40,7 @@ if __package__ in {None, ""}:
 else:
     from .checkpoint import load_checkpoint, save_checkpoint
     from .config import V16Config
-    from .dataset import load_manifest
+    from .dataset import RavenSRDataset, load_manifest
     from .diagnostic_support import (
         DIAGNOSTIC_REVISION,
         DIAGNOSTIC_SCHEMA,
@@ -46,10 +49,11 @@ else:
         dataset_sample,
         detail_score,
         device_from_name,
-        iter_train_batches,
         make_run_directory,
         prepare_raven_dataset,
+        pseudo_manifest,
         save_probe,
+        to_device_batch,
         validation_metrics,
         write_report,
     )
@@ -60,6 +64,18 @@ else:
 
 MIN_TRAIN_REGIONS = 4
 MIN_VALIDATION_REGIONS = 4
+DEFAULT_MAX_STEPS = 2560
+DEFAULT_VALIDATE_EVERY = 256
+
+
+def balanced_region_index(step: int, region_count: int) -> int:
+    """Map a 1-based optimizer step to a deterministic round-robin region index."""
+
+    if step < 1:
+        raise ValueError("step must be >= 1")
+    if region_count < 1:
+        raise ValueError("region_count must be >= 1")
+    return (int(step) - 1) % int(region_count)
 
 
 class MultiRegionDiagnostic:
@@ -82,8 +98,10 @@ class MultiRegionDiagnostic:
             candidate_global_recovery_required=float(self.args.required_global_recovery),
             candidate_gradient_recovery_required=float(self.args.required_gradient_recovery),
         )
-        config.tiles_per_epoch = int(self.args.tiles_per_epoch)
-        config.clean_epochs = int(self.args.epochs)
+        # Multi-Region is step-based. These values remain valid configuration fields,
+        # but they do not control the diagnostic training budget.
+        config.tiles_per_epoch = max(1, int(getattr(self.args, "tiles_per_epoch", 64)))
+        config.clean_epochs = 1
         config.robust_epochs = 0
         config.validate()
         return config
@@ -103,6 +121,74 @@ class MultiRegionDiagnostic:
             reverse=True,
         )[: int(self.args.validation_regions)]
         return train, validation
+
+    def _balanced_train_datasets(
+        self,
+        records: list[dict[str, Any]],
+        config: V16Config,
+        max_steps: int,
+    ) -> list[RavenSRDataset]:
+        visits = max(1, int(math.ceil(max_steps / max(1, len(records)))))
+        datasets: list[RavenSRDataset] = []
+        for region_index, record in enumerate(records):
+            datasets.append(
+                RavenSRDataset(
+                    pseudo_manifest([record], split="train"),
+                    config,
+                    "train",
+                    visits,
+                    seed=config.seed + 10_007 * (region_index + 1),
+                    degradation="clean",
+                )
+            )
+        return datasets
+
+    def _evaluate_records(
+        self,
+        model: NSAMDRV16,
+        records: list[dict[str, Any]],
+        config: V16Config,
+    ) -> dict[str, object]:
+        metrics = validation_metrics(
+            model,
+            pseudo_manifest(records, split="validation"),
+            config,
+            self.device,
+            self.args.amp_precision,
+            final=False,
+        )
+        return aggregate_candidate(metrics, config)
+
+    @staticmethod
+    def _score(report: dict[str, object]) -> float:
+        return (
+            float(report["medianGlobalRecovery"])
+            + float(report["medianEdgeRecovery"])
+            + float(report["medianGradientRecovery"])
+        )
+
+    @staticmethod
+    def _diagnosis(
+        train_report: dict[str, object],
+        validation_report: dict[str, object],
+    ) -> str:
+        train_pass = bool(train_report.get("passed"))
+        validation_pass = bool(validation_report.get("passed"))
+        if validation_pass and train_pass:
+            return "passed"
+        if validation_pass and not train_pass:
+            return "validation-pass-train-anomaly"
+        if train_pass:
+            return "generalisation-failure"
+        return "training-capacity-or-optimization-failure"
+
+    def _write_curve(self, run_dir: Path, curve: list[dict[str, object]]) -> Path:
+        path = run_dir / "generalisation_curve.json"
+        path.write_text(
+            json.dumps(curve, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return path
 
     def run(self) -> tuple[int, Path]:
         self.args.prepare_train_regions = max(
@@ -145,7 +231,8 @@ class MultiRegionDiagnostic:
             )
             return 2, run_dir
 
-        subset_manifest = {"crops": [*train_records, *validation_records]}
+        max_steps = max(1, int(self.args.max_steps))
+        validate_every = max(1, int(self.args.validate_every))
         model = NSAMDRV16(config).to(self.device)
         model.set_candidate_training()
         parameters = [p for p in model.parameters() if p.requires_grad]
@@ -155,9 +242,22 @@ class MultiRegionDiagnostic:
             betas=(0.9, 0.999),
             eps=1.0e-8,
         )
+        train_datasets = self._balanced_train_datasets(
+            train_records,
+            config,
+            max_steps,
+        )
+        region_visits = [0 for _ in train_records]
+        curve: list[dict[str, object]] = []
         best_key = (-1, -1.0e9)
-        best_path: Path | None = None
-        best_report: dict[str, object] | None = None
+        best_path = run_dir / "best_checkpoint.pt"
+        best_train_report: dict[str, object] | None = None
+        best_validation_report: dict[str, object] | None = None
+        best_step = 0
+        interval_loss = 0.0
+        interval_count = 0
+        completed_steps = 0
+        early_pass = False
 
         print("=" * 76, flush=True)
         print("V16.0 MULTI-REGION SR MINI - DIAGNOSTIC ONLY", flush=True)
@@ -170,97 +270,186 @@ class MultiRegionDiagnostic:
             "windows may overlap only inside one split",
             flush=True,
         )
-        print(f"Epochs         : {self.args.epochs} clean SR", flush=True)
-        print(f"Tiles/epoch    : {self.args.tiles_per_epoch}", flush=True)
+        print("Sampling       : deterministic balanced round-robin", flush=True)
+        print(f"Maximum steps  : {max_steps}", flush=True)
+        print(f"Validate every : {validate_every} steps", flush=True)
+        print(f"Learning rate  : {float(self.args.learning_rate):.7f}", flush=True)
         print("=" * 76, flush=True)
 
-        for epoch in range(1, int(self.args.epochs) + 1):
+        for step in range(1, max_steps + 1):
             model.train()
-            running = 0.0
-            for index, batch in enumerate(
-                iter_train_batches(
-                    subset_manifest,
-                    config,
-                    int(self.args.tiles_per_epoch),
-                    seed=config.seed + epoch * 31,
-                    degradation="clean",
-                    device=self.device,
-                ),
-                start=1,
-            ):
-                optimizer.zero_grad(set_to_none=True)
-                with autocast_context(self.device, self.args.amp_precision):
-                    outputs = model(
-                        batch["lr_albedo"],
-                        batch["lr_normal"],
-                        batch["lr_material"],
-                    )
-                    losses = candidate_loss(outputs, batch, config)
-                losses["total"].backward()
-                torch.nn.utils.clip_grad_norm_(parameters, 1.0)
-                optimizer.step()
-                running += float(losses["total"].detach().item())
-                if index == 1 or index % 16 == 0 or index == int(self.args.tiles_per_epoch):
-                    print(
-                        f"  epoch {epoch}/{self.args.epochs} tile {index:3d}/{self.args.tiles_per_epoch} "
-                        f"loss={running/index:.6f}",
-                        flush=True,
-                    )
-
-            metrics = validation_metrics(
-                model,
-                subset_manifest,
-                config,
+            region_index = balanced_region_index(step, len(train_records))
+            visit_index = region_visits[region_index]
+            region_visits[region_index] += 1
+            batch = to_device_batch(
+                train_datasets[region_index][visit_index],
                 self.device,
-                self.args.amp_precision,
-                final=False,
             )
-            report = aggregate_candidate(metrics, config)
-            report["epoch"] = epoch
-            score = (
-                float(report["medianGlobalRecovery"])
-                + float(report["medianEdgeRecovery"])
-                + float(report["medianGradientRecovery"])
-            )
-            checkpoint_path = run_dir / "checkpoints" / f"candidate_epoch_{epoch:02d}.pt"
-            save_checkpoint(
-                checkpoint_path,
+
+            optimizer.zero_grad(set_to_none=True)
+            with autocast_context(self.device, self.args.amp_precision):
+                outputs = model(
+                    batch["lr_albedo"],
+                    batch["lr_normal"],
+                    batch["lr_material"],
+                )
+                losses = candidate_loss(outputs, batch, config)
+            loss = losses["total"]
+            if not bool(torch.isfinite(loss).item()):
+                self._write_curve(run_dir, curve)
+                write_report(
+                    run_dir,
+                    {
+                        "schema": DIAGNOSTIC_SCHEMA,
+                        "revision": DIAGNOSTIC_REVISION,
+                        "mode": "multiregion",
+                        "modelSchema": MODEL_SCHEMA,
+                        "passed": False,
+                        "promotable": False,
+                        "reason": "diverged-non-finite-loss",
+                        "step": step,
+                        "trainRegionVisits": region_visits,
+                        "datasetFingerprint": manifest.get("fingerprint"),
+                    },
+                )
+                return 3, run_dir
+
+            loss.backward()
+            grad_norm = torch.nn.utils.clip_grad_norm_(parameters, 1.0)
+            if not bool(torch.isfinite(grad_norm).item()):
+                self._write_curve(run_dir, curve)
+                write_report(
+                    run_dir,
+                    {
+                        "schema": DIAGNOSTIC_SCHEMA,
+                        "revision": DIAGNOSTIC_REVISION,
+                        "mode": "multiregion",
+                        "modelSchema": MODEL_SCHEMA,
+                        "passed": False,
+                        "promotable": False,
+                        "reason": "diverged-non-finite-gradient",
+                        "step": step,
+                        "trainRegionVisits": region_visits,
+                        "datasetFingerprint": manifest.get("fingerprint"),
+                    },
+                )
+                return 3, run_dir
+
+            optimizer.step()
+            loss_value = float(loss.detach().item())
+            interval_loss += loss_value
+            interval_count += 1
+            completed_steps = step
+
+            if step == 1 or step % 64 == 0:
+                print(
+                    f"  step {step:4d}/{max_steps} "
+                    f"region={region_index + 1}/{len(train_records)} "
+                    f"loss={loss_value:.6f} grad={float(grad_norm):.4f}",
+                    flush=True,
+                )
+
+            if step % validate_every != 0 and step != max_steps:
+                continue
+
+            train_report = self._evaluate_records(
                 model,
+                train_records,
                 config,
-                epoch=epoch,
-                phase="v16.0-mini-multiregion",
-                metrics=report,
+            )
+            validation_report = self._evaluate_records(
+                model,
+                validation_records,
+                config,
+            )
+            diagnosis = self._diagnosis(train_report, validation_report)
+            curve_item: dict[str, object] = {
+                "step": step,
+                "meanTrainingLossSincePreviousEvaluation": (
+                    interval_loss / max(1, interval_count)
+                ),
+                "trainRegionVisits": list(region_visits),
+                "train": train_report,
+                "validation": validation_report,
+                "diagnosis": diagnosis,
+            }
+            curve.append(curve_item)
+            self._write_curve(run_dir, curve)
+            interval_loss = 0.0
+            interval_count = 0
+
+            print(
+                "  train    "
+                f"global={float(train_report['medianGlobalRecovery'])*100:+.2f}% "
+                f"edge={float(train_report['medianEdgeRecovery'])*100:+.2f}% "
+                f"grad={float(train_report['medianGradientRecovery'])*100:+.2f}% "
+                f"lattice={float(train_report['maxLatticeCellExcess'])*100:+.2f}% "
+                f"qualified={'YES' if train_report['passed'] else 'NO'}",
+                flush=True,
             )
             print(
                 "  held-out "
-                f"global={float(report['medianGlobalRecovery'])*100:+.2f}% "
-                f"edge={float(report['medianEdgeRecovery'])*100:+.2f}% "
-                f"grad={float(report['medianGradientRecovery'])*100:+.2f}% "
-                f"samples={int(report['sampleCount'])} "
-                f"qualified={'YES' if report['passed'] else 'NO'}",
+                f"global={float(validation_report['medianGlobalRecovery'])*100:+.2f}% "
+                f"edge={float(validation_report['medianEdgeRecovery'])*100:+.2f}% "
+                f"grad={float(validation_report['medianGradientRecovery'])*100:+.2f}% "
+                f"lattice={float(validation_report['maxLatticeCellExcess'])*100:+.2f}% "
+                f"qualified={'YES' if validation_report['passed'] else 'NO'} "
+                f"diagnosis={diagnosis}",
                 flush=True,
             )
-            key = (1 if bool(report["passed"]) else 0, score)
-            if best_report is None or key > best_key:
-                best_key = key
-                best_path = checkpoint_path
-                best_report = report
 
-        if best_path is None or best_report is None:
-            raise RuntimeError("V16.0 multi-region diagnostic produced no checkpoint")
+            score = self._score(validation_report)
+            key = (1 if bool(validation_report["passed"]) else 0, score)
+            if best_validation_report is None or key > best_key:
+                best_key = key
+                best_step = step
+                best_train_report = train_report
+                best_validation_report = validation_report
+                save_checkpoint(
+                    best_path,
+                    model,
+                    config,
+                    epoch=step,
+                    phase="v16.0-mini-multiregion-step",
+                    metrics={
+                        "step": step,
+                        "train": train_report,
+                        "validation": validation_report,
+                        "diagnosis": diagnosis,
+                    },
+                )
+
+            if bool(validation_report["passed"]):
+                early_pass = True
+                print(
+                    f"[v16.0-multiregion] early PASS at step {step}; "
+                    "existing qualification gates are satisfied",
+                    flush=True,
+                )
+                break
+
+        if best_validation_report is None or best_train_report is None or best_step < 1:
+            raise RuntimeError("V16.0 multi-region diagnostic produced no evaluated checkpoint")
 
         selected_model, _payload = load_checkpoint(best_path, self.device)
-        selected_metrics = validation_metrics(
+        selected_train_report = self._evaluate_records(
             selected_model,
-            subset_manifest,
+            train_records,
             config,
-            self.device,
-            self.args.amp_precision,
-            final=False,
         )
-        selected_report = aggregate_candidate(selected_metrics, config)
-        selected_report["selectedCheckpoint"] = str(best_path.resolve())
-        selected_report["selectedEpoch"] = int(best_report["epoch"])
+        selected_validation_report = self._evaluate_records(
+            selected_model,
+            validation_records,
+            config,
+        )
+        selected_train_report["selectedCheckpoint"] = str(best_path.resolve())
+        selected_train_report["selectedStep"] = int(best_step)
+        selected_validation_report["selectedCheckpoint"] = str(best_path.resolve())
+        selected_validation_report["selectedStep"] = int(best_step)
+        selected_diagnosis = self._diagnosis(
+            selected_train_report,
+            selected_validation_report,
+        )
 
         preview_batch = dataset_sample(validation_records[0], config, self.device)
         selected_model.eval()
@@ -276,25 +465,39 @@ class MultiRegionDiagnostic:
             preview_outputs,
             include_final=False,
         )
+        curve_path = self._write_curve(run_dir, curve)
         report = {
             "schema": DIAGNOSTIC_SCHEMA,
             "revision": DIAGNOSTIC_REVISION,
             "mode": "multiregion",
-            "passed": bool(selected_report["passed"]),
+            "passed": bool(selected_validation_report["passed"]),
             "promotable": False,
             "modelSchema": MODEL_SCHEMA,
-            "candidate": selected_report,
+            "diagnosis": selected_diagnosis,
+            "candidate": selected_validation_report,
+            "trainCandidate": selected_train_report,
             "candidateCheckpoint": str(best_path.resolve()),
+            "selectedStep": int(best_step),
+            "completedSteps": int(completed_steps),
+            "earlyPass": bool(early_pass),
+            "trainingBudget": {
+                "maximumSteps": int(max_steps),
+                "validationInterval": int(validate_every),
+                "learningRate": float(self.args.learning_rate),
+                "sampling": "balanced-round-robin",
+                "trainRegionVisits": list(region_visits),
+            },
             "trainRecords": [str(record["path"]) for record in train_records],
             "validationRecords": [str(record["path"]) for record in validation_records],
             "trainSourceBoxes": [record.get("source_box") for record in train_records],
             "validationSourceBoxes": [record.get("source_box") for record in validation_records],
             "datasetSplitPolicy": manifest.get("splitPolicy"),
+            "generalisationCurve": str(curve_path.resolve()),
             "probe": str(probe_path.resolve()),
             "datasetFingerprint": manifest.get("fingerprint"),
         }
         write_report(run_dir, report)
-        return (0 if bool(selected_report["passed"]) else 2), run_dir
+        return (0 if bool(selected_validation_report["passed"]) else 2), run_dir
 
 
 def parser() -> argparse.ArgumentParser:
@@ -311,9 +514,12 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--required-gradient-recovery", type=float, default=0.35)
     p.add_argument("--train-regions", type=int, default=4)
     p.add_argument("--validation-regions", type=int, default=4)
-    p.add_argument("--epochs", type=int, default=3)
-    p.add_argument("--tiles-per-epoch", type=int, default=64)
+    p.add_argument("--max-steps", type=int, default=DEFAULT_MAX_STEPS)
+    p.add_argument("--validate-every", type=int, default=DEFAULT_VALIDATE_EVERY)
     p.add_argument("--learning-rate", type=float, default=2.0e-4)
+    # Kept for old direct invocations. V16 Multi-Region no longer uses epoch budget.
+    p.add_argument("--epochs", type=int, default=3, help=argparse.SUPPRESS)
+    p.add_argument("--tiles-per-epoch", type=int, default=64, help=argparse.SUPPRESS)
     return p
 
 
