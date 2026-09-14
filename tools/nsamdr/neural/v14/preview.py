@@ -24,6 +24,7 @@ else:
     from .model import MODEL_SCHEMA
 
 
+# Keep the stable manifest envelope. The embedded checkpoint schema identifies V16.
 FINAL_SCHEMA = "NSAMDR_V14_FINAL_MANIFEST_V1"
 
 
@@ -34,7 +35,7 @@ def _batch(value: np.ndarray) -> torch.Tensor:
 def _qualified_checkpoint(experiment: Path) -> Path:
     manifest_path = experiment / "final_manifest.json"
     if not manifest_path.is_file():
-        raise RuntimeError(f"V14 final manifest is missing: {manifest_path}")
+        raise RuntimeError(f"V16 final manifest is missing: {manifest_path}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     checkpoint_record = dict(manifest.get("checkpoint") or {})
     if (
@@ -45,22 +46,29 @@ def _qualified_checkpoint(experiment: Path) -> Path:
         or checkpoint_record.get("schema") != MODEL_SCHEMA
         or checkpoint_record.get("immutable") is not True
     ):
-        raise RuntimeError("V14 preview requires a completed qualified immutable production final")
-    checkpoint = (experiment / str(checkpoint_record.get("path") or "")).resolve()
+        raise RuntimeError(
+            "V16 preview requires a completed qualified immutable production final"
+        )
+    checkpoint = (
+        experiment / str(checkpoint_record.get("path") or "")
+    ).resolve()
     checkpoint.relative_to((experiment / "checkpoints" / "final").resolve())
     if not checkpoint.is_file():
-        raise RuntimeError(f"V14 final checkpoint is missing: {checkpoint}")
+        raise RuntimeError(f"V16 final checkpoint is missing: {checkpoint}")
     expected = str(checkpoint_record.get("sha256") or "")
     actual = sha256_file(checkpoint)
     if not expected or actual != expected:
         raise RuntimeError(
-            f"V14 final checkpoint provenance mismatch: expected={expected or '<missing>'} actual={actual}"
+            "V16 final checkpoint provenance mismatch: "
+            f"expected={expected or '<missing>'} actual={actual}"
         )
     return checkpoint
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Bake a V14 4x physical-map preview from an immutable checkpoint")
+    parser = argparse.ArgumentParser(
+        description="Bake a V16 4x physical-map preview from an immutable checkpoint"
+    )
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument("--experiment", required=True)
     parser.add_argument("--device", choices=("cuda", "cpu", "auto"), default="cuda")
@@ -68,19 +76,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--shared-cache", default=r"C:\CCP\EVE")
     args = parser.parse_args(argv)
     root = args.repo_root.resolve()
-    experiment = root / "artifacts" / "nsamdr" / "experiments" / args.experiment
+    experiment = (
+        root / "artifacts" / "nsamdr" / "experiments" / args.experiment
+    )
     checkpoint = _qualified_checkpoint(experiment)
-    device = torch.device("cuda" if args.device in {"cuda", "auto"} and torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        "cuda"
+        if args.device in {"cuda", "auto"} and torch.cuda.is_available()
+        else "cpu"
+    )
     if args.device == "cuda" and device.type != "cuda":
-        raise RuntimeError("V14 preview requested CUDA but CUDA is unavailable")
+        raise RuntimeError("V16 preview requested CUDA but CUDA is unavailable")
     model, _ = load_checkpoint(checkpoint, device)
-    manifest = json.loads((root / model.config.dataset_manifest).read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (root / model.config.dataset_manifest).read_text(encoding="utf-8")
+    )
     families = list(manifest.get("families") or [])
     if not families:
-        raise RuntimeError("V14 preview dataset manifest contains no native material families")
+        raise RuntimeError(
+            "V16 preview dataset manifest contains no native material families"
+        )
     canonical = _canonical_native_family(families[0])
     if canonical is None:
-        raise RuntimeError("V14 preview could not resolve the first native physical-map family")
+        raise RuntimeError(
+            "V16 preview could not resolve the first native physical-map family"
+        )
     albedo, normal, material = canonical
     lr_a = _batch(albedo).to(device)
     lr_n = _batch(normal).to(device)
@@ -97,40 +117,66 @@ def main(argv: list[str] | None = None) -> int:
     natural_target = int(albedo.shape[1] * model.config.scale)
     if int(args.target_size) != natural_target:
         print(
-            f"[v14-preview] requested target-size={args.target_size}; V14 production scale is fixed 4x, "
-            f"so native {albedo.shape[1]} produces {natural_target}",
+            f"[v16-preview] requested target-size={args.target_size}; "
+            f"V16 production scale is fixed 4x, so native {albedo.shape[1]} "
+            f"produces {natural_target}",
             flush=True,
         )
     previews_root = experiment / "previews"
-    out = previews_root / "final_v14"
+    out = previews_root / "final_v16"
     out.mkdir(parents=True, exist_ok=True)
+
     value = outputs["albedo"][0].detach().cpu()
-    image = np.round(value.permute(1, 2, 0).clamp(0, 1).numpy() * 255).astype(np.uint8)
+    image = np.round(
+        value.permute(1, 2, 0).clamp(0, 1).numpy() * 255
+    ).astype(np.uint8)
     cv2.imwrite(str(out / "albedo_4x.png"), image[:, :, ::-1])
-    np.save(out / "normal_xy_4x.npy", outputs["normal"][0].detach().cpu().numpy())
+    np.save(
+        out / "normal_xy_4x.npy",
+        outputs["normal"][0].detach().cpu().numpy(),
+    )
     value = outputs["material"][0].detach().cpu()
-    image = np.round(value.permute(1, 2, 0).clamp(0, 1).numpy() * 255).astype(np.uint8)
+    image = np.round(
+        value.permute(1, 2, 0).clamp(0, 1).numpy() * 255
+    ).astype(np.uint8)
     cv2.imwrite(str(out / "material_4x.png"), image[:, :, ::-1])
+
     preview_manifest = {
-        "schema": "NSAMDR_V14_PREVIEW_V1",
+        "schema": "NSAMDR_V16_PREVIEW_V1",
         "status": "baked",
         "experiment": experiment.name,
         "checkpointSha256": sha256_file(checkpoint),
+        "modelSchema": MODEL_SCHEMA,
         "nativeSourceSize": [int(albedo.shape[1]), int(albedo.shape[0])],
-        "outputSize": [int(outputs["albedo"].shape[-1]), int(outputs["albedo"].shape[-2])],
+        "outputSize": [
+            int(outputs["albedo"].shape[-1]),
+            int(outputs["albedo"].shape[-2]),
+        ],
         "scale": int(model.config.scale),
         "outputDirectory": str(out.resolve()),
     }
-    manifest_text = json.dumps(preview_manifest, indent=2, sort_keys=True) + "\n"
-    (out / "preview_manifest.json").write_text(manifest_text, encoding="utf-8")
-    # The base GUI watches this stable path when marking Preview complete.
+    manifest_text = json.dumps(
+        preview_manifest,
+        indent=2,
+        sort_keys=True,
+    ) + "\n"
+    (out / "preview_manifest.json").write_text(
+        manifest_text,
+        encoding="utf-8",
+    )
+
+    # The base GUI watches this stable path when it marks Preview complete.
     gui_manifest = dict(preview_manifest)
     gui_manifest["status"] = "launched"
     (previews_root / "preview_manifest.json").write_text(
         json.dumps(gui_manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    print(f"[v14-preview] baked native {albedo.shape[1]} -> {outputs['albedo'].shape[-1]} physical maps: {out}", flush=True)
+    print(
+        f"[v16-preview] baked native {albedo.shape[1]} -> "
+        f"{outputs['albedo'].shape[-1]} physical maps: {out}",
+        flush=True,
+    )
     return 0
 
 
