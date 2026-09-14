@@ -13,14 +13,14 @@ import cv2
 import numpy as np
 import torch
 
-from .config import V14Config
+from .config import V15Config
 from .dataset import RavenSRDataset
-from .model import NSAMDRV14
+from .model import NSAMDRV15
 from .qualification import sample_metrics
 
 
 DIAGNOSTIC_SCHEMA = "NSAMDR_V14_MINI_DIAGNOSTIC_V1"
-DIAGNOSTIC_REVISION = "V14.4"
+DIAGNOSTIC_REVISION = "V15.0"
 
 
 def device_from_name(name: str) -> torch.device:
@@ -28,7 +28,7 @@ def device_from_name(name: str) -> torch.device:
         return torch.device("cpu")
     if name == "cuda":
         if not torch.cuda.is_available():
-            raise RuntimeError("V14.4 diagnostic requested CUDA but CUDA is unavailable")
+            raise RuntimeError("V15.0 diagnostic requested CUDA but CUDA is unavailable")
         return torch.device("cuda")
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -58,7 +58,7 @@ def prepare_raven_dataset(args: Any, repo_root: Path) -> None:
     if args.rebuild_dataset:
         command.append("--rebuild")
     print(
-        "[v14.4-diagnostic] prepare authored Raven dataset: "
+        "[v15.0-diagnostic] prepare authored Raven dataset: "
         + subprocess.list2cmdline(command),
         flush=True,
     )
@@ -96,7 +96,6 @@ def to_device_batch(
     sample: dict[str, torch.Tensor],
     device: torch.device,
 ) -> dict[str, torch.Tensor]:
-    """Move tensor fields to the device and preserve record_index for held-out identity."""
     result: dict[str, torch.Tensor] = {}
     for key, value in sample.items():
         if not isinstance(value, torch.Tensor):
@@ -137,7 +136,7 @@ def pseudo_manifest(
 
 def dataset_sample(
     record: dict[str, Any],
-    config: V14Config,
+    config: V15Config,
     device: torch.device,
 ) -> dict[str, torch.Tensor]:
     dataset = RavenSRDataset(
@@ -153,7 +152,7 @@ def dataset_sample(
 
 def iter_train_batches(
     manifest: dict[str, Any],
-    config: V14Config,
+    config: V15Config,
     count: int,
     *,
     seed: int,
@@ -173,9 +172,9 @@ def iter_train_batches(
 
 
 def validation_metrics(
-    model: NSAMDRV14,
+    model: NSAMDRV15,
     manifest: dict[str, Any],
-    config: V14Config,
+    config: V15Config,
     device: torch.device,
     precision: str,
     *,
@@ -230,7 +229,7 @@ def save_probe(
     panels: list[tuple[str, np.ndarray]] = [
         ("A AUTHORED", u8(batch["target_albedo"])),
         ("B BASELINE", u8(outputs["baseline_albedo"])),
-        ("C V14.4 SR", u8(outputs["candidate_albedo"])),
+        ("C V15.0 SR", u8(outputs["candidate_albedo"])),
     ]
     if include_final:
         panels.append(("F SELECTED", u8(outputs["albedo"])))
