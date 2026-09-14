@@ -13,7 +13,7 @@ if str(HERE) not in sys.path:
 from prepare_nsamdr_v16_raven_dataset import (
     V16RavenDatasetPreparationApplication,
 )
-from v14.multiregion_diagnostic import balanced_region_index
+from v14.multiregion_diagnostic import MultiRegionDiagnostic, balanced_region_index
 
 
 class V16RavenSpatialSplitTests(unittest.TestCase):
@@ -94,6 +94,24 @@ class V16RavenSpatialSplitTests(unittest.TestCase):
             balanced_region_index(0, 4)
         with self.assertRaises(ValueError):
             balanced_region_index(1, 0)
+
+    def test_multi_region_diagnosis_requires_train_and_validation_pass(self) -> None:
+        self.assertEqual(
+            MultiRegionDiagnostic._diagnosis({"passed": True}, {"passed": True}),
+            "passed",
+        )
+        self.assertEqual(
+            MultiRegionDiagnostic._diagnosis({"passed": True}, {"passed": False}),
+            "generalisation-failure",
+        )
+        self.assertEqual(
+            MultiRegionDiagnostic._diagnosis({"passed": False}, {"passed": True}),
+            "validation-pass-train-anomaly",
+        )
+        self.assertEqual(
+            MultiRegionDiagnostic._diagnosis({"passed": False}, {"passed": False}),
+            "training-capacity-or-optimization-failure",
+        )
 
 
 if __name__ == "__main__":
