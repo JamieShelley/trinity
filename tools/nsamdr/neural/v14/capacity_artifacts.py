@@ -7,11 +7,11 @@ import numpy as np
 import torch
 from torch.nn import functional as F
 
-from .config import V14Config
+from .config import V15Config
 
 
 class CapacityArtifactWriter:
-    """Write V14.4 capacity telemetry images without affecting pass or fail."""
+    """Write V15.0 Capacity telemetry images without affecting pass or fail."""
 
     def __init__(self, run_dir: Path) -> None:
         self.run_dir = run_dir
@@ -194,7 +194,7 @@ class CapacityArtifactWriter:
     @staticmethod
     def residual_cap_saturation(
         outputs: dict[str, torch.Tensor],
-        config: V14Config,
+        config: V15Config,
     ) -> dict[str, float]:
         """Measure bounded pre-projection residuals near their configured caps."""
 
@@ -219,7 +219,7 @@ class CapacityArtifactWriter:
     def raw_residual_magnitude(
         outputs: dict[str, torch.Tensor],
     ) -> dict[str, float]:
-        """Measure the mean absolute raw residual before V14.4 limiting."""
+        """Measure mean absolute raw residual values before V15.0 tanh bounding."""
 
         tensors = {
             "albedo": outputs["candidate_raw_residual_albedo"].float(),
