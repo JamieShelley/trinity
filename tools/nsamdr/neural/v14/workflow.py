@@ -53,7 +53,7 @@ def _prepare_dataset(args: argparse.Namespace, repo_root: Path) -> None:
     if args.rebuild_dataset:
         command.append("--rebuild")
     print(
-        "[v14.2-workflow] prepare authored Raven dataset: "
+        "[v14.3-workflow] prepare authored Raven dataset: "
         + subprocess.list2cmdline(command),
         flush=True,
     )
@@ -67,7 +67,7 @@ def _prepare_dataset(args: argparse.Namespace, repo_root: Path) -> None:
 def _diagnostics(experiment: Path, root: Path) -> Path:
     diagnostics = root / "artifacts/nsamdr/diagnostics"
     diagnostics.mkdir(parents=True, exist_ok=True)
-    base = diagnostics / f"{experiment.name}_V14_2_DIAGNOSTICS"
+    base = diagnostics / f"{experiment.name}_V14_3_DIAGNOSTICS"
     return Path(shutil.make_archive(str(base), "zip", root_dir=experiment))
 
 
@@ -84,7 +84,7 @@ def _start_live_view(
         str(experiment),
     ]
     print(
-        "[v14.2-workflow] live A/B/C/F viewer: "
+        "[v14.3-workflow] live A/B/C/F viewer: "
         + subprocess.list2cmdline(command),
         flush=True,
     )
@@ -125,7 +125,7 @@ def _write_architecture_participation(
     )
     passed = bool(
         contract.get("schema") == MODEL_SCHEMA
-        and contract.get("revision") == "V14.2"
+        and contract.get("revision") == "V14.3"
         and active == expected_active
         and retired == ()
         and contract.get("geometryPixelAuthority") is False
@@ -138,10 +138,14 @@ def _write_architecture_participation(
         == "bilinear-phase-neutral + HR 3x3 adapter"
         and contract.get("decoderUpsampling")
         == "bilinear-phase-neutral + HR convolution"
+        and contract.get("residualBounding") == "softsign"
+        and contract.get("residualSupervision")
+        == "bounded-pre-physical-projection"
+        and contract.get("identityInitializedDeepResiduals") is True
         and contract.get("selectorUsesPhysicalMaps") is True
     )
     payload = {
-        "schema": "NSAMDR_V14_ARCHITECTURE_PARTICIPATION_V3",
+        "schema": "NSAMDR_V14_ARCHITECTURE_PARTICIPATION_V4",
         "pass": passed,
         "modelSchema": contract.get("schema"),
         "activeComponents": active,
@@ -157,15 +161,13 @@ def _write_architecture_participation(
         encoding="utf-8",
     )
     if not passed:
-        raise RuntimeError(
-            "V14.2 architecture participation contract failed"
-        )
+        raise RuntimeError("V14.3 architecture participation contract failed")
 
 
 def parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "NSAMDR V14.2 multi-scale phase-neutral HR-first Raven workflow"
+            "NSAMDR V14.3 stable multi-scale phase-neutral HR-first Raven workflow"
         )
     )
     parser.add_argument(
@@ -173,15 +175,8 @@ def parser() -> argparse.ArgumentParser:
         choices=("quick", "full"),
         default="quick",
     )
-    parser.add_argument(
-        "--repo-root",
-        type=Path,
-        default=Path.cwd(),
-    )
-    parser.add_argument(
-        "--shared-cache",
-        default=r"C:\CCP\EVE",
-    )
+    parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    parser.add_argument("--shared-cache", default=r"C:\CCP\EVE")
     parser.add_argument("--max-train-regions", type=int, default=16)
     parser.add_argument("--max-validation-regions", type=int, default=4)
     parser.add_argument("--experiment", default="new")
@@ -200,15 +195,8 @@ def parser() -> argparse.ArgumentParser:
         choices=("auto", "bf16", "fp16"),
         default="auto",
     )
-    parser.add_argument(
-        "--live-preview-during-training",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--live-preview-target-size",
-        type=int,
-        default=1024,
-    )
+    parser.add_argument("--live-preview-during-training", action="store_true")
+    parser.add_argument("--live-preview-target-size", type=int, default=1024)
     parser.add_argument("--rebuild-dataset", action="store_true")
     return parser
 
@@ -218,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = args.repo_root.resolve()
     if args.training_mode != "quick":
         print(
-            "ERROR: V14.2 Full Training remains disabled until "
+            "ERROR: V14.3 Full Training remains disabled until "
             "Raven HR-first candidate qualifies.",
             file=sys.stderr,
         )
@@ -235,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     experiment = experiments / experiment_id
     if experiment.exists() and any(experiment.iterdir()):
         raise RuntimeError(
-            f"V14.2 experiments are immutable; choose new instead of "
+            f"V14.3 experiments are immutable; choose new instead of "
             f"reusing {experiment_id}"
         )
     experiment.mkdir(parents=True, exist_ok=True)
@@ -251,7 +239,7 @@ def main(argv: list[str] | None = None) -> int:
         "modelSchema": config.schema,
         "trainingMode": args.training_mode,
         "createdUnix": time.time(),
-        "source": "V14.2 multi-scale phase-neutral HR-first architecture",
+        "source": "V14.3 stable multi-scale phase-neutral HR-first architecture",
     }
     manifest_path = experiment / "experiment.json"
     manifest_path.write_text(
@@ -266,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     device = torch.device("cuda" if use_cuda else "cpu")
     if args.preview_device == "cuda" and device.type != "cuda":
         raise RuntimeError(
-            "V14.2 Raven Quick requested CUDA but CUDA is unavailable"
+            "V14.3 Raven Quick requested CUDA but CUDA is unavailable"
         )
 
     viewer: subprocess.Popen[bytes] | None = None
@@ -313,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         archive = _diagnostics(experiment, repo_root)
         print(
-            f"[v14.2-workflow] FAILED diagnostics: {archive}",
+            f"[v14.3-workflow] FAILED diagnostics: {archive}",
             flush=True,
         )
         raise
@@ -321,19 +309,12 @@ def main(argv: list[str] | None = None) -> int:
         _stop_live_view(experiment, viewer)
 
     archive = _diagnostics(experiment, repo_root)
-    print(
-        f"[v14.2-workflow] diagnostics: {archive}",
-        flush=True,
-    )
+    print(f"[v14.3-workflow] diagnostics: {archive}", flush=True)
     if result["qualified"]:
-        print(
-            f"[v14.2-workflow] QUALIFIED {experiment_id}",
-            flush=True,
-        )
+        print(f"[v14.3-workflow] QUALIFIED {experiment_id}", flush=True)
         return 0
     print(
-        f"[v14.2-workflow] REJECTED {experiment_id}: "
-        f"{result.get('failedStage')}",
+        f"[v14.3-workflow] REJECTED {experiment_id}: {result.get('failedStage')}",
         flush=True,
     )
     return 2
