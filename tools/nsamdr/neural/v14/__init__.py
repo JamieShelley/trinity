@@ -1,4 +1,4 @@
-"""NSAMDR V14.2 multi-scale phase-neutral HR-first production model."""
+"""NSAMDR V14.3 stable multi-scale phase-neutral HR-first production model."""
 from .config import MODEL_SCHEMA, V14Config
 from .model import NSAMDRV14
 
