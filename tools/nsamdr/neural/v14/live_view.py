@@ -15,9 +15,9 @@ class LiveView:
         self.stop_path = stop_path
         self.last_mtime_ns = -1
         self.photo: ImageTk.PhotoImage | None = None
-        self.label = tk.Label(root, text="Waiting for V14 A/B/C/F preview...")
+        self.label = tk.Label(root, text="Waiting for V16 A/B/C/F preview...")
         self.label.pack(fill="both", expand=True)
-        root.title("NSAMDR V14 Live A / B / C / F")
+        root.title("NSAMDR V16 Live A / B / C / F")
         root.geometry("1500x650")
         self._poll()
 
@@ -42,7 +42,9 @@ class LiveView:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Show the latest V14 A/B/C/F training contact sheet")
+    parser = argparse.ArgumentParser(
+        description="Show the latest V16 A/B/C/F training contact sheet"
+    )
     parser.add_argument("--experiment-dir", type=Path, required=True)
     args = parser.parse_args(argv)
     live = args.experiment_dir.resolve() / "previews" / "live"
