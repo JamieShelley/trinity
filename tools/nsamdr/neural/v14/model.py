@@ -280,7 +280,8 @@ class NSAMDRV16(nn.Module):
                 "material_tail",
                 "selector",
             ),
-            "retiredComponents": (
+            "retiredComponents": (),
+            "historicalRejectedComponents": (
                 "multiscale_hr_refiner",
                 "single_scale_edsr_refiner",
                 "downsample_features",
