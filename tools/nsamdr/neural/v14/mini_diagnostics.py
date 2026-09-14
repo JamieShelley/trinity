@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dispatch non-promotable V14.4 mini diagnostics.
+"""Dispatch non-promotable V15.0 mini diagnostics.
 
 Capacity has its own executable. This dispatcher exposes only the multi-region and
 selector stages and delegates implementation to their dedicated OOP classes.
@@ -24,7 +24,7 @@ else:
 
 
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="NSAMDR V14.4 focused Raven mini diagnostics")
+    p = argparse.ArgumentParser(description="NSAMDR V15.0 focused Raven mini diagnostics")
     p.add_argument("--mode", choices=("multiregion", "selector"), required=True)
     p.add_argument("--repo-root", type=Path, default=Path.cwd())
     p.add_argument("--shared-cache", default=r"C:\CCP\EVE")
@@ -61,9 +61,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     code, run_dir = diagnostic.run()
     archive = archive_run(run_dir)
-    print(f"[v14.4-mini] report      : {run_dir / 'report.json'}", flush=True)
-    print(f"[v14.4-mini] diagnostics : {archive}", flush=True)
-    print(f"[v14.4-mini] result      : {'PASS' if code == 0 else 'FAIL'}", flush=True)
+    print(f"[v15.0-mini] report      : {run_dir / 'report.json'}", flush=True)
+    print(f"[v15.0-mini] diagnostics : {archive}", flush=True)
+    print(f"[v15.0-mini] result      : {'PASS' if code == 0 else 'FAIL'}", flush=True)
     return code
 
 
