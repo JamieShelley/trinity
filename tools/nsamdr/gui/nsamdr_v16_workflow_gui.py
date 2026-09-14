@@ -7,6 +7,7 @@ candidate contract. Historical V14/V15 candidates cannot unlock V16 stages.
 from __future__ import annotations
 
 import json
+import sys
 
 import nsamdr_v14_workflow_gui as legacy
 
@@ -36,6 +37,17 @@ base.STAGES = (
         (
             "Fast non-promotable overfit proof on one deterministic high-detail Raven "
             "region. Tests the fixed-HR SwinIR-style candidate C."
+        ),
+        False,
+    ),
+    base.Stage(
+        "diversity",
+        "1A",
+        f"{VERSION} Raven Diversity Scan",
+        ("v16-diversity",),
+        (
+            "CPU-only discovery of distinct native authored Raven/hull texture families. "
+            "Use this before another Multi-Region run after a generalisation failure."
         ),
         False,
     ),
@@ -174,6 +186,46 @@ def _select_capacity(self: base.App, stage: base.Stage, status: str) -> None:
     )
 
 
+def _select_diversity(self: base.App, stage: base.Stage, status: str) -> None:
+    note = ""
+    if status == "completed":
+        note = " - completed; inspect report before changing Stage 2 data"
+    elif status in {"failed", "interrupted"}:
+        note = " - rerun is safe; no model state is changed"
+    self.description.set(f"{stage.number}. {stage.label} - {stage.description}{note}")
+    self._clear_form()
+    self._label_row(
+        "Authority",
+        "DATA DISCOVERY ONLY - does not train, alter, or promote a model",
+    )
+    self._label_row(
+        "Purpose",
+        "Find distinct native authored Raven/hull albedo+normal texture families in the local EVE cache.",
+    )
+    self._label_row(
+        "Execution",
+        "CPU/data scan only. CUDA and GPU training are not used.",
+    )
+    self._label_row(
+        "Success",
+        "At least two unique authored texture families are available for a broader Stage 2 dataset.",
+    )
+    self._label_row(
+        "Dataset",
+        "The canonical V16 training dataset is not modified by this scan.",
+    )
+    self._row("Shared cache", "cache", r"C:\CCP\EVE")
+    self._row("Candidate asset limit", "diversity_limit", "8", ("4", "8", "12", "16"))
+    self._label_row(
+        "Artifacts",
+        r"artifacts\nsamdr\diagnostics\v16_mini\diversity_YYYYMMDD-HHMMSS\report.json + diagnostics ZIP",
+    )
+    self._label_row(
+        "Next action",
+        "Use the report to select genuine authored families before rerunning Multi-Region SR Mini.",
+    )
+
+
 def _select_multiregion(self: base.App, stage: base.Stage, status: str) -> None:
     lock = self._stage_lock_reason("multiregion")
     note = f" - LOCKED: {lock}" if lock else ""
@@ -220,10 +272,18 @@ def _select_multiregion(self: base.App, stage: base.Stage, status: str) -> None:
 legacy._select_capacity = _select_capacity
 legacy._select_multiregion = _select_multiregion
 _legacy_args = base.App._args
+_legacy_dispatcher_argv = base.App._dispatcher_argv
 _legacy_selected = legacy._selected
 
 
 def _args(self: base.App, stage_id: str) -> list[str]:
+    if stage_id == "diversity":
+        return [
+            "--shared-cache",
+            self._value("cache", r"C:\CCP\EVE"),
+            "--limit",
+            self._value("diversity_limit", "8"),
+        ]
     if stage_id != "multiregion":
         return _legacy_args(self, stage_id)
     values = [
@@ -252,7 +312,35 @@ def _args(self: base.App, stage_id: str) -> list[str]:
     return values
 
 
+def _dispatcher_argv(
+    self: base.App,
+    command: tuple[str, ...],
+    args: list[str],
+) -> list[str]:
+    if command == ("v16-diversity",):
+        return [
+            sys.executable,
+            str(self.repo / "tools/nsamdr/neural/discover_nsamdr_v16_raven_diversity.py"),
+            "--repo-root",
+            str(self.repo),
+            *args,
+        ]
+    return _legacy_dispatcher_argv(self, command, args)
+
+
 def _selected(self: base.App) -> None:
+    selection = self.tree.selection()
+    if selection and selection[0] == "diversity":
+        stage = base.BY_ID["diversity"]
+        self.state["current"] = "diversity"
+        self._save()
+        status = self.state["status"].get("diversity", "pending")
+        _select_diversity(self, stage, status)
+        self._update_command()
+        self.form_canvas.yview_moveto(0.0)
+        self.root.after_idle(self._form_content_configured)
+        return
+
     _legacy_selected(self)
     selection = self.tree.selection()
     if selection and selection[0] == "quick":
@@ -264,6 +352,7 @@ def _selected(self: base.App) -> None:
 
 
 base.App._args = _args
+base.App._dispatcher_argv = _dispatcher_argv
 base.App._selected = _selected
 
 
