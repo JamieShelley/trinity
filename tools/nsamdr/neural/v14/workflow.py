@@ -123,19 +123,12 @@ def _write_architecture_participation(
         "material_tail",
         "selector",
     )
-    expected_retired = (
-        "multiscale_hr_refiner",
-        "single_scale_edsr_refiner",
-        "downsample_features",
-        "upsample_and_fuse",
-        "straight_through_residual_limiter",
-    )
     passed = bool(
         contract.get("schema") == MODEL_SCHEMA
         and contract.get("revision") == "V16.0"
         and contract.get("backbone") == "SwinIR-style-fixed-HR-RSTB"
         and active == expected_active
-        and retired == expected_retired
+        and retired == ()
         and contract.get("geometryPixelAuthority") is False
         and contract.get("seamPixelAuthority") is False
         and contract.get("profilePixelAuthority") is False
@@ -163,6 +156,10 @@ def _write_architecture_participation(
         "modelSchema": contract.get("schema"),
         "activeComponents": active,
         "retiredComponents": retired,
+        "historicalRejectedComponents": contract.get(
+            "historicalRejectedComponents",
+            (),
+        ),
         "parameterCount": sum(
             parameter.numel() for parameter in trainer.model.parameters()
         ),
