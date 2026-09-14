@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""V14.3 single-region HR residual capacity proof.
+"""V14.4 single-region HR residual capacity proof.
 
 This diagnostic is non-promotable. It overfits one deterministic Raven region with the
 exact production candidate path. It tests whether C can beat B without LR-grid imprint.
@@ -75,7 +75,7 @@ class CapacityThresholds:
 
 
 class CapacityDiagnostic:
-    """Own one complete V14.3 capacity run."""
+    """Own one complete V14.4 capacity run."""
 
     def __init__(
         self,
@@ -139,6 +139,7 @@ class CapacityDiagnostic:
         divergence_reason: str | None,
     ) -> dict[str, float | int | bool | str | None]:
         allocated, reserved = self._vram_telemetry()
+        raw_magnitude = CapacityArtifactWriter.raw_residual_magnitude(outputs)
         return {
             "step": step,
             "loss": loss_value,
@@ -146,6 +147,9 @@ class CapacityDiagnostic:
             "residualMagnitude": float(
                 outputs["predicted_residual_albedo"].float().abs().mean().item()
             ),
+            "rawResidualMagnitudeAlbedo": raw_magnitude["albedo"],
+            "rawResidualMagnitudeNormal": raw_magnitude["normal"],
+            "rawResidualMagnitudeMaterial": raw_magnitude["material"],
             "globalRecovery": float(metrics["global_recovery"]),
             "edgeRecovery": float(metrics["edge_recovery"]),
             "gradientRecovery": float(metrics["gradient_recovery"]),
@@ -210,7 +214,7 @@ class CapacityDiagnostic:
             if record.get("split") == "train"
         ]
         if not records:
-            raise RuntimeError("V14.3 capacity diagnostic found no Raven training regions")
+            raise RuntimeError("V14.4 capacity diagnostic found no Raven training regions")
 
         record = max(records, key=detail_score)
         batch = dataset_sample(record, self.config, self.device)
@@ -231,7 +235,7 @@ class CapacityDiagnostic:
 
         print("=" * 78, flush=True)
         print(
-            "V14.3 HR RESIDUAL CAPACITY - STABLE MULTI-SCALE RCAN DIAGNOSTIC ONLY",
+            "V14.4 HR RESIDUAL CAPACITY - STABLE MULTI-SCALE RCAN DIAGNOSTIC ONLY",
             flush=True,
         )
         print(f"Model schema  : {MODEL_SCHEMA}", flush=True)
@@ -343,6 +347,11 @@ class CapacityDiagnostic:
             )
             history.append(entry)
 
+            raw_max = max(
+                float(entry["rawResidualMagnitudeAlbedo"]),
+                float(entry["rawResidualMagnitudeNormal"]),
+                float(entry["rawResidualMagnitudeMaterial"]),
+            )
             print(
                 f"  step {step:4d}/{int(self.args.steps):4d} "
                 f"loss={entry['loss']:.6f} "
@@ -354,6 +363,7 @@ class CapacityDiagnostic:
                 f"d4={entry['detailRecovery4px']*100:+.1f}% "
                 f"lattice={entry['latticeCellExcess']*100:+.1f}% "
                 f"sat={max(saturation.values())*100:.1f}% "
+                f"raw={raw_max:.4f} "
                 f"VRAM={entry['peakAllocatedVRAMGiB']:.2f}GiB",
                 flush=True,
             )
@@ -363,7 +373,7 @@ class CapacityDiagnostic:
                 divergence_reason = decision.reason
                 stop_step = step
                 print(
-                    f"[v14.3-capacity] DIVERGED at step {step}: {divergence_reason}",
+                    f"[v14.4-capacity] DIVERGED at step {step}: {divergence_reason}",
                     flush=True,
                 )
                 break
@@ -373,7 +383,7 @@ class CapacityDiagnostic:
                 model,
                 self.config,
                 epoch=0,
-                phase="v14.3-mini-capacity-last-stable",
+                phase="v14.4-mini-capacity-last-stable",
                 metrics=last_metrics,
             )
             last_stable_written = True
@@ -386,7 +396,7 @@ class CapacityDiagnostic:
                     model,
                     self.config,
                     epoch=0,
-                    phase="v14.3-mini-capacity-best",
+                    phase="v14.4-mini-capacity-best",
                     metrics=last_metrics,
                 )
                 best_checkpoint_written = True
@@ -394,7 +404,7 @@ class CapacityDiagnostic:
             if passed:
                 stop_step = step
                 print(
-                    f"[v14.3-capacity] PASS at step {step}; stopping early.",
+                    f"[v14.4-capacity] PASS at step {step}; stopping early.",
                     flush=True,
                 )
                 break
@@ -420,7 +430,7 @@ class CapacityDiagnostic:
                 model,
                 self.config,
                 epoch=0,
-                phase="v14.3-mini-capacity",
+                phase="v14.4-mini-capacity",
                 metrics=last_metrics,
             )
 
@@ -500,10 +510,10 @@ class CapacityDiagnostic:
         write_report(run_dir, report)
         archive = archive_run(run_dir)
 
-        print(f"[v14.3-capacity] report      : {run_dir / 'report.json'}", flush=True)
-        print(f"[v14.3-capacity] curve       : {curve_path}", flush=True)
-        print(f"[v14.3-capacity] diagnostics : {archive}", flush=True)
-        print(f"[v14.3-capacity] result      : {status}", flush=True)
+        print(f"[v14.4-capacity] report      : {run_dir / 'report.json'}", flush=True)
+        print(f"[v14.4-capacity] curve       : {curve_path}", flush=True)
+        print(f"[v14.4-capacity] diagnostics : {archive}", flush=True)
+        print(f"[v14.4-capacity] result      : {status}", flush=True)
         if diverged:
             return 3
         return 0 if passed else 2
@@ -511,7 +521,7 @@ class CapacityDiagnostic:
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="NSAMDR V14.3 stable multi-scale RCAN Raven capacity diagnostic"
+        description="NSAMDR V14.4 stable multi-scale RCAN Raven capacity diagnostic"
     )
     p.add_argument("--repo-root", type=Path, default=Path.cwd())
     p.add_argument("--shared-cache", default=r"C:\CCP\EVE")
@@ -522,7 +532,12 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
     p.add_argument("--steps", type=int, default=3072)
     p.add_argument("--report-every", type=int, default=32)
-    p.add_argument("--learning-rate", type=float, default=1.0e-3)
+    p.add_argument(
+        "--learning-rate",
+        type=float,
+        default=V14Config().sr_learning_rate,
+        help="Capacity optimizer rate. Default is the production SR learning rate.",
+    )
     p.add_argument("--required-edge-recovery", type=float, default=0.60)
     p.add_argument("--required-global-recovery", type=float, default=0.45)
     p.add_argument("--required-gradient-recovery", type=float, default=0.35)
