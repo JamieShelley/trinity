@@ -174,8 +174,82 @@ def _select_capacity(self: base.App, stage: base.Stage, status: str) -> None:
     )
 
 
+def _select_multiregion(self: base.App, stage: base.Stage, status: str) -> None:
+    lock = self._stage_lock_reason("multiregion")
+    note = f" - LOCKED: {lock}" if lock else ""
+    self.description.set(f"{stage.number}. {stage.label} - {stage.description}{note}")
+    self._clear_form()
+    self._label_row(
+        "Authority",
+        "DIAGNOSTIC ONLY - cannot create or promote a production final",
+    )
+    self._label_row("Prerequisite", "V16.0 HR Residual Capacity must pass")
+    self._label_row("Model", "Frozen V16.0 architecture; this stage changes diagnostic budget only")
+    self._label_row(
+        "Split rule",
+        "Train and held-out pixel domains are disjoint. Overlap inside one split is allowed.",
+    )
+    self._label_row(
+        "Sampling",
+        "Deterministic balanced round-robin across training regions",
+    )
+    self._label_row(
+        "Telemetry",
+        "Train and held-out recovery are measured together to separate underfit from generalisation failure.",
+    )
+    self._label_row(
+        "Early stop",
+        "Stop as soon as held-out data satisfies the existing qualification gates.",
+    )
+    self._row("Shared cache", "cache", r"C:\CCP\EVE")
+    self._row("Training regions", "mini_train_regions", "4", ("4", "8"))
+    self._row("Held-out regions", "mini_validation_regions", "4", ("4", "8"))
+    self._row("Dataset train cap", "prepare_train_regions", "16", ("8", "16"))
+    self._row("Dataset held-out cap", "prepare_validation_regions", "4", ("4", "8"))
+    self._row("Maximum optimizer steps", "mini_max_steps", "2560", ("1280", "2560", "3072"))
+    self._row("Validation interval", "mini_validate_every", "256", ("128", "256", "512"))
+    self._row("Learning rate", "mini_lr", "0.0002", ("0.0001", "0.0002", "0.0003"))
+    self._row("Required edge recovery", "edge_recovery", "0.60", ("0.45", "0.60", "0.70"))
+    self._row("Required global recovery", "global_recovery", "0.45", ("0.30", "0.45", "0.55"))
+    self._row("Required gradient recovery", "gradient_recovery", "0.35", ("0.20", "0.35", "0.45"))
+    self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
+    self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
+    self._check("Rebuild V16 Raven spatial dataset", "rebuild", False)
+
+
 legacy._select_capacity = _select_capacity
+legacy._select_multiregion = _select_multiregion
+_legacy_args = base.App._args
 _legacy_selected = legacy._selected
+
+
+def _args(self: base.App, stage_id: str) -> list[str]:
+    if stage_id != "multiregion":
+        return _legacy_args(self, stage_id)
+    values = [
+        *legacy._common_mini_args(self),
+        "--train-regions",
+        self._value("mini_train_regions", "4"),
+        "--validation-regions",
+        self._value("mini_validation_regions", "4"),
+        "--prepare-train-regions",
+        self._value("prepare_train_regions", "16"),
+        "--prepare-validation-regions",
+        self._value("prepare_validation_regions", "4"),
+        "--max-steps",
+        self._value("mini_max_steps", "2560"),
+        "--validate-every",
+        self._value("mini_validate_every", "256"),
+        "--learning-rate",
+        self._value("mini_lr", "0.0002"),
+        "--required-edge-recovery",
+        self._value("edge_recovery", "0.60"),
+        "--required-global-recovery",
+        self._value("global_recovery", "0.45"),
+        "--required-gradient-recovery",
+        self._value("gradient_recovery", "0.35"),
+    ]
+    return values
 
 
 def _selected(self: base.App) -> None:
@@ -189,6 +263,7 @@ def _selected(self: base.App) -> None:
         )
 
 
+base.App._args = _args
 base.App._selected = _selected
 
 
