@@ -13,10 +13,11 @@ if /I "%~1"=="battleship-diversity" goto :battleship_diversity
 if /I "%~1"=="family-metrics" goto :family_metrics
 if /I "%~1"=="stage2-status" goto :stage2_status
 if /I "%~1"=="stage2-probe" goto :stage2_probe
+if /I "%~1"=="stage2-summary" goto :stage2_summary
 goto :cli
 
 :gui
-"%PYTHON%" -u "%ROOT%\tools\nsamdr\gui\nsamdr_v16_lowimpact_workflow_gui.py"
+"%PYTHON%" -u "%ROOT%\tools\nsamdr\gui\nsamdr_v16_lowimpact_monitored_workflow_gui.py"
 exit /b %ERRORLEVEL%
 
 :diversity
@@ -70,6 +71,21 @@ exit /b %ERRORLEVEL%
 
 :stage2_probe
 "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\open_nsamdr_v16_stage2_probe.py" --repo-root "%ROOT%" --open
+exit /b %ERRORLEVEL%
+
+:stage2_summary
+shift
+set "FORWARD_ARGS="
+goto :collect_stage2_summary_args
+
+:collect_stage2_summary_args
+if "%~1"=="" goto :run_stage2_summary
+set FORWARD_ARGS=%FORWARD_ARGS% "%~1"
+shift
+goto :collect_stage2_summary_args
+
+:run_stage2_summary
+"%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\summarize_nsamdr_v16_stage2_run.py" --repo-root "%ROOT%" %FORWARD_ARGS%
 exit /b %ERRORLEVEL%
 
 :cli
