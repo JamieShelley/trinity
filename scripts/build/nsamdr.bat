@@ -19,7 +19,7 @@ if /I "%~1"=="stage2-recoverability" goto :stage2_recoverability
 goto :cli
 
 :gui
-"%PYTHON%" -u "%ROOT%\tools\nsamdr\gui\nsamdr_v16_lowimpact_monitored_workflow_gui.py"
+"%PYTHON%" -u "%ROOT%\tools\nsamdr\gui\nsamdr_v16_recoverability_workflow_gui.py"
 exit /b %ERRORLEVEL%
 
 :diversity
