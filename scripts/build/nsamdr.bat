@@ -15,6 +15,7 @@ if /I "%~1"=="stage2-status" goto :stage2_status
 if /I "%~1"=="stage2-probe" goto :stage2_probe
 if /I "%~1"=="stage2-summary" goto :stage2_summary
 if /I "%~1"=="stage2-audit" goto :stage2_audit
+if /I "%~1"=="stage2-recoverability" goto :stage2_recoverability
 goto :cli
 
 :gui
@@ -102,6 +103,21 @@ goto :collect_stage2_audit_args
 
 :run_stage2_audit
 "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\audit_nsamdr_v16_stage2_family_difficulty.py" --repo-root "%ROOT%" %FORWARD_ARGS%
+exit /b %ERRORLEVEL%
+
+:stage2_recoverability
+shift
+set "FORWARD_ARGS="
+goto :collect_stage2_recoverability_args
+
+:collect_stage2_recoverability_args
+if "%~1"=="" goto :run_stage2_recoverability
+set FORWARD_ARGS=%FORWARD_ARGS% "%~1"
+shift
+goto :collect_stage2_recoverability_args
+
+:run_stage2_recoverability
+"%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\audit_nsamdr_v16_stage2_recoverability.py" --repo-root "%ROOT%" %FORWARD_ARGS%
 exit /b %ERRORLEVEL%
 
 :cli
