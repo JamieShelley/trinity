@@ -7,27 +7,19 @@ carbon/autobuild/**
 .DS_Store
 
 ### C++ ###
-# Prerequisites
 *.d
-
-# Compiled Object files
 *.slo
 *.lo
 *.o
 *.obj
-
-# Precompiled Headers
 *.gch
 *.pch
-
-# Compiled Dynamic libraries
 binaryCache/
 *.so
 *.dylib
 *.dll
 
 ### Python ###
-# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -35,9 +27,7 @@ __pycache__/
 *.pyd
 
 ### CMake ###
-# User generated local cmake configuration
 CMakeUserPresets.json
-
 .cmake-build*
 cmake-build*
 .claude/*
@@ -46,15 +36,7 @@ cmake-build*
 /imgui.ini
 
 ### Generated NSAMDR outputs ###
-# Ignore generated datasets, samples, caches, temporary checkpoints and previews.
-/artifacts/nsamdr/*
-
-# Keep only the final validated inference checkpoint and its verification metadata.
-!/artifacts/nsamdr/neural/
-/artifacts/nsamdr/neural/*
-!/artifacts/nsamdr/neural/nsamdr_tile_context.pt
-!/artifacts/nsamdr/neural/nsamdr_tile_context.json
-!/artifacts/nsamdr/neural/nsamdr_tile_context.sha256
+/artifacts/nsamdr/**
 
 ### Dependency trees ###
 node_modules/

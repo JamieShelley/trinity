@@ -123,17 +123,23 @@ def _balanced_select_fixed_regions(
     return selected_train, selected_validation
 
 
-spatial.V16RavenDatasetPreparationApplication._select_fixed_regions = (
-    _balanced_select_fixed_regions
-)
-
-
 def main(argv: list[str] | None = None) -> int:
     values = list(sys.argv[1:] if argv is None else argv)
     # V7 data authority and four-family selection must not reuse an old V6 manifest.
     if "--rebuild" not in values:
         values.append("--rebuild")
-    return base.main(values)
+
+    # The four-family rule belongs only to the Stage 2 balanced builder. Importing
+    # this module must not replace the generic V16 spatial splitter process-wide;
+    # dataset-split tests and other callers legitimately exercise one/two families.
+    original_select = spatial.V16RavenDatasetPreparationApplication._select_fixed_regions
+    spatial.V16RavenDatasetPreparationApplication._select_fixed_regions = (
+        _balanced_select_fixed_regions
+    )
+    try:
+        return base.main(values)
+    finally:
+        spatial.V16RavenDatasetPreparationApplication._select_fixed_regions = original_select
 
 
 if __name__ == "__main__":

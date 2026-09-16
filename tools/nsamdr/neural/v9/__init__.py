@@ -1,12 +1,10 @@
-"""Legacy NSAMDR V9-V13 research and source-preparation package.
+"""Minimal compatibility surface for the native Raven source-data builder.
 
-V14 is the production model/trainer. Importing this package must not install or mutate
-runtime model contracts. The two historical base types remain importable so neutral
-source-preparation tools and archived tests do not gain side effects merely by importing
-``v9``.
+The historical V9-V13 model stack has been retired. Only the small dataset
+configuration object and Raven asset-name constants remain because the current
+V16 source extractor still imports them while preserving old manifest formats.
 """
 
 from .config import V9Config
-from .model import FidelityResidualNetV9
 
-__all__ = ["V9Config", "FidelityResidualNetV9"]
+__all__ = ["V9Config"]

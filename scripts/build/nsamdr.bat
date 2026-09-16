@@ -7,134 +7,65 @@ if not defined PYTHON set "PYTHON=%ROOT%\artifacts\nsamdr\python-env\Scripts\pyt
 if not exist "%PYTHON%" set "PYTHON=%ROOT%\artifacts\nsamdr\python-env-cpu\Scripts\python.exe"
 if not exist "%PYTHON%" set "PYTHON=python"
 
-if /I "%~1"=="gui" goto :gui
-if /I "%~1"=="diversity" goto :diversity
-if /I "%~1"=="battleship-diversity" goto :battleship_diversity
-if /I "%~1"=="family-metrics" goto :family_metrics
-if /I "%~1"=="stage2-status" goto :stage2_status
-if /I "%~1"=="stage2-probe" goto :stage2_probe
-if /I "%~1"=="stage2-summary" goto :stage2_summary
-if /I "%~1"=="stage2-audit" goto :stage2_audit
-if /I "%~1"=="stage2-recoverability" goto :stage2_recoverability
-if /I "%~1"=="stage2-recovery-sweep" goto :stage2_recovery_sweep
+set "COMMAND=%~1"
+if /I "%COMMAND%"=="gui" goto :gui
+if /I "%COMMAND%"=="eve-census" goto :collect
+if /I "%COMMAND%"=="structure-audit" goto :collect
+if /I "%COMMAND%"=="boundary-profile-audit" goto :collect
+if /I "%COMMAND%"=="authored-prior-corpus" goto :collect
+if /I "%COMMAND%"=="structure-conditioning-probe" goto :collect
+if /I "%COMMAND%"=="stage2-status" goto :collect
+if /I "%COMMAND%"=="stage2-probe" goto :collect
+if /I "%COMMAND%"=="stage2-summary" goto :collect
 goto :cli
 
 :gui
-"%PYTHON%" -u "%ROOT%\tools\nsamdr\gui\nsamdr_v16_recoverability_workflow_gui.py"
+"%PYTHON%" -u "%ROOT%\tools\nsamdr\gui\nsamdr_v16_structure_workflow_gui.py"
 exit /b %ERRORLEVEL%
 
-:diversity
+:collect
 shift
 set "FORWARD_ARGS="
-goto :collect_diversity_args
-
-:collect_diversity_args
-if "%~1"=="" goto :run_diversity
+:collect_loop
+if "%~1"=="" goto :dispatch
 set FORWARD_ARGS=%FORWARD_ARGS% "%~1"
 shift
-goto :collect_diversity_args
+goto :collect_loop
 
-:run_diversity
-"%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\discover_nsamdr_v16_raven_diversity.py" --repo-root "%ROOT%" %FORWARD_ARGS%
-exit /b %ERRORLEVEL%
-
-:battleship_diversity
-shift
-set "FORWARD_ARGS="
-goto :collect_battleship_diversity_args
-
-:collect_battleship_diversity_args
-if "%~1"=="" goto :run_battleship_diversity
-set FORWARD_ARGS=%FORWARD_ARGS% "%~1"
-shift
-goto :collect_battleship_diversity_args
-
-:run_battleship_diversity
-"%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\discover_nsamdr_v16_caldari_battleship_diversity.py" --repo-root "%ROOT%" %FORWARD_ARGS%
-exit /b %ERRORLEVEL%
-
-:family_metrics
-shift
-set "FORWARD_ARGS="
-goto :collect_family_metrics_args
-
-:collect_family_metrics_args
-if "%~1"=="" goto :run_family_metrics
-set FORWARD_ARGS=%FORWARD_ARGS% "%~1"
-shift
-goto :collect_family_metrics_args
-
-:run_family_metrics
-"%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\analyze_nsamdr_v16_multiregion_families.py" --repo-root "%ROOT%" %FORWARD_ARGS%
-exit /b %ERRORLEVEL%
-
-:stage2_status
-"%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\inspect_nsamdr_v16_stage2_state.py" --repo-root "%ROOT%"
-exit /b %ERRORLEVEL%
-
-:stage2_probe
-"%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\open_nsamdr_v16_stage2_probe.py" --repo-root "%ROOT%" --open
-exit /b %ERRORLEVEL%
-
-:stage2_summary
-shift
-set "FORWARD_ARGS="
-goto :collect_stage2_summary_args
-
-:collect_stage2_summary_args
-if "%~1"=="" goto :run_stage2_summary
-set FORWARD_ARGS=%FORWARD_ARGS% "%~1"
-shift
-goto :collect_stage2_summary_args
-
-:run_stage2_summary
-"%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\summarize_nsamdr_v16_stage2_run.py" --repo-root "%ROOT%" %FORWARD_ARGS%
-exit /b %ERRORLEVEL%
-
-:stage2_audit
-shift
-set "FORWARD_ARGS="
-goto :collect_stage2_audit_args
-
-:collect_stage2_audit_args
-if "%~1"=="" goto :run_stage2_audit
-set FORWARD_ARGS=%FORWARD_ARGS% "%~1"
-shift
-goto :collect_stage2_audit_args
-
-:run_stage2_audit
-"%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\audit_nsamdr_v16_stage2_family_difficulty.py" --repo-root "%ROOT%" %FORWARD_ARGS%
-exit /b %ERRORLEVEL%
-
-:stage2_recoverability
-shift
-set "FORWARD_ARGS="
-goto :collect_stage2_recoverability_args
-
-:collect_stage2_recoverability_args
-if "%~1"=="" goto :run_stage2_recoverability
-set FORWARD_ARGS=%FORWARD_ARGS% "%~1"
-shift
-goto :collect_stage2_recoverability_args
-
-:run_stage2_recoverability
-"%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\audit_nsamdr_v16_stage2_recoverability.py" --repo-root "%ROOT%" %FORWARD_ARGS%
-exit /b %ERRORLEVEL%
-
-:stage2_recovery_sweep
-shift
-set "FORWARD_ARGS="
-goto :collect_stage2_recovery_sweep_args
-
-:collect_stage2_recovery_sweep_args
-if "%~1"=="" goto :run_stage2_recovery_sweep
-set FORWARD_ARGS=%FORWARD_ARGS% "%~1"
-shift
-goto :collect_stage2_recovery_sweep_args
-
-:run_stage2_recovery_sweep
-"%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\audit_nsamdr_v16_stage2_recovery_sweep.py" --repo-root "%ROOT%" %FORWARD_ARGS%
-exit /b %ERRORLEVEL%
+:dispatch
+if /I "%COMMAND%"=="eve-census" (
+  "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\scan_eve_authored_corpus.py" --repo-root "%ROOT%" %FORWARD_ARGS%
+  exit /b %ERRORLEVEL%
+)
+if /I "%COMMAND%"=="structure-audit" (
+  "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\audit_nsamdr_v16_structure_support.py" --repo-root "%ROOT%" %FORWARD_ARGS%
+  exit /b %ERRORLEVEL%
+)
+if /I "%COMMAND%"=="boundary-profile-audit" (
+  "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\audit_nsamdr_v16_boundary_profiles.py" --repo-root "%ROOT%" %FORWARD_ARGS%
+  exit /b %ERRORLEVEL%
+)
+if /I "%COMMAND%"=="authored-prior-corpus" (
+  "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\prepare_nsamdr_v16_authored_prior_corpus.py" --repo-root "%ROOT%" %FORWARD_ARGS%
+  exit /b %ERRORLEVEL%
+)
+if /I "%COMMAND%"=="structure-conditioning-probe" (
+  "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\probe_nsamdr_v16_structure_conditioning.py" --repo-root "%ROOT%" %FORWARD_ARGS%
+  exit /b %ERRORLEVEL%
+)
+if /I "%COMMAND%"=="stage2-status" (
+  "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\inspect_nsamdr_v16_stage2_state.py" --repo-root "%ROOT%" %FORWARD_ARGS%
+  exit /b %ERRORLEVEL%
+)
+if /I "%COMMAND%"=="stage2-probe" (
+  "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\open_nsamdr_v16_stage2_probe.py" --repo-root "%ROOT%" --open %FORWARD_ARGS%
+  exit /b %ERRORLEVEL%
+)
+if /I "%COMMAND%"=="stage2-summary" (
+  "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\summarize_nsamdr_v16_stage2_run.py" --repo-root "%ROOT%" %FORWARD_ARGS%
+  exit /b %ERRORLEVEL%
+)
+exit /b 2
 
 :cli
 "%PYTHON%" -u "%ROOT%\tools\nsamdr\nsamdr_cli.py" %*
