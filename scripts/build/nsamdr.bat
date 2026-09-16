@@ -16,6 +16,7 @@ if /I "%~1"=="stage2-probe" goto :stage2_probe
 if /I "%~1"=="stage2-summary" goto :stage2_summary
 if /I "%~1"=="stage2-audit" goto :stage2_audit
 if /I "%~1"=="stage2-recoverability" goto :stage2_recoverability
+if /I "%~1"=="stage2-recovery-sweep" goto :stage2_recovery_sweep
 goto :cli
 
 :gui
@@ -118,6 +119,21 @@ goto :collect_stage2_recoverability_args
 
 :run_stage2_recoverability
 "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\audit_nsamdr_v16_stage2_recoverability.py" --repo-root "%ROOT%" %FORWARD_ARGS%
+exit /b %ERRORLEVEL%
+
+:stage2_recovery_sweep
+shift
+set "FORWARD_ARGS="
+goto :collect_stage2_recovery_sweep_args
+
+:collect_stage2_recovery_sweep_args
+if "%~1"=="" goto :run_stage2_recovery_sweep
+set FORWARD_ARGS=%FORWARD_ARGS% "%~1"
+shift
+goto :collect_stage2_recovery_sweep_args
+
+:run_stage2_recovery_sweep
+"%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\audit_nsamdr_v16_stage2_recovery_sweep.py" --repo-root "%ROOT%" %FORWARD_ARGS%
 exit /b %ERRORLEVEL%
 
 :cli
