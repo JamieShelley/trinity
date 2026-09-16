@@ -13,6 +13,7 @@ import nsamdr_v16_lowimpact_monitored_workflow_gui as monitored
 base = monitored.base
 _original_build = base.App._build
 _original_preview_refresh_tick = base.App._preview_refresh_tick
+_original_select_multiregion = monitored.multifamily.v16.legacy._select_multiregion
 
 
 def _latest_completed_run(self: base.App) -> Path | None:
@@ -61,7 +62,8 @@ def _run_recoverability_audit(self: base.App) -> None:
             f"Could not start recoverability audit:\n{exc}",
         )
         return
-    self.stage2_recoverability_status_var.set("Recoverability: running (CPU)")
+    if hasattr(self, "stage2_recoverability_status_var"):
+        self.stage2_recoverability_status_var.set("Recoverability: running (CPU)")
 
 
 def _refresh_recoverability_status(self: base.App) -> None:
@@ -89,10 +91,33 @@ def _refresh_recoverability_status(self: base.App) -> None:
         self.stage2_recoverability_status_var.set("Recoverability: ready")
 
 
+def _select_multiregion(self: base.App, stage: base.Stage, status: str) -> None:
+    _original_select_multiregion(self, stage, status)
+    self._label_row(
+        "Recoverability audit",
+        "CPU-only check of whether authored residual detail is statistically recoverable from the 4x LR evidence before another GPU run.",
+    )
+    action_row = ttk.Frame(self.form)
+    action_row.pack(fill="x", pady=(8, 4))
+    ttk.Label(action_row, text="CPU diagnostic", width=27).pack(side="left")
+    ttk.Button(
+        action_row,
+        text="Run Recoverability Audit",
+        command=lambda: _run_recoverability_audit(self),
+    ).pack(side="left")
+    if hasattr(self, "stage2_recoverability_status_var"):
+        ttk.Label(
+            action_row,
+            textvariable=self.stage2_recoverability_status_var,
+        ).pack(side="left", padx=(8, 0))
+
+
 def _build(self: base.App) -> None:
     _original_build(self)
     self._stage2_recoverability_process = None
     self.stage2_recoverability_status_var = tk.StringVar(value="Recoverability: ready")
+    # Keep the footer shortcut for wide windows, but the Stage 2 form now also
+    # contains the action so it cannot disappear because the footer is crowded.
     ttk.Button(
         self.footer,
         text="Run Recoverability Audit",
@@ -115,6 +140,7 @@ def _preview_refresh_tick(self: base.App) -> None:
 
 base.App._build = _build
 base.App._preview_refresh_tick = _preview_refresh_tick
+monitored.multifamily.v16.legacy._select_multiregion = _select_multiregion
 
 
 if __name__ == "__main__":
