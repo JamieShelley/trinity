@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 import nsamdr_v16_lowimpact_workflow_gui as low
 
@@ -135,16 +136,79 @@ def _refresh_stage2_status(self: base.App) -> None:
     self.stage2_live_status_var.set(" | ".join(parts))
 
 
+def _run_stage2_audit(self: base.App) -> None:
+    existing = getattr(self, "_stage2_audit_process", None)
+    if existing is not None and existing.poll() is None:
+        messagebox.showinfo("Stage 2 family audit", "The CPU family-difficulty audit is already running.")
+        return
+
+    script = self.repo / "tools/nsamdr/neural/audit_nsamdr_v16_stage2_family_difficulty.py"
+    if not script.is_file():
+        messagebox.showerror("Stage 2 family audit", f"Audit script is missing:\n{script}")
+        return
+
+    command = [
+        sys.executable,
+        "-u",
+        str(script),
+        "--repo-root",
+        str(self.repo),
+    ]
+    kwargs: dict[str, object] = {"cwd": str(self.repo)}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
+    try:
+        self._stage2_audit_process = subprocess.Popen(command, **kwargs)
+    except OSError as exc:
+        messagebox.showerror("Stage 2 family audit", f"Could not start audit:\n{exc}")
+        return
+
+    self.stage2_audit_status_var.set("Stage 2 audit: running (CPU)")
+
+
+def _refresh_stage2_audit_status(self: base.App) -> None:
+    if not hasattr(self, "stage2_audit_status_var"):
+        return
+    process = getattr(self, "_stage2_audit_process", None)
+    if process is not None:
+        code = process.poll()
+        if code is None:
+            self.stage2_audit_status_var.set("Stage 2 audit: running (CPU)")
+            return
+        self._stage2_audit_process = None
+        self.stage2_audit_status_var.set(
+            "Stage 2 audit: complete" if code == 0 else f"Stage 2 audit: failed ({code})"
+        )
+        return
+
+    run_dir, _pointer, _heartbeat = _latest_stage2_paths(self)
+    if run_dir is not None and (run_dir / "difficulty_audit.json").is_file():
+        self.stage2_audit_status_var.set(f"Stage 2 audit: available ({run_dir.name.removeprefix('multiregion_')})")
+    else:
+        self.stage2_audit_status_var.set("Stage 2 audit: ready")
+
+
 def _build(self: base.App) -> None:
     _original_build(self)
     self.stage2_live_status_var = tk.StringVar(value="Stage 2: checking...")
     ttk.Label(self.footer, textvariable=self.stage2_live_status_var, font=("Segoe UI", 9, "bold")).pack(side="right", padx=(6, 8))
+
+    self.stage2_audit_status_var = tk.StringVar(value="Stage 2 audit: ready")
+    ttk.Button(
+        self.footer,
+        text="Run Stage 2 Audit",
+        command=lambda: _run_stage2_audit(self),
+    ).pack(side="left", padx=(10, 4))
+    ttk.Label(self.footer, textvariable=self.stage2_audit_status_var).pack(side="left", padx=(0, 8))
+
     _refresh_stage2_status(self)
+    _refresh_stage2_audit_status(self)
 
 
 def _preview_refresh_tick(self: base.App) -> None:
     try:
         _refresh_stage2_status(self)
+        _refresh_stage2_audit_status(self)
     except (OSError, ValueError, TypeError, tk.TclError):
         pass
     _original_preview_refresh_tick(self)
