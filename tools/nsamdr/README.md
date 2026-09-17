@@ -115,52 +115,57 @@ The structure branch emits **features only**. It has no physical-map pixel head,
 
 ## Broad-prior probe evidence
 
-The first 256-update broad-prior comparison used 298 train authorities and 38 held-out authorities, but random short-run sampling provided less than one update per authority on average. It showed no early conditioning benefit:
+The authority-balanced reduced-model proof is complete through 4096 updates across all 38 held-out authorities. It establishes two facts:
 
 ```text
-control global / edge       +1.06% / +0.55%
-conditioned global / edge   +0.37% / +0.33%
-conditioned - control       -0.69pp / -0.21pp
+broad authored prior        useful
+structure conditioning      useful but modest
 ```
 
-This rejects the claim of an immediate 256-step advantage, but it does **not** adequately test broad-prior learning.
-
-The current probe therefore uses authority-balanced sampling and a cumulative checkpoint ladder:
+At 4096 updates:
 
 ```text
-512 updates   evaluate control and conditioned
-1024 updates  evaluate control and conditioned
-2048 updates  run only if held-out conditioning signal remains positive or marginal
+control global / edge        10.22% /  8.47%
+conditioned global / edge    11.43% /  8.94%
+conditioned - control        +1.20pp / +0.46pp
+conditioned gradient          9.15%
+conditioned normal           14.00%
+conditioned lattice excess   24.90%
 ```
 
-Every training cycle visits every authority before repeating one. Validation is also authority-balanced and, by default, evaluates one sample from every held-out authority. If conditioning still has no held-out benefit at the second checkpoint, the 2048 stage is skipped.
+The conditioned model remains better than the control on global, edge, gradient, normal and lattice metrics, but the extra conditioning advantage is no longer growing consistently. The reduced proof has therefore served its purpose and should not be extended indefinitely.
+
+The next proof uses the production-size V16 body: 96 HR channels, 6 residual-Swin groups x 6 blocks, 6 heads, 8x8 windows, full LR context, and the structure-conditioning branch. It trains on the same 298-authority broad prior and validates against the same 38 complete held-out authorities. The first run is intentionally bounded at 256 updates and writes a resumable model+optimizer checkpoint before any longer stage.
 
 ## Active qualification ladder
 
 ```text
-1. V16 Capacity                                         PASS
-2. Four-family Stage 2                                 FAIL generalisation
-3. Raw recoverability/context/loss diagnostics         FAIL to solve gap
-4. Full EVE authored corpus census                     PASS
-5. Geometry-class residual oracle                      FAIL
-6. Boundary Profile oracle                             FAIL
-7. Structure Support Audit V3                          CURRENT CPU evidence
-   -> threshold sweep
-   -> occupied boundary area
-   -> error enrichment
-   -> precision / recall
-8. Broad authored-prior corpus                         PASS
+1. V16 Capacity                                      PASS
+2. Four-family Stage 2                              FAIL generalisation
+3. Raw recoverability/context/loss diagnostics      FAIL to solve gap
+4. Full EVE authored corpus census                  PASS
+5. Geometry-class residual oracle                   FAIL
+6. Boundary Profile oracle                          FAIL
+7. Structure Support Audit V3                       supporting CPU evidence
+8. Broad authored-prior corpus                      PASS
    -> 298 train authorities
    -> 38 complete held-out authorities
-9. Authority-balanced structure-conditioning ladder   CURRENT GPU proof
-   -> 512 / 1024 / conditional 2048
-10. Full Stage 2 qualification                         only after broad proof
-11. BenefitSelector qualification
-12. Raven / production Quick
-13. Highest-native-resolution renderer proof
+9. Reduced authority-balanced conditioning proof    PASS as direction evidence
+   -> complete through 4096
+   -> conditioned remains better than control
+   -> conditioning advantage is modest / plateauing
+10. Full-capacity broad-authority V16.2 proof        CURRENT
+    -> production-size 96ch / 6x6 Swin candidate
+    -> 256 updates first
+    -> resumable checkpoint
+    -> extend to 512 / 1024 / 2048 only from evidence
+11. Full Stage 2 qualification
+12. BenefitSelector qualification
+13. Raven / production Quick
+14. Highest-native-resolution renderer proof
 ```
 
-No long production-scale V16.2 run is justified until the authority-balanced broad-prior proof shows a held-out advantage.
+Do not extend the reduced proof to 8192. The current question is whether the full-capacity candidate can combine the already-proven local reconstruction capacity with broad-authority generalisation.
 
 ## Candidate qualification gates
 
@@ -217,6 +222,7 @@ prepare_nsamdr_v16_authored_prior_corpus.py
 audit_nsamdr_v16_structure_support.py
 audit_nsamdr_v16_boundary_profiles.py
 probe_nsamdr_v16_structure_conditioning.py
+probe_nsamdr_v16_full_broad.py
 ```
 
 Historical V9-V13 model/training implementations are retired. A minimal `v9/` compatibility package remains only because active authored-data preparation still imports its manifest/config names.
@@ -230,12 +236,13 @@ scripts\build\nsamdr.bat structure-audit
 scripts\build\nsamdr.bat boundary-profile-audit
 scripts\build\nsamdr.bat authored-prior-corpus
 scripts\build\nsamdr.bat structure-conditioning-probe --device cuda
+scripts\build\nsamdr.bat full-broad-probe --device cuda
 scripts\build\nsamdr.bat stage2-status
 scripts\build\nsamdr.bat stage2-probe
 scripts\build\nsamdr.bat stage2-summary
 ```
 
-To reproduce the old single-checkpoint probe, pass `--steps N`. The default structure-conditioning command now runs the staged `512,1024,2048` ladder with automatic stop before the long stage when the second checkpoint still shows no benefit.
+The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity proof defaults to one bounded 256-update stage and writes `resume_checkpoint.pt`. Continue later stages with `--resume <checkpoint> --stages "512"`, then `1024` and `2048` only when the held-out curve justifies more GPU work.
 
 ## Final visual proof
 
