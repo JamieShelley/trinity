@@ -1,8 +1,8 @@
 """Authority-balanced sampling for NSAMDR broad authored-prior proofs.
 
-The broad corpus contains multiple crops per authored texture authority.  Random
+The broad corpus contains multiple crops per authored texture authority. Random
 crop sampling can leave many authorities unseen during short diagnostics, so this
-module cycles through complete authorities before repeating one.  The crop chosen
+module cycles through complete authorities before repeating one. The crop chosen
 for an authority rotates on later cycles.
 """
 from __future__ import annotations
@@ -15,8 +15,14 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from v14.config import V14Config
-from v14.dataset import _augment, _degrade, _normalise_xy
+try:
+    # Package import path used by unittest and normal module imports.
+    from ..v14.config import V14Config
+    from ..v14.dataset import _augment, _degrade, _normalise_xy
+except ImportError:
+    # Script-mode compatibility when tools/nsamdr/neural is placed on sys.path.
+    from v14.config import V14Config
+    from v14.dataset import _augment, _degrade, _normalise_xy
 
 
 def _family_id(record: dict[str, Any]) -> str:
