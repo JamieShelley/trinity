@@ -383,6 +383,15 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
                 "gateChecks": _gate_snapshot(initial, config),
             }
         ]
+    output_dir = checkpoint_path.parent / "memorization"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / (
+        f"single_authority_{sample['authorityId']}_step_{source_step:06d}.json"
+    )
+    continuation_checkpoint_path = output_dir / (
+        f"single_authority_{sample['authorityId']}_step_{source_step:06d}_checkpoint.pt"
+    )
+
     started = time.monotonic()
     stage_set = set(stages)
 
@@ -421,6 +430,19 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             f"sign={evaluated['residualDiagnostics']['target_weighted_sign_agreement']*100:.1f}%",
             flush=True,
         )
+        _save_memorization_checkpoint(
+            continuation_checkpoint_path,
+            model=model,
+            optimizer=optimizer,
+            source_checkpoint=checkpoint_path,
+            source_step=source_step,
+            manifest_path=manifest_path,
+            authority_id=sample["authorityId"],
+            crop_id=sample["cropId"],
+            seed=seed,
+            update=update,
+            snapshots=snapshots,
+        )
 
     elapsed = time.monotonic() - started
     final = snapshots[-1]
@@ -453,14 +475,6 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "sourceCheckpointModified": False,
     }
 
-    output_dir = checkpoint_path.parent / "memorization"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / (
-        f"single_authority_{sample['authorityId']}_step_{source_step:06d}.json"
-    )
-    continuation_checkpoint_path = output_dir / (
-        f"single_authority_{sample['authorityId']}_step_{source_step:06d}_checkpoint.pt"
-    )
     output_path.write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
