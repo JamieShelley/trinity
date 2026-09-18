@@ -968,6 +968,97 @@ def _evaluate(
 
 
 
+def _write_unit_slope_summary(
+    preview_root: Path,
+    *,
+    validation: dict[str, Any],
+    train_validation: dict[str, Any],
+) -> dict[str, str]:
+    held = dict(validation["unitSlopeResidualAblation"])
+    seen = dict(train_validation["unitSlopeResidualAblation"])
+    payload = {
+        "schema": "NSAMDR_V16_UNIT_SLOPE_RESIDUAL_ABLATION_V1",
+        "formula": held["formula"],
+        "productionFormula": held["productionFormula"],
+        "seen": {
+            "current": {
+                key: train_validation[f"median_{key}"]
+                for key in METRIC_KEYS
+            },
+            "ablation": {
+                key: seen[f"median_{key}"]
+                for key in METRIC_KEYS
+            },
+            "delta": seen["deltaVsCurrentMedian"],
+        },
+        "heldOut": {
+            "current": {
+                key: validation[f"median_{key}"]
+                for key in METRIC_KEYS
+            },
+            "ablation": {
+                key: held[f"median_{key}"]
+                for key in METRIC_KEYS
+            },
+            "delta": held["deltaVsCurrentMedian"],
+        },
+    }
+    preview_root.mkdir(parents=True, exist_ok=True)
+    json_path = preview_root / "unit_slope_ablation_summary.json"
+    json_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    text_path = preview_root / "unit_slope_ablation_summary.txt"
+    text_path.write_text(
+        "\n".join(
+            [
+                "NSAMDR V16 UNIT-SLOPE RESIDUAL-BOUND ABLATION",
+                f"formula: {held['formula']}",
+                f"production: {held['productionFormula']}",
+                "",
+                "SEEN",
+                (
+                    "current  "
+                    f"global={train_validation['median_global_recovery']*100:+.2f}% "
+                    f"edge={train_validation['median_edge_recovery']*100:+.2f}% "
+                    f"grad={train_validation['median_gradient_recovery']*100:+.2f}% "
+                    f"lattice={train_validation['median_lattice_cell_excess']*100:+.2f}%"
+                ),
+                (
+                    "ablation "
+                    f"global={seen['median_global_recovery']*100:+.2f}% "
+                    f"edge={seen['median_edge_recovery']*100:+.2f}% "
+                    f"grad={seen['median_gradient_recovery']*100:+.2f}% "
+                    f"lattice={seen['median_lattice_cell_excess']*100:+.2f}%"
+                ),
+                "",
+                "HELD-OUT",
+                (
+                    "current  "
+                    f"global={validation['median_global_recovery']*100:+.2f}% "
+                    f"edge={validation['median_edge_recovery']*100:+.2f}% "
+                    f"grad={validation['median_gradient_recovery']*100:+.2f}% "
+                    f"lattice={validation['median_lattice_cell_excess']*100:+.2f}%"
+                ),
+                (
+                    "ablation "
+                    f"global={held['median_global_recovery']*100:+.2f}% "
+                    f"edge={held['median_edge_recovery']*100:+.2f}% "
+                    f"grad={held['median_gradient_recovery']*100:+.2f}% "
+                    f"lattice={held['median_lattice_cell_excess']*100:+.2f}%"
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "json": str(json_path.resolve()),
+        "text": str(text_path.resolve()),
+    }
+
+
 def _gate_status(metrics: dict[str, Any], config: V16Config) -> dict[str, Any]:
     checks = {
         "global": float(metrics["median_global_recovery"])
@@ -1270,12 +1361,18 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             seed=seed + 8001,
             precision=args.amp_precision,
         )
+        ablation_summary = _write_unit_slope_summary(
+            preview_root,
+            validation=validation,
+            train_validation=train_validation,
+        )
         preview_report = {
             "schema": "NSAMDR_V16_FULL_BROAD_PREVIEW_V1",
             "step": int(start_step),
             "validation": validation,
             "trainValidation": train_validation,
             "previewRoot": str(preview_root.resolve()),
+            "unitSlopeAblationSummary": ablation_summary,
         }
         preview_report_path = run_dir / f"preview_step_{start_step:06d}.json"
         preview_report_path.write_text(
