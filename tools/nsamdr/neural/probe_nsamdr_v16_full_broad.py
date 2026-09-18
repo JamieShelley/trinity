@@ -1169,6 +1169,114 @@ def _write_unit_slope_summary(
     }
 
 
+def _write_residual_alignment_summary(
+    preview_root: Path,
+    *,
+    validation: dict[str, Any],
+    train_validation: dict[str, Any],
+) -> dict[str, str]:
+    def split_payload(summary: dict[str, Any]) -> dict[str, Any]:
+        diagnostics = dict(summary["residualDiagnosticDistributions"])
+        oracle = dict(summary["oracleScalarGainAblation"])
+        return {
+            "alignment": {
+                "residualCosineMedian": diagnostics[
+                    "residual_cosine_similarity"
+                ]["median"],
+                "targetWeightedSignAgreementMedian": diagnostics[
+                    "target_weighted_sign_agreement"
+                ]["median"],
+                "leastSquaresResidualGainMedian": diagnostics[
+                    "least_squares_residual_gain"
+                ]["median"],
+            },
+            "current": {
+                key: summary[f"median_{key}"]
+                for key in METRIC_KEYS
+            },
+            "oracleScalar": {
+                key: oracle[f"median_{key}"]
+                for key in METRIC_KEYS
+            },
+            "oracleDelta": oracle["deltaVsCurrentMedian"],
+            "oracleGainDistribution": oracle["gainDistribution"],
+        }
+
+    payload = {
+        "schema": "NSAMDR_V16_RESIDUAL_ALIGNMENT_V1",
+        "description": (
+            "Qualification-only residual direction/support telemetry and "
+            "per-sample least-squares scalar oracle; no model weights changed."
+        ),
+        "seen": split_payload(train_validation),
+        "heldOut": split_payload(validation),
+    }
+    preview_root.mkdir(parents=True, exist_ok=True)
+    json_path = preview_root / "residual_alignment_summary.json"
+    json_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    seen = payload["seen"]
+    held = payload["heldOut"]
+    text_path = preview_root / "residual_alignment_summary.txt"
+    text_path.write_text(
+        "\n".join(
+            [
+                "NSAMDR V16 RESIDUAL ALIGNMENT / ORACLE SCALAR DIAGNOSTIC",
+                "qualification-only; no model weights changed",
+                "",
+                "SEEN",
+                (
+                    "alignment "
+                    f"cos={seen['alignment']['residualCosineMedian']:+.4f} "
+                    f"sign={seen['alignment']['targetWeightedSignAgreementMedian']*100:.2f}% "
+                    f"ls-gain={seen['alignment']['leastSquaresResidualGainMedian']:.3f}"
+                ),
+                (
+                    "current   "
+                    f"global={seen['current']['global_recovery']*100:+.2f}% "
+                    f"edge={seen['current']['edge_recovery']*100:+.2f}% "
+                    f"grad={seen['current']['gradient_recovery']*100:+.2f}%"
+                ),
+                (
+                    "oracle    "
+                    f"global={seen['oracleScalar']['global_recovery']*100:+.2f}% "
+                    f"edge={seen['oracleScalar']['edge_recovery']*100:+.2f}% "
+                    f"grad={seen['oracleScalar']['gradient_recovery']*100:+.2f}%"
+                ),
+                "",
+                "HELD-OUT",
+                (
+                    "alignment "
+                    f"cos={held['alignment']['residualCosineMedian']:+.4f} "
+                    f"sign={held['alignment']['targetWeightedSignAgreementMedian']*100:.2f}% "
+                    f"ls-gain={held['alignment']['leastSquaresResidualGainMedian']:.3f}"
+                ),
+                (
+                    "current   "
+                    f"global={held['current']['global_recovery']*100:+.2f}% "
+                    f"edge={held['current']['edge_recovery']*100:+.2f}% "
+                    f"grad={held['current']['gradient_recovery']*100:+.2f}%"
+                ),
+                (
+                    "oracle    "
+                    f"global={held['oracleScalar']['global_recovery']*100:+.2f}% "
+                    f"edge={held['oracleScalar']['edge_recovery']*100:+.2f}% "
+                    f"grad={held['oracleScalar']['gradient_recovery']*100:+.2f}%"
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "json": str(json_path.resolve()),
+        "text": str(text_path.resolve()),
+    }
+
+
 def _gate_status(metrics: dict[str, Any], config: V16Config) -> dict[str, Any]:
     checks = {
         "global": float(metrics["median_global_recovery"])
@@ -1476,6 +1584,11 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             validation=validation,
             train_validation=train_validation,
         )
+        alignment_summary = _write_residual_alignment_summary(
+            preview_root,
+            validation=validation,
+            train_validation=train_validation,
+        )
         preview_report = {
             "schema": "NSAMDR_V16_FULL_BROAD_PREVIEW_V1",
             "step": int(start_step),
@@ -1483,6 +1596,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             "trainValidation": train_validation,
             "previewRoot": str(preview_root.resolve()),
             "unitSlopeAblationSummary": ablation_summary,
+            "residualAlignmentSummary": alignment_summary,
         }
         preview_report_path = run_dir / f"preview_step_{start_step:06d}.json"
         preview_report_path.write_text(
@@ -1499,6 +1613,21 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             f"held-lattice={held_ablation['median_lattice_cell_excess']*100:+.2f}% "
             f"seen-global={seen_ablation['median_global_recovery']*100:+.2f}% "
             f"seen-edge={seen_ablation['median_edge_recovery']*100:+.2f}%",
+            flush=True,
+        )
+        held_oracle = validation["oracleScalarGainAblation"]
+        seen_oracle = train_validation["oracleScalarGainAblation"]
+        held_diag = validation["residualDiagnosticDistributions"]
+        seen_diag = train_validation["residualDiagnosticDistributions"]
+        print(
+            "Residual alignment: "
+            f"held-cos={held_diag['residual_cosine_similarity']['median']:+.3f} "
+            f"held-sign={held_diag['target_weighted_sign_agreement']['median']*100:.1f}% "
+            f"held-ls-gain={held_diag['least_squares_residual_gain']['median']:.2f} "
+            f"held-oracle-global={held_oracle['median_global_recovery']*100:+.2f}% "
+            f"seen-cos={seen_diag['residual_cosine_similarity']['median']:+.3f} "
+            f"seen-sign={seen_diag['target_weighted_sign_agreement']['median']*100:.1f}% "
+            f"seen-oracle-global={seen_oracle['median_global_recovery']*100:+.2f}%",
             flush=True,
         )
         print(f"Preview root      : {preview_root}", flush=True)
