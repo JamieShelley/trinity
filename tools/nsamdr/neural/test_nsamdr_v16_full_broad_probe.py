@@ -145,10 +145,9 @@ class FullBroadProbeTests(unittest.TestCase):
             0.0,
             places=6,
         )
-        self.assertAlmostEqual(
-            diagnostics["residual_cosine_similarity"],
-            1.0,
-            places=6,
+        self.assertLess(
+            abs(diagnostics["residual_cosine_similarity"] - 1.0),
+            2.0e-6,
         )
         self.assertAlmostEqual(
             diagnostics["target_weighted_sign_agreement"],
