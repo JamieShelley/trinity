@@ -14,6 +14,10 @@ class ExactMemorizationProbeTests(unittest.TestCase):
             _parse_stages("32,1,8,8,64"),
             [1, 8, 32, 64],
         )
+        self.assertEqual(
+            _parse_stages(["64", "128", "256"]),
+            [64, 128, 256],
+        )
 
     def test_authority_records_select_train_and_sort_crops(self) -> None:
         manifest = {
