@@ -185,11 +185,11 @@ At 448, all four median candidate gates pass. All four authorities pass global, 
 
 The known anchor remains the controlled interference comparison because the single-authority and mixed-authority probes use the same source checkpoint, exact fixed crop, loss, metrics and fresh-Adam start. By 448 mixed updates per authority the anchor reaches 60.55% global / 62.89% edge / 52.33% gradient / 4.65% lattice, essentially converging on the successful single-authority control. This supports **optimization slowdown with authority mixing**, not a hard four-authority capacity limit. It still does not prove held-out generalisation.
 
-The 16-authority fixed-fit scaling probe is complete through 64 updates per authority and remains healthy. Median recovery is 25.60% global / 28.63% edge / 25.87% gradient / 15.36% lattice. This is stronger than the 4-authority run at the same 64 updates per authority on global, edge and gradient, with lattice also substantially lower.
+The 16-authority fixed-fit scaling probe is complete through 128 updates per authority and remains healthy. Median recovery rises from 25.60% global / 28.63% edge / 25.87% gradient / 15.36% lattice at 64 updates per authority to 38.55% / 40.12% / 33.53% / 9.10% at 128. Lattice now passes cleanly; gradient is 1.47 percentage points below its 35% gate; global is 6.45 points below 45%; edge remains the main gap at 19.88 points below 60%.
 
-The shared anchor is also stronger at matched anchor-specific exposure: 16-authority @64 reaches 31.97% global / 32.92% edge / 25.97% gradient / 12.89% lattice versus 25.62% / 24.45% / 20.48% / 17.06% for 4-authority @64. Because the 16-authority run has more total optimizer updates between anchor visits, this does not prove that larger authority count has no interference; it does show that the additional authority updates are not destructively erasing the anchor and are providing useful shared learning at this stage.
+The shared anchor also continues improving: at 128 mixed-authority updates it reaches 44.07% global / 46.09% edge / 35.16% gradient / 8.08% lattice, with residual cosine 0.82 and target-weighted sign agreement 88.55%. This shows that authority diversity is not destructively erasing the learned reconstruction direction.
 
-Continue the same saved 16-authority checkpoint to 128 updates per authority. Do not restart from step 596, do not expand to more authorities yet, and do not resume the broad 894-step run.
+The 16-authority curve is therefore still in the optimization-limited regime rather than showing a capacity collapse. Continue the same saved 16-authority checkpoint to 192 and 256 updates per authority. Evaluate both stages before increasing authority count or changing the objective.
 
 Each full-capacity checkpoint saves fixed held-out visual samples under `previews/step_NNNNNN/`. `--preview-only --resume <checkpoint>` now reports current seen/held-out metrics plus the unit-slope residual-bound ablation.
 
@@ -232,11 +232,12 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
     -> four-authority hard capacity limit ruled out
     -> authority mixing mainly slows optimization at this scale
     -> held-out generalisation remains unproven
-    -> 16-authority fixed-fit scaling @64 remains healthy
-    -> median @64: global 25.6%, edge 28.6%, gradient 25.9%, lattice 15.4%
-    -> anchor @64: 31.97/32.92/25.97/12.89 vs 4-authority 25.62/24.45/20.48/17.06
-    -> early cross-authority transfer is positive, not destructive
-    -> next: continue same 16-authority checkpoint to 128 updates/authority
+    -> 16-authority fixed-fit scaling remains healthy through 128 updates/authority
+    -> median @128: global 38.6%, edge 40.1%, gradient 33.5%, lattice 9.1%
+    -> anchor @128: global 44.1%, edge 46.1%, gradient 35.2%, lattice 8.1%
+    -> no evidence of destructive authority mixing or hard capacity collapse
+    -> edge remains the main unresolved train-fit gate
+    -> next: continue same 16-authority checkpoint to 192/256 updates per authority
     -> do not expand authority count or resume broad training to 894 yet
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
@@ -244,7 +245,7 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. The unit-slope and scalar-oracle diagnostics are rejected as fixes. Exact single-authority memorization and fixed 4-authority train-fit both pass the candidate gate set. The 16-authority fixed-fit scaling probe remains healthy through 64 updates per authority and shows positive shared transfer on the anchor relative to the 4-authority run at the same anchor-specific exposure. Continue the same saved 16-authority checkpoint to 128 updates per authority. This remains train-fit evidence and must not be substituted for later complete-authority held-out qualification.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. The unit-slope and scalar-oracle diagnostics are rejected as fixes. Exact single-authority memorization and fixed 4-authority train-fit both pass the candidate gate set. The 16-authority fixed-fit scaling probe remains healthy through 128 updates per authority, with lattice already passing and global/gradient approaching their gates while edge remains the main lagging metric. Continue the same saved 16-authority checkpoint to 192/256 updates per authority. This remains train-fit evidence and must not be substituted for later complete-authority held-out qualification.
 
 ## Candidate qualification gates
 
@@ -325,12 +326,13 @@ scripts\build\nsamdr.bat memorization-probe --device cuda --resume <checkpoint> 
 scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> --authority-count 4 --stages-per-authority 64 128
 scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> --authority-count 16 --stages-per-authority 64
 scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> --continue-from <16-authority-checkpoint> --authority-count 16 --stages-per-authority 128
+scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> --continue-from <16-authority-checkpoint> --authority-count 16 --stages-per-authority 192 256
 scripts\build\nsamdr.bat stage2-status
 scripts\build\nsamdr.bat stage2-probe
 scripts\build\nsamdr.bat stage2-summary
 ```
 
-The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity broad checkpoint is 596. Residual alignment and scalar-oracle diagnostics are complete and do not justify more broad training. Exact single-authority memorization and fixed 4-authority train-fit pass the candidate gate set. The 16-authority fixed-fit probe is healthy through 64 updates per authority; continue only the same saved 16-authority checkpoint to 128. Do not resume the 894-step broad run.
+The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity broad checkpoint is 596. Residual alignment and scalar-oracle diagnostics are complete and do not justify more broad training. Exact single-authority memorization and fixed 4-authority train-fit pass the candidate gate set. The 16-authority fixed-fit probe is healthy through 128 updates per authority; continue only the same saved 16-authority checkpoint to 192/256. Do not resume the 894-step broad run.
 
 ## Final visual proof
 
