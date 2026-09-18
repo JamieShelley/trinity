@@ -185,7 +185,11 @@ At 448, all four median candidate gates pass. All four authorities pass global, 
 
 The known anchor remains the controlled interference comparison because the single-authority and mixed-authority probes use the same source checkpoint, exact fixed crop, loss, metrics and fresh-Adam start. By 448 mixed updates per authority the anchor reaches 60.55% global / 62.89% edge / 52.33% gradient / 4.65% lattice, essentially converging on the successful single-authority control. This supports **optimization slowdown with authority mixing**, not a hard four-authority capacity limit. It still does not prove held-out generalisation.
 
-The next scaling diagnostic is 16 fixed train authorities. Start at 64 updates per authority only. This gives a matched comparison against the existing 4-authority 64-update point while bounding GPU cost. If the 16-authority median remains on a healthy learning trajectory, continue the saved 16-authority checkpoint to 128 updates per authority. Do not jump directly to broad 298-authority training.
+The 16-authority fixed-fit scaling probe is complete through 64 updates per authority and remains healthy. Median recovery is 25.60% global / 28.63% edge / 25.87% gradient / 15.36% lattice. This is stronger than the 4-authority run at the same 64 updates per authority on global, edge and gradient, with lattice also substantially lower.
+
+The shared anchor is also stronger at matched anchor-specific exposure: 16-authority @64 reaches 31.97% global / 32.92% edge / 25.97% gradient / 12.89% lattice versus 25.62% / 24.45% / 20.48% / 17.06% for 4-authority @64. Because the 16-authority run has more total optimizer updates between anchor visits, this does not prove that larger authority count has no interference; it does show that the additional authority updates are not destructively erasing the anchor and are providing useful shared learning at this stage.
+
+Continue the same saved 16-authority checkpoint to 128 updates per authority. Do not restart from step 596, do not expand to more authorities yet, and do not resume the broad 894-step run.
 
 Each full-capacity checkpoint saves fixed held-out visual samples under `previews/step_NNNNNN/`. `--preview-only --resume <checkpoint>` now reports current seen/held-out metrics plus the unit-slope residual-bound ablation.
 
@@ -228,15 +232,19 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
     -> four-authority hard capacity limit ruled out
     -> authority mixing mainly slows optimization at this scale
     -> held-out generalisation remains unproven
-    -> next: 16-authority fixed-fit scaling probe, start at 64 updates/authority
-    -> do not resume broad training to 894 yet
+    -> 16-authority fixed-fit scaling @64 remains healthy
+    -> median @64: global 25.6%, edge 28.6%, gradient 25.9%, lattice 15.4%
+    -> anchor @64: 31.97/32.92/25.97/12.89 vs 4-authority 25.62/24.45/20.48/17.06
+    -> early cross-authority transfer is positive, not destructive
+    -> next: continue same 16-authority checkpoint to 128 updates/authority
+    -> do not expand authority count or resume broad training to 894 yet
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
 13. Raven / production Quick
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. The unit-slope and scalar-oracle diagnostics are rejected as fixes. Exact single-authority memorization passes all candidate gates, and the fixed 4-authority train-fit probe now also passes the median candidate gate set by 384/448 updates per authority. This rules out a hard capacity failure at four mixed authorities. Run a 16-authority fixed-fit scaling probe next, starting with 64 updates per authority only. If the 16-authority learning curve remains healthy, continue the same checkpoint to 128. This remains train-fit evidence and must not be substituted for later complete-authority held-out qualification.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. The unit-slope and scalar-oracle diagnostics are rejected as fixes. Exact single-authority memorization and fixed 4-authority train-fit both pass the candidate gate set. The 16-authority fixed-fit scaling probe remains healthy through 64 updates per authority and shows positive shared transfer on the anchor relative to the 4-authority run at the same anchor-specific exposure. Continue the same saved 16-authority checkpoint to 128 updates per authority. This remains train-fit evidence and must not be substituted for later complete-authority held-out qualification.
 
 ## Candidate qualification gates
 
@@ -316,12 +324,13 @@ scripts\build\nsamdr.bat memorization-probe --device cuda --resume <checkpoint> 
 scripts\build\nsamdr.bat memorization-probe --device cuda --resume <checkpoint> --continue-from <memorization-checkpoint> --authority-id <train-authority> --stages 128,256
 scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> --authority-count 4 --stages-per-authority 64 128
 scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> --authority-count 16 --stages-per-authority 64
+scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> --continue-from <16-authority-checkpoint> --authority-count 16 --stages-per-authority 128
 scripts\build\nsamdr.bat stage2-status
 scripts\build\nsamdr.bat stage2-probe
 scripts\build\nsamdr.bat stage2-summary
 ```
 
-The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity broad checkpoint is 596. Residual alignment and scalar-oracle diagnostics are complete and do not justify more broad training. Exact single-authority memorization and fixed 4-authority train-fit both pass the candidate gate set. The next diagnostic is 16 fixed train authorities at 64 updates per authority, then 128 only if the curve remains healthy. Do not resume the 894-step broad run.
+The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity broad checkpoint is 596. Residual alignment and scalar-oracle diagnostics are complete and do not justify more broad training. Exact single-authority memorization and fixed 4-authority train-fit pass the candidate gate set. The 16-authority fixed-fit probe is healthy through 64 updates per authority; continue only the same saved 16-authority checkpoint to 128. Do not resume the 894-step broad run.
 
 ## Final visual proof
 
