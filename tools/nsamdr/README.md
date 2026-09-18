@@ -137,6 +137,8 @@ The conditioned model remains better than the control on global, edge, gradient,
 
 The next proof uses the production-size V16 body: 96 HR channels, 6 residual-Swin groups x 6 blocks, 6 heads, 8x8 windows, full LR context, and the structure-conditioning branch. It trains on the same 298-authority broad prior and validates against the same 38 complete held-out authorities. The first run is intentionally bounded at 256 updates and writes a resumable model+optimizer checkpoint before any longer stage.
 
+Each full-capacity checkpoint also saves the same fixed held-out visual samples under `previews/step_NNNNNN/`. Each sample contains albedo input/baseline/candidate/authored-target comparison, signed candidate residual and B/C error maps, edge comparison, normal comparison, and metadata. `--preview-only --resume <checkpoint>` writes previews from an existing checkpoint without more training.
+
 ## Active qualification ladder
 
 ```text
@@ -237,6 +239,7 @@ scripts\build\nsamdr.bat boundary-profile-audit
 scripts\build\nsamdr.bat authored-prior-corpus
 scripts\build\nsamdr.bat structure-conditioning-probe --device cuda
 scripts\build\nsamdr.bat full-broad-probe --device cuda
+scripts\build\nsamdr.bat full-broad-probe --device cuda --preview-only --resume <checkpoint>
 scripts\build\nsamdr.bat stage2-status
 scripts\build\nsamdr.bat stage2-probe
 scripts\build\nsamdr.bat stage2-summary
