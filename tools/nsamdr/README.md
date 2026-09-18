@@ -164,7 +164,7 @@ Residual telemetry shows a median applied/target albedo residual ratio of about 
 
 The residual-alignment diagnostic is complete. Median residual cosine alignment is only about 0.32 seen / 0.37 held-out, with target-weighted sign agreement about 65% / 67%. A target-informed per-sample least-squares scalar oracle does not rescue global reconstruction: seen global recovery falls from 4.68% to 3.95%, and held-out falls from 5.38% to 4.73%. Therefore residual amplitude calibration is not the blocker; the learned residual direction/spatial support is wrong.
 
-The next bounded diagnostic is exact single-authority memorization from the step-596 checkpoint. It resets Adam state, fixes one authored train crop with no augmentation, and repeats that exact sample. This determines whether the current model/objective can fit one target before any 4/16/64-authority interference ladder is attempted.
+The exact single-authority memorization probe is now complete through 64 repeated updates on authority `13006d2b807f89ac`. It shows real continued learning rather than an immediate representation failure: global recovery improves from 6.10% to 36.80%, edge from 4.43% to 37.39%, gradient from 2.91% to 30.61%, residual cosine alignment from 0.35 to 0.76, and lattice excess falls from 53.43% to 8.83%. At update 64 only the lattice gate passes, but the curve is still improving. Extend this exact sample only to 128/256 before deciding whether the current objective can fully memorize one target. Do not start the 4/16-authority ladder yet.
 
 Each full-capacity checkpoint saves fixed held-out visual samples under `previews/step_NNNNNN/`. `--preview-only --resume <checkpoint>` now reports current seen/held-out metrics plus the unit-slope residual-bound ablation.
 
@@ -195,15 +195,17 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
     -> unit-slope residual amplification rejected
     -> residual alignment low: about 0.32 seen / 0.37 held-out cosine
     -> per-sample scalar oracle cannot rescue global recovery
-    -> next: exact one-authority memorization probe
-    -> do not continue to 894
+    -> exact one-authority memorization through 64: strong continued learning
+    -> 64 updates: global 36.8%, edge 37.4%, gradient 30.6%, lattice 8.8%
+    -> next: extend the same exact target to 128/256 only
+    -> do not continue broad training to 894
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
 13. Raven / production Quick
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. The unit-slope and scalar-oracle diagnostics are both rejected as fixes. Run the exact single-authority memorization probe from the existing 596 checkpoint. If one fixed authored target still cannot be fit, change the training objective/representation before any further broad training. If it can be fit quickly, proceed to a bounded 4/16-authority interference ladder.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. The unit-slope and scalar-oracle diagnostics are rejected as fixes. Exact single-authority memorization is learning strongly through update 64 but has not yet reached the global/edge/gradient gates. Extend the same exact sample to 128/256. If the single target reaches the candidate gates, proceed to a bounded 4/16-authority interference ladder. If it plateaus below the gates, change the objective/representation before any further broad training.
 
 ## Candidate qualification gates
 
@@ -278,12 +280,14 @@ scripts\build\nsamdr.bat structure-conditioning-probe --device cuda
 scripts\build\nsamdr.bat full-broad-probe --device cuda
 scripts\build\nsamdr.bat full-broad-probe --device cuda --preview-only --resume <checkpoint>
 scripts\build\nsamdr.bat memorization-probe --device cuda --resume <checkpoint> --authority-id <train-authority>
+scripts\build\nsamdr.bat memorization-probe --device cuda --resume <checkpoint> --authority-id <train-authority> --stages 64,128,256
+scripts\build\nsamdr.bat memorization-probe --device cuda --resume <checkpoint> --continue-from <memorization-checkpoint> --authority-id <train-authority> --stages 128,256
 scripts\build\nsamdr.bat stage2-status
 scripts\build\nsamdr.bat stage2-probe
 scripts\build\nsamdr.bat stage2-summary
 ```
 
-The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity checkpoint is 596. Residual alignment and scalar-oracle diagnostics are complete and do not justify more broad training. Run the exact memorization probe next; do not resume the 894-step broad run.
+The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity checkpoint is 596. Residual alignment and scalar-oracle diagnostics are complete and do not justify more broad training. The exact memorization probe has reached 64 updates and is still improving; extend the same target to 128/256 only. The memorization probe now saves a continuation checkpoint at every requested stage. Do not resume the 894-step broad run.
 
 ## Final visual proof
 
