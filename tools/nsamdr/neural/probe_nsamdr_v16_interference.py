@@ -453,6 +453,21 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             device=device,
             precision=args.amp_precision,
         )
+
+        if (
+            total_update == start_total_update + 1
+            or total_update % int(args.progress_every) == 0
+        ):
+            elapsed_now = time.monotonic() - started
+            completed_per_authority = total_update // authority_count
+            print(
+                f"Progress          : total={total_update}/{max_total_update} "
+                f"~per-auth={completed_per_authority}/{max_per_authority} "
+                f"active={selected[authority_index]['authorityId']} "
+                f"elapsed={elapsed_now:.1f}s",
+                flush=True,
+            )
+
         if total_update not in stage_totals:
             continue
 
@@ -568,6 +583,12 @@ def parser() -> argparse.ArgumentParser:
         type=float,
         default=0.01,
         help="skip trivial authorities whose authored target is too close to B",
+    )
+    value.add_argument(
+        "--progress-every",
+        type=int,
+        default=16,
+        help="print a training heartbeat every N total optimizer updates",
     )
     value.add_argument(
         "--device",
