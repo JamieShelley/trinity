@@ -13,6 +13,8 @@ from tools.nsamdr.neural.probe_nsamdr_v16_full_broad import (
     _proof_loss_terms,
     _residual_diagnostics,
     _safe_name,
+    _unit_slope_albedo_outputs,
+    _unit_slope_bounded_residual,
     parser,
 )
 
@@ -43,6 +45,34 @@ class FullBroadProbeTests(unittest.TestCase):
         phases = _phase_abs_energy(value, 4)
         self.assertEqual(len(phases), 16)
         self.assertTrue(all(abs(item - 1.0) < 1.0e-6 for item in phases.values()))
+
+    def test_unit_slope_bound_preserves_small_signal_scale(self) -> None:
+        raw = torch.tensor([-0.01, 0.0, 0.01], dtype=torch.float32)
+        bounded = _unit_slope_bounded_residual(raw, 0.40)
+        self.assertTrue(torch.all(bounded.abs() <= 0.40))
+        self.assertAlmostEqual(float(bounded[1]), 0.0, places=7)
+        self.assertAlmostEqual(float(bounded[2]), 0.01, places=4)
+
+    def test_unit_slope_ablation_only_changes_albedo_candidate(self) -> None:
+        config = _full_config("manifest.json", 32)
+        baseline = torch.zeros((1, 3, 32, 32), dtype=torch.float32)
+        raw = torch.full_like(baseline, 0.02)
+        current = torch.tanh(raw) * config.albedo_residual_cap
+        outputs = {
+            "baseline_albedo": baseline,
+            "candidate_albedo": baseline + current,
+            "candidate_raw_residual_albedo": raw,
+            "predicted_residual_albedo": current,
+            "candidate_normal": torch.zeros((1, 2, 32, 32)),
+            "candidate_material": torch.zeros((1, 3, 32, 32)),
+        }
+        result = _unit_slope_albedo_outputs(outputs, config)
+        self.assertIs(result["candidate_normal"], outputs["candidate_normal"])
+        self.assertIs(result["candidate_material"], outputs["candidate_material"])
+        self.assertGreater(
+            float(result["predicted_residual_albedo"].abs().mean()),
+            float(current.abs().mean()),
+        )
 
     def test_loss_decomposition_preserves_existing_total(self) -> None:
         config = _full_config("manifest.json", 32)
