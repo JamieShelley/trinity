@@ -47,9 +47,13 @@ SCHEMA = "NSAMDR_V16_EXACT_MEMORIZATION_PROBE_V1"
 CHECKPOINT_SCHEMA = "NSAMDR_V16_EXACT_MEMORIZATION_CHECKPOINT_V1"
 
 
-def _parse_stages(raw: str) -> list[int]:
+def _parse_stages(raw: str | list[str] | tuple[str, ...]) -> list[int]:
     values: list[int] = []
-    for token in str(raw).replace(";", ",").split(","):
+    items = [raw] if isinstance(raw, str) else list(raw)
+    tokens: list[str] = []
+    for item in items:
+        tokens.extend(str(item).replace(";", ",").split(","))
+    for token in tokens:
         token = token.strip()
         if not token:
             continue
@@ -515,8 +519,12 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--authority-id", required=True)
     value.add_argument(
         "--stages",
-        default="1,2,4,8,16,32,64",
-        help="cumulative exact-sample update counts",
+        nargs="+",
+        default=["1,2,4,8,16,32,64"],
+        help=(
+            "cumulative exact-sample update counts; accepts either "
+            "comma-separated or space-separated values"
+        ),
     )
     value.add_argument(
         "--minimum-target-residual",
