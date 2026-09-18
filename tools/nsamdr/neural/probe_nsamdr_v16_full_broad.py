@@ -771,7 +771,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         run_dir = _run_directory(repo_root)
 
     remaining = [stage for stage in stages if stage > start_step]
-    if not remaining:
+    if not remaining and not args.preview_only:
         raise RuntimeError(
             f"no requested stage is greater than checkpoint step {start_step}"
         )
