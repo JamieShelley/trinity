@@ -44,6 +44,7 @@ from v16.broad_prior import AuthorityBalancedSRDataset
 
 
 SCHEMA = "NSAMDR_V16_EXACT_MEMORIZATION_PROBE_V1"
+CHECKPOINT_SCHEMA = "NSAMDR_V16_EXACT_MEMORIZATION_CHECKPOINT_V1"
 
 
 def _parse_stages(raw: str) -> list[int]:
@@ -194,6 +195,76 @@ def _gate_snapshot(item: dict[str, Any], config) -> dict[str, bool]:
     }
 
 
+def _save_memorization_checkpoint(
+    path: Path,
+    *,
+    model,
+    optimizer: torch.optim.Optimizer,
+    source_checkpoint: Path,
+    source_step: int,
+    manifest_path: Path,
+    authority_id: str,
+    crop_id: str,
+    seed: int,
+    update: int,
+    snapshots: list[dict[str, Any]],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "schema": CHECKPOINT_SCHEMA,
+            "sourceCheckpoint": str(source_checkpoint.resolve()),
+            "sourceCheckpointStep": int(source_step),
+            "manifest": str(manifest_path.resolve()),
+            "authorityId": str(authority_id),
+            "cropId": str(crop_id),
+            "seed": int(seed),
+            "update": int(update),
+            "modelState": model.state_dict(),
+            "optimizerState": optimizer.state_dict(),
+            "snapshots": snapshots,
+        },
+        path,
+    )
+
+
+def _load_memorization_checkpoint(
+    path: Path,
+    *,
+    model,
+    optimizer: torch.optim.Optimizer,
+    source_checkpoint: Path,
+    source_step: int,
+    manifest_path: Path,
+    authority_id: str,
+    crop_id: str,
+    device: torch.device,
+) -> tuple[int, int, list[dict[str, Any]]]:
+    try:
+        payload = torch.load(path, map_location=device, weights_only=False)
+    except TypeError:
+        payload = torch.load(path, map_location=device)
+    if not isinstance(payload, dict) or payload.get("schema") != CHECKPOINT_SCHEMA:
+        raise RuntimeError(f"memorization checkpoint schema mismatch: {path}")
+    if Path(str(payload.get("sourceCheckpoint", ""))).resolve() != source_checkpoint.resolve():
+        raise RuntimeError("memorization checkpoint belongs to a different source checkpoint")
+    if int(payload.get("sourceCheckpointStep", -1)) != int(source_step):
+        raise RuntimeError("memorization checkpoint source step mismatch")
+    if Path(str(payload.get("manifest", ""))).resolve() != manifest_path.resolve():
+        raise RuntimeError("memorization checkpoint belongs to a different manifest")
+    if str(payload.get("authorityId", "")) != str(authority_id):
+        raise RuntimeError("memorization checkpoint belongs to a different authority")
+    if str(payload.get("cropId", "")) != str(crop_id):
+        raise RuntimeError("memorization checkpoint belongs to a different crop")
+    model.load_state_dict(payload["modelState"], strict=True)
+    optimizer.load_state_dict(payload["optimizerState"])
+    return (
+        int(payload["update"]),
+        int(payload["seed"]),
+        list(payload.get("snapshots") or []),
+    )
+
+
 def run(args: argparse.Namespace) -> tuple[int, Path]:
     repo_root = args.repo_root.resolve()
     manifest_path = Path(args.manifest)
@@ -231,11 +302,39 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         device=device,
     )
 
-    # Reset optimizer state on purpose. This probe asks whether the current
-    # representation can fit one exact sample without broad-corpus Adam history.
+    # Reset optimizer state on the first memorization run. Continuations restore
+    # the exact optimizer state from the prior bounded memorization checkpoint.
     optimizer = _optimizer(model, config)
     stages = _parse_stages(args.stages)
     max_step = stages[-1]
+    start_update = 0
+    snapshots: list[dict[str, Any]] = []
+    continuation_path: Path | None = None
+    if args.continue_from:
+        continuation_path = Path(args.continue_from)
+        if not continuation_path.is_absolute():
+            continuation_path = (repo_root / continuation_path).resolve()
+        if not continuation_path.is_file():
+            raise RuntimeError(
+                f"memorization continuation checkpoint is missing: {continuation_path}"
+            )
+        start_update, continuation_seed, snapshots = _load_memorization_checkpoint(
+            continuation_path,
+            model=model,
+            optimizer=optimizer,
+            source_checkpoint=checkpoint_path,
+            source_step=source_step,
+            manifest_path=manifest_path,
+            authority_id=sample["authorityId"],
+            crop_id=sample["cropId"],
+            device=device,
+        )
+        if continuation_seed != seed:
+            raise RuntimeError("memorization checkpoint seed mismatch")
+        if max_step <= start_update:
+            raise RuntimeError(
+                f"no requested memorization stage exceeds continuation update {start_update}"
+            )
     torch.manual_seed(seed + 9101)
 
     initial = _evaluate_exact(
@@ -260,7 +359,12 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     print(f"Authority         : {sample['authorityId']}", flush=True)
     print(f"Crop              : {sample['cropId']}", flush=True)
     print("Sampling          : fixed center crop; no augmentation; clean LR", flush=True)
-    print("Optimizer         : fresh Adam state", flush=True)
+    print(
+        "Optimizer         : "
+        + ("restored memorization Adam state" if continuation_path else "fresh Adam state"),
+        flush=True,
+    )
+    print(f"Start update      : {start_update}", flush=True)
     print(f"Stages            : {stages}", flush=True)
     print(
         "Initial           : "
@@ -271,17 +375,18 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         flush=True,
     )
 
-    snapshots: list[dict[str, Any]] = [
-        {
-            "update": 0,
-            **initial,
-            "gateChecks": _gate_snapshot(initial, config),
-        }
-    ]
+    if not snapshots:
+        snapshots = [
+            {
+                "update": 0,
+                **initial,
+                "gateChecks": _gate_snapshot(initial, config),
+            }
+        ]
     started = time.monotonic()
     stage_set = set(stages)
 
-    for update in range(1, max_step + 1):
+    for update in range(start_update + 1, max_step + 1):
         train_loss = _train_one(
             model,
             optimizer,
@@ -325,7 +430,13 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "sourceCheckpointStep": int(source_step),
         "manifest": str(manifest_path),
         "sample": sample,
-        "optimizerPolicy": "fresh-adam-state",
+        "optimizerPolicy": (
+            "restored-memorization-adam-state"
+            if continuation_path
+            else "fresh-adam-state"
+        ),
+        "continuationFrom": str(continuation_path) if continuation_path else None,
+        "startUpdate": int(start_update),
         "trainingPolicy": "same-exact-sample-repeated",
         "stages": stages,
         "elapsedSeconds": elapsed,
@@ -347,11 +458,28 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     output_path = output_dir / (
         f"single_authority_{sample['authorityId']}_step_{source_step:06d}.json"
     )
+    continuation_checkpoint_path = output_dir / (
+        f"single_authority_{sample['authorityId']}_step_{source_step:06d}_checkpoint.pt"
+    )
     output_path.write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    _save_memorization_checkpoint(
+        continuation_checkpoint_path,
+        model=model,
+        optimizer=optimizer,
+        source_checkpoint=checkpoint_path,
+        source_step=source_step,
+        manifest_path=manifest_path,
+        authority_id=sample["authorityId"],
+        crop_id=sample["cropId"],
+        seed=seed,
+        update=max_step,
+        snapshots=snapshots,
+    )
     print(f"Report            : {output_path}", flush=True)
+    print(f"Continuation      : {continuation_checkpoint_path}", flush=True)
     return 0, output_path
 
 
@@ -365,6 +493,11 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--repo-root", type=Path, default=Path.cwd())
     value.add_argument("--manifest", default=DEFAULT_MANIFEST)
     value.add_argument("--resume", required=True)
+    value.add_argument(
+        "--continue-from",
+        default="",
+        help="memorization checkpoint from a previous bounded run",
+    )
     value.add_argument("--authority-id", required=True)
     value.add_argument(
         "--stages",
