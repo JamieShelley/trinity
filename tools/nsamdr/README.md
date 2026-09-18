@@ -147,9 +147,22 @@ normal recovery     11.86%
 lattice excess      52.01%
 ```
 
-The 596 lattice jump must be explained before a long continuation. The probe now records named loss components, residual magnitude/cap telemetry, all 16 4x residual phase energies, metric distributions, per-authority metrics, and a deterministic seen-authority validation sample. This separates failure to fit seen authorities from failure to generalise to unseen authorities.
+The 596 diagnostic now shows that seen and held-out authorities fail at nearly the same level:
 
-Each full-capacity checkpoint also saves fixed held-out visual samples under `previews/step_NNNNNN/`. Each sample contains albedo input/baseline/candidate/authored-target comparison, signed candidate residual and B/C error maps, edge comparison, normal comparison, metrics, and residual telemetry. `--preview-only --resume <checkpoint>` re-evaluates the current checkpoint without more training and now includes both held-out and seen-authority diagnostics.
+```text
+                         seen       held-out
+global recovery           4.68%        5.38%
+edge recovery             4.47%        4.89%
+gradient recovery         4.16%        4.53%
+normal recovery          10.43%       11.86%
+lattice excess           53.64%       52.01%
+```
+
+This is not primarily a held-out generalisation gap at the current checkpoint. The production candidate is not fitting the broad seen-authority mapping either.
+
+Residual telemetry also shows a median applied/target albedo residual ratio of about 0.25-0.27 while residual-cap saturation is 0%. The current production residual function is `cap*tanh(raw)`; its slope around zero is therefore the cap itself (0.40 for albedo). The probe now evaluates an inference-only unit-slope alternative, `cap*tanh(raw/cap)`, from the same checkpoint. This test changes no model weights and requires no training.
+
+Each full-capacity checkpoint saves fixed held-out visual samples under `previews/step_NNNNNN/`. `--preview-only --resume <checkpoint>` now reports current seen/held-out metrics plus the unit-slope residual-bound ablation.
 
 ## Active qualification ladder
 
@@ -172,16 +185,18 @@ Each full-capacity checkpoint also saves fixed held-out visual samples under `pr
     -> production-size 96ch / 6x6 Swin candidate
     -> current checkpoint 596 updates
     -> held-out reconstruction remains about 5%
-    -> lattice excess jumped to about 52%
-    -> instrument seen-vs-held-out behaviour before longer training
-    -> next bounded checkpoint: 894 updates
+    -> lattice excess remains about 52%
+    -> seen and held-out recovery are both about 5%
+    -> candidate applies only about one quarter of target residual magnitude
+    -> test unit-slope residual bounding from the 596 checkpoint
+    -> do not continue to 894 until this ablation is read
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
 13. Raven / production Quick
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not blindly extend the full-capacity run beyond 894. First determine whether the production candidate can fit seen broad authorities, whether residual prediction is under-correcting or cap-limited, and whether the 4x lattice signal is phase-specific.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894 yet. First run the unit-slope residual-bound ablation from the existing 596 checkpoint. If it materially improves albedo recovery without worsening lattice behaviour, change the residual parameterisation and restart the broad proof from step 0. If it does not, retain the current bound and move to the next representation/loss diagnostic.
 
 ## Candidate qualification gates
 
@@ -260,7 +275,7 @@ scripts\build\nsamdr.bat stage2-probe
 scripts\build\nsamdr.bat stage2-summary
 ```
 
-The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity checkpoint is 596. First run `--preview-only` after pulling to collect the new 596 seen/held-out diagnostics. Then resume the same checkpoint to `--stages 894`, which adds one complete 298-authority training cycle. Do not schedule 1024/2048 until the 894 diagnostics identify which failure class remains.
+The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity checkpoint is 596. Run `--preview-only` after pulling to collect the unit-slope residual-bound ablation from the same checkpoint. Do not resume training until that result is evaluated.
 
 ## Final visual proof
 
