@@ -23,6 +23,8 @@ import sys
 import time
 from typing import Any
 
+import cv2
+import numpy as np
 import torch
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, Subset
@@ -284,6 +286,182 @@ def _train_segment(
     return result
 
 
+
+def _safe_name(value: str) -> str:
+    cleaned = "".join(
+        character if character.isalnum() or character in {"-", "_"} else "_"
+        for character in str(value)
+    )
+    cleaned = cleaned.strip("_")
+    return cleaned[:80] or "unknown"
+
+
+def _rgb_u8(value: torch.Tensor) -> np.ndarray:
+    image = (
+        value.detach()
+        .float()
+        .clamp(0.0, 1.0)[0, :3]
+        .permute(1, 2, 0)
+        .cpu()
+        .numpy()
+    )
+    if image.shape[-1] == 1:
+        image = np.repeat(image, 3, axis=-1)
+    return np.round(image * 255.0).astype(np.uint8)
+
+
+def _normal_rgb_u8(value: torch.Tensor) -> np.ndarray:
+    normal = value.detach().float()[0]
+    x = normal[0].clamp(-1.0, 1.0)
+    y = normal[1].clamp(-1.0, 1.0)
+    z = torch.sqrt((1.0 - x.square() - y.square()).clamp_min(0.0))
+    image = torch.stack((x, y, z), dim=-1)
+    image = ((image + 1.0) * 0.5).clamp(0.0, 1.0).cpu().numpy()
+    return np.round(image * 255.0).astype(np.uint8)
+
+
+def _edge_u8(value: torch.Tensor) -> np.ndarray:
+    gray = value.detach().float().mean(dim=1, keepdim=True)
+    dx = F.pad((gray[..., :, 1:] - gray[..., :, :-1]).abs(), (0, 1, 0, 0))
+    dy = F.pad((gray[..., 1:, :] - gray[..., :-1, :]).abs(), (0, 0, 0, 1))
+    edge = dx + dy
+    edge = edge / edge.amax(dim=(-2, -1), keepdim=True).clamp_min(1.0e-8)
+    plane = edge[0, 0].cpu().numpy()
+    return np.round(np.clip(plane, 0.0, 1.0) * 255.0).astype(np.uint8)
+
+
+def _label_panel(panel: np.ndarray, label: str) -> np.ndarray:
+    if panel.ndim == 2:
+        panel = cv2.cvtColor(panel, cv2.COLOR_GRAY2RGB)
+    result = np.ascontiguousarray(panel.copy())
+    cv2.rectangle(result, (0, 0), (result.shape[1], 38), (0, 0, 0), -1)
+    cv2.putText(
+        result,
+        label,
+        (10, 27),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    return result
+
+
+def _write_panel_row(
+    path: Path,
+    panels: list[tuple[str, np.ndarray]],
+) -> str:
+    rendered = [_label_panel(panel, label) for label, panel in panels]
+    canvas = np.concatenate(rendered, axis=1)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(path), cv2.cvtColor(canvas, cv2.COLOR_RGB2BGR)):
+        raise RuntimeError(f"failed to write preview image: {path}")
+    return str(path.resolve())
+
+
+def _write_preview_sample(
+    preview_root: Path,
+    *,
+    sample_index: int,
+    record: dict[str, Any],
+    batch: dict[str, torch.Tensor],
+    outputs: dict[str, torch.Tensor],
+    config: V16Config,
+) -> dict[str, Any]:
+    authority = str(record.get("family_id") or record.get("familyId") or "unknown")
+    crop = str(record.get("crop_id") or record.get("cropId") or sample_index)
+    sample_dir = preview_root / (
+        f"sample_{sample_index:02d}_{_safe_name(authority)}_{_safe_name(crop)}"
+    )
+    sample_dir.mkdir(parents=True, exist_ok=True)
+
+    target = batch["target_albedo"].float()
+    baseline = outputs["baseline_albedo"].float()
+    candidate = outputs["candidate_albedo"].float()
+    lr = batch["lr_albedo"].float()
+
+    target_rgb = _rgb_u8(target)
+    baseline_rgb = _rgb_u8(baseline)
+    candidate_rgb = _rgb_u8(candidate)
+    lr_rgb = _rgb_u8(lr)
+    lr_rgb = cv2.resize(
+        lr_rgb,
+        (target_rgb.shape[1], target_rgb.shape[0]),
+        interpolation=cv2.INTER_NEAREST,
+    )
+
+    residual = (candidate - baseline).mean(dim=1, keepdim=True)
+    residual_scale = max(float(config.albedo_residual_cap), 1.0e-8)
+    residual_view = (
+        0.5 + 0.5 * (residual / residual_scale)
+    ).clamp(0.0, 1.0)
+    residual_u8 = np.round(
+        residual_view[0, 0].detach().cpu().numpy() * 255.0
+    ).astype(np.uint8)
+
+    baseline_error = (baseline - target).abs().mean(dim=1, keepdim=True)
+    candidate_error = (candidate - target).abs().mean(dim=1, keepdim=True)
+    error_max = torch.maximum(
+        baseline_error.amax(),
+        candidate_error.amax(),
+    ).clamp_min(1.0e-8)
+    baseline_error_u8 = np.round(
+        (baseline_error / error_max)[0, 0].detach().cpu().numpy() * 255.0
+    ).astype(np.uint8)
+    candidate_error_u8 = np.round(
+        (candidate_error / error_max)[0, 0].detach().cpu().numpy() * 255.0
+    ).astype(np.uint8)
+
+    files = {
+        "albedoComparison": _write_panel_row(
+            sample_dir / "albedo_comparison.png",
+            [
+                ("LR INPUT x4 NEAREST", lr_rgb),
+                ("B BASELINE", baseline_rgb),
+                ("C CANDIDATE", candidate_rgb),
+                ("A AUTHORED HR", target_rgb),
+            ],
+        ),
+        "albedoDiagnostics": _write_panel_row(
+            sample_dir / "albedo_diagnostics.png",
+            [
+                ("C-B SIGNED", residual_u8),
+                ("|A-B|", baseline_error_u8),
+                ("|A-C|", candidate_error_u8),
+            ],
+        ),
+        "edgeComparison": _write_panel_row(
+            sample_dir / "edge_comparison.png",
+            [
+                ("A EDGE", _edge_u8(target)),
+                ("B EDGE", _edge_u8(baseline)),
+                ("C EDGE", _edge_u8(candidate)),
+            ],
+        ),
+        "normalComparison": _write_panel_row(
+            sample_dir / "normal_comparison.png",
+            [
+                ("B NORMAL", _normal_rgb_u8(outputs["baseline_normal"])),
+                ("C NORMAL", _normal_rgb_u8(outputs["candidate_normal"])),
+                ("A NORMAL", _normal_rgb_u8(batch["target_normal"])),
+            ],
+        ),
+    }
+    metadata = {
+        "authorityId": authority,
+        "cropId": crop,
+        "recordPath": str(record.get("path") or ""),
+        "sampleIndex": int(sample_index),
+        "files": files,
+    }
+    (sample_dir / "metadata.json").write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return metadata
+
+
 def _evaluate(
     model: StructureConditionedV16Candidate,
     manifest: dict[str, Any],
@@ -293,6 +471,8 @@ def _evaluate(
     device: torch.device,
     seed: int,
     precision: str,
+    preview_root: Path | None = None,
+    preview_samples: int = 0,
 ) -> dict[str, Any]:
     dataset = AuthorityBalancedSRDataset(
         manifest,
@@ -310,9 +490,12 @@ def _evaluate(
         pin_memory=device.type == "cuda",
     )
     metrics: list[dict[str, float]] = []
+    previews: list[dict[str, Any]] = []
     model.eval()
     with torch.no_grad():
-        for batch in loader:
+        for sample_index, batch in enumerate(loader):
+            record_index = int(batch["record_index"][0].item())
+            record = dataset.records[record_index]
             batch = _to_device(batch, device)
             with _autocast(device, precision):
                 outputs = model(
@@ -321,12 +504,24 @@ def _evaluate(
                     batch["lr_material"],
                 )
             metrics.append(sample_metrics(outputs, batch, final=False))
+            if preview_root is not None and sample_index < max(0, int(preview_samples)):
+                previews.append(
+                    _write_preview_sample(
+                        preview_root,
+                        sample_index=sample_index,
+                        record=record,
+                        batch=batch,
+                        outputs=outputs,
+                        config=config,
+                    )
+                )
 
     summary: dict[str, Any] = {
         "sampleCount": len(metrics),
         "heldOutAuthorityCount": dataset.selected_authority_count(),
         "availableHeldOutAuthorityCount": dataset.authority_count,
         "materialMetricQualified": False,
+        "previewArtifacts": previews,
     }
     for key in METRIC_KEYS:
         summary[f"median_{key}"] = float(
@@ -595,8 +790,39 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     print(f"Starting step     : {start_step}", flush=True)
     print(f"Train authorities : {counts.get('trainFamilies', '?')}", flush=True)
     print(f"Held-out auth.    : {validation_families}", flush=True)
+    print(f"Preview samples   : {args.preview_samples}", flush=True)
 
     checkpoint_path = run_dir / "resume_checkpoint.pt"
+
+    if args.preview_only:
+        if not args.resume:
+            raise RuntimeError("--preview-only requires --resume")
+        preview_root = run_dir / "previews" / f"step_{start_step:06d}"
+        validation = _evaluate(
+            model,
+            manifest,
+            config,
+            samples=validation_samples,
+            device=device,
+            seed=seed + 7001,
+            precision=args.amp_precision,
+            preview_root=preview_root,
+            preview_samples=int(args.preview_samples),
+        )
+        preview_report = {
+            "schema": "NSAMDR_V16_FULL_BROAD_PREVIEW_V1",
+            "step": int(start_step),
+            "validation": validation,
+            "previewRoot": str(preview_root.resolve()),
+        }
+        preview_report_path = run_dir / f"preview_step_{start_step:06d}.json"
+        preview_report_path.write_text(
+            json.dumps(preview_report, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        print(f"Preview root      : {preview_root}", flush=True)
+        print(f"Preview report    : {preview_report_path}", flush=True)
+        return 0, preview_report_path
     for end_step in remaining:
         training = _train_segment(
             model,
@@ -609,6 +835,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             seed=seed,
             precision=args.amp_precision,
         )
+        preview_root = run_dir / "previews" / f"step_{end_step:06d}"
         validation = _evaluate(
             model,
             manifest,
@@ -617,6 +844,8 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             device=device,
             seed=seed + 7001,
             precision=args.amp_precision,
+            preview_root=preview_root,
+            preview_samples=int(args.preview_samples),
         )
         item = {
             "step": int(end_step),
@@ -699,6 +928,17 @@ def parser() -> argparse.ArgumentParser:
         "--resume",
         default="",
         help="resume_checkpoint.pt from an earlier full broad proof",
+    )
+    value.add_argument(
+        "--preview-samples",
+        type=int,
+        default=4,
+        help="fixed held-out samples saved as visual comparisons at each checkpoint",
+    )
+    value.add_argument(
+        "--preview-only",
+        action="store_true",
+        help="load --resume and write previews for the current checkpoint without training",
     )
     return value
 
