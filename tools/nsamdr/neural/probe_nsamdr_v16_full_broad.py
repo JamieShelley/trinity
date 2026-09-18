@@ -636,11 +636,14 @@ def _write_preview_sample(
     target = batch["target_albedo"].float()
     baseline = outputs["baseline_albedo"].float()
     candidate = outputs["candidate_albedo"].float()
+    unit_slope_outputs = _unit_slope_albedo_outputs(outputs, config)
+    unit_slope_candidate = unit_slope_outputs["candidate_albedo"].float()
     lr = batch["lr_albedo"].float()
 
     target_rgb = _rgb_u8(target)
     baseline_rgb = _rgb_u8(baseline)
     candidate_rgb = _rgb_u8(candidate)
+    unit_slope_rgb = _rgb_u8(unit_slope_candidate)
     lr_rgb = _rgb_u8(lr)
     lr_rgb = cv2.resize(
         lr_rgb,
@@ -659,15 +662,34 @@ def _write_preview_sample(
 
     baseline_error = (baseline - target).abs().mean(dim=1, keepdim=True)
     candidate_error = (candidate - target).abs().mean(dim=1, keepdim=True)
+    unit_slope_error = (
+        unit_slope_candidate - target
+    ).abs().mean(dim=1, keepdim=True)
     error_max = torch.maximum(
-        baseline_error.amax(),
-        candidate_error.amax(),
+        torch.maximum(
+            baseline_error.amax(),
+            candidate_error.amax(),
+        ),
+        unit_slope_error.amax(),
     ).clamp_min(1.0e-8)
     baseline_error_u8 = np.round(
         (baseline_error / error_max)[0, 0].detach().cpu().numpy() * 255.0
     ).astype(np.uint8)
     candidate_error_u8 = np.round(
         (candidate_error / error_max)[0, 0].detach().cpu().numpy() * 255.0
+    ).astype(np.uint8)
+    unit_slope_error_u8 = np.round(
+        (unit_slope_error / error_max)[0, 0].detach().cpu().numpy() * 255.0
+    ).astype(np.uint8)
+
+    unit_residual = (
+        unit_slope_candidate - baseline
+    ).mean(dim=1, keepdim=True)
+    unit_residual_view = (
+        0.5 + 0.5 * (unit_residual / residual_scale)
+    ).clamp(0.0, 1.0)
+    unit_residual_u8 = np.round(
+        unit_residual_view[0, 0].detach().cpu().numpy() * 255.0
     ).astype(np.uint8)
 
     files = {
@@ -704,6 +726,33 @@ def _write_preview_sample(
                 ("A NORMAL", _normal_rgb_u8(batch["target_normal"])),
             ],
         ),
+        "unitSlopeAlbedoComparison": _write_panel_row(
+            sample_dir / "unit_slope_albedo_comparison.png",
+            [
+                ("B BASELINE", baseline_rgb),
+                ("C CURRENT", candidate_rgb),
+                ("C UNIT-SLOPE", unit_slope_rgb),
+                ("A AUTHORED HR", target_rgb),
+            ],
+        ),
+        "unitSlopeAlbedoDiagnostics": _write_panel_row(
+            sample_dir / "unit_slope_albedo_diagnostics.png",
+            [
+                ("CURRENT C-B", residual_u8),
+                ("UNIT C-B", unit_residual_u8),
+                ("|A-C CURRENT|", candidate_error_u8),
+                ("|A-C UNIT|", unit_slope_error_u8),
+            ],
+        ),
+        "unitSlopeEdgeComparison": _write_panel_row(
+            sample_dir / "unit_slope_edge_comparison.png",
+            [
+                ("A EDGE", _edge_u8(target)),
+                ("B EDGE", _edge_u8(baseline)),
+                ("C CURRENT EDGE", _edge_u8(candidate)),
+                ("C UNIT EDGE", _edge_u8(unit_slope_candidate)),
+            ],
+        ),
     }
     metadata = {
         "authorityId": authority,
@@ -716,6 +765,18 @@ def _write_preview_sample(
             batch,
             config,
         ),
+        "unitSlopeResidualAblation": {
+            "metrics": sample_metrics(
+                unit_slope_outputs,
+                batch,
+                final=False,
+            ),
+            "residualDiagnostics": _residual_diagnostics(
+                unit_slope_outputs,
+                batch,
+                config,
+            ),
+        },
         "files": files,
     }
     (sample_dir / "metadata.json").write_text(
