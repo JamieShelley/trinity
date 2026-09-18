@@ -169,6 +169,32 @@ def _proof_loss(
     return _proof_loss_terms(outputs, batch, config)["total"]
 
 
+def _unit_slope_bounded_residual(
+    raw: torch.Tensor,
+    cap: float,
+) -> torch.Tensor:
+    """Soft-bound residuals while keeping unit slope around zero."""
+    limit = max(float(cap), 1.0e-8)
+    return torch.tanh(raw.float() / limit) * limit
+
+
+def _unit_slope_albedo_outputs(
+    outputs: dict[str, torch.Tensor],
+    config: V16Config,
+) -> dict[str, torch.Tensor]:
+    """Inference-only albedo ablation; production model behaviour is unchanged."""
+    result = dict(outputs)
+    residual = _unit_slope_bounded_residual(
+        outputs["candidate_raw_residual_albedo"],
+        config.albedo_residual_cap,
+    )
+    result["predicted_residual_albedo"] = residual
+    result["candidate_albedo"] = (
+        outputs["baseline_albedo"].float() + residual
+    ).clamp(0.0, 1.0)
+    return result
+
+
 def _phase_abs_energy(
     value: torch.Tensor,
     scale: int,
@@ -728,6 +754,7 @@ def _evaluate(
         pin_memory=device.type == "cuda",
     )
     rows: list[dict[str, Any]] = []
+    unit_slope_rows: list[dict[str, Any]] = []
     previews: list[dict[str, Any]] = []
     model.eval()
     with torch.no_grad():
@@ -761,6 +788,24 @@ def _evaluate(
                     "metrics": metrics,
                     "lossTerms": _loss_values(loss_terms),
                     "residualDiagnostics": diagnostics,
+                }
+            )
+
+            unit_slope_outputs = _unit_slope_albedo_outputs(outputs, config)
+            unit_slope_rows.append(
+                {
+                    "authorityId": authority,
+                    "cropId": crop,
+                    "metrics": sample_metrics(
+                        unit_slope_outputs,
+                        batch,
+                        final=False,
+                    ),
+                    "residualDiagnostics": _residual_diagnostics(
+                        unit_slope_outputs,
+                        batch,
+                        config,
+                    ),
                 }
             )
             if preview_root is not None and sample_index < max(0, int(preview_samples)):
@@ -815,6 +860,49 @@ def _evaluate(
         summary[f"median_{key}"] = float(
             statistics.median(float(item[key]) for item in metric_rows)
         )
+
+    unit_metric_rows = [
+        dict(row["metrics"]) for row in unit_slope_rows
+    ]
+    unit_diagnostic_rows = [
+        dict(row["residualDiagnostics"]) for row in unit_slope_rows
+    ]
+    unit_diagnostic_keys = sorted(
+        {
+            key
+            for row in unit_diagnostic_rows
+            for key in row
+        }
+    )
+    unit_summary: dict[str, Any] = {
+        "kind": "inference-only-unit-slope-albedo-residual-bound",
+        "formula": "cap*tanh(raw/cap)",
+        "productionFormula": "cap*tanh(raw)",
+        "sampleCount": len(unit_slope_rows),
+        "metricDistributions": _dictionary_distributions(
+            unit_metric_rows,
+            DISTRIBUTION_METRIC_KEYS,
+        ),
+        "residualDiagnosticDistributions": _dictionary_distributions(
+            unit_diagnostic_rows,
+            unit_diagnostic_keys,
+        ),
+        "perAuthority": unit_slope_rows,
+    }
+    for key in METRIC_KEYS:
+        unit_summary[f"median_{key}"] = float(
+            statistics.median(
+                float(item[key]) for item in unit_metric_rows
+            )
+        )
+    unit_summary["deltaVsCurrentMedian"] = {
+        key: float(
+            unit_summary[f"median_{key}"]
+            - summary[f"median_{key}"]
+        )
+        for key in METRIC_KEYS
+    }
+    summary["unitSlopeResidualAblation"] = unit_summary
     return summary
 
 
@@ -1132,6 +1220,18 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         preview_report_path.write_text(
             json.dumps(preview_report, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
+        )
+        held_ablation = validation["unitSlopeResidualAblation"]
+        seen_ablation = train_validation["unitSlopeResidualAblation"]
+        print(
+            "Unit-slope ablation: "
+            f"held-global={held_ablation['median_global_recovery']*100:+.2f}% "
+            f"held-edge={held_ablation['median_edge_recovery']*100:+.2f}% "
+            f"held-grad={held_ablation['median_gradient_recovery']*100:+.2f}% "
+            f"held-lattice={held_ablation['median_lattice_cell_excess']*100:+.2f}% "
+            f"seen-global={seen_ablation['median_global_recovery']*100:+.2f}% "
+            f"seen-edge={seen_ablation['median_edge_recovery']*100:+.2f}%",
+            flush=True,
         )
         print(f"Preview root      : {preview_root}", flush=True)
         print(f"Preview report    : {preview_report_path}", flush=True)
