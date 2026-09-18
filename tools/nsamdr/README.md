@@ -162,7 +162,9 @@ This is not primarily a held-out generalisation gap at the current checkpoint. T
 
 Residual telemetry shows a median applied/target albedo residual ratio of about 0.25-0.27 while residual-cap saturation is 0%. A no-training unit-slope ablation, `cap*tanh(raw/cap)`, increased residual amplitude but reduced global recovery on both seen and held-out authorities. It improved gradient recovery only. Therefore simple residual amplification is rejected.
 
-The active no-training diagnostic now measures residual cosine alignment, target-magnitude-weighted sign agreement and the least-squares scalar gain for each sample. It also evaluates a qualification-only per-sample oracle scalar on the existing candidate residual. This separates amplitude calibration from incorrect residual direction/spatial support.
+The residual-alignment diagnostic is complete. Median residual cosine alignment is only about 0.32 seen / 0.37 held-out, with target-weighted sign agreement about 65% / 67%. A target-informed per-sample least-squares scalar oracle does not rescue global reconstruction: seen global recovery falls from 4.68% to 3.95%, and held-out falls from 5.38% to 4.73%. Therefore residual amplitude calibration is not the blocker; the learned residual direction/spatial support is wrong.
+
+The next bounded diagnostic is exact single-authority memorization from the step-596 checkpoint. It resets Adam state, fixes one authored train crop with no augmentation, and repeats that exact sample. This determines whether the current model/objective can fit one target before any 4/16/64-authority interference ladder is attempted.
 
 Each full-capacity checkpoint saves fixed held-out visual samples under `previews/step_NNNNNN/`. `--preview-only --resume <checkpoint>` now reports current seen/held-out metrics plus the unit-slope residual-bound ablation.
 
@@ -191,15 +193,17 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
     -> seen and held-out recovery are both about 5%
     -> candidate applies only about one quarter of target residual magnitude
     -> unit-slope residual amplification rejected
-    -> next: residual alignment + per-sample oracle scalar diagnostic
-    -> do not continue to 894 until this diagnostic is read
+    -> residual alignment low: about 0.32 seen / 0.37 held-out cosine
+    -> per-sample scalar oracle cannot rescue global recovery
+    -> next: exact one-authority memorization probe
+    -> do not continue to 894
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
 13. Raven / production Quick
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894 yet. The unit-slope residual-bound ablation is rejected. Run the residual alignment/oracle-scalar diagnostic from the existing 596 checkpoint. If the oracle scalar cannot materially recover the target, the residual shape/support is wrong and more training with the current objective is not justified.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. The unit-slope and scalar-oracle diagnostics are both rejected as fixes. Run the exact single-authority memorization probe from the existing 596 checkpoint. If one fixed authored target still cannot be fit, change the training objective/representation before any further broad training. If it can be fit quickly, proceed to a bounded 4/16-authority interference ladder.
 
 ## Candidate qualification gates
 
@@ -257,6 +261,7 @@ audit_nsamdr_v16_structure_support.py
 audit_nsamdr_v16_boundary_profiles.py
 probe_nsamdr_v16_structure_conditioning.py
 probe_nsamdr_v16_full_broad.py
+probe_nsamdr_v16_memorization.py
 ```
 
 Historical V9-V13 model/training implementations are retired. A minimal `v9/` compatibility package remains only because active authored-data preparation still imports its manifest/config names.
@@ -272,13 +277,13 @@ scripts\build\nsamdr.bat authored-prior-corpus
 scripts\build\nsamdr.bat structure-conditioning-probe --device cuda
 scripts\build\nsamdr.bat full-broad-probe --device cuda
 scripts\build\nsamdr.bat full-broad-probe --device cuda --preview-only --resume <checkpoint>
-scripts\build\nsamdr.bat full-broad-probe --device cuda --resume <checkpoint> --stages 894
+scripts\build\nsamdr.bat memorization-probe --device cuda --resume <checkpoint> --authority-id <train-authority>
 scripts\build\nsamdr.bat stage2-status
 scripts\build\nsamdr.bat stage2-probe
 scripts\build\nsamdr.bat stage2-summary
 ```
 
-The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity checkpoint is 596. Run `--preview-only` after pulling to collect the residual alignment and oracle-scalar diagnostic from the same checkpoint. Do not resume training until that result is evaluated.
+The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity checkpoint is 596. Residual alignment and scalar-oracle diagnostics are complete and do not justify more broad training. Run the exact memorization probe next; do not resume the 894-step broad run.
 
 ## Final visual proof
 
