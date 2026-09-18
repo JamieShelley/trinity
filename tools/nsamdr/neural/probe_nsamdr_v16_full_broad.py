@@ -1727,8 +1727,8 @@ def parser() -> argparse.ArgumentParser:
         default="256",
         help=(
             "cumulative checkpoints; default 256 for a bounded first proof. "
-            "For the current 596 checkpoint, resume to 894 for one complete "
-            "additional authority cycle before considering longer runs."
+            "Do not resume the current 596 checkpoint until the exact "
+            "memorization diagnostic is resolved."
         ),
     )
     value.add_argument("--hr-size", type=int, default=512)
