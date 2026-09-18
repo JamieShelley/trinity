@@ -16,6 +16,7 @@ if /I "%COMMAND%"=="authored-prior-corpus" goto :collect
 if /I "%COMMAND%"=="structure-conditioning-probe" goto :collect
 if /I "%COMMAND%"=="full-broad-probe" goto :collect
 if /I "%COMMAND%"=="memorization-probe" goto :collect
+if /I "%COMMAND%"=="interference-probe" goto :collect
 if /I "%COMMAND%"=="stage2-status" goto :collect
 if /I "%COMMAND%"=="stage2-probe" goto :collect
 if /I "%COMMAND%"=="stage2-summary" goto :collect
@@ -61,6 +62,10 @@ if /I "%COMMAND%"=="full-broad-probe" (
 )
 if /I "%COMMAND%"=="memorization-probe" (
   "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\probe_nsamdr_v16_memorization.py" --repo-root "%ROOT%" %FORWARD_ARGS%
+  exit /b %ERRORLEVEL%
+)
+if /I "%COMMAND%"=="interference-probe" (
+  "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\probe_nsamdr_v16_interference.py" --repo-root "%ROOT%" %FORWARD_ARGS%
   exit /b %ERRORLEVEL%
 )
 if /I "%COMMAND%"=="stage2-status" (
