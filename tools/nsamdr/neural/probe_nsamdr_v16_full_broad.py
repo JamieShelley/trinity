@@ -50,6 +50,22 @@ METRIC_KEYS = (
     "material_recovery",
     "lattice_cell_excess",
 )
+DISTRIBUTION_METRIC_KEYS = METRIC_KEYS + (
+    "detail_recovery_1px",
+    "detail_recovery_2px",
+    "detail_recovery_4px",
+    "lattice_candidate_fraction",
+    "lattice_target_fraction",
+    "protected_preservation",
+)
+LOSS_KEYS = (
+    "reconstruction",
+    "gradient",
+    "normal",
+    "residual_albedo",
+    "residual_normal",
+    "total",
+)
 
 
 def _device(name: str) -> torch.device:
@@ -93,12 +109,12 @@ def _gradient(value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     return dx, dy
 
 
-def _proof_loss(
+def _proof_loss_terms(
     outputs: dict[str, torch.Tensor],
     batch: dict[str, torch.Tensor],
     config: V16Config,
-) -> torch.Tensor:
-    """Broad proof loss for qualified authored albedo+normal supervision."""
+) -> dict[str, torch.Tensor]:
+    """Return the unchanged broad-proof objective as named components."""
     ca = outputs["candidate_albedo"].float()
     cn = outputs["candidate_normal"].float()
     ba = outputs["baseline_albedo"].detach().float()
@@ -120,12 +136,197 @@ def _proof_loss(
         -config.normal_residual_cap,
         config.normal_residual_cap,
     )
-    residual = F.l1_loss(outputs["predicted_residual_albedo"].float(), target_a)
-    residual = residual + 0.25 * F.l1_loss(
+    residual_albedo = F.l1_loss(
+        outputs["predicted_residual_albedo"].float(),
+        target_a,
+    )
+    residual_normal = F.l1_loss(
         outputs["predicted_residual_normal"].float(),
         target_n,
     )
-    return reconstruction + 0.50 * gradient + 0.35 * normal + residual
+    total = (
+        reconstruction
+        + 0.50 * gradient
+        + 0.35 * normal
+        + residual_albedo
+        + 0.25 * residual_normal
+    )
+    return {
+        "reconstruction": reconstruction,
+        "gradient": gradient,
+        "normal": normal,
+        "residual_albedo": residual_albedo,
+        "residual_normal": residual_normal,
+        "total": total,
+    }
+
+
+def _proof_loss(
+    outputs: dict[str, torch.Tensor],
+    batch: dict[str, torch.Tensor],
+    config: V16Config,
+) -> torch.Tensor:
+    return _proof_loss_terms(outputs, batch, config)["total"]
+
+
+def _phase_abs_energy(
+    value: torch.Tensor,
+    scale: int,
+) -> dict[str, float]:
+    result: dict[str, float] = {}
+    for oy in range(int(scale)):
+        for ox in range(int(scale)):
+            phase = value[..., oy::scale, ox::scale]
+            result[f"phase_y{oy}_x{ox}"] = (
+                float(phase.detach().float().abs().mean().cpu().item())
+                if phase.numel()
+                else 0.0
+            )
+    return result
+
+
+def _phase_spread(values: dict[str, float]) -> float:
+    if not values:
+        return 0.0
+    items = [float(value) for value in values.values()]
+    mean = sum(items) / max(1, len(items))
+    return (max(items) - min(items)) / max(mean, 1.0e-8)
+
+
+def _residual_diagnostics(
+    outputs: dict[str, torch.Tensor],
+    batch: dict[str, torch.Tensor],
+    config: V16Config,
+) -> dict[str, float]:
+    baseline = outputs["baseline_albedo"].detach().float()
+    candidate = outputs["candidate_albedo"].detach().float()
+    target = batch["target_albedo"].detach().float()
+    predicted = outputs["predicted_residual_albedo"].detach().float()
+    raw = outputs["candidate_raw_residual_albedo"].detach().float()
+
+    candidate_residual = candidate - baseline
+    target_residual = target - baseline
+    target_magnitude = float(target_residual.abs().mean().cpu().item())
+    candidate_magnitude = float(candidate_residual.abs().mean().cpu().item())
+    cap = max(float(config.albedo_residual_cap), 1.0e-8)
+
+    candidate_phase = _phase_abs_energy(candidate_residual, config.scale)
+    target_phase = _phase_abs_energy(target_residual, config.scale)
+
+    result = {
+        "raw_predicted_residual_magnitude": float(
+            raw.abs().mean().cpu().item()
+        ),
+        "bounded_predicted_residual_magnitude": float(
+            predicted.abs().mean().cpu().item()
+        ),
+        "applied_candidate_residual_magnitude": candidate_magnitude,
+        "target_residual_magnitude": target_magnitude,
+        "candidate_to_target_residual_ratio": (
+            candidate_magnitude / max(target_magnitude, 1.0e-8)
+        ),
+        "residual_cap_saturation": float(
+            (predicted.abs() >= (0.98 * cap)).float().mean().cpu().item()
+        ),
+        "target_exceeds_residual_cap": float(
+            (target_residual.abs() >= cap).float().mean().cpu().item()
+        ),
+        "candidate_phase_energy_spread": _phase_spread(candidate_phase),
+        "target_phase_energy_spread": _phase_spread(target_phase),
+    }
+    for key, value in candidate_phase.items():
+        result[f"candidate_{key}"] = float(value)
+    for key, value in target_phase.items():
+        result[f"target_{key}"] = float(value)
+    return result
+
+
+def _loss_values(terms: dict[str, torch.Tensor]) -> dict[str, float]:
+    return {
+        key: float(terms[key].detach().float().cpu().item())
+        for key in LOSS_KEYS
+    }
+
+
+def _distribution(values: list[float]) -> dict[str, float | int]:
+    finite = np.asarray(
+        [float(value) for value in values if np.isfinite(float(value))],
+        dtype=np.float64,
+    )
+    if finite.size == 0:
+        return {"count": 0}
+    return {
+        "count": int(finite.size),
+        "min": float(np.min(finite)),
+        "p25": float(np.percentile(finite, 25)),
+        "median": float(np.median(finite)),
+        "mean": float(np.mean(finite)),
+        "p75": float(np.percentile(finite, 75)),
+        "max": float(np.max(finite)),
+        "positiveFraction": float(np.mean(finite > 0.0)),
+    }
+
+
+def _dictionary_distributions(
+    rows: list[dict[str, float]],
+    keys: tuple[str, ...] | list[str],
+) -> dict[str, dict[str, float | int]]:
+    return {
+        key: _distribution(
+            [float(row[key]) for row in rows if key in row]
+        )
+        for key in keys
+    }
+
+
+def _per_authority(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["authorityId"]), []).append(row)
+
+    result: list[dict[str, Any]] = []
+    for authority in sorted(grouped):
+        samples = grouped[authority]
+        metric_rows = [dict(sample["metrics"]) for sample in samples]
+        loss_rows = [dict(sample["lossTerms"]) for sample in samples]
+        diagnostic_rows = [dict(sample["residualDiagnostics"]) for sample in samples]
+        result.append(
+            {
+                "authorityId": authority,
+                "sampleCount": len(samples),
+                "cropIds": [str(sample["cropId"]) for sample in samples],
+                "metrics": {
+                    key: float(statistics.median(
+                        float(row[key]) for row in metric_rows if key in row
+                    ))
+                    for key in DISTRIBUTION_METRIC_KEYS
+                    if any(key in row for row in metric_rows)
+                },
+                "lossTerms": {
+                    key: float(statistics.median(
+                        float(row[key]) for row in loss_rows if key in row
+                    ))
+                    for key in LOSS_KEYS
+                    if any(key in row for row in loss_rows)
+                },
+                "residualDiagnostics": {
+                    key: float(statistics.median(
+                        float(row[key]) for row in diagnostic_rows if key in row
+                    ))
+                    for key in sorted(
+                        {
+                            key
+                            for row in diagnostic_rows
+                            for key in row
+                        }
+                    )
+                },
+            }
+        )
+    return result
+
 
 
 def _to_device(
@@ -236,7 +437,8 @@ def _train_segment(
     )
     model.train()
     parameters = [parameter for parameter in model.parameters() if parameter.requires_grad]
-    losses: list[float] = []
+    loss_history: dict[str, list[float]] = {key: [] for key in LOSS_KEYS}
+    telemetry: list[dict[str, Any]] = []
     started = time.monotonic()
     segment_steps = end_step - start_step
 
@@ -253,37 +455,66 @@ def _train_segment(
                 batch["lr_normal"],
                 batch["lr_material"],
             )
-            loss = _proof_loss(outputs, batch, config)
+            terms = _proof_loss_terms(outputs, batch, config)
+            loss = terms["total"]
 
         loss.backward()
         torch.nn.utils.clip_grad_norm_(parameters, 1.0)
         optimizer.step()
-        losses.append(float(loss.detach().float().cpu().item()))
 
-        if offset == 1 or global_step % 32 == 0 or global_step == end_step:
+        values = _loss_values(terms)
+        for key, value in values.items():
+            loss_history[key].append(value)
+
+        should_log = offset == 1 or global_step % 32 == 0 or global_step == end_step
+        if should_log:
+            diagnostics = _residual_diagnostics(outputs, batch, config)
+            telemetry.append(
+                {
+                    "step": int(global_step),
+                    "lossTerms": values,
+                    "residualDiagnostics": diagnostics,
+                }
+            )
             elapsed = max(time.monotonic() - started, 1.0e-6)
             rate = offset / elapsed
             eta = (segment_steps - offset) / max(rate, 1.0e-6)
             print(
                 f"[full-broad] step {global_step:4d}/{end_step} "
-                f"loss={losses[-1]:.6f} elapsed={elapsed/60.0:.1f}m "
+                f"loss={values['total']:.6f} "
+                f"rec={values['reconstruction']:.6f} "
+                f"grad={values['gradient']:.6f} "
+                f"normal={values['normal']:.6f} "
+                f"resA={values['residual_albedo']:.6f} "
+                f"ratio={diagnostics['candidate_to_target_residual_ratio']:.3f} "
+                f"cap={diagnostics['residual_cap_saturation']*100:.1f}% "
+                f"elapsed={elapsed/60.0:.1f}m "
                 f"segment-eta={eta/60.0:.1f}m",
                 flush=True,
             )
 
+    tail = min(32, len(loss_history["total"]))
     result: dict[str, Any] = {
         "fromStep": int(start_step),
         "toStep": int(end_step),
         "segmentSteps": int(segment_steps),
-        "firstLoss": losses[0],
-        "finalLoss": losses[-1],
-        "medianTailLoss": float(statistics.median(losses[-min(32, len(losses)) :])),
+        "firstLoss": loss_history["total"][0],
+        "finalLoss": loss_history["total"][-1],
+        "medianTailLoss": float(
+            statistics.median(loss_history["total"][-tail:])
+        ),
+        "medianTailLossTerms": {
+            key: float(statistics.median(values[-tail:]))
+            for key, values in loss_history.items()
+        },
+        "telemetry": telemetry,
         "elapsedSeconds": time.monotonic() - started,
         "availableTrainAuthorityCount": int(dataset.authority_count),
         "visitedAuthorityCount": _visited_authorities(dataset, start_step, end_step),
     }
     result.update(_vram(device))
     return result
+
 
 
 
@@ -453,6 +684,12 @@ def _write_preview_sample(
         "cropId": crop,
         "recordPath": str(record.get("path") or ""),
         "sampleIndex": int(sample_index),
+        "metrics": sample_metrics(outputs, batch, final=False),
+        "residualDiagnostics": _residual_diagnostics(
+            outputs,
+            batch,
+            config,
+        ),
         "files": files,
     }
     (sample_dir / "metadata.json").write_text(
@@ -467,6 +704,7 @@ def _evaluate(
     manifest: dict[str, Any],
     config: V16Config,
     *,
+    split: str,
     samples: int,
     device: torch.device,
     seed: int,
@@ -477,7 +715,7 @@ def _evaluate(
     dataset = AuthorityBalancedSRDataset(
         manifest,
         config,
-        "validation",
+        split,
         samples,
         seed=seed,
         degradation="clean",
@@ -489,13 +727,23 @@ def _evaluate(
         num_workers=0,
         pin_memory=device.type == "cuda",
     )
-    metrics: list[dict[str, float]] = []
+    rows: list[dict[str, Any]] = []
     previews: list[dict[str, Any]] = []
     model.eval()
     with torch.no_grad():
         for sample_index, batch in enumerate(loader):
             record_index = int(batch["record_index"][0].item())
             record = dataset.records[record_index]
+            authority = str(
+                record.get("family_id")
+                or record.get("familyId")
+                or "unknown"
+            )
+            crop = str(
+                record.get("crop_id")
+                or record.get("cropId")
+                or sample_index
+            )
             batch = _to_device(batch, device)
             with _autocast(device, precision):
                 outputs = model(
@@ -503,7 +751,18 @@ def _evaluate(
                     batch["lr_normal"],
                     batch["lr_material"],
                 )
-            metrics.append(sample_metrics(outputs, batch, final=False))
+                loss_terms = _proof_loss_terms(outputs, batch, config)
+            metrics = sample_metrics(outputs, batch, final=False)
+            diagnostics = _residual_diagnostics(outputs, batch, config)
+            rows.append(
+                {
+                    "authorityId": authority,
+                    "cropId": crop,
+                    "metrics": metrics,
+                    "lossTerms": _loss_values(loss_terms),
+                    "residualDiagnostics": diagnostics,
+                }
+            )
             if preview_root is not None and sample_index < max(0, int(preview_samples)):
                 previews.append(
                     _write_preview_sample(
@@ -516,18 +775,48 @@ def _evaluate(
                     )
                 )
 
+    metric_rows = [dict(row["metrics"]) for row in rows]
+    loss_rows = [dict(row["lossTerms"]) for row in rows]
+    diagnostic_rows = [dict(row["residualDiagnostics"]) for row in rows]
+    diagnostic_keys = sorted(
+        {
+            key
+            for row in diagnostic_rows
+            for key in row
+        }
+    )
+
     summary: dict[str, Any] = {
-        "sampleCount": len(metrics),
-        "heldOutAuthorityCount": dataset.selected_authority_count(),
-        "availableHeldOutAuthorityCount": dataset.authority_count,
+        "split": split,
+        "sampleCount": len(rows),
+        "authorityCount": dataset.selected_authority_count(),
+        "availableAuthorityCount": dataset.authority_count,
         "materialMetricQualified": False,
         "previewArtifacts": previews,
+        "perAuthority": _per_authority(rows),
+        "metricDistributions": _dictionary_distributions(
+            metric_rows,
+            DISTRIBUTION_METRIC_KEYS,
+        ),
+        "lossDistributions": _dictionary_distributions(
+            loss_rows,
+            LOSS_KEYS,
+        ),
+        "residualDiagnosticDistributions": _dictionary_distributions(
+            diagnostic_rows,
+            diagnostic_keys,
+        ),
     }
+    if split == "validation":
+        summary["heldOutAuthorityCount"] = dataset.selected_authority_count()
+        summary["availableHeldOutAuthorityCount"] = dataset.authority_count
+
     for key in METRIC_KEYS:
         summary[f"median_{key}"] = float(
-            statistics.median(float(item[key]) for item in metrics)
+            statistics.median(float(item[key]) for item in metric_rows)
         )
     return summary
+
 
 
 def _gate_status(metrics: dict[str, Any], config: V16Config) -> dict[str, Any]:
@@ -691,6 +980,9 @@ def _write_report(
         f"Architecture        : 96ch, 6x6 Swin, depth {config.swin_depth}, HR {config.train_hr_size}",
         f"Completed stages    : {report['completedStages']}",
         f"Held-out authorities: {final['validation']['heldOutAuthorityCount']}",
+        f"Seen diag authorities: {final.get('trainValidation', {}).get('authorityCount', 0)}",
+        f"Seen global recovery: {final.get('trainValidation', {}).get('median_global_recovery', float('nan'))*100:+.2f}%",
+        f"Seen edge recovery  : {final.get('trainValidation', {}).get('median_edge_recovery', float('nan'))*100:+.2f}%",
         f"Global recovery     : {final['validation']['median_global_recovery']*100:+.2f}%",
         f"Edge recovery       : {final['validation']['median_edge_recovery']*100:+.2f}%",
         f"Gradient recovery   : {final['validation']['median_gradient_recovery']*100:+.2f}%",
@@ -728,6 +1020,14 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         int(args.validation_samples)
         if int(args.validation_samples) > 0
         else validation_families
+    )
+    train_families = int(counts.get("trainFamilies") or 0)
+    if train_families < 1:
+        raise RuntimeError("full broad proof requires train authorities")
+    train_validation_samples = (
+        int(args.train_validation_samples)
+        if int(args.train_validation_samples) > 0
+        else min(validation_samples, train_families)
     )
 
     if args.resume:
@@ -790,6 +1090,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     print(f"Starting step     : {start_step}", flush=True)
     print(f"Train authorities : {counts.get('trainFamilies', '?')}", flush=True)
     print(f"Held-out auth.    : {validation_families}", flush=True)
+    print(f"Train diag samples: {train_validation_samples}", flush=True)
     print(f"Preview samples   : {args.preview_samples}", flush=True)
 
     checkpoint_path = run_dir / "resume_checkpoint.pt"
@@ -802,6 +1103,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             model,
             manifest,
             config,
+            split="validation",
             samples=validation_samples,
             device=device,
             seed=seed + 7001,
@@ -809,10 +1111,21 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             preview_root=preview_root,
             preview_samples=int(args.preview_samples),
         )
+        train_validation = _evaluate(
+            model,
+            manifest,
+            config,
+            split="train",
+            samples=train_validation_samples,
+            device=device,
+            seed=seed + 8001,
+            precision=args.amp_precision,
+        )
         preview_report = {
             "schema": "NSAMDR_V16_FULL_BROAD_PREVIEW_V1",
             "step": int(start_step),
             "validation": validation,
+            "trainValidation": train_validation,
             "previewRoot": str(preview_root.resolve()),
         }
         preview_report_path = run_dir / f"preview_step_{start_step:06d}.json"
@@ -840,6 +1153,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             model,
             manifest,
             config,
+            split="validation",
             samples=validation_samples,
             device=device,
             seed=seed + 7001,
@@ -847,9 +1161,20 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             preview_root=preview_root,
             preview_samples=int(args.preview_samples),
         )
+        train_validation = _evaluate(
+            model,
+            manifest,
+            config,
+            split="train",
+            samples=train_validation_samples,
+            device=device,
+            seed=seed + 8001,
+            precision=args.amp_precision,
+        )
         item = {
             "step": int(end_step),
             "training": training,
+            "trainValidation": train_validation,
             "validation": validation,
             "gateStatus": _gate_status(validation, config),
         }
@@ -868,10 +1193,12 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
 
         print(
             f"Checkpoint {end_step}: "
-            f"global={validation['median_global_recovery']*100:+.2f}% "
-            f"edge={validation['median_edge_recovery']*100:+.2f}% "
-            f"grad={validation['median_gradient_recovery']*100:+.2f}% "
-            f"lattice={validation['median_lattice_cell_excess']*100:+.2f}%",
+            f"held-global={validation['median_global_recovery']*100:+.2f}% "
+            f"held-edge={validation['median_edge_recovery']*100:+.2f}% "
+            f"held-grad={validation['median_gradient_recovery']*100:+.2f}% "
+            f"held-lattice={validation['median_lattice_cell_excess']*100:+.2f}% "
+            f"seen-global={train_validation['median_global_recovery']*100:+.2f}% "
+            f"seen-edge={train_validation['median_edge_recovery']*100:+.2f}%",
             flush=True,
         )
 
@@ -903,7 +1230,8 @@ def parser() -> argparse.ArgumentParser:
         default="256",
         help=(
             "cumulative checkpoints; default 256 for a bounded first proof. "
-            "Resume later with 512,1024,2048."
+            "For the current 596 checkpoint, resume to 894 for one complete "
+            "additional authority cycle before considering longer runs."
         ),
     )
     value.add_argument("--hr-size", type=int, default=512)
@@ -912,6 +1240,15 @@ def parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help="0 evaluates one sample from every held-out authority",
+    )
+    value.add_argument(
+        "--train-validation-samples",
+        type=int,
+        default=0,
+        help=(
+            "fixed seen-authority diagnostic sample count; "
+            "0 matches the held-out sample count"
+        ),
     )
     value.add_argument("--seed", type=int, default=16201)
     value.add_argument(
