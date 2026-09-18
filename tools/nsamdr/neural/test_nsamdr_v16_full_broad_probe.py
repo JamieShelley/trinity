@@ -7,6 +7,7 @@ import torch
 from tools.nsamdr.neural.probe_nsamdr_v16_full_broad import (
     _distribution,
     _full_config,
+    _oracle_scalar_albedo_outputs,
     _parse_stages,
     _phase_abs_energy,
     _proof_loss,
@@ -74,6 +75,20 @@ class FullBroadProbeTests(unittest.TestCase):
             float(current.abs().mean()),
         )
 
+    def test_oracle_scalar_gain_recovers_matching_residual_shape(self) -> None:
+        baseline = torch.zeros((1, 3, 8, 8), dtype=torch.float32)
+        candidate = torch.full_like(baseline, 0.10)
+        target = torch.full_like(baseline, 0.20)
+        outputs = {
+            "baseline_albedo": baseline,
+            "candidate_albedo": candidate,
+            "predicted_residual_albedo": candidate,
+        }
+        batch = {"target_albedo": target}
+        result, gain = _oracle_scalar_albedo_outputs(outputs, batch)
+        self.assertAlmostEqual(gain, 2.0, places=5)
+        self.assertTrue(torch.allclose(result["candidate_albedo"], target))
+
     def test_loss_decomposition_preserves_existing_total(self) -> None:
         config = _full_config("manifest.json", 32)
         baseline_albedo = torch.zeros((1, 3, 32, 32), dtype=torch.float32)
@@ -129,6 +144,21 @@ class FullBroadProbeTests(unittest.TestCase):
             diagnostics["candidate_phase_energy_spread"],
             0.0,
             places=6,
+        )
+        self.assertAlmostEqual(
+            diagnostics["residual_cosine_similarity"],
+            1.0,
+            places=6,
+        )
+        self.assertAlmostEqual(
+            diagnostics["target_weighted_sign_agreement"],
+            1.0,
+            places=6,
+        )
+        self.assertAlmostEqual(
+            diagnostics["least_squares_residual_gain"],
+            2.0,
+            places=5,
         )
 
     def test_full_config_keeps_production_v16_capacity(self) -> None:
