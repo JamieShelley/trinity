@@ -135,9 +135,21 @@ conditioned lattice excess   24.90%
 
 The conditioned model remains better than the control on global, edge, gradient, normal and lattice metrics, but the extra conditioning advantage is no longer growing consistently. The reduced proof has therefore served its purpose and should not be extended indefinitely.
 
-The next proof uses the production-size V16 body: 96 HR channels, 6 residual-Swin groups x 6 blocks, 6 heads, 8x8 windows, full LR context, and the structure-conditioning branch. It trains on the same 298-authority broad prior and validates against the same 38 complete held-out authorities. The first run is intentionally bounded at 256 updates and writes a resumable model+optimizer checkpoint before any longer stage.
+The production-size V16 body is now trained through **596 updates**: 96 HR channels, 6 residual-Swin groups x 6 blocks, 6 heads, 8x8 windows, full LR context, and structure conditioning.
 
-Each full-capacity checkpoint also saves the same fixed held-out visual samples under `previews/step_NNNNNN/`. Each sample contains albedo input/baseline/candidate/authored-target comparison, signed candidate residual and B/C error maps, edge comparison, normal comparison, and metadata. `--preview-only --resume <checkpoint>` writes previews from an existing checkpoint without more training.
+Current held-out result at 596:
+
+```text
+global recovery      5.38%
+edge recovery        4.89%
+gradient recovery    4.53%
+normal recovery     11.86%
+lattice excess      52.01%
+```
+
+The 596 lattice jump must be explained before a long continuation. The probe now records named loss components, residual magnitude/cap telemetry, all 16 4x residual phase energies, metric distributions, per-authority metrics, and a deterministic seen-authority validation sample. This separates failure to fit seen authorities from failure to generalise to unseen authorities.
+
+Each full-capacity checkpoint also saves fixed held-out visual samples under `previews/step_NNNNNN/`. Each sample contains albedo input/baseline/candidate/authored-target comparison, signed candidate residual and B/C error maps, edge comparison, normal comparison, metrics, and residual telemetry. `--preview-only --resume <checkpoint>` re-evaluates the current checkpoint without more training and now includes both held-out and seen-authority diagnostics.
 
 ## Active qualification ladder
 
@@ -158,16 +170,18 @@ Each full-capacity checkpoint also saves the same fixed held-out visual samples 
    -> conditioning advantage is modest / plateauing
 10. Full-capacity broad-authority V16.2 proof        CURRENT
     -> production-size 96ch / 6x6 Swin candidate
-    -> 256 updates first
-    -> resumable checkpoint
-    -> extend to 512 / 1024 / 2048 only from evidence
+    -> current checkpoint 596 updates
+    -> held-out reconstruction remains about 5%
+    -> lattice excess jumped to about 52%
+    -> instrument seen-vs-held-out behaviour before longer training
+    -> next bounded checkpoint: 894 updates
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
 13. Raven / production Quick
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. The current question is whether the full-capacity candidate can combine the already-proven local reconstruction capacity with broad-authority generalisation.
+Do not extend the reduced proof to 8192. Do not blindly extend the full-capacity run beyond 894. First determine whether the production candidate can fit seen broad authorities, whether residual prediction is under-correcting or cap-limited, and whether the 4x lattice signal is phase-specific.
 
 ## Candidate qualification gates
 
@@ -240,12 +254,13 @@ scripts\build\nsamdr.bat authored-prior-corpus
 scripts\build\nsamdr.bat structure-conditioning-probe --device cuda
 scripts\build\nsamdr.bat full-broad-probe --device cuda
 scripts\build\nsamdr.bat full-broad-probe --device cuda --preview-only --resume <checkpoint>
+scripts\build\nsamdr.bat full-broad-probe --device cuda --resume <checkpoint> --stages 894
 scripts\build\nsamdr.bat stage2-status
 scripts\build\nsamdr.bat stage2-probe
 scripts\build\nsamdr.bat stage2-summary
 ```
 
-The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity proof defaults to one bounded 256-update stage and writes `resume_checkpoint.pt`. Continue later stages with `--resume <checkpoint> --stages "512"`, then `1024` and `2048` only when the held-out curve justifies more GPU work.
+The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity checkpoint is 596. First run `--preview-only` after pulling to collect the new 596 seen/held-out diagnostics. Then resume the same checkpoint to `--stages 894`, which adds one complete 298-authority training cycle. Do not schedule 1024/2048 until the 894 diagnostics identify which failure class remains.
 
 ## Final visual proof
 
