@@ -168,10 +168,21 @@ def _evaluate_all(
             device=device,
             precision=precision,
         )
+        # These are train authorities evaluated through the validation dataset
+        # path only to obtain a deterministic center crop with no augmentation.
+        # Do not allow the shared qualification helper's record_index heuristic
+        # to label this diagnostic as held-out evidence.
+        evaluated_metrics = dict(evaluated["metrics"])
+        evaluated_metrics["heldout_sample"] = 0.0
+        evaluated = {
+            **evaluated,
+            "metrics": evaluated_metrics,
+        }
         rows.append(
             {
                 "authorityId": item["sample"]["authorityId"],
                 "cropId": item["sample"]["cropId"],
+                "evaluationRole": "train-authority-fixed-fit-diagnostic",
                 **evaluated,
                 "gateChecks": _gate_snapshot(evaluated, config),
             }
@@ -522,6 +533,18 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "authorityCount": authority_count,
         "authorityIds": authority_ids,
         "anchorAuthority": str(args.anchor_authority),
+        "diagnosticRole": "train-authority-fixed-fit-interference",
+        "qualificationEligible": False,
+        "qualificationExclusionReasons": [
+            "train-authority-fit-diagnostic",
+            "one-fixed-crop-per-authority",
+            "augmentation-disabled",
+            "no-independent-held-out-authority-evaluation",
+        ],
+        "comparisonBasis": (
+            "same-source-checkpoint/same-fixed-anchor-crop/same-loss-and-metrics; "
+            "single-authority versus deterministic round-robin mixed-authority exposure"
+        ),
         "selectionPolicy": "anchor-then-seeded-shuffle-nontrivial-fixed-center-crops",
         "rejectedAuthorities": rejected,
         "minimumTargetResidual": float(args.minimum_target_residual),
