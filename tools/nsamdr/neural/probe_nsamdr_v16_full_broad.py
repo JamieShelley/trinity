@@ -195,6 +195,31 @@ def _unit_slope_albedo_outputs(
     return result
 
 
+def _oracle_scalar_albedo_outputs(
+    outputs: dict[str, torch.Tensor],
+    batch: dict[str, torch.Tensor],
+    *,
+    max_gain: float = 4.0,
+) -> tuple[dict[str, torch.Tensor], float]:
+    """Qualification-only least-squares scalar on the existing albedo residual."""
+    baseline = outputs["baseline_albedo"].detach().float()
+    candidate_residual = outputs["candidate_albedo"].detach().float() - baseline
+    target_residual = batch["target_albedo"].detach().float() - baseline
+    denominator = candidate_residual.square().sum()
+    if float(denominator.cpu().item()) <= 1.0e-12:
+        gain = 0.0
+    else:
+        gain = float(
+            (candidate_residual * target_residual).sum().div(denominator).cpu().item()
+        )
+    gain = min(max(gain, 0.0), float(max_gain))
+    result = dict(outputs)
+    scaled = candidate_residual * gain
+    result["predicted_residual_albedo"] = scaled
+    result["candidate_albedo"] = (baseline + scaled).clamp(0.0, 1.0)
+    return result, gain
+
+
 def _phase_abs_energy(
     value: torch.Tensor,
     scale: int,
@@ -239,6 +264,34 @@ def _residual_diagnostics(
     candidate_phase = _phase_abs_energy(candidate_residual, config.scale)
     target_phase = _phase_abs_energy(target_residual, config.scale)
 
+    candidate_flat = candidate_residual.reshape(-1)
+    target_flat = target_residual.reshape(-1)
+    dot = (candidate_flat * target_flat).sum()
+    candidate_norm = torch.linalg.vector_norm(candidate_flat)
+    target_norm = torch.linalg.vector_norm(target_flat)
+    if float(candidate_norm.cpu().item()) <= 1.0e-12 or float(target_norm.cpu().item()) <= 1.0e-12:
+        cosine = 0.0
+    else:
+        cosine = float((dot / (candidate_norm * target_norm)).cpu().item())
+
+    target_weight = target_residual.abs()
+    target_weight_sum = target_weight.sum()
+    if float(target_weight_sum.cpu().item()) <= 1.0e-12:
+        weighted_sign_agreement = 0.0
+    else:
+        sign_match = (
+            torch.sign(candidate_residual) == torch.sign(target_residual)
+        ).float()
+        weighted_sign_agreement = float(
+            (sign_match * target_weight).sum().div(target_weight_sum).cpu().item()
+        )
+
+    candidate_energy = candidate_residual.square().sum()
+    if float(candidate_energy.cpu().item()) <= 1.0e-12:
+        least_squares_gain = 0.0
+    else:
+        least_squares_gain = float((dot / candidate_energy).cpu().item())
+
     result = {
         "raw_predicted_residual_magnitude": float(
             raw.abs().mean().cpu().item()
@@ -257,6 +310,9 @@ def _residual_diagnostics(
         "target_exceeds_residual_cap": float(
             (target_residual.abs() >= cap).float().mean().cpu().item()
         ),
+        "residual_cosine_similarity": cosine,
+        "target_weighted_sign_agreement": weighted_sign_agreement,
+        "least_squares_residual_gain": least_squares_gain,
         "candidate_phase_energy_spread": _phase_spread(candidate_phase),
         "target_phase_energy_spread": _phase_spread(target_phase),
     }
@@ -816,6 +872,7 @@ def _evaluate(
     )
     rows: list[dict[str, Any]] = []
     unit_slope_rows: list[dict[str, Any]] = []
+    oracle_scalar_rows: list[dict[str, Any]] = []
     previews: list[dict[str, Any]] = []
     model.eval()
     with torch.no_grad():
@@ -864,6 +921,28 @@ def _evaluate(
                     ),
                     "residualDiagnostics": _residual_diagnostics(
                         unit_slope_outputs,
+                        batch,
+                        config,
+                    ),
+                }
+            )
+
+            oracle_outputs, oracle_gain = _oracle_scalar_albedo_outputs(
+                outputs,
+                batch,
+            )
+            oracle_scalar_rows.append(
+                {
+                    "authorityId": authority,
+                    "cropId": crop,
+                    "gain": oracle_gain,
+                    "metrics": sample_metrics(
+                        oracle_outputs,
+                        batch,
+                        final=False,
+                    ),
+                    "residualDiagnostics": _residual_diagnostics(
+                        oracle_outputs,
                         batch,
                         config,
                     ),
@@ -964,6 +1043,37 @@ def _evaluate(
         for key in METRIC_KEYS
     }
     summary["unitSlopeResidualAblation"] = unit_summary
+
+    oracle_metric_rows = [
+        dict(row["metrics"]) for row in oracle_scalar_rows
+    ]
+    oracle_summary: dict[str, Any] = {
+        "kind": "qualification-only-per-sample-oracle-scalar-gain",
+        "gainClamp": [0.0, 4.0],
+        "sampleCount": len(oracle_scalar_rows),
+        "gainDistribution": _distribution(
+            [float(row["gain"]) for row in oracle_scalar_rows]
+        ),
+        "metricDistributions": _dictionary_distributions(
+            oracle_metric_rows,
+            DISTRIBUTION_METRIC_KEYS,
+        ),
+        "perAuthority": oracle_scalar_rows,
+    }
+    for key in METRIC_KEYS:
+        oracle_summary[f"median_{key}"] = float(
+            statistics.median(
+                float(item[key]) for item in oracle_metric_rows
+            )
+        )
+    oracle_summary["deltaVsCurrentMedian"] = {
+        key: float(
+            oracle_summary[f"median_{key}"]
+            - summary[f"median_{key}"]
+        )
+        for key in METRIC_KEYS
+    }
+    summary["oracleScalarGainAblation"] = oracle_summary
     return summary
 
 
