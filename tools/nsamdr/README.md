@@ -160,7 +160,9 @@ lattice excess           53.64%       52.01%
 
 This is not primarily a held-out generalisation gap at the current checkpoint. The production candidate is not fitting the broad seen-authority mapping either.
 
-Residual telemetry also shows a median applied/target albedo residual ratio of about 0.25-0.27 while residual-cap saturation is 0%. The current production residual function is `cap*tanh(raw)`; its slope around zero is therefore the cap itself (0.40 for albedo). The probe now evaluates an inference-only unit-slope alternative, `cap*tanh(raw/cap)`, from the same checkpoint. This test changes no model weights and requires no training.
+Residual telemetry shows a median applied/target albedo residual ratio of about 0.25-0.27 while residual-cap saturation is 0%. A no-training unit-slope ablation, `cap*tanh(raw/cap)`, increased residual amplitude but reduced global recovery on both seen and held-out authorities. It improved gradient recovery only. Therefore simple residual amplification is rejected.
+
+The active no-training diagnostic now measures residual cosine alignment, target-magnitude-weighted sign agreement and the least-squares scalar gain for each sample. It also evaluates a qualification-only per-sample oracle scalar on the existing candidate residual. This separates amplitude calibration from incorrect residual direction/spatial support.
 
 Each full-capacity checkpoint saves fixed held-out visual samples under `previews/step_NNNNNN/`. `--preview-only --resume <checkpoint>` now reports current seen/held-out metrics plus the unit-slope residual-bound ablation.
 
@@ -188,15 +190,16 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
     -> lattice excess remains about 52%
     -> seen and held-out recovery are both about 5%
     -> candidate applies only about one quarter of target residual magnitude
-    -> test unit-slope residual bounding from the 596 checkpoint
-    -> do not continue to 894 until this ablation is read
+    -> unit-slope residual amplification rejected
+    -> next: residual alignment + per-sample oracle scalar diagnostic
+    -> do not continue to 894 until this diagnostic is read
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
 13. Raven / production Quick
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894 yet. First run the unit-slope residual-bound ablation from the existing 596 checkpoint. If it materially improves albedo recovery without worsening lattice behaviour, change the residual parameterisation and restart the broad proof from step 0. If it does not, retain the current bound and move to the next representation/loss diagnostic.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894 yet. The unit-slope residual-bound ablation is rejected. Run the residual alignment/oracle-scalar diagnostic from the existing 596 checkpoint. If the oracle scalar cannot materially recover the target, the residual shape/support is wrong and more training with the current objective is not justified.
 
 ## Candidate qualification gates
 
@@ -275,7 +278,7 @@ scripts\build\nsamdr.bat stage2-probe
 scripts\build\nsamdr.bat stage2-summary
 ```
 
-The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity checkpoint is 596. Run `--preview-only` after pulling to collect the unit-slope residual-bound ablation from the same checkpoint. Do not resume training until that result is evaluated.
+The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity checkpoint is 596. Run `--preview-only` after pulling to collect the residual alignment and oracle-scalar diagnostic from the same checkpoint. Do not resume training until that result is evaluated.
 
 ## Final visual proof
 
