@@ -3,6 +3,7 @@ import unittest
 from tools.nsamdr.neural.probe_nsamdr_v16_two_crop_fit import (
     _heldout_delta,
     _select_fixed_crops,
+    _summary_median,
 )
 
 
@@ -39,6 +40,29 @@ class TwoCropFitProbeTests(unittest.TestCase):
                 ["a"],
                 crops_per_authority=2,
             )
+
+    def test_summary_median_reads_metric_distribution_for_detail_metrics(self) -> None:
+        summary = {
+            "metricDistributions": {
+                "detail_recovery_1px": {"median": 0.125},
+            }
+        }
+        self.assertAlmostEqual(
+            _summary_median(summary, "detail_recovery_1px"),
+            0.125,
+        )
+
+    def test_summary_median_prefers_direct_median(self) -> None:
+        summary = {
+            "median_global_recovery": 0.2,
+            "metricDistributions": {
+                "global_recovery": {"median": 0.1},
+            },
+        }
+        self.assertAlmostEqual(
+            _summary_median(summary, "global_recovery"),
+            0.2,
+        )
 
     def test_heldout_delta_is_candidate_minus_source(self) -> None:
         source = {
