@@ -222,6 +222,8 @@ The finest detail confirms the same failure mode: median 1px detail recovery is 
 
 The next bounded training diagnostic is **two fixed crops per authority on the same 16 authorities**. Start again from the original step-596 checkpoint with fresh Adam, keep the authority identities unchanged, and train both authored crops round-robin. Use 112 and 224 updates per crop. At 224 updates per crop the run has 7168 total optimizer updates, exactly matching the total update budget of the prior 16-authority one-crop @448 experiment. The probe evaluates all 38 complete held-out authorities at each stage. This isolates whether crop diversity improves generalisation and 1px detail without giving the experiment more optimizer updates.
 
+The first two-crop run reached 112 updates per crop (3584 total updates) before the stage evaluator hit a reporting bug: detail-recovery medians live under `metricDistributions`, not as top-level `median_detail_*` fields. That reporting bug is fixed. The probe now writes a recovery checkpoint before every stage evaluation and every 512 total updates, and supports `--continue-from`. The failed pre-fix run cannot be resumed because its crash occurred before the old code's first checkpoint write; restart it once with the corrected probe.
+
 Matched held-out preview panels should still be inspected before any claim that 1px panel-boundary quality is visually solved.
 
 Each full-capacity checkpoint saves fixed held-out visual samples under `previews/step_NNNNNN/`. `--preview-only --resume <checkpoint>` now reports current seen/held-out metrics plus the unit-slope residual-bound ablation.
