@@ -202,7 +202,25 @@ At 448, all sixteen authorities pass global, gradient and lattice; thirteen of s
 
 The train-fit capacity question is now closed at 1, 4 and 16 authorities. The model can learn the required authored residual direction across a non-trivial mixed authority set without lattice collapse. This still does not prove production generalisation.
 
-The next diagnostic is **independent held-out transfer**. Compare the original step-596 broad checkpoint and the 448-update 16-authority checkpoint on the exact same 38 complete held-out authorities, with no training. This determines whether the reconstruction capability learned during fixed train-authority fitting transfers to ships that were never used for candidate training. Matched held-out preview panels are written for direct panel-boundary inspection.
+The **independent held-out transfer** diagnostic is complete on all 38 complete validation authorities, comparing the original step-596 broad checkpoint against the 448-update 16-authority train-fit checkpoint with no further training.
+
+```text
+held-out median             source @596   16-authority @448   delta
+global recovery                5.38%            7.73%          +2.34pp
+edge recovery                  4.89%            9.44%          +4.55pp
+gradient recovery              4.53%           13.64%          +9.11pp
+normal recovery               11.86%           17.16%          +5.30pp
+lattice excess                52.01%            8.30%         -43.71pp
+detail recovery 1px            2.07%           -7.12%          -9.20pp
+```
+
+This is real positive transfer, but it is far below candidate qualification. The learned 16-authority model strongly suppresses lattice structure and improves global/edge/gradient/normal recovery on unseen authorities, while the finest 1px detail regresses. Residual magnitude transfer becomes much stronger (candidate/target ratio 0.76 versus 0.27 at the source), but residual cosine is still only about 0.47 and sign agreement about 72.5%. A target-informed scalar oracle prefers a median gain around 0.56 and improves held-out global/edge only to about 12.5% / 12.7%, so simple amplitude tuning still cannot close the gap.
+
+The next diagnostic is **same-authority unseen sibling-crop transfer**. The 16-authority train-fit used only the first deterministic crop from each authority. Evaluate the trained checkpoint on the second authored crop from those same 16 authorities, with no training. This separates exact-crop memorization from cross-authority generalisation before spending GPU time on a larger authority set:
+- if sibling crops retain most of the trained-crop recovery, crop memorization is not the main blocker and authority diversity is the next lever;
+- if sibling crops collapse, train with crop/augmentation diversity before increasing authority count.
+
+Matched held-out preview panels from the completed transfer probe should still be inspected before any claim that 1px panel-boundary quality is visually solved.
 
 Each full-capacity checkpoint saves fixed held-out visual samples under `previews/step_NNNNNN/`. `--preview-only --resume <checkpoint>` now reports current seen/held-out metrics plus the unit-slope residual-bound ablation.
 
@@ -250,8 +268,13 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
     -> 16/16 global PASS, 16/16 gradient PASS, 16/16 lattice PASS, 13/16 edge PASS
     -> anchor @448: global 60.8%, edge 63.4%, gradient 51.6%, lattice 3.98%
     -> train-fit capacity demonstrated at 1, 4 and 16 authorities
-    -> held-out generalisation remains unproven
-    -> next: compare source step-596 vs 16-authority checkpoint on all 38 complete held-out authorities
+    -> independent held-out transfer on 38 authorities: positive but insufficient
+    -> source -> 16-fit held-out: global 5.38 -> 7.73, edge 4.89 -> 9.44, gradient 4.53 -> 13.64
+    -> lattice excess improves 52.01 -> 8.30
+    -> 1px detail regresses 2.07 -> -7.12
+    -> residual cosine improves 0.37 -> 0.47; sign agreement 66.8% -> 72.5%
+    -> next: same-authority unseen sibling-crop transfer
+    -> use result to choose crop-diversity training vs larger authority-diversity training
     -> do not resume broad training to 894 yet
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
@@ -259,7 +282,7 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. The unit-slope and scalar-oracle diagnostics are rejected as fixes. Exact single-authority, fixed 4-authority and fixed 16-authority train-fit now all pass the candidate gate set. Stop capacity diagnostics. Run the held-out transfer probe next, comparing the original step-596 model against the 448-update 16-authority checkpoint on all 38 complete held-out authorities. This is a transfer/generalisation diagnostic, not final qualification; material semantics and BenefitSelector remain unresolved.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. Capacity diagnostics are closed: exact single-authority, fixed 4-authority and fixed 16-authority train-fit all pass the candidate gate set. Independent held-out transfer is positive but insufficient: unseen global/edge/gradient improve, lattice collapses toward acceptable levels, but 1px detail regresses and candidate gates remain far from passing. Run the same-authority unseen sibling-crop transfer diagnostic next. Use that result to decide between adding crop/augmentation diversity or increasing authority diversity. Material semantics and BenefitSelector remain unresolved.
 
 ## Candidate qualification gates
 
@@ -320,6 +343,7 @@ probe_nsamdr_v16_full_broad.py
 probe_nsamdr_v16_memorization.py
 probe_nsamdr_v16_interference.py
 probe_nsamdr_v16_heldout_transfer.py
+probe_nsamdr_v16_sibling_crop_transfer.py
 ```
 
 Historical V9-V13 model/training implementations are retired. A minimal `v9/` compatibility package remains only because active authored-data preparation still imports its manifest/config names.
@@ -345,12 +369,13 @@ scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> 
 scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> --continue-from <16-authority-checkpoint> --authority-count 16 --stages-per-authority 320 384
 scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> --continue-from <16-authority-checkpoint> --authority-count 16 --stages-per-authority 448
 scripts\build\nsamdr.bat heldout-transfer-probe --device cuda --resume <checkpoint> --candidate-checkpoint <16-authority-checkpoint>
+scripts\build\nsamdr.bat sibling-crop-transfer-probe --device cuda --resume <checkpoint> --candidate-checkpoint <16-authority-checkpoint>
 scripts\build\nsamdr.bat stage2-status
 scripts\build\nsamdr.bat stage2-probe
 scripts\build\nsamdr.bat stage2-summary
 ```
 
-The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity broad checkpoint is 596. Residual alignment and scalar-oracle diagnostics are complete and do not justify more broad training. Exact single-authority, fixed 4-authority and fixed 16-authority train-fit now pass the candidate gate set. Capacity diagnostics are closed. Run the independent held-out transfer probe next. Do not resume the 894-step broad run until the held-out result identifies whether the fixed-authority learning transfers.
+The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity broad checkpoint is 596. Capacity diagnostics are closed. The 16-authority checkpoint transfers positively to all 38 held-out authorities but remains far below qualification and regresses 1px detail. Run the same-authority unseen sibling-crop transfer probe next to separate crop overfit from cross-authority generalisation. Do not resume the 894-step broad run yet.
 
 ## Final visual proof
 
