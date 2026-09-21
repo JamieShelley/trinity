@@ -18,6 +18,7 @@ if /I "%COMMAND%"=="full-broad-probe" goto :collect
 if /I "%COMMAND%"=="memorization-probe" goto :collect
 if /I "%COMMAND%"=="interference-probe" goto :collect
 if /I "%COMMAND%"=="heldout-transfer-probe" goto :collect
+if /I "%COMMAND%"=="sibling-crop-transfer-probe" goto :collect
 if /I "%COMMAND%"=="stage2-status" goto :collect
 if /I "%COMMAND%"=="stage2-probe" goto :collect
 if /I "%COMMAND%"=="stage2-summary" goto :collect
@@ -71,6 +72,10 @@ if /I "%COMMAND%"=="interference-probe" (
 )
 if /I "%COMMAND%"=="heldout-transfer-probe" (
   "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\probe_nsamdr_v16_heldout_transfer.py" --repo-root "%ROOT%" %FORWARD_ARGS%
+  exit /b %ERRORLEVEL%
+)
+if /I "%COMMAND%"=="sibling-crop-transfer-probe" (
+  "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\probe_nsamdr_v16_sibling_crop_transfer.py" --repo-root "%ROOT%" %FORWARD_ARGS%
   exit /b %ERRORLEVEL%
 )
 if /I "%COMMAND%"=="stage2-status" (
