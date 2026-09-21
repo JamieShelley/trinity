@@ -228,6 +228,17 @@ def _evaluate_train_samples(
     }
 
 
+def _summary_median(summary: dict[str, Any], key: str) -> float:
+    direct = f"median_{key}"
+    if direct in summary:
+        return float(summary[direct])
+    distributions = dict(summary.get("metricDistributions") or {})
+    item = distributions.get(key)
+    if isinstance(item, dict) and "median" in item:
+        return float(item["median"])
+    raise KeyError(f"summary has no median for metric {key!r}")
+
+
 def _heldout_delta(
     source: dict[str, Any],
     candidate: dict[str, Any],
@@ -243,7 +254,7 @@ def _heldout_delta(
         "detail_recovery_4px",
     )
     return {
-        key: float(candidate[f"median_{key}"]) - float(source[f"median_{key}"])
+        key: _summary_median(candidate, key) - _summary_median(source, key)
         for key in keys
     }
 
@@ -282,6 +293,45 @@ def _save_checkpoint(
             "snapshots": snapshots,
         },
         path,
+    )
+
+
+def _load_continuation(
+    path: Path,
+    *,
+    model,
+    optimizer: torch.optim.Optimizer,
+    source_checkpoint: Path,
+    source_step: int,
+    manifest_path: Path,
+    authority_reference: Path,
+    authority_ids: list[str],
+    crop_ids: list[str],
+    device: torch.device,
+) -> tuple[int, int, list[dict[str, Any]]]:
+    try:
+        payload = torch.load(path, map_location=device, weights_only=False)
+    except TypeError:
+        payload = torch.load(path, map_location=device)
+    if not isinstance(payload, dict) or payload.get("schema") != CHECKPOINT_SCHEMA:
+        raise RuntimeError(f"two-crop continuation checkpoint schema mismatch: {path}")
+    checks = (
+        (Path(str(payload.get("sourceCheckpoint", ""))).resolve(), source_checkpoint.resolve(), "source checkpoint"),
+        (int(payload.get("sourceCheckpointStep", -1)), int(source_step), "source step"),
+        (Path(str(payload.get("manifest", ""))).resolve(), manifest_path.resolve(), "manifest"),
+        (Path(str(payload.get("authorityReference", ""))).resolve(), authority_reference.resolve(), "authority reference"),
+        (list(payload.get("authorityIds") or []), list(authority_ids), "authority ids"),
+        (list(payload.get("cropIds") or []), list(crop_ids), "crop ids"),
+    )
+    for actual, expected, label in checks:
+        if actual != expected:
+            raise RuntimeError(f"continuation checkpoint {label} mismatch")
+    model.load_state_dict(payload["modelState"], strict=True)
+    optimizer.load_state_dict(payload["optimizerState"])
+    return (
+        int(payload.get("totalUpdate", 0)),
+        int(payload.get("updatesPerCrop", 0)),
+        list(payload.get("snapshots") or []),
     )
 
 
@@ -373,6 +423,33 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     continuation_path = output_dir / f"{stem}_checkpoint.pt"
 
     snapshots: list[dict[str, Any]] = []
+    start_total_update = 0
+    if args.continue_from:
+        continue_from = Path(args.continue_from)
+        if not continue_from.is_absolute():
+            continue_from = (repo_root / continue_from).resolve()
+        if not continue_from.is_file():
+            raise RuntimeError(f"continuation checkpoint is missing: {continue_from}")
+        start_total_update, resumed_per_crop, snapshots = _load_continuation(
+            continue_from,
+            model=model,
+            optimizer=optimizer,
+            source_checkpoint=source_checkpoint,
+            source_step=source_step,
+            manifest_path=manifest_path,
+            authority_reference=authority_reference,
+            authority_ids=authority_ids,
+            crop_ids=crop_ids,
+            device=device,
+        )
+        if start_total_update > max_total_update:
+            raise RuntimeError("continuation checkpoint is beyond requested final stage")
+        print(
+            f"Resume             : total={start_total_update} "
+            f"per-crop={resumed_per_crop}",
+            flush=True,
+        )
+
     print("NSAMDR V16 TWO-CROP FIT + HELD-OUT TRANSFER PROBE", flush=True)
     print(f"Source step        : {source_step}", flush=True)
     print(f"Authorities        : {authority_count}", flush=True)
@@ -384,7 +461,8 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     print("Sampling            : deterministic round-robin fixed clean crops", flush=True)
 
     started = time.monotonic()
-    for total_update in range(1, max_total_update + 1):
+    segment_total = max_total_update - start_total_update
+    for total_update in range(start_total_update + 1, max_total_update + 1):
         sample_index = (total_update - 1) % sample_count
         _train_one(
             model,
@@ -397,13 +475,36 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
 
         if total_update == 1 or total_update % int(args.progress_every) == 0:
             elapsed = max(time.monotonic() - started, 1.0e-6)
-            rate = total_update / elapsed
+            segment_done = total_update - start_total_update
+            rate = segment_done / elapsed
             eta = (max_total_update - total_update) / max(rate, 1.0e-6)
             print(
                 f"Progress           : total={total_update}/{max_total_update} "
                 f"~per-crop={total_update // sample_count}/{max_per_crop} "
                 f"elapsed={elapsed/60.0:.1f}m eta={eta/60.0:.1f}m",
                 flush=True,
+            )
+
+        should_recovery_save = (
+            total_update % max(1, int(args.checkpoint_every)) == 0
+            or total_update in stage_totals
+            or total_update == max_total_update
+        )
+        if should_recovery_save:
+            _save_checkpoint(
+                continuation_path,
+                model=model,
+                optimizer=optimizer,
+                source_checkpoint=source_checkpoint,
+                source_step=source_step,
+                manifest_path=manifest_path,
+                authority_reference=authority_reference,
+                authority_ids=authority_ids,
+                crop_ids=crop_ids,
+                seed=seed,
+                total_update=total_update,
+                updates_per_crop=total_update // sample_count,
+                snapshots=snapshots,
             )
 
         if total_update not in stage_totals:
@@ -454,7 +555,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             f"global={heldout_eval['median_global_recovery']*100:+.2f}% "
             f"edge={heldout_eval['median_edge_recovery']*100:+.2f}% "
             f"grad={heldout_eval['median_gradient_recovery']*100:+.2f}% "
-            f"1px={heldout_eval['median_detail_recovery_1px']*100:+.2f}% "
+            f"1px={_summary_median(heldout_eval, 'detail_recovery_1px')*100:+.2f}% "
             f"lattice={heldout_eval['median_lattice_cell_excess']*100:+.2f}%",
             flush=True,
         )
@@ -496,6 +597,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "trainingPolicy": "deterministic-round-robin-two-fixed-clean-crops-per-authority",
         "optimizerPolicy": "fresh-adam-state",
         "stagesPerCrop": stages_per_crop,
+        "startTotalUpdate": int(start_total_update),
         "sourceHeldout": source_heldout,
         "snapshots": snapshots,
         "final": snapshots[-1],
@@ -535,6 +637,17 @@ def parser() -> argparse.ArgumentParser:
         help="cumulative updates per crop; 224 with 16x2 crops matches 7168 prior updates",
     )
     value.add_argument("--progress-every", type=int, default=32)
+    value.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=512,
+        help="overwrite the recovery checkpoint every N total optimizer updates",
+    )
+    value.add_argument(
+        "--continue-from",
+        default="",
+        help="resume model/optimizer/update state from a two-crop checkpoint",
+    )
     value.add_argument(
         "--device",
         choices=("auto", "cpu", "cuda"),
