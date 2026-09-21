@@ -185,7 +185,7 @@ At 448, all four median candidate gates pass. All four authorities pass global, 
 
 The known anchor remains the controlled interference comparison because the single-authority and mixed-authority probes use the same source checkpoint, exact fixed crop, loss, metrics and fresh-Adam start. By 448 mixed updates per authority the anchor reaches 60.55% global / 62.89% edge / 52.33% gradient / 4.65% lattice, essentially converging on the successful single-authority control. This supports **optimization slowdown with authority mixing**, not a hard four-authority capacity limit. It still does not prove held-out generalisation.
 
-The 16-authority fixed-fit scaling probe is complete through 384 updates per authority and is now a near-pass. Median recovery progresses as follows:
+The 16-authority fixed-fit scaling probe is complete through 448 updates per authority and **passes all median candidate gates**. Median recovery progresses as follows:
 
 ```text
 updates/authority    global     edge     gradient   lattice
@@ -195,11 +195,14 @@ updates/authority    global     edge     gradient   lattice
 256                  51.26%    53.71%     46.51%     7.11%
 320                  55.89%    59.39%     49.71%     5.78%
 384                  56.16%    59.94%     51.38%     5.65%
+448                  59.81%    64.86%     54.48%     3.47%
 ```
 
-At 384, median global, gradient and lattice pass. Fourteen of sixteen authorities pass global, all sixteen pass gradient and lattice, and eight of sixteen pass the 60% edge gate. Median edge is 59.94%, only 0.06 percentage points below the unchanged 60% threshold. The anchor is also effectively at the edge threshold at 59.69%, while maintaining 57.70% global, 48.73% gradient and 4.14% lattice.
+At 448, all sixteen authorities pass global, gradient and lattice; thirteen of sixteen pass the 60% edge gate. Median global is 59.81%, median edge 64.86%, median gradient 54.48%, and median lattice excess 3.47%. The anchor also passes every candidate gate at 60.83% global / 63.39% edge / 51.57% gradient / 3.98% lattice.
 
-This is no longer evidence of a general reconstruction-capacity problem. The 16-authority model is fitting the authored targets coherently and has reached the strict edge boundary to within measurement-scale tolerance, but the gate remains formally unpassed. Continue the same saved 16-authority checkpoint to 448 updates per authority only. If median edge crosses 60%, close train-fit capacity diagnostics and move directly to independent held-out-authority generalisation.
+The train-fit capacity question is now closed at 1, 4 and 16 authorities. The model can learn the required authored residual direction across a non-trivial mixed authority set without lattice collapse. This still does not prove production generalisation.
+
+The next diagnostic is **independent held-out transfer**. Compare the original step-596 broad checkpoint and the 448-update 16-authority checkpoint on the exact same 38 complete held-out authorities, with no training. This determines whether the reconstruction capability learned during fixed train-authority fitting transfers to ships that were never used for candidate training. Matched held-out preview panels are written for direct panel-boundary inspection.
 
 Each full-capacity checkpoint saves fixed held-out visual samples under `previews/step_NNNNNN/`. `--preview-only --resume <checkpoint>` now reports current seen/held-out metrics plus the unit-slope residual-bound ablation.
 
@@ -242,21 +245,21 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
     -> four-authority hard capacity limit ruled out
     -> authority mixing mainly slows optimization at this scale
     -> held-out generalisation remains unproven
-    -> 16-authority fixed-fit scaling is a near-pass through 384 updates/authority
-    -> median @384: global 56.2% PASS, edge 59.94% MISS by 0.06pp, gradient 51.4% PASS, lattice 5.65% PASS
-    -> 14/16 global PASS, 16/16 gradient PASS, 16/16 lattice PASS, 8/16 edge PASS
-    -> anchor @384: global 57.7%, edge 59.69%, gradient 48.7%, lattice 4.14%
-    -> no evidence of destructive authority mixing or hard capacity collapse
-    -> next: one final continuation to 448 updates per authority
-    -> if median edge passes, close train-fit diagnostics and move to held-out generalisation
-    -> do not expand authority count or resume broad training to 894 yet
+    -> 16-authority fixed-fit scaling PASS at 448 updates/authority
+    -> median @448: global 59.8% PASS, edge 64.9% PASS, gradient 54.5% PASS, lattice 3.47% PASS
+    -> 16/16 global PASS, 16/16 gradient PASS, 16/16 lattice PASS, 13/16 edge PASS
+    -> anchor @448: global 60.8%, edge 63.4%, gradient 51.6%, lattice 3.98%
+    -> train-fit capacity demonstrated at 1, 4 and 16 authorities
+    -> held-out generalisation remains unproven
+    -> next: compare source step-596 vs 16-authority checkpoint on all 38 complete held-out authorities
+    -> do not resume broad training to 894 yet
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
 13. Raven / production Quick
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. The unit-slope and scalar-oracle diagnostics are rejected as fixes. Exact single-authority memorization and fixed 4-authority train-fit pass the candidate gate set. The 16-authority fixed-fit scaling probe is now a formal near-pass at 384 updates per authority: median global, gradient and lattice pass, and median edge is 59.94% against the unchanged 60% requirement. Continue the same saved 16-authority checkpoint to 448 only. If edge crosses 60%, stop capacity diagnostics and move to complete-authority held-out generalisation. This remains train-fit evidence and must not be substituted for qualification.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. The unit-slope and scalar-oracle diagnostics are rejected as fixes. Exact single-authority, fixed 4-authority and fixed 16-authority train-fit now all pass the candidate gate set. Stop capacity diagnostics. Run the held-out transfer probe next, comparing the original step-596 model against the 448-update 16-authority checkpoint on all 38 complete held-out authorities. This is a transfer/generalisation diagnostic, not final qualification; material semantics and BenefitSelector remain unresolved.
 
 ## Candidate qualification gates
 
@@ -316,6 +319,7 @@ probe_nsamdr_v16_structure_conditioning.py
 probe_nsamdr_v16_full_broad.py
 probe_nsamdr_v16_memorization.py
 probe_nsamdr_v16_interference.py
+probe_nsamdr_v16_heldout_transfer.py
 ```
 
 Historical V9-V13 model/training implementations are retired. A minimal `v9/` compatibility package remains only because active authored-data preparation still imports its manifest/config names.
@@ -340,12 +344,13 @@ scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> 
 scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> --continue-from <16-authority-checkpoint> --authority-count 16 --stages-per-authority 192 256
 scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> --continue-from <16-authority-checkpoint> --authority-count 16 --stages-per-authority 320 384
 scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> --continue-from <16-authority-checkpoint> --authority-count 16 --stages-per-authority 448
+scripts\build\nsamdr.bat heldout-transfer-probe --device cuda --resume <checkpoint> --candidate-checkpoint <16-authority-checkpoint>
 scripts\build\nsamdr.bat stage2-status
 scripts\build\nsamdr.bat stage2-probe
 scripts\build\nsamdr.bat stage2-summary
 ```
 
-The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity broad checkpoint is 596. Residual alignment and scalar-oracle diagnostics are complete and do not justify more broad training. Exact single-authority memorization and fixed 4-authority train-fit pass the candidate gate set. The 16-authority fixed-fit probe is at a 59.94% median edge near-pass through 384 updates per authority. Continue only the same saved 16-authority checkpoint to 448. If it passes, move to held-out generalisation. Do not resume the 894-step broad run.
+The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity broad checkpoint is 596. Residual alignment and scalar-oracle diagnostics are complete and do not justify more broad training. Exact single-authority, fixed 4-authority and fixed 16-authority train-fit now pass the candidate gate set. Capacity diagnostics are closed. Run the independent held-out transfer probe next. Do not resume the 894-step broad run until the held-out result identifies whether the fixed-authority learning transfers.
 
 ## Final visual proof
 
