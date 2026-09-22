@@ -220,9 +220,29 @@ The **same-authority unseen sibling-crop transfer** diagnostic is complete and s
 
 The finest detail confirms the same failure mode: median 1px detail recovery is about +50.83% on the trained crop, +1.67% on the source sibling crop, and -0.87% on the candidate sibling crop. This is directly relevant to thin seams and panel-boundary sharpness: the model learns them strongly on the trained spatial sample but does not yet transfer that finest structure reliably to another authored region of the same ship.
 
-The next bounded training diagnostic is **two fixed crops per authority on the same 16 authorities**. Start again from the original step-596 checkpoint with fresh Adam, keep the authority identities unchanged, and train both authored crops round-robin. Use 112 and 224 updates per crop. At 224 updates per crop the run has 7168 total optimizer updates, exactly matching the total update budget of the prior 16-authority one-crop @448 experiment. The probe evaluates all 38 complete held-out authorities at each stage. This isolates whether crop diversity improves generalisation and 1px detail without giving the experiment more optimizer updates.
+The bounded **two fixed crops per authority** diagnostic is now complete through 112 updates per crop (3584 total updates) on the same 16 authorities. This stage uses both authored crops round-robin from the original step-596 checkpoint with fresh Adam.
 
-The first two-crop run reached 112 updates per crop (3584 total updates) before the stage evaluator hit a reporting bug: detail-recovery medians live under `metricDistributions`, not as top-level `median_detail_*` fields. That reporting bug is fixed. The probe now writes a recovery checkpoint before every stage evaluation and every 512 total updates, and supports `--continue-from`. The failed pre-fix run cannot be resumed because its crash occurred before the old code's first checkpoint write; restart it once with the corrected probe.
+```text
+112 updates/crop (3584 total)
+
+32 fixed train crops:
+global recovery      31.84%
+edge recovery        31.14%
+gradient recovery    30.82%
+1px detail recovery  19.99%
+lattice excess        7.43%
+
+38 held-out authorities:
+global recovery       9.10%
+edge recovery         6.60%
+gradient recovery    12.69%
+1px detail recovery  -4.30%
+lattice excess        8.91%
+```
+
+Compared with the original step-596 held-out model, this two-crop checkpoint improves global by +3.72pp, edge by +1.71pp, gradient by +8.15pp and lattice by -43.10pp, while 1px detail is still 6.37pp worse than the source. The train crops are still well below their reconstruction gates at this halfway stage, so this is not a convergence point. The important direction signal is that 1px held-out recovery is less negative than the prior one-crop @448 transfer (-4.30% versus -7.12%) while held-out global is higher (9.10% versus 7.73%), despite using only half the total optimizer budget. Edge/gradient are not yet better than the fully trained one-crop checkpoint.
+
+Continue the saved 3584-update two-crop checkpoint to 224 updates per crop. At 224 updates per crop the experiment reaches 7168 total optimizer updates, exactly matching the prior 16-authority one-crop @448 budget. That matched-budget result is the decision point for whether crop diversity materially improves unseen reconstruction and 1px panel-boundary detail.
 
 Matched held-out preview panels should still be inspected before any claim that 1px panel-boundary quality is visually solved.
 
@@ -282,9 +302,12 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
     -> unseen sibling: global 14.49, edge 17.47, gradient 22.35, lattice 8.25
     -> sibling source: global 5.14, edge 4.35, gradient 3.41, lattice 55.08
     -> 1px detail: trained +50.83, sibling source +1.67, sibling candidate -0.87
-    -> next: same 16 authorities, two fixed crops each, matched 7168-update budget
-    -> stages: 112 and 224 updates per crop
-    -> evaluate all 38 held-out authorities at each stage
+    -> two-crop diagnostic @112/crop complete (3584 total updates)
+    -> train: global 31.84, edge 31.14, gradient 30.82, 1px 19.99, lattice 7.43
+    -> held-out: global 9.10, edge 6.60, gradient 12.69, 1px -4.30, lattice 8.91
+    -> vs source: global +3.72pp, edge +1.71pp, gradient +8.15pp, lattice -43.10pp
+    -> 1px is still negative but improves over one-crop @448 (-4.30 vs -7.12)
+    -> next: resume same checkpoint to 224 updates/crop = matched 7168-update budget
     -> do not increase authority count or resume broad training to 894 yet
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
@@ -292,7 +315,7 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. Capacity diagnostics are closed. Independent held-out transfer is positive but insufficient, and the same-authority sibling-crop test now identifies **crop-specific overfit** as a major blocker: the model falls from about 60/65/54% global/edge/gradient on the trained crop to about 14/17/22% on another authored crop from the same authority, with 1px detail turning slightly negative. The next experiment must add crop diversity before authority count is increased. Run the same 16 authorities with two fixed authored crops each at a matched total-update budget (112/224 updates per crop). Material semantics and BenefitSelector remain unresolved.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. Capacity diagnostics are closed. Crop-specific overfit remains the main identified blocker. The two-crop experiment at 112 updates/crop shows useful early transfer but is not converged: held-out global/gradient and lattice are improved over the source, while 1px detail remains negative. Resume the same saved checkpoint to 224 updates/crop so the two-crop experiment reaches the same 7168 total-update budget as the prior one-crop @448 run. Use that matched-budget comparison before changing authority count, architecture or loss. Material semantics and BenefitSelector remain unresolved.
 
 ## Candidate qualification gates
 
