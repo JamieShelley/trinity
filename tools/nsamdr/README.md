@@ -220,29 +220,32 @@ The **same-authority unseen sibling-crop transfer** diagnostic is complete and s
 
 The finest detail confirms the same failure mode: median 1px detail recovery is about +50.83% on the trained crop, +1.67% on the source sibling crop, and -0.87% on the candidate sibling crop. This is directly relevant to thin seams and panel-boundary sharpness: the model learns them strongly on the trained spatial sample but does not yet transfer that finest structure reliably to another authored region of the same ship.
 
-The bounded **two fixed crops per authority** diagnostic is now complete through 112 updates per crop (3584 total updates) on the same 16 authorities. This stage uses both authored crops round-robin from the original step-596 checkpoint with fresh Adam.
+The bounded **two fixed crops per authority** diagnostic is complete through the matched 7168-update budget.
 
 ```text
-112 updates/crop (3584 total)
+                         112/crop       224/crop
+total updates               3584           7168
 
 32 fixed train crops:
-global recovery      31.84%
-edge recovery        31.14%
-gradient recovery    30.82%
-1px detail recovery  19.99%
-lattice excess        7.43%
+global recovery            31.84%         41.81%
+edge recovery              31.14%         43.77%
+gradient recovery          30.82%         38.43%
+1px detail recovery        19.99%         29.24%
+lattice excess              7.43%          3.77%
 
 38 held-out authorities:
-global recovery       9.10%
-edge recovery         6.60%
-gradient recovery    12.69%
-1px detail recovery  -4.30%
-lattice excess        8.91%
+global recovery             9.10%          8.37%
+edge recovery               6.60%          6.17%
+gradient recovery          12.69%         12.62%
+1px detail recovery        -4.30%         -7.74%
+lattice excess              8.91%          8.06%
 ```
 
-Compared with the original step-596 held-out model, this two-crop checkpoint improves global by +3.72pp, edge by +1.71pp, gradient by +8.15pp and lattice by -43.10pp, while 1px detail is still 6.37pp worse than the source. The train crops are still well below their reconstruction gates at this halfway stage, so this is not a convergence point. The important direction signal is that 1px held-out recovery is less negative than the prior one-crop @448 transfer (-4.30% versus -7.12%) while held-out global is higher (9.10% versus 7.73%), despite using only half the total optimizer budget. Edge/gradient are not yet better than the fully trained one-crop checkpoint.
+The fixed train crops continue improving strongly from 112 to 224 updates/crop, but held-out recovery does not. Global, edge and gradient all fall slightly, 1px detail degrades from -4.30% to -7.74%, and only lattice improves. Train residual cosine rises from about 0.72 to 0.81 while held-out cosine falls from about 0.48 to 0.46; train residual magnitude approaches the target while held-out alignment worsens. This is direct evidence that simply fitting the same 32 fixed spatial samples harder increases crop-specific overfit.
 
-Continue the saved 3584-update two-crop checkpoint to 224 updates per crop. At 224 updates per crop the experiment reaches 7168 total optimizer updates, exactly matching the prior 16-authority one-crop @448 budget. That matched-budget result is the decision point for whether crop diversity materially improves unseen reconstruction and 1px panel-boundary detail.
+At the matched 7168-update budget, two fixed crops do not materially beat the prior one-crop @448 transfer. Two-crop global is slightly higher (8.37% vs 7.73%) and lattice slightly lower (8.06% vs 8.30%), but edge (6.17% vs 9.44%), gradient (12.62% vs 13.64%) and 1px detail (-7.74% vs -7.12%) are worse. Do not extend the fixed two-crop run.
+
+The next bounded diagnostic keeps the same 16 authorities, the same two authored crops and the same total update budget, but cycles each crop through the eight D4 rotation/reflection transforms with normal vectors transformed consistently. This tests whether orientation augmentation can reduce the confirmed crop-specific overfit before changing authority count, model architecture or loss.
 
 Matched held-out preview panels should still be inspected before any claim that 1px panel-boundary quality is visually solved.
 
@@ -302,20 +305,21 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
     -> unseen sibling: global 14.49, edge 17.47, gradient 22.35, lattice 8.25
     -> sibling source: global 5.14, edge 4.35, gradient 3.41, lattice 55.08
     -> 1px detail: trained +50.83, sibling source +1.67, sibling candidate -0.87
-    -> two-crop diagnostic @112/crop complete (3584 total updates)
-    -> train: global 31.84, edge 31.14, gradient 30.82, 1px 19.99, lattice 7.43
-    -> held-out: global 9.10, edge 6.60, gradient 12.69, 1px -4.30, lattice 8.91
-    -> vs source: global +3.72pp, edge +1.71pp, gradient +8.15pp, lattice -43.10pp
-    -> 1px is still negative but improves over one-crop @448 (-4.30 vs -7.12)
-    -> next: resume same checkpoint to 224 updates/crop = matched 7168-update budget
-    -> do not increase authority count or resume broad training to 894 yet
+    -> two-crop fixed diagnostic complete through 224/crop = 7168 total updates
+    -> train 112 -> 224: global 31.84 -> 41.81, edge 31.14 -> 43.77, gradient 30.82 -> 38.43
+    -> held 112 -> 224: global 9.10 -> 8.37, edge 6.60 -> 6.17, gradient 12.69 -> 12.62
+    -> held 1px detail worsens -4.30 -> -7.74 while lattice improves 8.91 -> 8.06
+    -> fixed-crop overfit confirmed: train fit rises while held-out alignment/recovery stagnates or regresses
+    -> matched budget does not beat one-crop @448 overall
+    -> next: same 16x2 data with deterministic 8-way D4 augmentation, stages 112/224 per crop
+    -> do not increase authority count, change architecture/loss, or resume broad training to 894 yet
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
 13. Raven / production Quick
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. Capacity diagnostics are closed. Crop-specific overfit remains the main identified blocker. The two-crop experiment at 112 updates/crop shows useful early transfer but is not converged: held-out global/gradient and lattice are improved over the source, while 1px detail remains negative. Resume the same saved checkpoint to 224 updates/crop so the two-crop experiment reaches the same 7168 total-update budget as the prior one-crop @448 run. Use that matched-budget comparison before changing authority count, architecture or loss. Material semantics and BenefitSelector remain unresolved.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. Capacity diagnostics are closed. The matched-budget two-fixed-crop experiment confirms crop-specific overfit: train recovery continues improving while held-out recovery plateaus/regresses and 1px detail worsens. Do not train the fixed two-crop checkpoint further. Test the same 16 authorities and two authored crops with deterministic 8-way D4 augmentation at the same 112/224 updates-per-crop schedule. Use that result before changing authority count, architecture or loss. Material semantics and BenefitSelector remain unresolved.
 
 ## Candidate qualification gates
 
@@ -378,6 +382,7 @@ probe_nsamdr_v16_interference.py
 probe_nsamdr_v16_heldout_transfer.py
 probe_nsamdr_v16_sibling_crop_transfer.py
 probe_nsamdr_v16_two_crop_fit.py
+probe_nsamdr_v16_augmented_two_crop_fit.py
 ```
 
 Historical V9-V13 model/training implementations are retired. A minimal `v9/` compatibility package remains only because active authored-data preparation still imports its manifest/config names.
@@ -405,12 +410,13 @@ scripts\build\nsamdr.bat interference-probe --device cuda --resume <checkpoint> 
 scripts\build\nsamdr.bat heldout-transfer-probe --device cuda --resume <checkpoint> --candidate-checkpoint <16-authority-checkpoint>
 scripts\build\nsamdr.bat sibling-crop-transfer-probe --device cuda --resume <checkpoint> --candidate-checkpoint <16-authority-checkpoint>
 scripts\build\nsamdr.bat two-crop-fit-probe --device cuda --resume <checkpoint> --authority-reference <16-authority-checkpoint> --authority-count 16 --crops-per-authority 2 --stages-per-crop 112 224
+scripts\build\nsamdr.bat augmented-two-crop-fit-probe --device cuda --resume <checkpoint> --authority-reference <16-authority-checkpoint> --authority-count 16 --crops-per-authority 2 --stages-per-crop 112 224
 scripts\build\nsamdr.bat stage2-status
 scripts\build\nsamdr.bat stage2-probe
 scripts\build\nsamdr.bat stage2-summary
 ```
 
-The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity broad checkpoint is 596. Capacity diagnostics are closed. Held-out and same-authority sibling-crop tests show positive transfer but strong crop-specific overfit, especially at 1px detail. Run the two-fixed-crop-per-authority probe on the same 16 authorities at the matched 7168-update budget next. Do not increase authority count or resume the 894-step broad run yet.
+The reduced structure-conditioning probe remains available for reproducibility. The active full-capacity broad checkpoint is 596. Capacity diagnostics are closed. The matched-budget fixed two-crop run confirms crop-specific overfit: train recovery improves while held-out recovery and 1px detail regress. Run the D4-augmented two-crop probe on the same 16 authorities and same 7168-update budget next. Do not increase authority count or resume the 894-step broad run yet.
 
 ## Final visual proof
 
