@@ -20,6 +20,7 @@ if /I "%COMMAND%"=="interference-probe" goto :collect
 if /I "%COMMAND%"=="heldout-transfer-probe" goto :collect
 if /I "%COMMAND%"=="sibling-crop-transfer-probe" goto :collect
 if /I "%COMMAND%"=="two-crop-fit-probe" goto :collect
+if /I "%COMMAND%"=="augmented-two-crop-fit-probe" goto :collect
 if /I "%COMMAND%"=="stage2-status" goto :collect
 if /I "%COMMAND%"=="stage2-probe" goto :collect
 if /I "%COMMAND%"=="stage2-summary" goto :collect
@@ -81,6 +82,10 @@ if /I "%COMMAND%"=="sibling-crop-transfer-probe" (
 )
 if /I "%COMMAND%"=="two-crop-fit-probe" (
   "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\probe_nsamdr_v16_two_crop_fit.py" --repo-root "%ROOT%" %FORWARD_ARGS%
+  exit /b %ERRORLEVEL%
+)
+if /I "%COMMAND%"=="augmented-two-crop-fit-probe" (
+  "%PYTHON%" -u "%ROOT%\tools\nsamdr\neural\probe_nsamdr_v16_augmented_two_crop_fit.py" --repo-root "%ROOT%" %FORWARD_ARGS%
   exit /b %ERRORLEVEL%
 )
 if /I "%COMMAND%"=="stage2-status" (
