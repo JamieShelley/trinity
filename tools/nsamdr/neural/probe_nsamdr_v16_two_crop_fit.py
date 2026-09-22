@@ -52,6 +52,7 @@ from probe_nsamdr_v16_sibling_crop_transfer import (
 
 
 SCHEMA = "NSAMDR_V16_TWO_CROP_FIT_TRANSFER_PROBE_V1"
+PROBE_REVISION = "two-crop-fit-r3"
 CHECKPOINT_SCHEMA = "NSAMDR_V16_TWO_CROP_FIT_TRANSFER_CHECKPOINT_V1"
 METRIC_KEYS = (
     "global_recovery",
@@ -451,6 +452,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         )
 
     print("NSAMDR V16 TWO-CROP FIT + HELD-OUT TRANSFER PROBE", flush=True)
+    print(f"Probe revision      : {PROBE_REVISION}", flush=True)
     print(f"Source step        : {source_step}", flush=True)
     print(f"Authorities        : {authority_count}", flush=True)
     print(f"Crops / authority  : {crops_per_authority}", flush=True)
