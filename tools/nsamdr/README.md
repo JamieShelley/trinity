@@ -245,7 +245,31 @@ The fixed train crops continue improving strongly from 112 to 224 updates/crop, 
 
 At the matched 7168-update budget, two fixed crops do not materially beat the prior one-crop @448 transfer. Two-crop global is slightly higher (8.37% vs 7.73%) and lattice slightly lower (8.06% vs 8.30%), but edge (6.17% vs 9.44%), gradient (12.62% vs 13.64%) and 1px detail (-7.74% vs -7.12%) are worse. Do not extend the fixed two-crop run.
 
-The next bounded diagnostic keeps the same 16 authorities, the same two authored crops and the same total update budget, but cycles each crop through the eight D4 rotation/reflection transforms with normal vectors transformed consistently. This tests whether orientation augmentation can reduce the confirmed crop-specific overfit before changing authority count, model architecture or loss.
+The **D4-augmented two-crop diagnostic** is complete through 112 updates per crop (3584 total updates) on the same 16 authorities and two authored crops. Each crop cycles through all eight rotation/reflection variants with normal XY vectors transformed consistently.
+
+```text
+112 updates/crop (3584 total)
+
+32 fixed-orientation train evaluations:
+global recovery      21.78%
+edge recovery        19.77%
+gradient recovery    19.84%
+1px detail recovery  10.95%
+lattice excess       12.59%
+
+38 held-out authorities:
+global recovery      15.85%
+edge recovery        13.61%
+gradient recovery    14.38%
+1px detail recovery   2.67%
+lattice excess       13.36%
+```
+
+This is the first bounded training variant to make median held-out 1px detail positive while also materially raising held-out global/edge recovery. Relative to the original step-596 source, the D4 checkpoint gains +10.46pp global, +8.71pp edge, +9.85pp gradient and +0.60pp 1px detail while reducing median lattice excess by 38.65pp. The held-out residual cosine rises to about 0.52 and the candidate/target residual ratio to about 0.54.
+
+Compared with the fixed two-crop 112 checkpoint, D4 raises held-out global from 9.10% to 15.85%, edge from 6.60% to 13.61%, gradient from 12.69% to 14.38%, and 1px detail from -4.30% to +2.67%. Median lattice is worse (8.91% -> 13.36%) but remains below the 15% median diagnostic threshold. Production-style max lattice still fails at about 27.9%, so this is strong direction evidence, not candidate qualification.
+
+Continue the same D4 checkpoint to 224 updates per crop. That reaches the same 7168 total-update budget as the prior fixed one-crop and fixed two-crop experiments. If held-out edge/1px continue improving without max-lattice worsening materially, D4-style augmentation becomes the preferred generalisation direction. If the 224 result reverses, stop this branch and move to greater authority diversity.
 
 Matched held-out preview panels should still be inspected before any claim that 1px panel-boundary quality is visually solved.
 
@@ -311,7 +335,11 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
     -> held 1px detail worsens -4.30 -> -7.74 while lattice improves 8.91 -> 8.06
     -> fixed-crop overfit confirmed: train fit rises while held-out alignment/recovery stagnates or regresses
     -> matched budget does not beat one-crop @448 overall
-    -> next: same 16x2 data with deterministic 8-way D4 augmentation, stages 112/224 per crop
+    -> D4 two-crop @112/crop: held global 15.85, edge 13.61, gradient 14.38, 1px +2.67, median lattice 13.36
+    -> vs fixed two-crop @112: +6.75pp global, +7.01pp edge, +1.69pp gradient, +6.97pp 1px
+    -> held residual cosine ~0.52; candidate/target ratio ~0.54
+    -> production-style max lattice still high at ~27.9%
+    -> next: resume same D4 checkpoint to 224 updates/crop = matched 7168-update budget
     -> do not increase authority count, change architecture/loss, or resume broad training to 894 yet
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
@@ -319,7 +347,7 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. Capacity diagnostics are closed. The matched-budget two-fixed-crop experiment confirms crop-specific overfit: train recovery continues improving while held-out recovery plateaus/regresses and 1px detail worsens. Do not train the fixed two-crop checkpoint further. Test the same 16 authorities and two authored crops with deterministic 8-way D4 augmentation at the same 112/224 updates-per-crop schedule. Use that result before changing authority count, architecture or loss. Material semantics and BenefitSelector remain unresolved.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. Capacity diagnostics are closed. Fixed-crop repetition overfits, but D4 augmentation materially improves unseen transfer and makes median held-out 1px detail positive at 112 updates/crop. Resume the same D4 checkpoint to 224 updates/crop for the matched 7168-update comparison. Do not change authority count, architecture or loss before that result. Material semantics and BenefitSelector remain unresolved.
 
 ## Candidate qualification gates
 
