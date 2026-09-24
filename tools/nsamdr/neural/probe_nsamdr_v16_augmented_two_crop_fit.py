@@ -37,6 +37,7 @@ from probe_nsamdr_v16_full_broad import (
 )
 from probe_nsamdr_v16_interference import (
     CHECKPOINT_SCHEMA as INTERFERENCE_CHECKPOINT_SCHEMA,
+    _select_authorities,
 )
 from probe_nsamdr_v16_memorization import _parse_stages, _train_one
 from probe_nsamdr_v16_sibling_crop_transfer import _batch_for_record
@@ -50,7 +51,7 @@ from probe_nsamdr_v16_two_crop_fit import (
 
 SCHEMA = "NSAMDR_V16_AUGMENTED_TWO_CROP_FIT_TRANSFER_PROBE_V1"
 CHECKPOINT_SCHEMA = "NSAMDR_V16_AUGMENTED_TWO_CROP_FIT_TRANSFER_CHECKPOINT_V1"
-PROBE_REVISION = "augmented-two-crop-r1"
+PROBE_REVISION = "augmented-two-crop-r2"
 AUGMENTATION_VARIANTS = 8
 
 
@@ -92,6 +93,26 @@ def _augment_batch(
         else:
             result[key] = tensor
     return result
+
+
+def _validate_authority_prefix(
+    reference_ids: list[str],
+    expanded_ids: list[str],
+    requested_count: int,
+) -> list[str]:
+    requested = int(requested_count)
+    if requested < 1:
+        raise ValueError("authority-count must be positive")
+    if len(expanded_ids) < requested:
+        raise RuntimeError(
+            f"only {len(expanded_ids)} expanded authorities available; {requested} requested"
+        )
+    prefix = expanded_ids[: len(reference_ids)]
+    if prefix != list(reference_ids):
+        raise RuntimeError(
+            "expanded authority selection does not preserve the reference authority prefix"
+        )
+    return expanded_ids[:requested]
 
 
 def _load_authority_reference(
@@ -246,14 +267,43 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         device=device,
         manifest_path=manifest_path,
     )
-    authority_ids = _load_authority_reference(
+    reference_authority_ids = _load_authority_reference(
         authority_reference,
         source_checkpoint=source_checkpoint,
         source_step=source_step,
         manifest_path=manifest_path,
     )
-    if int(args.authority_count) > 0:
-        authority_ids = authority_ids[: int(args.authority_count)]
+    requested_authority_count = int(args.authority_count)
+    if requested_authority_count < 1:
+        raise ValueError("authority-count must be positive")
+
+    if requested_authority_count <= len(reference_authority_ids):
+        authority_ids = reference_authority_ids[:requested_authority_count]
+        authority_selection_policy = "reference-prefix"
+    else:
+        selected_authorities, rejected_authorities = _select_authorities(
+            model,
+            manifest,
+            config,
+            authority_count=requested_authority_count,
+            anchor_authority=reference_authority_ids[0],
+            seed=seed,
+            minimum_target_residual=float(args.minimum_target_residual),
+            device=device,
+            precision=args.amp_precision,
+        )
+        expanded_ids = [str(item["authorityId"]) for item in selected_authorities]
+        authority_ids = _validate_authority_prefix(
+            reference_authority_ids,
+            expanded_ids,
+            requested_authority_count,
+        )
+        authority_selection_policy = "interference-selection-expanded-prefix"
+        print(
+            f"Authority expansion  : {len(reference_authority_ids)} -> "
+            f"{len(authority_ids)}; rejected={len(rejected_authorities)}",
+            flush=True,
+        )
     authority_count = len(authority_ids)
     crops_per_authority = int(args.crops_per_authority)
 
@@ -484,6 +534,8 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "sourceCheckpointStep": int(source_step),
         "authorityReference": str(authority_reference),
         "authorityIds": authority_ids,
+        "authoritySelectionPolicy": authority_selection_policy,
+        "minimumTargetResidual": float(args.minimum_target_residual),
         "cropsPerAuthority": crops_per_authority,
         "cropIds": crop_ids,
         "augmentationVariants": int(AUGMENTATION_VARIANTS),
@@ -519,6 +571,12 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--resume", required=True, help="source full-broad checkpoint")
     value.add_argument("--authority-reference", required=True)
     value.add_argument("--authority-count", type=int, default=16)
+    value.add_argument(
+        "--minimum-target-residual",
+        type=float,
+        default=0.01,
+        help="selection floor used only when expanding beyond the authority reference",
+    )
     value.add_argument("--crops-per-authority", type=int, default=2)
     value.add_argument(
         "--stages-per-crop",
