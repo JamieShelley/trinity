@@ -7,6 +7,7 @@ from tools.nsamdr.neural.probe_nsamdr_v16_augmented_two_crop_fit import (
     _augment_batch,
     _normal_transform,
     _spatial_transform,
+    _validate_authority_prefix,
 )
 
 
@@ -48,6 +49,22 @@ class AugmentedTwoCropFitProbeTests(unittest.TestCase):
             self.assertEqual(result["lr_albedo"].shape, batch["lr_albedo"].shape)
             self.assertEqual(result["target_normal"].shape, batch["target_normal"].shape)
             self.assertTrue(torch.equal(result["record_index"], batch["record_index"]))
+
+    def test_authority_expansion_preserves_reference_prefix(self) -> None:
+        result = _validate_authority_prefix(
+            ["a", "b"],
+            ["a", "b", "c", "d"],
+            4,
+        )
+        self.assertEqual(result, ["a", "b", "c", "d"])
+
+    def test_authority_expansion_rejects_prefix_change(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "does not preserve"):
+            _validate_authority_prefix(
+                ["a", "b"],
+                ["a", "x", "c"],
+                3,
+            )
 
     def test_invalid_variant_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
