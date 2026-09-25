@@ -4,6 +4,174 @@
 
 [![Visual target](./EXAMPLE.png)](./EXAMPLE.png)
 
+## Quick start / operator guide
+
+Run all commands from the Trinity repository root:
+
+```bat
+D:\REPOS\trinity
+```
+
+### Launch the current GUI
+
+The canonical launcher is:
+
+```bat
+scripts\build\nsamdr.bat gui
+```
+
+This opens:
+
+```text
+tools/nsamdr/gui/nsamdr_v16_structure_workflow_gui.py
+```
+
+The current V16.2 GUI is the **structure/development workflow GUI**. It exposes the
+Stage 2 runtime, structure-support audit, boundary-profile audit, EVE corpus
+census, resume controls, and diagnostic/result openers.
+
+It does **not yet expose the new broad-authority D4 training recipe or the final
+main preview-training flow**. Those are still being proved through the bounded
+V16 diagnostics below. Once the current authority-diversity experiment is
+closed, the proven recipe should be wired back into the GUI rather than adding
+another parallel launcher.
+
+### Validate the active checkout
+
+```bat
+scripts\build\nsamdr.bat validate
+```
+
+Layout-only check:
+
+```bat
+scripts\build\nsamdr.bat validate --layout-only
+```
+
+### Environment setup
+
+CUDA environment:
+
+```bat
+scripts\build\nsamdr.bat setup cuda
+```
+
+CPU environment:
+
+```bat
+scripts\build\nsamdr.bat setup cpu
+```
+
+Force rebuild of either environment:
+
+```bat
+scripts\build\nsamdr.bat setup cuda --force
+scripts\build\nsamdr.bat setup cpu --force
+```
+
+### Raven development workflow
+
+Prepare/index the deterministic Raven dataset:
+
+```bat
+scripts\build\nsamdr.bat index raven
+```
+
+Rebuild it explicitly:
+
+```bat
+scripts\build\nsamdr.bat index raven --rebuild
+```
+
+Run the current Raven Quick workflow:
+
+```bat
+scripts\build\nsamdr.bat raven-quick
+```
+
+The CLI performs source-freshness and CUDA preflight checks before training.
+
+Preview an existing experiment:
+
+```bat
+scripts\build\nsamdr.bat preview EXP_####
+```
+
+Optional preview controls:
+
+```bat
+scripts\build\nsamdr.bat preview EXP_#### --device cuda
+scripts\build\nsamdr.bat preview EXP_#### --target-size 2048 --device cuda
+```
+
+### Native preview utilities
+
+Build the isolated native preview target:
+
+```bat
+scripts\build\nsamdr.bat native build
+```
+
+Launch the OBJ preview bridge with forwarded arguments:
+
+```bat
+scripts\build\nsamdr.bat native obj <arguments>
+```
+
+Prepare and launch the default EVE asset preview:
+
+```bat
+scripts\build\nsamdr.bat native eve
+```
+
+### Active V16 diagnostic commands
+
+The commands used by the current V16 evidence ladder are:
+
+```bat
+scripts\build\nsamdr.bat eve-census
+scripts\build\nsamdr.bat structure-audit
+scripts\build\nsamdr.bat boundary-profile-audit
+scripts\build\nsamdr.bat authored-prior-corpus
+scripts\build\nsamdr.bat structure-conditioning-probe
+scripts\build\nsamdr.bat full-broad-probe
+scripts\build\nsamdr.bat memorization-probe
+scripts\build\nsamdr.bat interference-probe
+scripts\build\nsamdr.bat heldout-transfer-probe
+scripts\build\nsamdr.bat sibling-crop-transfer-probe
+scripts\build\nsamdr.bat two-crop-fit-probe
+scripts\build\nsamdr.bat augmented-two-crop-fit-probe
+scripts\build\nsamdr.bat stage2-status
+scripts\build\nsamdr.bat stage2-probe
+scripts\build\nsamdr.bat stage2-summary
+```
+
+Most diagnostic commands require their own arguments/checkpoint paths; the
+specific active command is recorded beside the relevant experiment in this
+README.
+
+### Current GUI/production status
+
+The historical README described a V9 production GUI and a `full-train` command.
+Those instructions are now stale: the active branch is V16.2, the GUI entrypoint
+is `nsamdr_v16_structure_workflow_gui.py`, and the current CLI does not expose a
+`full-train` command.
+
+The intended end state remains the same operator flow:
+
+```text
+GUI
+ -> prepare/select authored data
+ -> train the production candidate
+ -> qualify C
+ -> train/qualify BenefitSelector
+ -> generate immutable preview artifacts
+ -> launch A RAW SOURCE vs B NSAMDR FINAL
+```
+
+The current work is closing the training recipe before that main GUI path is
+re-enabled.
+
 `EXAMPLE.png` is the visual target. `NSAMDR_FULL_SYSTEM_ARCHITECTURE.png` is the long-term production-system target; experimental branches must still earn their place through held-out evidence.
 
 ## Production contract
