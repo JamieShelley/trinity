@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import random
 import time
@@ -88,7 +89,7 @@ class V16Trainer:
             "batch_size": 1,
             "shuffle": False,
             "num_workers": self.workers if split == "train" else min(1, self.workers),
-            "pin_memory": self.device.type == "cuda",
+            "pin_memory": self.device.type == "cuda" and os.name != "nt",
             "persistent_workers": self.workers > 0 and split == "train",
         }
         if kwargs["num_workers"]:
