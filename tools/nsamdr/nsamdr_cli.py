@@ -148,14 +148,14 @@ class NSAMDRCommandLineApplication:
         return ["--repo-root", os.fspath(REPO_ROOT), *arguments]
 
     def _configure_cuda_allocator_env(self, env: dict[str, str]) -> None:
-        if "PYTORCH_CUDA_ALLOC_CONF" in env:
-            return
         # The broad V16 diagnostics are stable on Windows without allocator
-        # overrides. Do not inject allocator tuning into the Raven workflow on
-        # Windows: PyTorch/CUDA native allocator teardown has aborted after the
-        # first training tile on the RTX 50-series path. Keep the environment
-        # default there and retain the explicit non-Windows policy only.
-        if os.name != "nt":
+        # overrides. Force the Raven workflow back to PyTorch's default Windows
+        # allocator path: the tuned allocator path has produced a native abort
+        # immediately after the first training tile on the RTX 50-series setup.
+        if os.name == "nt":
+            env.pop("PYTORCH_CUDA_ALLOC_CONF", None)
+            return
+        if "PYTORCH_CUDA_ALLOC_CONF" not in env:
             env["PYTORCH_CUDA_ALLOC_CONF"] = (
                 "expandable_segments:True,garbage_collection_threshold:0.80"
             )
