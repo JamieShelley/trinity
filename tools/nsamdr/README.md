@@ -20,21 +20,30 @@ The canonical launcher is:
 scripts\build\nsamdr.bat gui
 ```
 
-This opens:
+This opens the restored operator workflow GUI:
+
+```text
+tools/nsamdr/gui/nsamdr_v16_workflow_gui.py
+```
+
+The operator GUI again presents the normal workflow as **environment -> Raven
+Quick -> Main V16 Training -> Preview**, with stage controls, command preview,
+runtime progress/log output, experiment detection and qualified-preview
+selection.
+
+The previous structure-only V16.2 GUI is retained as an advanced diagnostics
+surface:
 
 ```text
 tools/nsamdr/gui/nsamdr_v16_structure_workflow_gui.py
 ```
 
-The current V16.2 GUI is the **structure/development workflow GUI**. It exposes the
-Stage 2 runtime, structure-support audit, boundary-profile audit, EVE corpus
-census, resume controls, and diagnostic/result openers.
+Use **Advanced diagnostics** in the operator GUI for the Stage 2 runtime,
+structure-support audit, boundary-profile audit and corpus-census controls.
 
-It does **not yet expose the new broad-authority D4 training recipe or the final
-main preview-training flow**. Those are still being proved through the bounded
-V16 diagnostics below. Once the current authority-diversity experiment is
-closed, the proven recipe should be wired back into the GUI rather than adding
-another parallel launcher.
+Main V16 Training is intentionally shown but locked until the current
+broad-authority D4 recipe is promoted into the canonical workflow. The GUI will
+not silently route that stage to the obsolete V9 full-training implementation.
 
 ### Validate the active checkout
 
@@ -152,10 +161,11 @@ README.
 
 ### Current GUI/production status
 
-The historical README described a V9 production GUI and a `full-train` command.
-Those instructions are now stale: the active branch is V16.2, the GUI entrypoint
-is `nsamdr_v16_structure_workflow_gui.py`, and the current CLI does not expose a
-`full-train` command.
+The historical README described the older V9 production implementation and a
+`full-train` command. The operator-style GUI has now been restored for V16.2,
+but the old V9 full-training command has **not** been revived. Main V16 Training
+remains locked until the current broad-authority/D4 recipe is promoted into the
+canonical training workflow.
 
 The intended end state remains the same operator flow:
 
