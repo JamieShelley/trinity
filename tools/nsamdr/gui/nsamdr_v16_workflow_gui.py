@@ -828,9 +828,11 @@ class App:
         if not ADVANCED_GUI.is_file():
             messagebox.showerror("NSAMDR", f"Missing advanced GUI:\n{ADVANCED_GUI}")
             return
+        cuda_python = REPO_ROOT / "artifacts/nsamdr/python-env/Scripts/python.exe"
+        python = cuda_python if cuda_python.is_file() else Path(sys.executable)
         try:
             subprocess.Popen(
-                [sys.executable, "-u", str(ADVANCED_GUI)],
+                [str(python), "-u", str(ADVANCED_GUI)],
                 cwd=REPO_ROOT,
             )
         except OSError as exc:
