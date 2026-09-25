@@ -533,9 +533,14 @@ class App:
                 "fast",
                 ("optimized", "fast", "balanced", "compatibility"),
             )
-            self._row("Workers", "workers", "4")
+            self._row("Workers", "workers", "0" if os.name == "nt" else "4")
             self._row("Prefetch", "prefetch", "2")
             self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
+            if os.name == "nt":
+                self._label(
+                    "Windows safety",
+                    "Workers=0 avoids the multiprocessing/pinned-transfer path during Raven Quick.",
+                )
 
         elif stage_id == "train":
             self._label("Model", "V16.2 broad-authority production candidate")
