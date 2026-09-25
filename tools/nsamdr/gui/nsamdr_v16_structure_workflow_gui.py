@@ -126,7 +126,7 @@ def _latest_census() -> Path | None:
 class App:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("NSAMDR V16.2 Structure Workflow")
+        self.root.title("NSAMDR V16.2 Advanced Diagnostics")
         self.root.geometry("1040x620")
         self.processes: dict[str, subprocess.Popen[object]] = {}
         self.log_handles: dict[str, IO[str]] = {}
@@ -143,14 +143,14 @@ class App:
         outer.pack(fill="both", expand=True)
         ttk.Label(
             outer,
-            text="NSAMDR V16.2",
+            text="NSAMDR V16.2 Advanced Diagnostics",
             font=("Segoe UI", 16, "bold"),
         ).pack(anchor="w")
         ttk.Label(
             outer,
             text=(
-                "Active path: authored LR maps -> shared structure -> boundary profiles -> "
-                "existing V16 reconstruction body."
+                "Research/diagnostic tools. Use the main NSAMDR Workflow GUI for the "
+                "operator training and preview pipeline."
             ),
         ).pack(anchor="w", pady=(2, 12))
 
