@@ -27,7 +27,7 @@ if /I "%COMMAND%"=="stage2-summary" goto :collect
 goto :cli
 
 :gui
-"%PYTHON%" -u "%ROOT%\tools\nsamdr\gui\nsamdr_v16_structure_workflow_gui.py"
+"%PYTHON%" -u "%ROOT%\tools\nsamdr\gui\nsamdr_v16_workflow_gui.py"
 exit /b %ERRORLEVEL%
 
 :collect
