@@ -148,11 +148,16 @@ class NSAMDRCommandLineApplication:
         return ["--repo-root", os.fspath(REPO_ROOT), *arguments]
 
     def _configure_cuda_allocator_env(self, env: dict[str, str]) -> None:
-        if "PYTORCH_CUDA_ALLOC_CONF" not in env:
+        if "PYTORCH_CUDA_ALLOC_CONF" in env:
+            return
+        # The broad V16 diagnostics are stable on Windows without allocator
+        # overrides. Do not inject allocator tuning into the Raven workflow on
+        # Windows: PyTorch/CUDA native allocator teardown has aborted after the
+        # first training tile on the RTX 50-series path. Keep the environment
+        # default there and retain the explicit non-Windows policy only.
+        if os.name != "nt":
             env["PYTORCH_CUDA_ALLOC_CONF"] = (
-                "garbage_collection_threshold:0.80"
-                if os.name == "nt"
-                else "expandable_segments:True,garbage_collection_threshold:0.80"
+                "expandable_segments:True,garbage_collection_threshold:0.80"
             )
 
     def _git_output(self, *arguments: str) -> tuple[int, str]:
@@ -432,7 +437,7 @@ class NSAMDRCommandLineApplication:
             default="cuda",
         )
         quick.add_argument("--performance-profile", default="fast")
-        quick.add_argument("--workers", type=int, default=4)
+        quick.add_argument("--workers", type=int, default=(0 if os.name == "nt" else 4))
         quick.add_argument("--prefetch-factor", type=int, default=2)
         quick.add_argument(
             "--amp-precision",
