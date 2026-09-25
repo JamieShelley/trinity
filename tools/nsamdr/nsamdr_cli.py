@@ -274,6 +274,29 @@ class NSAMDRCommandLineApplication:
         code = self._cuda_preflight(python, env)
         if code:
             return code
+
+        forwarded = [
+            "--shared-cache", args.shared_cache,
+            "--max-train-regions", str(args.max_train_regions),
+            "--max-validation-regions", str(args.max_validation_regions),
+            "--experiment", args.experiment,
+            "--control", args.control,
+            "--preview-target-size", str(args.preview_target_size),
+            "--preview-device", args.preview_device,
+            "--performance-profile", args.performance_profile,
+            "--workers", str(args.workers),
+            "--prefetch-factor", str(args.prefetch_factor),
+            "--amp-precision", args.amp_precision,
+        ]
+        if args.rebuild_dataset:
+            forwarded.append("--rebuild-dataset")
+        if args.live_preview_during_training:
+            forwarded += [
+                "--live-preview-during-training",
+                "--live-preview-target-size",
+                str(args.live_preview_target_size),
+            ]
+
         return self._run(
             [
                 python,
@@ -281,7 +304,7 @@ class NSAMDRCommandLineApplication:
                 NEURAL_ROOT / "v14/workflow.py",
                 "--training-mode",
                 "quick",
-                *self._repo_args(args.arguments),
+                *self._repo_args(forwarded),
             ],
             env=env,
         )
@@ -396,7 +419,28 @@ class NSAMDRCommandLineApplication:
         setup.set_defaults(handler=self._command_setup)
 
         quick = commands.add_parser("raven-quick")
-        quick.add_argument("arguments", nargs=argparse.REMAINDER)
+        quick.add_argument("--shared-cache", default=r"C:\CCP\EVE")
+        quick.add_argument("--max-train-regions", type=int, default=16)
+        quick.add_argument("--max-validation-regions", type=int, default=4)
+        quick.add_argument("--experiment", default="new")
+        quick.add_argument("--control", default="auto")
+        quick.add_argument("--preview-target-size", type=int, default=4096)
+        quick.add_argument(
+            "--preview-device",
+            choices=("cuda", "cpu", "auto"),
+            default="cuda",
+        )
+        quick.add_argument("--performance-profile", default="fast")
+        quick.add_argument("--workers", type=int, default=4)
+        quick.add_argument("--prefetch-factor", type=int, default=2)
+        quick.add_argument(
+            "--amp-precision",
+            choices=("auto", "bf16", "fp16"),
+            default="auto",
+        )
+        quick.add_argument("--rebuild-dataset", action="store_true")
+        quick.add_argument("--live-preview-during-training", action="store_true")
+        quick.add_argument("--live-preview-target-size", type=int, default=1024)
         quick.set_defaults(handler=self._command_raven_quick)
 
         index = commands.add_parser("index")
