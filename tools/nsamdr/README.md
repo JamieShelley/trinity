@@ -272,7 +272,24 @@ From D4 112 -> 224, train recovery continues rising while held-out global is fla
 
 Production qualification is still far away. The held-out global/edge/gradient medians remain well below 45/60/35%, production-style maximum lattice is about 29.25% (>15%), and worst global recovery is about -53.9% (< -10%). Do not extend the 16-authority D4 checkpoint further.
 
-The next controlled diagnostic increases **authority diversity**, preserving D4 augmentation and two crops per authority. Use 32 authorities. Run 56 updates/crop for 3584 total updates and 112 updates/crop for 7168 total updates. These stages exactly match the total budgets of the 16-authority D4 @112 and @224 checkpoints while halving per-crop repetition. The original 16-authority selection remains the deterministic prefix of the 32-authority set. This isolates whether more independent ship/authority structure improves unseen recovery better than more repetitions of the same crops.
+The **32-authority D4 diversity diagnostic** is complete through 56 updates per crop (3584 total updates). It preserves the original 16-authority set as the deterministic prefix, adds 16 independent train authorities, keeps two authored crops per authority and the same eight D4 transforms, and halves per-crop repetition relative to the 16-authority D4 @112 comparison.
+
+```text
+same total budget: 3584 updates
+
+                         16 auth D4 @112   32 auth D4 @56
+held global                   15.85%            16.10%
+held edge                     13.61%            17.24%
+held gradient                 14.38%            14.96%
+held 1px detail                2.67%             5.77%
+held lattice                  13.36%            18.61%
+```
+
+Authority diversity improves every held-out reconstruction/detail recovery metric at the same total update budget: about +0.25pp global, +3.63pp edge, +0.58pp gradient and +3.10pp 1px detail. The 1px positive fraction reaches about 81.6%, global positive fraction about 89.5%, edge about 84.2%, and gradient is positive for all 38 held-out authorities. This is strong evidence that broader authority diversity is useful.
+
+The trade-off is lattice. Median held-out lattice rises from 13.36% to 18.61%, with a maximum near 29.2%; the 64 fixed-orientation train crops are also under-fit at this halfway stage (about 15.5% global / 15.7% edge / 14.8% gradient, median lattice about 19.6%). This is consistent with the 32-authority run having half as many updates per crop rather than evidence that authority diversity itself is harmful.
+
+Continue the same 32-authority checkpoint to 112 updates per crop. That reaches 7168 total updates, exactly matching the 16-authority D4 @224 budget. The key decision is whether the extra optimization recovers lattice while preserving the clear edge/1px benefit from authority diversity.
 
 Matched held-out preview panels should still be inspected before any claim that 1px panel-boundary quality is visually solved.
 
@@ -345,9 +362,14 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
     -> held residual cosine ~0.54; candidate/target ratio ~0.66; sign agreement ~76.1%
     -> production-style max lattice still fails at ~29.25%; worst global ~-53.9%
     -> 16-authority D4 is plateauing; do not extend it further
-    -> next: 32 authorities x 2 crops x D4
-    -> stages 56/crop = 3584 total and 112/crop = 7168 total
-    -> compare directly against 16-authority D4 at identical total-update budgets
+    -> 32-authority D4 @56/crop = 3584 total complete
+    -> vs 16-authority D4 @112 at same budget: global 15.85 -> 16.10, edge 13.61 -> 17.24
+    -> gradient 14.38 -> 14.96, 1px +2.67 -> +5.77
+    -> median lattice worsens 13.36 -> 18.61; max ~29.2
+    -> 64 train crops still under-fit: global/edge/gradient ~15-16%, lattice ~19.6
+    -> authority diversity is beneficial, but half-budget-per-crop is not enough for lattice cleanup
+    -> next: resume same 32-authority checkpoint to 112/crop = matched 7168 total updates
+    -> compare against 16-authority D4 @224 at identical total budget
     -> do not change architecture/loss or resume broad training to 894 yet
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
@@ -355,7 +377,7 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. Capacity diagnostics are closed. D4 augmentation is validated as a useful generalisation direction, but the 16-authority D4 run plateaus by 224 updates/crop and still fails production recovery and max-lattice requirements. Do not train it further. Increase the controlled authority set to 32 while preserving two crops, D4 augmentation and matched total-update budgets (56/112 updates per crop). Use that result before changing architecture or loss. Material semantics and BenefitSelector remain unresolved.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. Capacity diagnostics are closed. D4 augmentation and increased authority diversity are both now supported by held-out evidence. At the matched 3584-update budget, 32 authorities improve edge and 1px transfer materially over 16 authorities, but the lower updates-per-crop leave lattice under-trained. Resume the same 32-authority checkpoint to 112 updates/crop for the matched 7168-update comparison before changing architecture or loss. Material semantics and BenefitSelector remain unresolved.
 
 ## Candidate qualification gates
 
