@@ -118,9 +118,12 @@ Run the promoted broad-authority recipe directly:
 scripts\build\nsamdr.bat main-train
 ```
 
-The same command is available from **Main V16 Training** in the GUI. The default
-fresh run uses all 298 train authorities / 596 authored train crops, deterministic
-D4 augmentation, and checkpoints at:
+The same command is available from **Main V16 Training** in the GUI. A default
+fresh Main V16 run loads the proven broad step596 model weights, resets Adam, then
+trains all 298 train authorities / 596 authored train crops with deterministic
+D4 augmentation. This mirrors the successful D4 diagnostics' weights-only
+fine-tuning setup while expanding exposure to the complete training authority
+set. Checkpoints are written at:
 
 ```text
 596   = each authored train crop once, D4 variant 0
@@ -607,16 +610,19 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
     -> global/edge positive fractions ~92.1%, gradient ~97.4%, 1px ~81.6%
     -> 64 train crops remain under-fit at ~19-20% global/edge and ~18.2% lattice
     -> authority diversity decision CLOSED: broader authority exposure is beneficial
-    -> next: promote D4 + authority-balanced training into canonical Main V16 Training
-    -> produce research preview without weakening production qualification gates
-    -> do not resume broad596 -> 894 or change architecture/loss first
+    -> Main V16 research path now integrated into GUI/CLI
+    -> initialization: broad step596 model weights, fresh Adam state
+    -> all 298 train authorities / 596 crops, deterministic D4 cyclic augmentation
+    -> checkpoints: 596, 1192, 2384, 4768 for first complete D4 pass
+    -> NEXT: run Main V16 Training and inspect held-out preview/metrics
+    -> do not resume legacy broad596 -> 894 or change architecture/loss first
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
 13. Raven / production Quick
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not resume the full-capacity model from 596 to 894. Capacity diagnostics are closed. D4 augmentation and increased authority diversity are both now supported by the matched 3584- and 7168-update comparisons. The 32-authority @112 result improves held-out global/edge/gradient and fine-detail transfer over 16-authority D4 at identical total compute, while remaining under-fit and still failing absolute recovery/lattice gates. The bounded diversity question is therefore closed. Promote D4 + authority-balanced exposure into the canonical Main V16 Training / research-preview path next; keep production gates unchanged. Material semantics and BenefitSelector remain unresolved.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model from 596 to 894. Capacity diagnostics are closed. D4 augmentation and increased authority diversity are both now supported by the matched 3584- and 7168-update comparisons. The 32-authority @112 result improves held-out global/edge/gradient and fine-detail transfer over 16-authority D4 at identical total compute, while remaining under-fit and still failing absolute recovery/lattice gates. The bounded diversity question is therefore closed. D4 + authority-balanced exposure is now integrated into the canonical Main V16 Training research-preview path. The next evidence is the broad 298-authority run and its held-out preview/metrics; production gates remain unchanged. Material semantics and BenefitSelector remain unresolved.
 
 ## Candidate qualification gates
 
