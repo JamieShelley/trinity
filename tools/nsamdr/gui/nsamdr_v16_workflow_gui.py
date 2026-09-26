@@ -6,10 +6,9 @@ structure-only diagnostic GUI became the default. The diagnostic GUI remains
 available as an advanced tool; this file owns the normal setup -> development
 training -> main training -> preview workflow.
 
-Main V16 production training is intentionally locked until the current
-broad-authority D4 recipe is promoted from diagnostics into the canonical
-training workflow. The GUI must not silently route that button to an obsolete
-V9/V14 full-training path.
+Main V16 research training uses the promoted authority-balanced + deterministic
+D4 recipe. It remains explicitly non-promotable until the existing candidate,
+material and BenefitSelector qualification gates are satisfied.
 """
 from __future__ import annotations
 
@@ -73,7 +72,7 @@ STAGES = (
         "train",
         "2",
         "Main V16 Training",
-        "Train the promoted broad-authority V16 production candidate.",
+        "Train the promoted broad-authority V16 research candidate and generate held-out previews.",
     ),
     Stage(
         "preview",
