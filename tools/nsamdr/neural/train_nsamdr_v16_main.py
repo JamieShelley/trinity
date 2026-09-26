@@ -15,7 +15,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from probe_nsamdr_v16_full_broad import DEFAULT_MANIFEST, run as run_full_broad
+try:
+    from .probe_nsamdr_v16_full_broad import DEFAULT_MANIFEST, run as run_full_broad
+except ImportError:
+    from probe_nsamdr_v16_full_broad import DEFAULT_MANIFEST, run as run_full_broad
 
 
 POINTER_SCHEMA = "NSAMDR_V16_MAIN_RESEARCH_TRAINING_V1"
