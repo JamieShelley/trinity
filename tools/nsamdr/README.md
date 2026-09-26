@@ -92,13 +92,21 @@ Rebuild it explicitly:
 scripts\build\nsamdr.bat index raven --rebuild
 ```
 
-Run the current Raven Quick workflow:
+Run the Raven Quick qualification baseline:
 
 ```bat
 scripts\build\nsamdr.bat raven-quick
 ```
 
 The CLI performs source-freshness and CUDA preflight checks before training.
+
+Raven Quick is currently the **legacy deterministic V16.0 Raven baseline**. It
+does not yet include the D4 + broad-authority recipe being qualified in the
+active V16.2 diagnostics. Exit code `2` after all SR epochs can therefore mean
+**candidate qualification rejected**, not a software/runtime failure. The
+operator GUI reports that state as `rejected` and can open the latest
+diagnostic `A/B/C/F` training preview even when the candidate is not
+production-qualified.
 
 Preview an existing experiment:
 
