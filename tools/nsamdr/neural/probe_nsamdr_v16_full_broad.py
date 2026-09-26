@@ -35,7 +35,7 @@ if str(HERE) not in sys.path:
 
 from v14.config import V16Config
 from v14.qualification import sample_metrics
-from v16.broad_prior import AuthorityBalancedSRDataset
+from v16.broad_prior import AUGMENTATION_POLICIES, AuthorityBalancedSRDataset
 from v16.conditioning import StructureConditionedV16Candidate
 
 
@@ -498,6 +498,7 @@ def _train_segment(
     device: torch.device,
     seed: int,
     precision: str,
+    augmentation_policy: str,
 ) -> dict[str, Any]:
     if end_step <= start_step:
         raise ValueError("end_step must be greater than start_step")
@@ -509,6 +510,7 @@ def _train_segment(
         end_step,
         seed=seed,
         degradation="clean",
+        augmentation_policy=augmentation_policy,
     )
     loader = DataLoader(
         Subset(dataset, range(start_step, end_step)),
@@ -593,6 +595,7 @@ def _train_segment(
         "elapsedSeconds": time.monotonic() - started,
         "availableTrainAuthorityCount": int(dataset.authority_count),
         "visitedAuthorityCount": _visited_authorities(dataset, start_step, end_step),
+        "augmentationPolicy": str(augmentation_policy),
     }
     result.update(_vram(device))
     return result
@@ -854,6 +857,7 @@ def _evaluate(
     precision: str,
     preview_root: Path | None = None,
     preview_samples: int = 0,
+    augmentation_policy: str = "legacy-random",
 ) -> dict[str, Any]:
     dataset = AuthorityBalancedSRDataset(
         manifest,
@@ -862,6 +866,7 @@ def _evaluate(
         samples,
         seed=seed,
         degradation="clean",
+        augmentation_policy=augmentation_policy,
     )
     loader = DataLoader(
         dataset,
@@ -1306,6 +1311,7 @@ def _save_checkpoint(
     seed: int,
     manifest_path: Path,
     curve: list[dict[str, Any]],
+    augmentation_policy: str,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
@@ -1315,6 +1321,7 @@ def _save_checkpoint(
             "seed": int(seed),
             "manifest": str(manifest_path),
             "config": config.to_dict(),
+            "augmentationPolicy": str(augmentation_policy),
             "modelState": model.state_dict(),
             "optimizerState": optimizer.state_dict(),
             "curve": curve,
@@ -1335,6 +1342,7 @@ def _load_checkpoint(
     int,
     int,
     list[dict[str, Any]],
+    str,
 ]:
     try:
         payload = torch.load(path, map_location=device, weights_only=False)
@@ -1365,6 +1373,7 @@ def _load_checkpoint(
         int(payload["step"]),
         int(payload["seed"]),
         list(payload.get("curve") or []),
+        str(payload.get("augmentationPolicy") or "legacy-random"),
     )
 
 
@@ -1392,6 +1401,7 @@ def _write_report(
     requested_stages: list[int],
     curve: list[dict[str, Any]],
     checkpoint_path: Path,
+    augmentation_policy: str,
 ) -> Path:
     final = curve[-1]
     report = {
@@ -1400,6 +1410,7 @@ def _write_report(
         "manifest": str(manifest_path),
         "authoritySplit": manifest.get("authoritySplit"),
         "samplingPolicy": "authority-balanced-complete-cycle-before-repeat",
+        "augmentationPolicy": str(augmentation_policy),
         "architecture": {
             "kind": "production-size-v16-plus-structure-conditioning",
             "hrSize": config.train_hr_size,
@@ -1437,6 +1448,7 @@ def _write_report(
         "=" * 86,
         f"Architecture        : 96ch, 6x6 Swin, depth {config.swin_depth}, HR {config.train_hr_size}",
         f"Completed stages    : {report['completedStages']}",
+        f"Augmentation        : {augmentation_policy}",
         f"Held-out authorities: {final['validation']['heldOutAuthorityCount']}",
         f"Seen diag authorities: {final.get('trainValidation', {}).get('authorityCount', 0)}",
         f"Seen global recovery: {final.get('trainValidation', {}).get('median_global_recovery', float('nan'))*100:+.2f}%",
@@ -1501,6 +1513,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             start_step,
             seed,
             curve,
+            checkpoint_augmentation_policy,
         ) = _load_checkpoint(
             checkpoint_source,
             device=device,
@@ -1511,6 +1524,13 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             raise RuntimeError(
                 f"resume HR size is {config.train_hr_size}, not requested {args.hr_size}"
             )
+        if str(args.augmentation_policy) != checkpoint_augmentation_policy:
+            raise RuntimeError(
+                "resume augmentation policy mismatch: "
+                f"checkpoint={checkpoint_augmentation_policy} "
+                f"requested={args.augmentation_policy}"
+            )
+        augmentation_policy = checkpoint_augmentation_policy
     else:
         seed = int(args.seed)
         config = _full_config(
@@ -1526,6 +1546,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         optimizer = _optimizer(model, config)
         start_step = 0
         curve: list[dict[str, Any]] = []
+        augmentation_policy = str(args.augmentation_policy)
         run_dir = _run_directory(repo_root)
 
     remaining = [stage for stage in stages if stage > start_step]
@@ -1550,6 +1571,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     print(f"Held-out auth.    : {validation_families}", flush=True)
     print(f"Train diag samples: {train_validation_samples}", flush=True)
     print(f"Preview samples   : {args.preview_samples}", flush=True)
+    print(f"Augmentation      : {augmentation_policy}", flush=True)
 
     checkpoint_path = run_dir / "resume_checkpoint.pt"
 
@@ -1568,6 +1590,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             precision=args.amp_precision,
             preview_root=preview_root,
             preview_samples=int(args.preview_samples),
+            augmentation_policy=augmentation_policy,
         )
         train_validation = _evaluate(
             model,
@@ -1578,6 +1601,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             device=device,
             seed=seed + 8001,
             precision=args.amp_precision,
+            augmentation_policy=augmentation_policy,
         )
         ablation_summary = _write_unit_slope_summary(
             preview_root,
@@ -1644,6 +1668,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             device=device,
             seed=seed,
             precision=args.amp_precision,
+            augmentation_policy=augmentation_policy,
         )
         preview_root = run_dir / "previews" / f"step_{end_step:06d}"
         validation = _evaluate(
@@ -1657,6 +1682,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             precision=args.amp_precision,
             preview_root=preview_root,
             preview_samples=int(args.preview_samples),
+            augmentation_policy=augmentation_policy,
         )
         train_validation = _evaluate(
             model,
@@ -1667,6 +1693,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             device=device,
             seed=seed + 8001,
             precision=args.amp_precision,
+            augmentation_policy=augmentation_policy,
         )
         item = {
             "step": int(end_step),
@@ -1685,6 +1712,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             seed=seed,
             manifest_path=manifest_path,
             curve=curve,
+            augmentation_policy=augmentation_policy,
         )
         start_step = end_step
 
@@ -1709,6 +1737,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         requested_stages=stages,
         curve=curve,
         checkpoint_path=checkpoint_path,
+        augmentation_policy=augmentation_policy,
     )
     return 0, report_path
 
@@ -1757,6 +1786,12 @@ def parser() -> argparse.ArgumentParser:
         "--amp-precision",
         choices=("auto", "bf16", "fp16"),
         default="auto",
+    )
+    value.add_argument(
+        "--augmentation-policy",
+        choices=AUGMENTATION_POLICIES,
+        default="legacy-random",
+        help="training augmentation; d4-cyclic is the promoted broad-authority recipe",
     )
     value.add_argument(
         "--resume",
