@@ -41,9 +41,11 @@ tools/nsamdr/gui/nsamdr_v16_structure_workflow_gui.py
 Use **Advanced diagnostics** in the operator GUI for the Stage 2 runtime,
 structure-support audit, boundary-profile audit and corpus-census controls.
 
-Main V16 Training is intentionally shown but locked until the current
-broad-authority D4 recipe is promoted into the canonical workflow. The GUI will
-not silently route that stage to the obsolete V9 full-training implementation.
+Main V16 Training is now wired to the evidence-backed research recipe:
+authority-balanced broad-authority sampling plus deterministic D4 augmentation.
+It produces held-out research previews and resumable checkpoints. It is **not**
+a production promotion path: candidate, material and BenefitSelector gates remain
+unchanged and still block production qualification.
 
 ### Validate the active checkout
 
@@ -108,6 +110,45 @@ operator GUI reports that state as `rejected` and can open the latest
 diagnostic `A/B/C/F` training preview even when the candidate is not
 production-qualified.
 
+### Main V16 research training
+
+Run the promoted broad-authority recipe directly:
+
+```bat
+scripts\build\nsamdr.bat main-train
+```
+
+The same command is available from **Main V16 Training** in the GUI. The default
+fresh run uses all 298 train authorities / 596 authored train crops, deterministic
+D4 augmentation, and checkpoints at:
+
+```text
+596   = each authored train crop once, D4 variant 0
+1192  = two D4 variants per crop
+2384  = four D4 variants per crop
+4768  = one complete 8-variant D4 pass per crop
+```
+
+The run evaluates all held-out authorities at each stage and writes visual
+comparisons under the run's `previews/step_NNNNNN/` directory. The GUI button
+**Open latest Main V16 research preview** opens the latest held-out
+`albedo_comparison.png`.
+
+Latest-run metadata is written to:
+
+```text
+artifacts/nsamdr/main_training/latest.json
+```
+
+To continue a completed one-pass run into a second D4 pass:
+
+```bat
+scripts\build\nsamdr.bat main-train --d4-passes 2 --resume <resume_checkpoint.pt>
+```
+
+This path is deliberately labelled research training. It does not lower or
+bypass candidate qualification gates and does not promote a production final.
+
 Preview an existing experiment:
 
 ```bat
@@ -170,10 +211,12 @@ README.
 ### Current GUI/production status
 
 The historical README described the older V9 production implementation and a
-`full-train` command. The operator-style GUI has now been restored for V16.2,
-but the old V9 full-training command has **not** been revived. Main V16 Training
-remains locked until the current broad-authority/D4 recipe is promoted into the
-canonical training workflow.
+`full-train` command. The old V9 full-training command has **not** been revived.
+Instead, **Main V16 Training** now runs the promoted V16.2 research recipe:
+authority-balanced broad-authority sampling with deterministic D4 augmentation.
+It emits resumable checkpoints, held-out metrics and research preview panels,
+but cannot create a production final until the existing qualification chain is
+satisfied.
 
 The intended end state remains the same operator flow:
 
@@ -187,8 +230,9 @@ GUI
  -> launch A RAW SOURCE vs B NSAMDR FINAL
 ```
 
-The current work is closing the training recipe before that main GUI path is
-re-enabled.
+The training recipe is now integrated into the main GUI research path. The next
+evidence comes from that broad Main V16 run and its held-out previews; production
+promotion remains gated exactly as before.
 
 `EXAMPLE.png` is the visual target. `NSAMDR_FULL_SYSTEM_ARCHITECTURE.png` is the long-term production-system target; experimental branches must still earn their place through held-out evidence.
 
@@ -644,6 +688,7 @@ Historical V9-V13 model/training implementations are retired. A minimal `v9/` co
 
 ```bat
 scripts\build\nsamdr.bat gui
+scripts\build\nsamdr.bat main-train
 scripts\build\nsamdr.bat eve-census
 scripts\build\nsamdr.bat structure-audit
 scripts\build\nsamdr.bat boundary-profile-audit
