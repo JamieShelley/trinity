@@ -56,6 +56,7 @@ CURRENT_TESTS = (
     "tools.nsamdr.neural.test_nsamdr_v16_dataset_split",
     "tools.nsamdr.neural.test_nsamdr_v16_multifamily_balance",
     "tools.nsamdr.neural.test_nsamdr_eve_corpus_census",
+    "tools.nsamdr.neural.test_nsamdr_v16_main_training",
     "tools.nsamdr.gui.test_nsamdr_v16_workflow_gui",
     "tools.nsamdr.test_nsamdr_cli",
 )
