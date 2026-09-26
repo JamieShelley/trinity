@@ -36,6 +36,7 @@ REQUIRED_LAYOUT = (
     "tools/nsamdr/neural/v14/inference.py",
     "tools/nsamdr/neural/v14/trainer.py",
     "tools/nsamdr/neural/v14/workflow.py",
+    "tools/nsamdr/neural/train_nsamdr_v16_main.py",
     "tools/nsamdr/neural/v14/preview.py",
     "tools/nsamdr/neural/v14/safe_live_resume_monitored_fourfamily_multiregion_diagnostic.py",
     "tools/nsamdr/neural/v16/structure.py",
@@ -315,6 +316,39 @@ class NSAMDRCommandLineApplication:
             env=env,
         )
 
+    def _command_main_train(self, args: argparse.Namespace) -> int:
+        source_code = self._source_freshness_preflight()
+        if source_code:
+            return source_code
+        python = self._python("cuda")
+        env = os.environ.copy()
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        self._configure_cuda_allocator_env(env)
+        code = self._cuda_preflight(python, env)
+        if code:
+            return code
+
+        forwarded = [
+            "--device", args.device,
+            "--amp-precision", args.amp_precision,
+            "--d4-passes", str(args.d4_passes),
+            "--preview-samples", str(args.preview_samples),
+        ]
+        if args.resume:
+            forwarded += ["--resume", args.resume]
+
+        return self._run(
+            [
+                python,
+                "-u",
+                NEURAL_ROOT / "train_nsamdr_v16_main.py",
+                "--repo-root",
+                REPO_ROOT,
+                *forwarded,
+            ],
+            env=env,
+        )
+
     def _command_index_raven(self, args: argparse.Namespace) -> int:
         forwarded = [
             "--shared-cache", args.shared_cache,
@@ -448,6 +482,22 @@ class NSAMDRCommandLineApplication:
         quick.add_argument("--live-preview-during-training", action="store_true")
         quick.add_argument("--live-preview-target-size", type=int, default=1024)
         quick.set_defaults(handler=self._command_raven_quick)
+
+        main_train = commands.add_parser("main-train")
+        main_train.add_argument(
+            "--device",
+            choices=("auto", "cpu", "cuda"),
+            default="cuda",
+        )
+        main_train.add_argument(
+            "--amp-precision",
+            choices=("auto", "bf16", "fp16"),
+            default="auto",
+        )
+        main_train.add_argument("--d4-passes", type=int, default=1)
+        main_train.add_argument("--preview-samples", type=int, default=4)
+        main_train.add_argument("--resume", default="")
+        main_train.set_defaults(handler=self._command_main_train)
 
         index = commands.add_parser("index")
         index_commands = index.add_subparsers(dest="index_name", required=True)
