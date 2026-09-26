@@ -458,24 +458,30 @@ From D4 112 -> 224, train recovery continues rising while held-out global is fla
 
 Production qualification is still far away. The held-out global/edge/gradient medians remain well below 45/60/35%, production-style maximum lattice is about 29.25% (>15%), and worst global recovery is about -53.9% (< -10%). Do not extend the 16-authority D4 checkpoint further.
 
-The **32-authority D4 diversity diagnostic** is complete through 56 updates per crop (3584 total updates). It preserves the original 16-authority set as the deterministic prefix, adds 16 independent train authorities, keeps two authored crops per authority and the same eight D4 transforms, and halves per-crop repetition relative to the 16-authority D4 @112 comparison.
+The **32-authority D4 diversity diagnostic** is complete through 112 updates per crop (7168 total updates). It preserves the original 16-authority set as the deterministic prefix, adds 16 independent train authorities, keeps two authored crops per authority and the same eight D4 transforms.
 
 ```text
-same total budget: 3584 updates
+matched total budget: 7168 updates
 
-                         16 auth D4 @112   32 auth D4 @56
-held global                   15.85%            16.10%
-held edge                     13.61%            17.24%
-held gradient                 14.38%            14.96%
-held 1px detail                2.67%             5.77%
-held lattice                  13.36%            18.61%
+                         16 auth D4 @224   32 auth D4 @112
+held global                   15.73%            17.39%
+held edge                     15.76%            18.09%
+held gradient                 15.22%            16.85%
+held 1px detail                1.48%             5.92%
+held 2px detail                8.19%            12.81%
+held 4px detail               18.04%            19.15%
+held normal                   23.62%            24.03%
+held lattice                  10.58%            16.70%
+max lattice                   29.25%            27.85%
 ```
 
-Authority diversity improves every held-out reconstruction/detail recovery metric at the same total update budget: about +0.25pp global, +3.63pp edge, +0.58pp gradient and +3.10pp 1px detail. The 1px positive fraction reaches about 81.6%, global positive fraction about 89.5%, edge about 84.2%, and gradient is positive for all 38 held-out authorities. This is strong evidence that broader authority diversity is useful.
+At identical total compute, increasing authority diversity improves every held-out reconstruction/detail metric, especially edge (+2.33pp) and 1px detail (+4.44pp). Positive fractions also strengthen: global and edge reach about 92.1%, gradient about 97.4%, and 1px detail about 81.6%. The worst global sample improves from about -53.9% to -43.9%, but remains far outside production tolerance.
 
-The trade-off is lattice. Median held-out lattice rises from 13.36% to 18.61%, with a maximum near 29.2%; the 64 fixed-orientation train crops are also under-fit at this halfway stage (about 15.5% global / 15.7% edge / 14.8% gradient, median lattice about 19.6%). This is consistent with the 32-authority run having half as many updates per crop rather than evidence that authority diversity itself is harmful.
+The 32-authority continuation from 56 -> 112 updates/crop also keeps improving rather than collapsing: global rises about 16.10 -> 17.39, edge 17.24 -> 18.09, gradient 14.96 -> 16.85 and median lattice improves about 18.61 -> 16.70. Residual cosine rises to about 0.553 and weighted sign agreement to about 77.0%. This confirms that the broader-authority model is still optimization-limited rather than showing the severe fixed-crop overfit seen earlier.
 
-Continue the same 32-authority checkpoint to 112 updates per crop. That reaches 7168 total updates, exactly matching the 16-authority D4 @224 budget. The key decision is whether the extra optimization recovers lattice while preserving the clear edge/1px benefit from authority diversity.
+The remaining trade-off is lattice and absolute qualification distance. Median lattice is still 16.70% and production-style maximum lattice is about 27.85%; global/edge/gradient are still far below 45/60/35%, and worst global remains about -43.9%. The 64 fixed-orientation train crops are also still under-fit at about 19.4% global / 20.2% edge / 17.6% gradient, with median lattice about 18.2%.
+
+This closes the bounded authority-diversity decision. **D4 augmentation plus broader independent authority exposure is the training direction to promote into the canonical V16 preview-training workflow.** Do not spend another cycle on 16/32-authority fixed-budget microprobes. The next engineering task is to wire the proven augmentation/authority-balanced recipe into Main V16 Training and produce a research preview while keeping production qualification gates unchanged.
 
 Matched held-out preview panels should still be inspected before any claim that 1px panel-boundary quality is visually solved.
 
@@ -548,22 +554,25 @@ Each full-capacity checkpoint saves fixed held-out visual samples under `preview
     -> held residual cosine ~0.54; candidate/target ratio ~0.66; sign agreement ~76.1%
     -> production-style max lattice still fails at ~29.25%; worst global ~-53.9%
     -> 16-authority D4 is plateauing; do not extend it further
-    -> 32-authority D4 @56/crop = 3584 total complete
-    -> vs 16-authority D4 @112 at same budget: global 15.85 -> 16.10, edge 13.61 -> 17.24
-    -> gradient 14.38 -> 14.96, 1px +2.67 -> +5.77
-    -> median lattice worsens 13.36 -> 18.61; max ~29.2
-    -> 64 train crops still under-fit: global/edge/gradient ~15-16%, lattice ~19.6
-    -> authority diversity is beneficial, but half-budget-per-crop is not enough for lattice cleanup
-    -> next: resume same 32-authority checkpoint to 112/crop = matched 7168 total updates
-    -> compare against 16-authority D4 @224 at identical total budget
-    -> do not change architecture/loss or resume broad training to 894 yet
+    -> 32-authority D4 @56/crop = 3584 total: diversity improves edge/1px at matched compute
+    -> 32-authority D4 @112/crop = 7168 total complete
+    -> vs 16-authority D4 @224 at same budget:
+       global 15.73 -> 17.39, edge 15.76 -> 18.09
+       gradient 15.22 -> 16.85, 1px +1.48 -> +5.92
+       median lattice 10.58 -> 16.70, max lattice 29.25 -> 27.85
+    -> global/edge positive fractions ~92.1%, gradient ~97.4%, 1px ~81.6%
+    -> 64 train crops remain under-fit at ~19-20% global/edge and ~18.2% lattice
+    -> authority diversity decision CLOSED: broader authority exposure is beneficial
+    -> next: promote D4 + authority-balanced training into canonical Main V16 Training
+    -> produce research preview without weakening production qualification gates
+    -> do not resume broad596 -> 894 or change architecture/loss first
 11. Full Stage 2 qualification
 12. BenefitSelector qualification
 13. Raven / production Quick
 14. Highest-native-resolution renderer proof
 ```
 
-Do not extend the reduced proof to 8192. Do not resume the full-capacity model to 894. Capacity diagnostics are closed. D4 augmentation and increased authority diversity are both now supported by held-out evidence. At the matched 3584-update budget, 32 authorities improve edge and 1px transfer materially over 16 authorities, but the lower updates-per-crop leave lattice under-trained. Resume the same 32-authority checkpoint to 112 updates/crop for the matched 7168-update comparison before changing architecture or loss. Material semantics and BenefitSelector remain unresolved.
+Do not extend the reduced proof to 8192. Do not resume the full-capacity model from 596 to 894. Capacity diagnostics are closed. D4 augmentation and increased authority diversity are both now supported by the matched 3584- and 7168-update comparisons. The 32-authority @112 result improves held-out global/edge/gradient and fine-detail transfer over 16-authority D4 at identical total compute, while remaining under-fit and still failing absolute recovery/lattice gates. The bounded diversity question is therefore closed. Promote D4 + authority-balanced exposure into the canonical Main V16 Training / research-preview path next; keep production gates unchanged. Material semantics and BenefitSelector remain unresolved.
 
 ## Candidate qualification gates
 
