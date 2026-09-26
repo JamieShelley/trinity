@@ -226,7 +226,8 @@ class NSAMDRCommandLineApplication:
             )
             print(f"  local HEAD    : {head}", file=sys.stderr)
             print(f"  origin/NSAMDR : {remote_head}", file=sys.stderr)
-            print("  action        : git pull --ff-only", file=sys.stderr)
+            print("  action        : git fetch origin", file=sys.stderr)
+            print("                  git merge --ff-only origin/NSAMDR", file=sys.stderr)
             return 5
         print(f"[nsamdr] Source revision verified: NSAMDR {head}", flush=True)
         return 0
@@ -337,6 +338,8 @@ class NSAMDRCommandLineApplication:
         ]
         if args.resume:
             forwarded += ["--resume", args.resume]
+        elif args.initialize_from:
+            forwarded += ["--initialize-from", args.initialize_from]
 
         return self._run(
             [
@@ -498,6 +501,7 @@ class NSAMDRCommandLineApplication:
         main_train.add_argument("--d4-passes", type=int, default=1)
         main_train.add_argument("--preview-samples", type=int, default=4)
         main_train.add_argument("--resume", default="")
+        main_train.add_argument("--initialize-from", default="")
         main_train.set_defaults(handler=self._command_main_train)
 
         index = commands.add_parser("index")
