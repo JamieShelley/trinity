@@ -29,5 +29,22 @@ class NSAMDRCLITests(unittest.TestCase):
         self.assertEqual(args.amp_precision, "auto")
 
 
+    def test_main_train_accepts_operator_gui_arguments(self) -> None:
+        parser = NSAMDRCommandLineApplication().build_parser()
+        args = parser.parse_args(
+            [
+                "main-train",
+                "--device", "cuda",
+                "--amp-precision", "auto",
+                "--d4-passes", "1",
+                "--preview-samples", "4",
+            ]
+        )
+        self.assertEqual(args.device, "cuda")
+        self.assertEqual(args.amp_precision, "auto")
+        self.assertEqual(args.d4_passes, 1)
+        self.assertEqual(args.preview_samples, 4)
+
+
 if __name__ == "__main__":
     unittest.main()
