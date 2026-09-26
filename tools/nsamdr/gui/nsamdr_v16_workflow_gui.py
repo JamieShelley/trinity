@@ -172,8 +172,8 @@ class App:
         self.scope_text = tk.StringVar(value="Qualified production final: checking")
         self.recipe_text = tk.StringVar(
             value=(
-                "Main V16 training recipe: research qualification in progress; "
-                "production launch remains locked until the recipe is promoted."
+                "Main V16 training recipe selected: D4 augmentation + broader authority-balanced exposure. "
+                "Production launch remains locked until this recipe is wired into the canonical workflow."
             )
         )
         self.preview_target = tk.StringVar(value="")
@@ -574,9 +574,9 @@ class App:
             self._label(
                 "Current state",
                 (
-                    "Training recipe is still diagnostic-only. D4 augmentation and "
-                    "authority diversity have positive held-out evidence; the 32-authority "
-                    "matched-budget confirmation is the active decision point."
+                    "The 32-authority matched-budget proof is complete. D4 augmentation + "
+                    "broader authority exposure is now the selected training direction. "
+                    "Canonical Main V16 Training integration is the next engineering step."
                 ),
             )
             self._label(
