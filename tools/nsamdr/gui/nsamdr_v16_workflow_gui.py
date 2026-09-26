@@ -65,7 +65,7 @@ STAGES = (
         "quick",
         "1",
         "Raven Quick",
-        "Run the current canonical Raven development workflow.",
+        "Run the legacy deterministic Raven qualification baseline; useful for comparison, but it does not include the current D4/broad-authority research recipe.",
     ),
     Stage(
         "train",
@@ -216,6 +216,24 @@ class App:
     def _latest_qualified(self) -> str | None:
         values = self._experiment_ids(qualified_only=True)
         return values[-1] if values else None
+
+    def _latest_experiment(self, *, training_mode: str | None = None) -> str | None:
+        values = self._experiment_ids()
+        if training_mode is None:
+            return values[-1] if values else None
+        wanted = training_mode.lower()
+        for experiment_id in reversed(values):
+            payload = _read_json(EXPERIMENT_ROOT / experiment_id / "experiment.json") or {}
+            if str(payload.get("trainingMode") or "").lower() == wanted:
+                return experiment_id
+        return None
+
+    def _latest_training_preview(self) -> Path | None:
+        experiment_id = self._latest_experiment(training_mode="quick")
+        if experiment_id is None:
+            return None
+        candidate = EXPERIMENT_ROOT / experiment_id / "previews/live/latest_ABCF.png"
+        return candidate if candidate.is_file() else None
 
     def _cli_argv(self, *arguments: str) -> list[str]:
         return [sys.executable, "-u", str(CLI), *arguments]
@@ -518,8 +536,12 @@ class App:
         elif stage_id == "quick":
             experiments = ["new", *self._experiment_ids()]
             self._row("Experiment", "experiment", "new", experiments)
-            self._label("Model", "Current canonical NSAMDR development workflow")
+            self._label("Model", "Legacy V16.0 Raven qualification baseline")
             self._label("Dataset", "Raven deterministic development set")
+            self._label(
+                "Current relevance",
+                "This path predates the D4 + broad-authority recipe now being qualified. A qualification rejection here is expected evidence, not a software crash.",
+            )
             self._row("Shared cache", "cache", r"C:\CCP\EVE")
             self._row("Training regions", "train_crops", "16")
             self._row("Held-out regions", "validation_crops", "4")
@@ -536,6 +558,11 @@ class App:
             self._row("Workers", "workers", "0" if os.name == "nt" else "4")
             self._row("Prefetch", "prefetch", "2")
             self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
+            ttk.Button(
+                self.form,
+                text="Open latest Raven training preview",
+                command=self._open_latest_training_preview,
+            ).pack(anchor="w", pady=(8, 2))
             if os.name == "nt":
                 self._label(
                     "Windows safety",
@@ -648,8 +675,21 @@ class App:
             preview = _read_json(directory / "previews/preview_manifest.json") or {}
             preview_done = preview_done or preview.get("status") == "launched"
 
+        latest_quick = self._latest_experiment(training_mode="quick")
+        latest_quick_status = ""
+        if latest_quick is not None:
+            quick_payload = _read_json(EXPERIMENT_ROOT / latest_quick / "experiment.json") or {}
+            latest_quick_status = str(quick_payload.get("status") or "").lower()
+
         if self.active_stage != "quick":
-            statuses["quick"] = "completed" if "quick" in modes else "pending"
+            if "quick" in modes:
+                statuses["quick"] = "completed"
+            elif latest_quick_status == "training-rejected":
+                statuses["quick"] = "rejected"
+            elif latest_quick_status == "failed":
+                statuses["quick"] = "failed"
+            else:
+                statuses["quick"] = "pending"
         if self.active_stage != "train":
             statuses["train"] = "locked"
         if self.active_stage != "preview":
@@ -808,11 +848,31 @@ class App:
                     self.process = None
                     self.active_stage = None
                     self.progress["value"] = 100
+
+                    rejected = False
+                    rejected_experiment = None
+                    if stage_id == "quick" and code == 2:
+                        rejected_experiment = self._latest_experiment(training_mode="quick")
+                        if rejected_experiment is not None:
+                            manifest = _read_json(
+                                EXPERIMENT_ROOT / rejected_experiment / "experiment.json"
+                            ) or {}
+                            rejected = str(manifest.get("status") or "").lower() == "training-rejected"
+
                     if stage_id:
-                        self._set_status(stage_id, "completed" if code == 0 else "failed")
-                    self.progress_text.set(
-                        "Completed successfully" if code == 0 else f"Failed, exit code {code}"
-                    )
+                        if rejected:
+                            self._set_status(stage_id, "rejected")
+                        else:
+                            self._set_status(stage_id, "completed" if code == 0 else "failed")
+
+                    if rejected:
+                        self.progress_text.set(
+                            f"Training completed; {rejected_experiment} was rejected by candidate qualification"
+                        )
+                    else:
+                        self.progress_text.set(
+                            "Completed successfully" if code == 0 else f"Failed, exit code {code}"
+                        )
                     self.detect(silent=True)
                     self._update_run_state()
                 elif kind == "error":
@@ -828,6 +888,16 @@ class App:
         except queue.Empty:
             pass
         self.root.after(100, self._poll)
+
+    def _open_latest_training_preview(self) -> None:
+        preview = self._latest_training_preview()
+        if preview is None:
+            messagebox.showinfo(
+                "NSAMDR",
+                "No Raven diagnostic training preview is available yet.",
+            )
+            return
+        _open_path(preview)
 
     def _open_advanced_gui(self) -> None:
         if not ADVANCED_GUI.is_file():
