@@ -32,6 +32,49 @@ def _family_id(record: dict[str, Any]) -> str:
     return value
 
 
+D4_AUGMENTATION_VARIANTS = 8
+AUGMENTATION_POLICIES = ("legacy-random", "d4-cyclic")
+
+
+def _augment_d4(
+    albedo: np.ndarray,
+    normal: np.ndarray,
+    material: np.ndarray,
+    variant: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Apply one deterministic D4 transform with normal-vector correction."""
+
+    value = int(variant)
+    if value < 0 or value >= D4_AUGMENTATION_VARIANTS:
+        raise ValueError(
+            f"D4 augmentation variant must be 0..{D4_AUGMENTATION_VARIANTS - 1}"
+        )
+    turns = value % 4
+    mirror_x = value >= 4
+
+    if turns:
+        albedo = np.rot90(albedo, turns).copy()
+        normal = np.rot90(normal, turns).copy()
+        material = np.rot90(material, turns).copy()
+        for _ in range(turns):
+            x = normal[..., 0].copy()
+            y = normal[..., 1].copy()
+            normal[..., 0] = -y
+            normal[..., 1] = x
+    else:
+        albedo = np.ascontiguousarray(albedo)
+        normal = np.ascontiguousarray(normal)
+        material = np.ascontiguousarray(material)
+
+    if mirror_x:
+        albedo = albedo[:, ::-1].copy()
+        normal = normal[:, ::-1].copy()
+        material = material[:, ::-1].copy()
+        normal[..., 0] *= -1.0
+
+    return albedo, _normalise_xy(normal), material
+
+
 def authority_balanced_record_indices(
     records: list[dict[str, Any]],
     length: int,
@@ -82,16 +125,26 @@ class AuthorityBalancedSRDataset(Dataset[dict[str, torch.Tensor]]):
         *,
         seed: int,
         degradation: str,
+        augmentation_policy: str = "legacy-random",
     ) -> None:
         self.config = config
         self.split = str(split)
         self.seed = int(seed)
         self.degradation = str(degradation)
+        self.augmentation_policy = str(augmentation_policy)
+        if self.augmentation_policy not in AUGMENTATION_POLICIES:
+            raise ValueError(
+                f"unknown broad-prior augmentation policy: {self.augmentation_policy}"
+            )
         self.records = [
             record for record in manifest.get("crops", []) if record.get("split") == self.split
         ]
         if not self.records:
             raise RuntimeError(f"V16 broad-prior dataset has no {self.split} crops")
+
+        self.family_crop_counts: dict[str, int] = defaultdict(int)
+        for record in self.records:
+            self.family_crop_counts[_family_id(record)] += 1
 
         requested = max(1, int(length))
         if self.split != "train":
@@ -152,12 +205,26 @@ class AuthorityBalancedSRDataset(Dataset[dict[str, torch.Tensor]]):
         normal_hr = np.ascontiguousarray(normal[y : y + hr_size, x : x + hr_size])
         material_hr = np.ascontiguousarray(material[y : y + hr_size, x : x + hr_size])
         if self.split == "train":
-            albedo_hr, normal_hr, material_hr = _augment(
-                albedo_hr,
-                normal_hr,
-                material_hr,
-                rng,
-            )
+            if self.augmentation_policy == "d4-cyclic":
+                family = _family_id(record)
+                family_crop_count = max(1, int(self.family_crop_counts[family]))
+                authority_cycle = global_index // max(1, int(self.authority_count))
+                variant = (
+                    authority_cycle // family_crop_count
+                ) % D4_AUGMENTATION_VARIANTS
+                albedo_hr, normal_hr, material_hr = _augment_d4(
+                    albedo_hr,
+                    normal_hr,
+                    material_hr,
+                    variant,
+                )
+            else:
+                albedo_hr, normal_hr, material_hr = _augment(
+                    albedo_hr,
+                    normal_hr,
+                    material_hr,
+                    rng,
+                )
 
         mode = self.degradation if self.split == "train" else "clean"
         lr_albedo, lr_normal, lr_material = _degrade(
