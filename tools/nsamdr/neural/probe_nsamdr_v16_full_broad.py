@@ -1312,6 +1312,7 @@ def _save_checkpoint(
     manifest_path: Path,
     curve: list[dict[str, Any]],
     augmentation_policy: str,
+    initialization: dict[str, Any],
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
@@ -1322,6 +1323,7 @@ def _save_checkpoint(
             "manifest": str(manifest_path),
             "config": config.to_dict(),
             "augmentationPolicy": str(augmentation_policy),
+            "initialization": dict(initialization),
             "modelState": model.state_dict(),
             "optimizerState": optimizer.state_dict(),
             "curve": curve,
@@ -1343,6 +1345,7 @@ def _load_checkpoint(
     int,
     list[dict[str, Any]],
     str,
+    dict[str, Any],
 ]:
     try:
         payload = torch.load(path, map_location=device, weights_only=False)
@@ -1374,6 +1377,7 @@ def _load_checkpoint(
         int(payload["seed"]),
         list(payload.get("curve") or []),
         str(payload.get("augmentationPolicy") or "legacy-random"),
+        dict(payload.get("initialization") or {"kind": "legacy-checkpoint"}),
     )
 
 
@@ -1402,6 +1406,7 @@ def _write_report(
     curve: list[dict[str, Any]],
     checkpoint_path: Path,
     augmentation_policy: str,
+    initialization: dict[str, Any],
 ) -> Path:
     final = curve[-1]
     report = {
@@ -1411,6 +1416,7 @@ def _write_report(
         "authoritySplit": manifest.get("authoritySplit"),
         "samplingPolicy": "authority-balanced-complete-cycle-before-repeat",
         "augmentationPolicy": str(augmentation_policy),
+        "initialization": dict(initialization),
         "architecture": {
             "kind": "production-size-v16-plus-structure-conditioning",
             "hrSize": config.train_hr_size,
@@ -1449,6 +1455,7 @@ def _write_report(
         f"Architecture        : 96ch, 6x6 Swin, depth {config.swin_depth}, HR {config.train_hr_size}",
         f"Completed stages    : {report['completedStages']}",
         f"Augmentation        : {augmentation_policy}",
+        f"Initialization      : {initialization.get('kind', 'unknown')}",
         f"Held-out authorities: {final['validation']['heldOutAuthorityCount']}",
         f"Seen diag authorities: {final.get('trainValidation', {}).get('authorityCount', 0)}",
         f"Seen global recovery: {final.get('trainValidation', {}).get('median_global_recovery', float('nan'))*100:+.2f}%",
@@ -1500,6 +1507,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         else min(validation_samples, train_families)
     )
 
+    if args.resume and args.initialize_from:
+        raise RuntimeError("--resume and --initialize-from are mutually exclusive")
+
     if args.resume:
         checkpoint_source = Path(args.resume)
         if not checkpoint_source.is_absolute():
@@ -1514,6 +1524,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             seed,
             curve,
             checkpoint_augmentation_policy,
+            initialization,
         ) = _load_checkpoint(
             checkpoint_source,
             device=device,
@@ -1531,6 +1542,44 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
                 f"requested={args.augmentation_policy}"
             )
         augmentation_policy = checkpoint_augmentation_policy
+    elif args.initialize_from:
+        initialization_source = Path(args.initialize_from)
+        if not initialization_source.is_absolute():
+            initialization_source = (repo_root / initialization_source).resolve()
+        if not initialization_source.is_file():
+            raise RuntimeError(
+                f"initialization checkpoint is missing: {initialization_source}"
+            )
+        (
+            model,
+            _source_optimizer,
+            config,
+            source_step,
+            seed,
+            _source_curve,
+            source_augmentation_policy,
+            _source_initialization,
+        ) = _load_checkpoint(
+            initialization_source,
+            device=device,
+            manifest_path=manifest_path,
+        )
+        if int(args.hr_size) != config.train_hr_size:
+            raise RuntimeError(
+                f"initialization HR size is {config.train_hr_size}, not requested {args.hr_size}"
+            )
+        optimizer = _optimizer(model, config)
+        start_step = 0
+        curve = []
+        augmentation_policy = str(args.augmentation_policy)
+        initialization = {
+            "kind": "weights-only-from-full-broad-checkpoint",
+            "sourceCheckpoint": str(initialization_source.resolve()),
+            "sourceStep": int(source_step),
+            "sourceAugmentationPolicy": source_augmentation_policy,
+            "optimizerReset": True,
+        }
+        run_dir = _run_directory(repo_root)
     else:
         seed = int(args.seed)
         config = _full_config(
@@ -1545,8 +1594,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         ).to(device)
         optimizer = _optimizer(model, config)
         start_step = 0
-        curve: list[dict[str, Any]] = []
+        curve = []
         augmentation_policy = str(args.augmentation_policy)
+        initialization = {"kind": "fresh-random"}
         run_dir = _run_directory(repo_root)
 
     remaining = [stage for stage in stages if stage > start_step]
@@ -1572,6 +1622,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     print(f"Train diag samples: {train_validation_samples}", flush=True)
     print(f"Preview samples   : {args.preview_samples}", flush=True)
     print(f"Augmentation      : {augmentation_policy}", flush=True)
+    print(f"Initialization    : {initialization.get('kind', 'unknown')}", flush=True)
 
     checkpoint_path = run_dir / "resume_checkpoint.pt"
 
@@ -1713,6 +1764,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             manifest_path=manifest_path,
             curve=curve,
             augmentation_policy=augmentation_policy,
+            initialization=initialization,
         )
         start_step = end_step
 
@@ -1738,6 +1790,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         curve=curve,
         checkpoint_path=checkpoint_path,
         augmentation_policy=augmentation_policy,
+        initialization=initialization,
     )
     return 0, report_path
 
@@ -1797,6 +1850,14 @@ def parser() -> argparse.ArgumentParser:
         "--resume",
         default="",
         help="resume_checkpoint.pt from an earlier full broad proof",
+    )
+    value.add_argument(
+        "--initialize-from",
+        default="",
+        help=(
+            "load model weights/config from a full-broad checkpoint, reset Adam "
+            "and start the requested schedule at step 0"
+        ),
     )
     value.add_argument(
         "--preview-samples",
