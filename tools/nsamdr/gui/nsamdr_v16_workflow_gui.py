@@ -170,6 +170,7 @@ class App:
         self.description = tk.StringVar()
         self.command_preview = tk.StringVar()
         self.progress_text = tk.StringVar(value="Idle")
+        self.progress_value = tk.DoubleVar(value=0.0)
         self.scope_text = tk.StringVar(value="Qualified production final: checking")
         self.recipe_text = tk.StringVar(
             value=(
@@ -438,11 +439,48 @@ class App:
             wraplength=850,
         ).grid(row=0, column=0, sticky="ew", pady=(4, 6))
 
-        controls = ttk.LabelFrame(right, text="Stage controls", padding=10)
+        controls = ttk.LabelFrame(right, text="Stage controls", padding=6)
         controls.grid(row=1, column=0, sticky="ew")
         controls.columnconfigure(0, weight=1)
-        self.form = ttk.Frame(controls)
-        self.form.grid(row=0, column=0, sticky="ew")
+        controls.rowconfigure(0, weight=1)
+
+        # Keep the runtime/status area visible even for stages with many controls.
+        # The old direct frame let Raven Quick's long form consume the entire
+        # right pane and push the progress bar/log below the visible window.
+        self.controls_canvas = tk.Canvas(
+            controls,
+            height=300,
+            highlightthickness=0,
+            borderwidth=0,
+        )
+        controls_scroll = ttk.Scrollbar(
+            controls,
+            orient="vertical",
+            command=self.controls_canvas.yview,
+        )
+        self.controls_canvas.configure(yscrollcommand=controls_scroll.set)
+        self.controls_canvas.grid(row=0, column=0, sticky="ew")
+        controls_scroll.grid(row=0, column=1, sticky="ns")
+
+        self.form = ttk.Frame(self.controls_canvas)
+        self.controls_window = self.controls_canvas.create_window(
+            (0, 0),
+            window=self.form,
+            anchor="nw",
+        )
+        self.form.bind(
+            "<Configure>",
+            lambda _event: self.controls_canvas.configure(
+                scrollregion=self.controls_canvas.bbox("all")
+            ),
+        )
+        self.controls_canvas.bind(
+            "<Configure>",
+            lambda event: self.controls_canvas.itemconfigure(
+                self.controls_window,
+                width=event.width,
+            ),
+        )
 
         runtime = ttk.LabelFrame(right, text="Runtime", padding=10)
         runtime.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
@@ -456,7 +494,11 @@ class App:
             state="readonly",
         ).grid(row=1, column=0, sticky="ew", pady=(2, 6))
 
-        self.progress = ttk.Progressbar(runtime, maximum=100)
+        self.progress = ttk.Progressbar(
+            runtime,
+            maximum=100,
+            variable=self.progress_value,
+        )
         self.progress.grid(row=2, column=0, sticky="ew")
         ttk.Label(runtime, textvariable=self.progress_text).grid(
             row=3, column=0, sticky="w", pady=(3, 5)
@@ -472,7 +514,7 @@ class App:
         log_frame.grid(row=6, column=0, sticky="nsew", pady=(3, 0))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        self.output = tk.Text(log_frame, wrap="none", height=16)
+        self.output = tk.Text(log_frame, wrap="none", height=8)
         yscroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.output.yview)
         xscroll = ttk.Scrollbar(log_frame, orient="horizontal", command=self.output.xview)
         self.output.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
@@ -487,6 +529,17 @@ class App:
         ttk.Button(footer, text="Stop current process", command=self.stop).pack(
             side="left", padx=(5, 0)
         )
+        ttk.Label(footer, text="Status:").pack(side="left", padx=(14, 4))
+        ttk.Progressbar(
+            footer,
+            maximum=100,
+            variable=self.progress_value,
+            length=170,
+        ).pack(side="left", padx=(0, 6))
+        ttk.Label(
+            footer,
+            textvariable=self.progress_text,
+        ).pack(side="left")
         ttk.Button(footer, text="Detect artifacts", command=lambda: self.detect()).pack(
             side="right"
         )
@@ -812,7 +865,7 @@ class App:
             messagebox.showinfo("NSAMDR", "A workflow process is already running.")
             return
         self.output.delete("1.0", "end")
-        self.progress["value"] = 0
+        self.progress_value.set(0.0)
         self.progress_text.set("Starting...")
         self.active_stage = stage_id
         self.process_started_at = time.monotonic()
@@ -860,7 +913,7 @@ class App:
             maximum = int(broad.group(2))
             if maximum > 0:
                 percent = 100.0 * current / maximum
-                self.progress["value"] = max(0.0, min(100.0, percent))
+                self.progress_value.set(max(0.0, min(100.0, percent)))
                 elapsed = (
                     time.monotonic() - self.process_started_at
                     if self.process_started_at is not None
@@ -878,7 +931,7 @@ class App:
             maximum = int(progress_match.group(2))
             if maximum > 0:
                 percent = 100.0 * current / maximum
-                self.progress["value"] = max(0.0, min(100.0, percent))
+                self.progress_value.set(max(0.0, min(100.0, percent)))
                 elapsed = (
                     time.monotonic() - self.process_started_at
                     if self.process_started_at is not None
@@ -904,7 +957,7 @@ class App:
             item_total = int(batch.group(2))
             if epoch_total > 0 and item_total > 0:
                 percent = 100.0 * ((epoch_index - 1) + item / item_total) / epoch_total
-                self.progress["value"] = max(0.0, min(100.0, percent))
+                self.progress_value.set(max(0.0, min(100.0, percent)))
                 step = STEP_MS_RE.search(line)
                 eta = ""
                 if step:
@@ -933,7 +986,7 @@ class App:
                     stage_id = self.active_stage
                     self.process = None
                     self.active_stage = None
-                    self.progress["value"] = 100
+                    self.progress_value.set(100.0)
 
                     rejected = False
                     rejected_experiment = None
