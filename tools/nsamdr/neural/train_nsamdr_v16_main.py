@@ -23,6 +23,10 @@ except ImportError:
 
 POINTER_SCHEMA = "NSAMDR_V16_MAIN_RESEARCH_TRAINING_V1"
 LATEST_ROOT = "artifacts/nsamdr/main_training"
+DEFAULT_INITIALIZATION = (
+    "artifacts/nsamdr/diagnostics/v16_full_broad/"
+    "probe_20260918-014630/resume_checkpoint.pt"
+)
 
 
 def _manifest_path(repo_root: Path, raw: str) -> Path:
@@ -117,6 +121,7 @@ def _write_latest_pointer(
             "trainCropCount": int(train_crop_count),
             "d4PassesRequested": int(d4_passes),
             "stages": [int(value) for value in stages],
+            "initialization": report.get("initialization"),
         },
         "manifest": str(manifest_path.resolve()),
         "report": str(report_path.resolve()),
@@ -170,6 +175,14 @@ def parser() -> argparse.ArgumentParser:
         default="",
         help="resume_checkpoint.pt from an earlier main V16 research-training run",
     )
+    value.add_argument(
+        "--initialize-from",
+        default=DEFAULT_INITIALIZATION,
+        help=(
+            "weights-only source checkpoint for a fresh main run; Adam is reset. "
+            "Ignored when --resume is supplied."
+        ),
+    )
     return value
 
 
@@ -189,6 +202,11 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     print("Augmentation        : deterministic D4 cyclic", flush=True)
     print(f"D4 passes requested : {int(args.d4_passes)}", flush=True)
     print(f"Checkpoint stages   : {stages}", flush=True)
+    initialization_source = "" if args.resume else str(args.initialize_from or "")
+    print(
+        f"Initialization      : {initialization_source or 'resume current main run'}",
+        flush=True,
+    )
     print("Qualification       : research preview only; production gates unchanged", flush=True)
 
     forwarded = SimpleNamespace(
@@ -203,6 +221,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         amp_precision=str(args.amp_precision),
         augmentation_policy="d4-cyclic",
         resume=str(args.resume or ""),
+        initialize_from=initialization_source,
         preview_samples=int(args.preview_samples),
         preview_only=False,
     )
