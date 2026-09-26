@@ -1344,8 +1344,6 @@ def _load_checkpoint(
     int,
     int,
     list[dict[str, Any]],
-    str,
-    dict[str, Any],
 ]:
     try:
         payload = torch.load(path, map_location=device, weights_only=False)
@@ -1376,6 +1374,17 @@ def _load_checkpoint(
         int(payload["step"]),
         int(payload["seed"]),
         list(payload.get("curve") or []),
+    )
+
+
+def _checkpoint_training_metadata(path: Path) -> tuple[str, dict[str, Any]]:
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=False)
+    except TypeError:
+        payload = torch.load(path, map_location="cpu")
+    if not isinstance(payload, dict) or payload.get("schema") != CHECKPOINT_SCHEMA:
+        raise RuntimeError(f"full broad checkpoint schema mismatch: {path}")
+    return (
         str(payload.get("augmentationPolicy") or "legacy-random"),
         dict(payload.get("initialization") or {"kind": "legacy-checkpoint"}),
     )
@@ -1523,12 +1532,13 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             start_step,
             seed,
             curve,
-            checkpoint_augmentation_policy,
-            initialization,
         ) = _load_checkpoint(
             checkpoint_source,
             device=device,
             manifest_path=manifest_path,
+        )
+        checkpoint_augmentation_policy, initialization = _checkpoint_training_metadata(
+            checkpoint_source
         )
         run_dir = checkpoint_source.parent
         if int(args.hr_size) != config.train_hr_size:
@@ -1557,12 +1567,13 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             source_step,
             seed,
             _source_curve,
-            source_augmentation_policy,
-            _source_initialization,
         ) = _load_checkpoint(
             initialization_source,
             device=device,
             manifest_path=manifest_path,
+        )
+        source_augmentation_policy, _source_initialization = _checkpoint_training_metadata(
+            initialization_source
         )
         if int(args.hr_size) != config.train_hr_size:
             raise RuntimeError(
