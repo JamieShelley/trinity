@@ -36,6 +36,7 @@ EXPERIMENT_ROOT = REPO_ROOT / "artifacts/nsamdr/experiments"
 GUI_STATE_ROOT = REPO_ROOT / "artifacts/nsamdr/gui"
 STATE_PATH = GUI_STATE_ROOT / "v16_operator_workflow_state.json"
 DIAGNOSTIC_ROOT = REPO_ROOT / "artifacts/nsamdr/diagnostics"
+MAIN_TRAINING_ROOT = REPO_ROOT / "artifacts/nsamdr/main_training"
 APP_TITLE = "NSAMDR V16.2 Workflow"
 STATE_SCHEMA = "nsamdr-v16-operator-workflow-v1"
 
@@ -43,6 +44,7 @@ EXPERIMENT_RE = re.compile(r"^EXP_\d{4,}$", re.I)
 EPOCH_RE = re.compile(r"Epoch\s+(\d+)\s*/\s*(\d+)\s+phase=([^\s]+)", re.I)
 BATCH_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d+)\s+total=", re.I)
 PROGRESS_RE = re.compile(r"total=(\d+)/(\d+)")
+FULL_BROAD_STEP_RE = re.compile(r"\[full-broad\]\s+step\s+(\d+)\s*/\s*(\d+)", re.I)
 STEP_MS_RE = re.compile(r"\bstep=([0-9]+(?:\.[0-9]+)?)ms\b", re.I)
 
 
@@ -172,8 +174,8 @@ class App:
         self.scope_text = tk.StringVar(value="Qualified production final: checking")
         self.recipe_text = tk.StringVar(
             value=(
-                "Main V16 training recipe selected: D4 augmentation + broader authority-balanced exposure. "
-                "Production launch remains locked until this recipe is wired into the canonical workflow."
+                "Main V16 training recipe: D4 augmentation + broad authority-balanced exposure. "
+                "Research training is available; production promotion gates remain unchanged."
             )
         )
         self.preview_target = tk.StringVar(value="")
@@ -235,6 +237,38 @@ class App:
         candidate = EXPERIMENT_ROOT / experiment_id / "previews/live/latest_ABCF.png"
         return candidate if candidate.is_file() else None
 
+    def _main_training_pointer(self) -> dict[str, Any] | None:
+        return _read_json(MAIN_TRAINING_ROOT / "latest.json")
+
+    def _latest_main_checkpoint(self) -> Path | None:
+        pointer = self._main_training_pointer() or {}
+        raw = str(pointer.get("resumeCheckpoint") or "").strip()
+        if not raw:
+            return None
+        path = Path(raw)
+        if not path.is_absolute():
+            path = REPO_ROOT / path
+        return path.resolve() if path.is_file() else None
+
+    def _latest_main_preview(self) -> Path | None:
+        pointer = self._main_training_pointer() or {}
+        raw = str(pointer.get("previewAlbedoComparison") or "").strip()
+        if raw:
+            path = Path(raw)
+            if not path.is_absolute():
+                path = REPO_ROOT / path
+            if path.is_file():
+                return path.resolve()
+        root_raw = str(pointer.get("previewRoot") or "").strip()
+        if root_raw:
+            root = Path(root_raw)
+            if not root.is_absolute():
+                root = REPO_ROOT / root
+            matches = sorted(root.glob("sample_*/albedo_comparison.png"))
+            if matches:
+                return matches[0].resolve()
+        return None
+
     def _cli_argv(self, *arguments: str) -> list[str]:
         return [sys.executable, "-u", str(CLI), *arguments]
 
@@ -278,7 +312,23 @@ class App:
             return command
 
         if stage_id == "train":
-            return None
+            command = self._cli_argv(
+                "main-train",
+                "--device",
+                self._value("device", "cuda"),
+                "--amp-precision",
+                self._value("amp", "auto"),
+                "--d4-passes",
+                self._value("d4_passes", "1"),
+                "--preview-samples",
+                self._value("preview_samples", "4"),
+            )
+            if self._value("control", "fresh") == "resume-latest":
+                checkpoint = self._latest_main_checkpoint()
+                if checkpoint is None:
+                    return None
+                command += ["--resume", str(checkpoint)]
+            return command
 
         if stage_id == "preview":
             experiment = self._value("experiment", "")
@@ -301,11 +351,6 @@ class App:
         return str(variable.get()) if variable is not None else default
 
     def _stage_lock_reason(self, stage_id: str) -> str | None:
-        if stage_id == "train":
-            return (
-                "The V16 broad-authority/D4 training recipe is still being qualified. "
-                "No canonical production full-train command exists yet."
-            )
         if stage_id == "preview" and not self._experiment_ids(qualified_only=True):
             return "No completed qualified EXP_#### final is available yet."
         return None
@@ -570,31 +615,53 @@ class App:
                 )
 
         elif stage_id == "train":
-            self._label("Model", "V16.2 broad-authority production candidate")
+            self._label("Model", "V16.2 full-capacity broad-authority candidate")
             self._label(
-                "Current state",
-                (
-                    "The 32-authority matched-budget proof is complete. D4 augmentation + "
-                    "broader authority exposure is now the selected training direction. "
-                    "Canonical Main V16 Training integration is the next engineering step."
-                ),
+                "Recipe",
+                "Authority-balanced sampling + deterministic D4 over all authored train authorities.",
             )
             self._label(
-                "Safety",
+                "Qualification",
                 (
-                    "This stage stays locked until the recipe is promoted into the "
-                    "canonical workflow. The GUI will not call an obsolete full-train path."
+                    "Research preview training only. Existing C recovery/lattice gates, "
+                    "material semantics and BenefitSelector qualification remain mandatory "
+                    "before production promotion."
                 ),
             )
+            self._row("D4 passes", "d4_passes", "1", ("1", "2"))
+            self._row("Device", "device", "cuda", ("cuda", "auto", "cpu"))
+            self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
+            self._row("Held-out preview samples", "preview_samples", "4", ("2", "4", "8"))
+            controls = ["fresh"]
+            if self._latest_main_checkpoint() is not None:
+                controls.append("resume-latest")
+            self._row("Training control", "control", controls[0], controls)
+            latest = self._main_training_pointer()
+            if latest:
+                held = dict(latest.get("heldout") or {})
+                self._label(
+                    "Latest research run",
+                    (
+                        f"step {latest.get('finalStep', '?')} | "
+                        f"global {float(held.get('globalRecovery') or 0.0)*100:.2f}% | "
+                        f"edge {float(held.get('edgeRecovery') or 0.0)*100:.2f}% | "
+                        f"gradient {float(held.get('gradientRecovery') or 0.0)*100:.2f}%"
+                    ),
+                )
+            ttk.Button(
+                self.form,
+                text="Open latest Main V16 research preview",
+                command=self._open_latest_main_preview,
+            ).pack(anchor="w", pady=(8, 2))
+            ttk.Button(
+                self.form,
+                text="Open latest Main V16 run folder",
+                command=self._open_latest_main_run,
+            ).pack(anchor="w", pady=2)
             ttk.Button(
                 self.form,
                 text="Open advanced diagnostics / research controls",
                 command=self._open_advanced_gui,
-            ).pack(anchor="w", pady=(8, 2))
-            ttk.Button(
-                self.form,
-                text="Open NSAMDR README",
-                command=lambda: _open_path(REPO_ROOT / "tools/nsamdr/README.md"),
             ).pack(anchor="w", pady=2)
 
         elif stage_id == "preview":
@@ -691,7 +758,9 @@ class App:
             else:
                 statuses["quick"] = "pending"
         if self.active_stage != "train":
-            statuses["train"] = "locked"
+            statuses["train"] = (
+                "preview-ready" if self._main_training_pointer() is not None else "ready"
+            )
         if self.active_stage != "preview":
             statuses["preview"] = "completed" if preview_done else (
                 "ready" if self._experiment_ids(qualified_only=True) else "locked"
@@ -786,6 +855,24 @@ class App:
             messagebox.showerror("NSAMDR", f"Could not stop process:\n{exc}")
 
     def _update_progress_from_line(self, line: str) -> None:
+        broad = FULL_BROAD_STEP_RE.search(line)
+        if broad:
+            current = int(broad.group(1))
+            maximum = int(broad.group(2))
+            if maximum > 0:
+                percent = 100.0 * current / maximum
+                self.progress["value"] = max(0.0, min(100.0, percent))
+                elapsed = (
+                    time.monotonic() - self.process_started_at
+                    if self.process_started_at is not None
+                    else 0.0
+                )
+                self.progress_text.set(
+                    f"Main V16 {current}/{maximum} ({percent:.1f}%) | "
+                    f"elapsed {_format_duration(elapsed)}"
+                )
+                return
+
         progress_match = PROGRESS_RE.search(line)
         if progress_match:
             current = int(progress_match.group(1))
@@ -862,12 +949,18 @@ class App:
                     if stage_id:
                         if rejected:
                             self._set_status(stage_id, "rejected")
+                        elif stage_id == "train" and code == 0:
+                            self._set_status(stage_id, "preview-ready")
                         else:
                             self._set_status(stage_id, "completed" if code == 0 else "failed")
 
                     if rejected:
                         self.progress_text.set(
                             f"Training completed; {rejected_experiment} was rejected by candidate qualification"
+                        )
+                    elif stage_id == "train" and code == 0:
+                        self.progress_text.set(
+                            "Main V16 research training complete; held-out preview is ready"
                         )
                     else:
                         self.progress_text.set(
@@ -898,6 +991,30 @@ class App:
             )
             return
         _open_path(preview)
+
+    def _open_latest_main_preview(self) -> None:
+        preview = self._latest_main_preview()
+        if preview is None:
+            messagebox.showinfo(
+                "NSAMDR",
+                "No Main V16 research preview is available yet.",
+            )
+            return
+        _open_path(preview)
+
+    def _open_latest_main_run(self) -> None:
+        pointer = self._main_training_pointer() or {}
+        raw = str(pointer.get("runDirectory") or "").strip()
+        if not raw:
+            messagebox.showinfo("NSAMDR", "No Main V16 research run is available yet.")
+            return
+        path = Path(raw)
+        if not path.is_absolute():
+            path = REPO_ROOT / path
+        if not path.is_dir():
+            messagebox.showinfo("NSAMDR", f"Main V16 run folder is missing:\n{path}")
+            return
+        _open_path(path)
 
     def _open_advanced_gui(self) -> None:
         if not ADVANCED_GUI.is_file():
