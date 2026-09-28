@@ -115,38 +115,65 @@ checkpoints are not rewritten after publication.
 
 ### Main V16 research training
 
-Run the promoted broad-authority recipe directly:
+Run the spatial-diversity smoke test directly:
 
 ```bat
 scripts\build\nsamdr.bat main-train
 ```
 
-The same command is available from **Main V16 Training** in the GUI. A default
-fresh Main V16 run loads the proven broad step596 model weights, resets Adam, then
-trains all 298 train authorities / 596 authored train crops with deterministic
-D4 augmentation. This mirrors the successful D4 diagnostics' weights-only
-fine-tuning setup while expanding exposure to the complete training authority
-set. A checkpoint and preview are now written after **every complete 596-crop
-corpus epoch**:
+The same command is available from **Main V16 Training** in the GUI. The fixed
+512-crop recipe is retired for Main training because it repeatedly exposed the
+same authored locations. The new Main corpus stores one 1024 authored source
+region per authority and samples fresh aligned 512 targets at training time.
+
+Each corpus epoch uses two fresh samples per train authority:
 
 ```text
- 596  = D4 epoch 1 / variant 0
-1192  = D4 epoch 2 / variant 1
-1788  = D4 epoch 3 / variant 2
-2384  = D4 epoch 4 / variant 3
-2980  = D4 epoch 5 / variant 4
-3576  = D4 epoch 6 / variant 5
-4172  = D4 epoch 7 / variant 6
-4768  = D4 epoch 8 / variant 7; one complete D4 pass
+50% uniform spatial crops
+50% structure/detail-biased spatial crops
++ authority-balanced exposure
++ deterministic D4
++ 128 LR -> 512 HR V16.2 candidate
 ```
 
-The run evaluates held-out authorities and writes visual comparisons after every
-epoch under `previews/step_NNNNNN/`. Each epoch also gets an immutable
-`checkpoints/step_NNNNNN.pt` snapshot; `resume_checkpoint.pt` remains the
-mutable continuation copy. A stable `previews/latest.json` pointer binds the
-latest preview to its immutable epoch checkpoint, so **MAIN_V16_LATEST** can be
-used by either the texture preview or the real EVE renderer while training is
-still running.
+The Main corpus is kept separately under:
+
+```text
+artifacts/nsamdr/training_v16_main_spatial
+```
+
+and is prepared automatically on the first Main run. The existing diagnostic
+512-crop corpus is not overwritten.
+
+The default is deliberately **one corpus epoch only**. With the current 298
+train authorities this is 596 updates, followed by held-out metrics, texture
+previews and an immutable renderable checkpoint. This is the decision point
+before spending time on more epochs.
+
+```bat
+scripts\build\nsamdr.bat main-train --epochs 1
+```
+
+If that result is materially better, continue the same run by selecting
+`resume-latest` in the GUI and increasing **Corpus epochs** to 2, 4 or 8.
+Eight epochs complete one D4 orientation cycle:
+
+```text
+ 596  = epoch 1
+1192  = epoch 2
+1788  = epoch 3
+2384  = epoch 4
+2980  = epoch 5
+3576  = epoch 6
+4172  = epoch 7
+4768  = epoch 8; one complete D4 pass
+```
+
+Every epoch writes held-out visual comparisons under
+`previews/step_NNNNNN/` and an immutable `checkpoints/step_NNNNNN.pt`
+snapshot. `resume_checkpoint.pt` remains the mutable continuation copy.
+`previews/latest.json` binds **MAIN_V16_LATEST** to the exact immutable epoch
+checkpoint for both texture and real EVE render previews.
 
 Latest-run metadata is written to:
 
@@ -154,14 +181,8 @@ Latest-run metadata is written to:
 artifacts/nsamdr/main_training/latest.json
 ```
 
-To continue a completed one-pass run into a second D4 pass:
-
-```bat
-scripts\build\nsamdr.bat main-train --d4-passes 2 --resume <resume_checkpoint.pt>
-```
-
-This path is deliberately labelled research training. It does not lower or
-bypass candidate qualification gates and does not promote a production final.
+This path remains research-only. It does not lower or bypass candidate
+qualification gates and does not promote a production final.
 
 ### GUI Preview selector
 
@@ -259,9 +280,10 @@ README.
 
 The historical README described the older V9 production implementation and a
 `full-train` command. The old V9 full-training command has **not** been revived.
-Instead, **Main V16 Training** now runs the promoted V16.2 research recipe:
-authority-balanced broad-authority sampling with deterministic D4 augmentation.
-It emits resumable checkpoints, held-out metrics and research preview panels,
+Instead, **Main V16 Training** now runs the V16.2 spatial-diversity research
+recipe: fresh crops from 1024 authored regions, 50/50 uniform/detail sampling,
+authority balancing and deterministic D4. It emits resumable checkpoints,
+held-out metrics and research preview panels,
 but cannot create a production final until the existing qualification chain is
 satisfied.
 
