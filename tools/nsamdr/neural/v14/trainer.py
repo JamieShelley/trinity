@@ -119,10 +119,14 @@ class V16Trainer:
                         batch["lr_material"],
                     )
                 metrics.append(sample_metrics(outputs, batch, final=final))
+                del outputs, batch
 
             # Native 256->1024 samples are scale telemetry only. Their dataset samples
             # do not carry held-out record identity, so aggregate qualification cannot
-            # use them to satisfy held-out coverage.
+            # use them to satisfy held-out coverage. Release validation-tile allocations
+            # before the larger 1024 HR telemetry forward.
+            if self.device.type == "cuda":
+                torch.cuda.empty_cache()
             for sample in self.native_samples:
                 batch = {
                     key: value.to(self.device)
@@ -136,6 +140,9 @@ class V16Trainer:
                         batch["lr_material"],
                     )
                 metrics.append(sample_metrics(outputs, batch, final=final))
+                del outputs, batch
+                if self.device.type == "cuda":
+                    torch.cuda.empty_cache()
 
         report = aggregate_candidate(metrics, self.config)
         report["nativeValidationSamples"] = len(self.native_samples)
