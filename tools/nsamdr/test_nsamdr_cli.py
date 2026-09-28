@@ -53,14 +53,17 @@ class NSAMDRCLITests(unittest.TestCase):
                 "main-train",
                 "--device", "cuda",
                 "--amp-precision", "auto",
-                "--d4-passes", "1",
+                "--epochs", "1",
                 "--preview-samples", "4",
+                "--shared-cache", r"C:\CCP\EVE",
             ]
         )
         self.assertEqual(args.device, "cuda")
         self.assertEqual(args.amp_precision, "auto")
-        self.assertEqual(args.d4_passes, 1)
+        self.assertEqual(args.epochs, 1)
+        self.assertEqual(args.d4_passes, 0)
         self.assertEqual(args.preview_samples, 4)
+        self.assertEqual(args.shared_cache, r"C:\CCP\EVE")
 
 
 if __name__ == "__main__":
