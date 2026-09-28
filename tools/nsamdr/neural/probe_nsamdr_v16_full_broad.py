@@ -1436,6 +1436,9 @@ def _write_live_preview_pointer(
     preview_root: Path,
     validation: dict[str, Any],
     augmentation_policy: str,
+    spatial_policy: str,
+    detail_fraction: float,
+    d4_samples_per_variant: int,
     initialization: dict[str, Any],
     checkpoint_path: Path,
 ) -> Path:
@@ -1449,6 +1452,9 @@ def _write_live_preview_pointer(
         "albedoComparison": str(comparisons[0].resolve()) if comparisons else "",
         "checkpoint": str(checkpoint_path.resolve()),
         "augmentationPolicy": str(augmentation_policy),
+        "spatialPolicy": str(spatial_policy),
+        "detailFraction": float(detail_fraction),
+        "d4SamplesPerVariant": int(d4_samples_per_variant),
         "initialization": dict(initialization),
         "heldout": {
             "globalRecovery": validation.get("median_global_recovery"),
@@ -1478,6 +1484,9 @@ def _write_report(
     curve: list[dict[str, Any]],
     checkpoint_path: Path,
     augmentation_policy: str,
+    spatial_policy: str,
+    detail_fraction: float,
+    d4_samples_per_variant: int,
     initialization: dict[str, Any],
 ) -> Path:
     final = curve[-1]
@@ -1488,6 +1497,9 @@ def _write_report(
         "authoritySplit": manifest.get("authoritySplit"),
         "samplingPolicy": "authority-balanced-complete-cycle-before-repeat",
         "augmentationPolicy": str(augmentation_policy),
+        "spatialPolicy": str(spatial_policy),
+        "detailFraction": float(detail_fraction),
+        "d4SamplesPerVariant": int(d4_samples_per_variant),
         "initialization": dict(initialization),
         "architecture": {
             "kind": "production-size-v16-plus-structure-conditioning",
@@ -1862,6 +1874,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             preview_root=preview_root,
             validation=validation,
             augmentation_policy=augmentation_policy,
+            spatial_policy=str(args.spatial_policy),
+            detail_fraction=float(args.detail_fraction),
+            d4_samples_per_variant=int(args.d4_samples_per_variant),
             initialization=initialization,
             checkpoint_path=stage_checkpoint,
         )
@@ -1899,6 +1914,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         curve=curve,
         checkpoint_path=checkpoint_path,
         augmentation_policy=augmentation_policy,
+        spatial_policy=str(args.spatial_policy),
+        detail_fraction=float(args.detail_fraction),
+        d4_samples_per_variant=int(args.d4_samples_per_variant),
         initialization=initialization,
     )
     return 0, report_path
