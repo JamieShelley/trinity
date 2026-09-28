@@ -991,16 +991,8 @@ class App:
                 self._value("device", "cuda"),
             )
         else:
-            command = [
-                sys.executable,
-                "-u",
-                str(
-                    REPO_ROOT
-                    / "tools/nsamdr/neural/render_nsamdr_v16_training_preview.py"
-                ),
-                "--repo-root",
-                str(REPO_ROOT),
-                "--source",
+            command = self._cli_argv(
+                "render-preview",
                 target,
                 "--shared-cache",
                 self._value("cache", r"C:\CCP\EVE"),
@@ -1009,7 +1001,7 @@ class App:
                 "--device",
                 "cuda",
                 "--watch",
-            ]
+            )
 
         log_dir = REPO_ROOT / "artifacts/nsamdr/render_preview" / target
         log_dir.mkdir(parents=True, exist_ok=True)
