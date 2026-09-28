@@ -5,6 +5,7 @@ import unittest
 import numpy as np
 
 from tools.nsamdr.neural.train_nsamdr_v16_main import (
+    _epoch_schedule,
     _stage_schedule,
     _training_geometry,
 )
@@ -12,6 +13,10 @@ from tools.nsamdr.neural.v16.broad_prior import _augment_d4
 
 
 class NSAMDRV16MainTrainingTests(unittest.TestCase):
+    def test_default_smoke_schedule_is_one_spatial_epoch(self) -> None:
+        self.assertEqual(_epoch_schedule(596, 1), [596])
+        self.assertEqual(_epoch_schedule(596, 3), [596, 1192, 1788])
+
     def test_one_d4_pass_stage_schedule_matches_full_corpus_coverage(self) -> None:
         self.assertEqual(
             _stage_schedule(596, 1),
