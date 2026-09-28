@@ -368,11 +368,16 @@ class App:
                 self._value("device", "cuda"),
                 "--amp-precision",
                 self._value("amp", "auto"),
-                "--d4-passes",
-                self._value("d4_passes", "1"),
+                "--epochs",
+                self._value("epochs", "1"),
                 "--preview-samples",
                 self._value("preview_samples", "4"),
+                "--shared-cache",
+                self._value("cache", r"C:\CCP\EVE"),
             )
+            rebuild_corpus = self.vars.get("rebuild_corpus")
+            if rebuild_corpus is not None and bool(rebuild_corpus.get()):
+                command.append("--rebuild-corpus")
             if self._value("control", "fresh") == "resume-latest":
                 checkpoint = self._latest_main_checkpoint()
                 if checkpoint is None:
@@ -728,7 +733,10 @@ class App:
             self._label("Model", "V16.2 full-capacity broad-authority candidate")
             self._label(
                 "Recipe",
-                "Authority-balanced sampling + deterministic D4 over all authored train authorities.",
+                (
+                    "Fresh 512 crops from 1024 authored source regions; authority-balanced, "
+                    "50% uniform / 50% structure-detail, deterministic D4."
+                ),
             )
             self._label(
                 "Qualification",
@@ -738,10 +746,20 @@ class App:
                     "before production promotion."
                 ),
             )
-            self._row("D4 passes", "d4_passes", "1", ("1", "2"))
+            self._row("Corpus epochs", "epochs", "1", ("1", "2", "4", "8"))
+            self._row("Shared cache", "cache", r"C:\CCP\EVE")
             self._row("Device", "device", "cuda", ("cuda", "auto", "cpu"))
             self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
             self._row("Held-out preview samples", "preview_samples", "4", ("2", "4", "8"))
+            self._check("Rebuild 1024 spatial corpus", "rebuild_corpus", False)
+            self._label(
+                "Smoke-test default",
+                (
+                    "1 epoch = two fresh spatial samples per train authority, then checkpoint, "
+                    "held-out texture preview and live render checkpoint. Use 8 only after "
+                    "the one-epoch result is worth continuing."
+                ),
+            )
             controls = ["fresh"]
             if self._latest_main_checkpoint() is not None:
                 controls.append("resume-latest")
