@@ -322,6 +322,12 @@ class V16Trainer:
             # Persist the exact completed epoch before validation. This makes
             # both the texture sheet and the native 3D render preview available
             # even if later qualification telemetry fails.
+            checkpoint_path = (
+                self.experiment_dir
+                / "checkpoints"
+                / "candidate"
+                / f"epoch_{epoch:04d}.pt"
+            )
             save_checkpoint(
                 checkpoint_path,
                 self.model,
