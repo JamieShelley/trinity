@@ -29,6 +29,23 @@ class NSAMDRCLITests(unittest.TestCase):
         self.assertEqual(args.amp_precision, "auto")
 
 
+    def test_render_preview_accepts_research_source_and_watch(self) -> None:
+        parser = NSAMDRCommandLineApplication().build_parser()
+        args = parser.parse_args(
+            [
+                "render-preview",
+                "EXP_0009",
+                "--shared-cache", r"C:\CCP\EVE",
+                "--target-size", "1024",
+                "--device", "cuda",
+                "--watch",
+            ]
+        )
+        self.assertEqual(args.subject, "EXP_0009")
+        self.assertEqual(args.target_size, 1024)
+        self.assertEqual(args.device, "cuda")
+        self.assertTrue(args.watch)
+
     def test_main_train_accepts_operator_gui_arguments(self) -> None:
         parser = NSAMDRCommandLineApplication().build_parser()
         args = parser.parse_args(
