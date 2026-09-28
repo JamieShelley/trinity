@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import random
 import unittest
 
-from tools.nsamdr.neural.v16.broad_prior import authority_balanced_record_indices
+import numpy as np
+
+from tools.nsamdr.neural.v16.broad_prior import (
+    _detail_crop_origin,
+    _detail_map,
+    authority_balanced_record_indices,
+)
 
 
 class BroadPriorAuthoritySamplingTests(unittest.TestCase):
@@ -36,6 +43,25 @@ class BroadPriorAuthoritySamplingTests(unittest.TestCase):
         for crop_ids in selected.values():
             self.assertEqual(len(crop_ids), 2)
             self.assertEqual(len(set(crop_ids)), 2)
+
+    def test_detail_map_prefers_structured_half(self) -> None:
+        albedo = np.zeros((128, 128, 3), dtype=np.float32)
+        normal = np.zeros((128, 128, 2), dtype=np.float32)
+        pattern = (np.indices((128, 64)).sum(axis=0) % 2).astype(np.float32)
+        albedo[:, 64:, :] = pattern[..., None]
+        score = _detail_map(albedo, normal)
+        middle = score.shape[1] // 2
+        self.assertGreater(float(score[:, middle:].mean()), float(score[:, :middle].mean()))
+
+    def test_detail_crop_origin_is_deterministic(self) -> None:
+        albedo = np.zeros((128, 128, 3), dtype=np.float32)
+        normal = np.zeros((128, 128, 2), dtype=np.float32)
+        pattern = (np.indices((128, 64)).sum(axis=0) % 2).astype(np.float32)
+        albedo[:, 64:, :] = pattern[..., None]
+        first = _detail_crop_origin(albedo, normal, 64, random.Random(99))
+        second = _detail_crop_origin(albedo, normal, 64, random.Random(99))
+        self.assertEqual(first, second)
+        self.assertGreaterEqual(first[0], 32)
 
     def test_schedule_is_deterministic(self) -> None:
         records = self._records()
