@@ -71,16 +71,17 @@ def _training_geometry(manifest: dict[str, Any]) -> tuple[int, int, int]:
 
 
 def _stage_schedule(train_crop_count: int, d4_passes: int) -> list[int]:
+    """Return one checkpoint/preview stage per complete authored-corpus epoch.
+
+    One D4 pass is eight corpus epochs: each authored crop is seen once per
+    epoch, advancing deterministically through the eight D4 variants.
+    """
+
     passes = max(1, int(d4_passes))
     base = int(train_crop_count)
     if base < 1:
         raise ValueError("train crop count must be positive")
-
-    stages = {base, base * 2, base * 4, base * 8}
-    full_d4 = base * 8
-    for index in range(2, passes + 1):
-        stages.add(full_d4 * index)
-    return sorted(stages)
+    return [base * epoch for epoch in range(1, 8 * passes + 1)]
 
 
 def _write_latest_pointer(
