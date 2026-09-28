@@ -276,12 +276,28 @@ class App:
     def _latest_main_checkpoint(self) -> Path | None:
         pointer = self._main_training_pointer() or {}
         raw = str(pointer.get("resumeCheckpoint") or "").strip()
+        if raw:
+            path = Path(raw)
+            if not path.is_absolute():
+                path = REPO_ROOT / path
+            if path.is_file():
+                return path.resolve()
+
+        # A run can have published its immutable epoch checkpoint/live pointer
+        # before the final main-training pointer is written. Recover the sibling
+        # resume checkpoint so an already-completed epoch never needs retraining.
+        live = self._live_main_training_pointer() or {}
+        raw = str(live.get("checkpoint") or "").strip()
         if not raw:
             return None
-        path = Path(raw)
-        if not path.is_absolute():
-            path = REPO_ROOT / path
-        return path.resolve() if path.is_file() else None
+        stage = Path(raw)
+        if not stage.is_absolute():
+            stage = REPO_ROOT / stage
+        if not stage.is_file():
+            return None
+        run_dir = stage.parent.parent if stage.parent.name == "checkpoints" else stage.parent
+        resume = run_dir / "resume_checkpoint.pt"
+        return resume.resolve() if resume.is_file() else None
 
     def _latest_main_preview(self) -> Path | None:
         live = self._live_main_training_pointer() or {}
