@@ -1359,6 +1359,7 @@ def _load_checkpoint(
     *,
     device: torch.device,
     manifest_path: Path,
+    require_manifest_match: bool = True,
 ) -> tuple[
     StructureConditionedV16Candidate,
     torch.optim.Optimizer,
@@ -1373,7 +1374,10 @@ def _load_checkpoint(
         payload = torch.load(path, map_location=device)
     if not isinstance(payload, dict) or payload.get("schema") != CHECKPOINT_SCHEMA:
         raise RuntimeError(f"full broad checkpoint schema mismatch: {path}")
-    if Path(str(payload.get("manifest", ""))).resolve() != manifest_path.resolve():
+    if (
+        require_manifest_match
+        and Path(str(payload.get("manifest", ""))).resolve() != manifest_path.resolve()
+    ):
         raise RuntimeError("resume checkpoint belongs to a different corpus manifest")
 
     raw_config = dict(payload.get("config") or {})
@@ -1630,6 +1634,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             initialization_source,
             device=device,
             manifest_path=manifest_path,
+            require_manifest_match=False,
         )
         source_augmentation_policy, _source_initialization = _checkpoint_training_metadata(
             initialization_source
