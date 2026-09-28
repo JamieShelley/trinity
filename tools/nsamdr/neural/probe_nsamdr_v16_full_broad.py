@@ -18,6 +18,7 @@ from contextlib import nullcontext
 from datetime import datetime
 import json
 from pathlib import Path
+import shutil
 import statistics
 import sys
 import time
@@ -1805,8 +1806,11 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             "gateStatus": _gate_status(validation, config),
         }
         curve.append(item)
+        stage_checkpoint = (
+            run_dir / "checkpoints" / f"step_{end_step:06d}.pt"
+        )
         _save_checkpoint(
-            checkpoint_path,
+            stage_checkpoint,
             model=model,
             optimizer=optimizer,
             config=config,
@@ -1817,6 +1821,8 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             augmentation_policy=augmentation_policy,
             initialization=initialization,
         )
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(stage_checkpoint, checkpoint_path)
         live_pointer = _write_live_preview_pointer(
             run_dir,
             step=end_step,
@@ -1824,7 +1830,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             validation=validation,
             augmentation_policy=augmentation_policy,
             initialization=initialization,
-            checkpoint_path=checkpoint_path,
+            checkpoint_path=stage_checkpoint,
         )
         start_step = end_step
 
