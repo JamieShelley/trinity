@@ -160,7 +160,12 @@ class V16Trainer:
         )
         return np.round(image * 255.0).astype(np.uint8)
 
-    def _save_preview(self, epoch: int, phase: str) -> None:
+    def _save_preview(
+        self,
+        epoch: int,
+        phase: str,
+        checkpoint_path: Path | None = None,
+    ) -> None:
         if not self.native_samples:
             return
         sample = self.native_samples[0]
@@ -242,6 +247,11 @@ class V16Trainer:
             "epoch": epoch,
             "phase": phase,
             "contactSheet": str((folder / "ABCF.png").resolve()),
+            "checkpoint": (
+                str(checkpoint_path.resolve())
+                if checkpoint_path is not None and checkpoint_path.is_file()
+                else ""
+            ),
             "nativeTarget": int(target.shape[-1]),
             "lrInput": int(batch["lr_albedo"].shape[-1]),
         }
@@ -309,12 +319,24 @@ class V16Trainer:
                         flush=True,
                     )
 
-            # Publish the visual result immediately after the epoch. Preview is
-            # an operator feature, not something that should be lost if later
-            # qualification telemetry fails.
+            # Persist the exact completed epoch before validation. This makes
+            # both the texture sheet and the native 3D render preview available
+            # even if later qualification telemetry fails.
+            save_checkpoint(
+                checkpoint_path,
+                self.model,
+                self.config,
+                epoch=epoch,
+                phase=f"sr-{degradation}",
+                metrics={},
+            )
             if self.device.type == "cuda":
                 torch.cuda.empty_cache()
-            self._save_preview(epoch, f"sr-{degradation}")
+            self._save_preview(
+                epoch,
+                f"sr-{degradation}",
+                checkpoint_path=checkpoint_path,
+            )
             if self.device.type == "cuda":
                 torch.cuda.empty_cache()
 
