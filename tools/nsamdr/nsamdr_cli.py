@@ -37,6 +37,7 @@ REQUIRED_LAYOUT = (
     "tools/nsamdr/neural/v14/trainer.py",
     "tools/nsamdr/neural/v14/workflow.py",
     "tools/nsamdr/neural/train_nsamdr_v16_main.py",
+    "tools/nsamdr/neural/render_nsamdr_v16_training_preview.py",
     "tools/nsamdr/neural/v14/preview.py",
     "tools/nsamdr/neural/v14/safe_live_resume_monitored_fourfamily_multiregion_diagnostic.py",
     "tools/nsamdr/neural/v16/structure.py",
@@ -379,6 +380,20 @@ class NSAMDRCommandLineApplication:
             self._repo_args(forwarded),
         )
 
+    def _command_render_preview(self, args: argparse.Namespace) -> int:
+        forwarded = [
+            "--source", args.subject,
+            "--shared-cache", args.shared_cache,
+            "--target-size", str(args.target_size),
+            "--device", args.device,
+        ]
+        if args.watch:
+            forwarded.append("--watch")
+        return self._python_script(
+            "tools/nsamdr/neural/render_nsamdr_v16_training_preview.py",
+            self._repo_args(forwarded),
+        )
+
     def _command_validate(self, args: argparse.Namespace) -> int:
         code = self.validate_layout()
         if code or args.layout_only:
@@ -523,6 +538,18 @@ class NSAMDRCommandLineApplication:
         preview.add_argument("--target-size", type=int)
         preview.add_argument("--device", choices=("cuda", "cpu", "auto"))
         preview.set_defaults(handler=self._command_preview)
+
+        render_preview = commands.add_parser("render-preview")
+        render_preview.add_argument("subject")
+        render_preview.add_argument("--shared-cache", default=r"C:\CCP\EVE")
+        render_preview.add_argument("--target-size", type=int, default=1024)
+        render_preview.add_argument(
+            "--device",
+            choices=("cuda", "cpu", "auto"),
+            default="cuda",
+        )
+        render_preview.add_argument("--watch", action="store_true")
+        render_preview.set_defaults(handler=self._command_render_preview)
 
         validate = commands.add_parser("validate")
         validate.add_argument("--layout-only", action="store_true")
