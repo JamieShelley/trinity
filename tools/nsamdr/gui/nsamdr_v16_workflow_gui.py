@@ -607,8 +607,13 @@ class App:
         self.preview_combo.pack(side="left")
         ttk.Button(
             footer,
-            text="Preview selected",
+            text="Texture preview",
             command=self.preview_selected,
+        ).pack(side="left", padx=(5, 0))
+        ttk.Button(
+            footer,
+            text="Render selected preview",
+            command=self.render_selected_preview,
         ).pack(side="left", padx=(5, 0))
 
         current = str(self.state.get("current") or "quick")
@@ -783,9 +788,10 @@ class App:
             self._label(
                 "Preview behavior",
                 (
-                    "MAIN_V16_LATEST opens the latest Main V16 epoch preview. "
-                    "Unqualified/rejected EXP runs open their latest A/B/C/F training "
-                    "preview. Qualified finals use the strict production preview renderer."
+                    "Texture preview opens the A/B/C/F diagnostic sheet. "
+                    "Render selected preview launches the real EVE DX11 ship comparison "
+                    "for rejected/intermediate checkpoints and hot-reloads newer epochs. "
+                    "Qualified finals still use the strict production renderer."
                 ),
             )
 
@@ -907,7 +913,7 @@ class App:
             target = self._value("experiment", "")
             if target and target != "<none>":
                 self.preview_target.set(target)
-            self.preview_selected()
+            self.render_selected_preview()
             return
         lock = self._stage_lock_reason(stage_id)
         if lock:
@@ -966,6 +972,68 @@ class App:
             )
             return
         _open_path(preview)
+
+    def render_selected_preview(self) -> None:
+        target = self.preview_target.get().strip().upper()
+        if not target:
+            messagebox.showinfo("NSAMDR", "No preview source is selected.")
+            return
+
+        if target.startswith("EXP_") and _qualified_final(EXPERIMENT_ROOT / target):
+            command = self._cli_argv(
+                "preview",
+                target,
+                "--shared-cache",
+                self._value("cache", r"C:\CCP\EVE"),
+                "--target-size",
+                self._value("target", "4096"),
+                "--device",
+                self._value("device", "cuda"),
+            )
+        else:
+            command = [
+                sys.executable,
+                "-u",
+                str(
+                    REPO_ROOT
+                    / "tools/nsamdr/neural/render_nsamdr_v16_training_preview.py"
+                ),
+                "--repo-root",
+                str(REPO_ROOT),
+                "--source",
+                target,
+                "--shared-cache",
+                self._value("cache", r"C:\CCP\EVE"),
+                "--target-size",
+                "1024",
+                "--device",
+                "cuda",
+                "--watch",
+            ]
+
+        log_dir = REPO_ROOT / "artifacts/nsamdr/render_preview" / target
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "launcher.log"
+        try:
+            handle = log_path.open("a", encoding="utf-8", buffering=1)
+            process = subprocess.Popen(
+                command,
+                cwd=REPO_ROOT,
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            handle.close()
+        except Exception as exc:
+            messagebox.showerror("NSAMDR render preview", str(exc))
+            return
+
+        self.output.insert(
+            "end",
+            f"[GUI] Native render preview launched: {target} PID {process.pid}\n"
+            f"[GUI] Render log: {log_path}\n",
+        )
+        self.output.see("end")
 
     def _start_process(self, stage_id: str, command: list[str]) -> None:
         if self.process is not None and self.process.poll() is None:
