@@ -4,6 +4,7 @@ import unittest
 
 import numpy as np
 
+from tools.nsamdr.neural.probe_nsamdr_v16_full_broad import _first_preview_albedo_path
 from tools.nsamdr.neural.train_nsamdr_v16_main import (
     _epoch_schedule,
     _stage_schedule,
@@ -13,6 +14,18 @@ from tools.nsamdr.neural.v16.broad_prior import _augment_d4
 
 
 class NSAMDRV16MainTrainingTests(unittest.TestCase):
+    def test_preview_artifact_lookup_accepts_list_payload(self) -> None:
+        validation = {
+            "previewArtifacts": [
+                {"files": {"albedoComparison": r"C:\preview\albedo_comparison.png"}}
+            ]
+        }
+        self.assertEqual(
+            _first_preview_albedo_path(validation),
+            r"C:\preview\albedo_comparison.png",
+        )
+        self.assertEqual(_first_preview_albedo_path({}), "")
+
     def test_default_smoke_schedule_is_one_spatial_epoch(self) -> None:
         self.assertEqual(_epoch_schedule(596, 1), [596])
         self.assertEqual(_epoch_schedule(596, 3), [596, 1192, 1788])
