@@ -1687,7 +1687,13 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         run_dir = _run_directory(repo_root)
 
     remaining = [stage for stage in stages if stage > start_step]
-    if not remaining and not args.preview_only:
+    finalize_existing = (
+        not remaining
+        and not args.preview_only
+        and bool(curve)
+        and int(start_step) in stages
+    )
+    if not remaining and not args.preview_only and not finalize_existing:
         raise RuntimeError(
             f"no requested stage is greater than checkpoint step {start_step}"
         )
@@ -1712,6 +1718,13 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     print(f"Initialization    : {initialization.get('kind', 'unknown')}", flush=True)
 
     checkpoint_path = run_dir / "resume_checkpoint.pt"
+
+    if finalize_existing:
+        print(
+            f"[full-broad] checkpoint step {start_step} is complete; "
+            "finalizing existing metrics/report without additional training.",
+            flush=True,
+        )
 
     if args.preview_only:
         if not args.resume:
@@ -1892,11 +1905,16 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             f"seen-edge={train_validation['median_edge_recovery']*100:+.2f}%",
             flush=True,
         )
-        first_preview = str(
-            (dict(validation.get("previewArtifacts") or [{}])[0].get("files") or {}).get(
-                "albedoComparison", ""
+        preview_artifacts = list(validation.get("previewArtifacts") or [])
+        first_preview = (
+            str(
+                (dict(preview_artifacts[0]).get("files") or {}).get(
+                    "albedoComparison", ""
+                )
             )
-        ) if validation.get("previewArtifacts") else ""
+            if preview_artifacts
+            else ""
+        )
         print(
             f"[full-broad-preview] step {end_step}: "
             f"{first_preview or live_pointer}",
