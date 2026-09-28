@@ -6,9 +6,10 @@ structure-only diagnostic GUI became the default. The diagnostic GUI remains
 available as an advanced tool; this file owns the normal setup -> development
 training -> main training -> preview workflow.
 
-Main V16 research training uses the promoted authority-balanced + deterministic
-D4 recipe. It remains explicitly non-promotable until the existing candidate,
-material and BenefitSelector qualification gates are satisfied.
+Main V16 research training uses fresh spatial crops from larger authored source
+regions, authority balancing, a 50/50 uniform/detail crop mix, and deterministic
+D4. It remains explicitly non-promotable until the existing candidate, material
+and BenefitSelector qualification gates are satisfied.
 """
 from __future__ import annotations
 
@@ -175,8 +176,8 @@ class App:
         self.scope_text = tk.StringVar(value="Qualified production final: checking")
         self.recipe_text = tk.StringVar(
             value=(
-                "Main V16 training recipe: D4 augmentation + broad authority-balanced exposure. "
-                "Research training is available; production promotion gates remain unchanged."
+                "Main V16 training recipe: fresh spatial crops + 50/50 detail sampling + "
+                "authority balancing + D4. Default run is one smoke-test epoch."
             )
         )
         self.preview_target = tk.StringVar(value="")
