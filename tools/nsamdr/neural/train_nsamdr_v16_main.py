@@ -140,6 +140,14 @@ def _stage_schedule(train_crop_count: int, d4_passes: int) -> list[int]:
     return [base * epoch for epoch in range(1, 8 * passes + 1)]
 
 
+def _epoch_schedule(samples_per_epoch: int, epochs: int) -> list[int]:
+    count = max(1, int(epochs))
+    base = int(samples_per_epoch)
+    if base < 1:
+        raise ValueError("samples_per_epoch must be positive")
+    return [base * epoch for epoch in range(1, count + 1)]
+
+
 def _write_latest_pointer(
     repo_root: Path,
     *,
@@ -148,7 +156,8 @@ def _write_latest_pointer(
     train_authorities: int,
     crops_per_authority: int,
     train_crop_count: int,
-    d4_passes: int,
+    epochs: int,
+    spatial_samples_per_authority: int,
     stages: list[int],
 ) -> Path:
     report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -176,7 +185,11 @@ def _write_latest_pointer(
             "trainAuthorityCount": int(train_authorities),
             "cropsPerAuthority": int(crops_per_authority),
             "trainCropCount": int(train_crop_count),
-            "d4PassesRequested": int(d4_passes),
+            "epochsRequested": int(epochs),
+            "spatialSamplesPerAuthorityPerEpoch": int(spatial_samples_per_authority),
+            "spatialPolicy": "balanced-detail",
+            "detailFraction": MAIN_DETAIL_FRACTION,
+            "sourceRegionSize": MAIN_SOURCE_REGION_SIZE,
             "stages": [int(value) for value in stages],
             "initialization": report.get("initialization"),
         },
@@ -213,8 +226,21 @@ def parser() -> argparse.ArgumentParser:
         )
     )
     value.add_argument("--repo-root", type=Path, default=Path.cwd())
-    value.add_argument("--manifest", default=DEFAULT_MANIFEST)
-    value.add_argument("--d4-passes", type=int, default=1)
+    value.add_argument("--manifest", default=MAIN_MANIFEST)
+    value.add_argument(
+        "--epochs",
+        type=int,
+        default=1,
+        help="corpus epochs to run; 1 is the smoke test, 8 is one complete D4 pass",
+    )
+    value.add_argument(
+        "--d4-passes",
+        type=int,
+        default=0,
+        help="compatibility override: when >0, epochs = 8 * d4-passes",
+    )
+    value.add_argument("--shared-cache", default=r"C:\CCP\EVE")
+    value.add_argument("--rebuild-corpus", action="store_true")
     value.add_argument("--hr-size", type=int, default=512)
     value.add_argument(
         "--device",
