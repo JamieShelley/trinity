@@ -499,6 +499,7 @@ def _train_segment(
     seed: int,
     precision: str,
     augmentation_policy: str,
+    overall_end_step: int | None = None,
 ) -> dict[str, Any]:
     if end_step <= start_step:
         raise ValueError("end_step must be greater than start_step")
@@ -563,8 +564,9 @@ def _train_segment(
             elapsed = max(time.monotonic() - started, 1.0e-6)
             rate = offset / elapsed
             eta = (segment_steps - offset) / max(rate, 1.0e-6)
+            progress_end = int(overall_end_step or end_step)
             print(
-                f"[full-broad] step {global_step:4d}/{end_step} "
+                f"[full-broad] step {global_step:4d}/{progress_end} "
                 f"loss={values['total']:.6f} "
                 f"rec={values['reconstruction']:.6f} "
                 f"grad={values['gradient']:.6f} "
@@ -1766,6 +1768,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             seed=seed,
             precision=args.amp_precision,
             augmentation_policy=augmentation_policy,
+            overall_end_step=stages[-1],
         )
         preview_root = run_dir / "previews" / f"step_{end_step:06d}"
         validation = _evaluate(
