@@ -619,6 +619,14 @@ def _train_segment(
 
 
 
+def _first_preview_albedo_path(validation: dict[str, Any]) -> str:
+    artifacts = list(validation.get("previewArtifacts") or [])
+    if not artifacts:
+        return ""
+    files = dict(dict(artifacts[0]).get("files") or {})
+    return str(files.get("albedoComparison") or "")
+
+
 def _safe_name(value: str) -> str:
     cleaned = "".join(
         character if character.isalnum() or character in {"-", "_"} else "_"
@@ -1905,16 +1913,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             f"seen-edge={train_validation['median_edge_recovery']*100:+.2f}%",
             flush=True,
         )
-        preview_artifacts = list(validation.get("previewArtifacts") or [])
-        first_preview = (
-            str(
-                (dict(preview_artifacts[0]).get("files") or {}).get(
-                    "albedoComparison", ""
-                )
-            )
-            if preview_artifacts
-            else ""
-        )
+        first_preview = _first_preview_albedo_path(validation)
         print(
             f"[full-broad-preview] step {end_step}: "
             f"{first_preview or live_pointer}",
