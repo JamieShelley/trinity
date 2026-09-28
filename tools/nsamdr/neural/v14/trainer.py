@@ -354,20 +354,9 @@ class V16Trainer:
                 + float(report["medianEdgeRecovery"])
                 + float(report["medianGradientRecovery"])
             )
-            checkpoint_path = (
-                self.experiment_dir
-                / "checkpoints"
-                / "candidate"
-                / f"epoch_{epoch:04d}.pt"
-            )
-            save_checkpoint(
-                checkpoint_path,
-                self.model,
-                self.config,
-                epoch=epoch,
-                phase=f"sr-{degradation}",
-                metrics=report,
-            )
+            # Do not rewrite the checkpoint after publishing it to the live
+            # renderer. The validation report is tracked separately; keeping the
+            # epoch checkpoint immutable prevents a renderer/checkpoint race.
             print(
                 "  valid "
                 f"global={float(report['medianGlobalRecovery'])*100:+.2f}% "
