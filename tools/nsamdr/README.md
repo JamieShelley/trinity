@@ -105,10 +105,12 @@ The CLI performs source-freshness and CUDA preflight checks before training.
 Raven Quick is currently the **legacy deterministic V16.0 Raven baseline**. It
 does not yet include the D4 + broad-authority recipe being qualified in the
 active V16.2 diagnostics. Exit code `2` after all SR epochs can therefore mean
-**candidate qualification rejected**, not a software/runtime failure. The
-operator GUI reports that state as `rejected` and can open the latest
-diagnostic `A/B/C/F` training preview even when the candidate is not
-production-qualified.
+**candidate qualification rejected**, not a software/runtime failure.
+
+Raven Quick publishes its `A/B/C/F` training preview immediately after every
+completed SR epoch, before later qualification telemetry. The GUI Preview
+selector includes all `EXP_####` runs, including rejected/unqualified runs, so
+the visual result remains inspectable even when qualification fails.
 
 ### Main V16 research training
 
@@ -123,19 +125,24 @@ fresh Main V16 run loads the proven broad step596 model weights, resets Adam, th
 trains all 298 train authorities / 596 authored train crops with deterministic
 D4 augmentation. This mirrors the successful D4 diagnostics' weights-only
 fine-tuning setup while expanding exposure to the complete training authority
-set. Checkpoints are written at:
+set. A checkpoint and preview are now written after **every complete 596-crop
+corpus epoch**:
 
 ```text
-596   = each authored train crop once, D4 variant 0
-1192  = two D4 variants per crop
-2384  = four D4 variants per crop
-4768  = one complete 8-variant D4 pass per crop
+ 596  = D4 epoch 1 / variant 0
+1192  = D4 epoch 2 / variant 1
+1788  = D4 epoch 3 / variant 2
+2384  = D4 epoch 4 / variant 3
+2980  = D4 epoch 5 / variant 4
+3576  = D4 epoch 6 / variant 5
+4172  = D4 epoch 7 / variant 6
+4768  = D4 epoch 8 / variant 7; one complete D4 pass
 ```
 
-The run evaluates all held-out authorities at each stage and writes visual
-comparisons under the run's `previews/step_NNNNNN/` directory. The GUI button
-**Open latest Main V16 research preview** opens the latest held-out
-`albedo_comparison.png`.
+The run evaluates held-out authorities and writes visual comparisons after every
+epoch under `previews/step_NNNNNN/`. A stable `previews/latest.json` pointer
+is updated immediately, so **MAIN_V16_LATEST** in the GUI Preview selector can
+open the latest epoch while training is still running.
 
 Latest-run metadata is written to:
 
@@ -152,7 +159,21 @@ scripts\build\nsamdr.bat main-train --d4-passes 2 --resume <resume_checkpoint.pt
 This path is deliberately labelled research training. It does not lower or
 bypass candidate qualification gates and does not promote a production final.
 
-Preview an existing experiment:
+### GUI Preview selector
+
+The bottom **Preview** selector is intentional and works for both research and
+production results:
+
+```text
+MAIN_V16_LATEST  -> latest completed Main V16 epoch preview
+EXP_####         -> latest Raven A/B/C/F training preview if unqualified/rejected
+EXP_####         -> strict production render if the experiment is qualified
+```
+
+This allows previewing intermediate training without weakening production
+qualification rules.
+
+The direct production preview command remains strict:
 
 ```bat
 scripts\build\nsamdr.bat preview EXP_####
