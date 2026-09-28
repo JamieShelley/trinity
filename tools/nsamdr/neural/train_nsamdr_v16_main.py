@@ -16,13 +16,20 @@ from types import SimpleNamespace
 from typing import Any
 
 try:
-    from .probe_nsamdr_v16_full_broad import DEFAULT_MANIFEST, run as run_full_broad
+    from .probe_nsamdr_v16_full_broad import run as run_full_broad
+    from .prepare_nsamdr_v16_authored_prior_corpus import build as build_authored_prior
 except ImportError:
-    from probe_nsamdr_v16_full_broad import DEFAULT_MANIFEST, run as run_full_broad
+    from probe_nsamdr_v16_full_broad import run as run_full_broad
+    from prepare_nsamdr_v16_authored_prior_corpus import build as build_authored_prior
 
 
 POINTER_SCHEMA = "NSAMDR_V16_MAIN_RESEARCH_TRAINING_V1"
 LATEST_ROOT = "artifacts/nsamdr/main_training"
+MAIN_CORPUS_ROOT = "artifacts/nsamdr/training_v16_main_spatial"
+MAIN_MANIFEST = f"{MAIN_CORPUS_ROOT}/dataset_manifest.json"
+MAIN_SOURCE_REGION_SIZE = 1024
+MAIN_SPATIAL_SAMPLES_PER_AUTHORITY = 2
+MAIN_DETAIL_FRACTION = 0.50
 DEFAULT_INITIALIZATION = (
     "artifacts/nsamdr/diagnostics/v16_full_broad/"
     "probe_20260918-014630/resume_checkpoint.pt"
@@ -33,13 +40,62 @@ def _manifest_path(repo_root: Path, raw: str) -> Path:
     value = Path(raw)
     if not value.is_absolute():
         value = (repo_root / value).resolve()
-    if not value.is_file():
-        raise RuntimeError(
-            f"main V16 manifest is missing: {value}\n"
-            "Run: scripts\\build\\nsamdr.bat authored-prior-corpus"
-        )
     return value
 
+
+def _prepare_main_corpus(
+    repo_root: Path,
+    manifest_path: Path,
+    *,
+    shared_cache: str,
+    rebuild: bool,
+) -> dict[str, Any]:
+    existing: dict[str, Any] | None = None
+    if manifest_path.is_file():
+        try:
+            loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                existing = loaded
+        except (OSError, ValueError, TypeError):
+            existing = None
+
+    config = dict((existing or {}).get("config") or {})
+    compatible = (
+        existing is not None
+        and int(config.get("sourceCropSize") or 0) >= MAIN_SOURCE_REGION_SIZE
+        and int(config.get("cropsPerFamily") or 0) == 1
+    )
+    if compatible and not rebuild:
+        return existing
+
+    print(
+        "Main V16 spatial corpus is missing/stale; preparing 1024 authored "
+        "source regions for fresh 512 crops...",
+        flush=True,
+    )
+    build_args = SimpleNamespace(
+        repo_root=repo_root,
+        shared_cache=str(shared_cache),
+        output_root=MAIN_CORPUS_ROOT,
+        census=None,
+        max_authorities=0,
+        crops_per_authority=1,
+        hr_crop_size=MAIN_SOURCE_REGION_SIZE,
+        minimum_native_dimension=MAIN_SOURCE_REGION_SIZE,
+        validation_fraction=0.12,
+        seed=16201,
+        rebuild=bool(rebuild),
+        audit_only=False,
+    )
+    code, built_manifest = build_authored_prior(build_args)
+    if code:
+        raise RuntimeError(f"main V16 corpus preparation failed with exit code {code}")
+    if built_manifest.resolve() != manifest_path.resolve():
+        raise RuntimeError(
+            "main V16 corpus builder returned an unexpected manifest: "
+            f"{built_manifest}"
+        )
+    return json.loads(manifest_path.read_text(encoding="utf-8"))
 
 def _training_geometry(manifest: dict[str, Any]) -> tuple[int, int, int]:
     records = [
