@@ -1413,6 +1413,7 @@ def _write_live_preview_pointer(
     validation: dict[str, Any],
     augmentation_policy: str,
     initialization: dict[str, Any],
+    checkpoint_path: Path,
 ) -> Path:
     """Publish a stable preview pointer after every completed training epoch/stage."""
 
@@ -1422,6 +1423,7 @@ def _write_live_preview_pointer(
         "step": int(step),
         "previewRoot": str(preview_root.resolve()),
         "albedoComparison": str(comparisons[0].resolve()) if comparisons else "",
+        "checkpoint": str(checkpoint_path.resolve()),
         "augmentationPolicy": str(augmentation_policy),
         "initialization": dict(initialization),
         "heldout": {
@@ -1822,6 +1824,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             validation=validation,
             augmentation_policy=augmentation_policy,
             initialization=initialization,
+            checkpoint_path=checkpoint_path,
         )
         start_step = end_step
 
