@@ -243,7 +243,7 @@ def native_family_samples(manifest: dict[str, Any], config: V14Config) -> list[d
             continue
         albedo_full, normal_full, material_full = canonical
         h, w = albedo_full.shape[:2]
-        side = min(h, w)
+        side = min(h, w, int(config.native_validation_hr_size))
         side -= side % config.scale
         if side < config.scale * 64:
             continue
