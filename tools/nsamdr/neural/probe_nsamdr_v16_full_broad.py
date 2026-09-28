@@ -1403,6 +1403,41 @@ def _run_directory(repo_root: Path) -> Path:
     return path
 
 
+def _write_live_preview_pointer(
+    run_dir: Path,
+    *,
+    step: int,
+    preview_root: Path,
+    validation: dict[str, Any],
+    augmentation_policy: str,
+    initialization: dict[str, Any],
+) -> Path:
+    """Publish a stable preview pointer after every completed training epoch/stage."""
+
+    comparisons = sorted(preview_root.glob("sample_*/albedo_comparison.png"))
+    payload = {
+        "schema": "NSAMDR_V16_FULL_BROAD_LIVE_PREVIEW_V1",
+        "step": int(step),
+        "previewRoot": str(preview_root.resolve()),
+        "albedoComparison": str(comparisons[0].resolve()) if comparisons else "",
+        "augmentationPolicy": str(augmentation_policy),
+        "initialization": dict(initialization),
+        "heldout": {
+            "globalRecovery": validation.get("median_global_recovery"),
+            "edgeRecovery": validation.get("median_edge_recovery"),
+            "gradientRecovery": validation.get("median_gradient_recovery"),
+            "normalRecovery": validation.get("median_normal_recovery"),
+            "latticeCellExcess": validation.get("median_lattice_cell_excess"),
+            "heldOutAuthorityCount": validation.get("heldOutAuthorityCount"),
+        },
+    }
+    root = run_dir / "previews"
+    root.mkdir(parents=True, exist_ok=True)
+    pointer = root / "latest.json"
+    pointer.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return pointer
+
+
 def _write_report(
     run_dir: Path,
     *,
@@ -1777,6 +1812,14 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             augmentation_policy=augmentation_policy,
             initialization=initialization,
         )
+        live_pointer = _write_live_preview_pointer(
+            run_dir,
+            step=end_step,
+            preview_root=preview_root,
+            validation=validation,
+            augmentation_policy=augmentation_policy,
+            initialization=initialization,
+        )
         start_step = end_step
 
         print(
@@ -1787,6 +1830,16 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             f"held-lattice={validation['median_lattice_cell_excess']*100:+.2f}% "
             f"seen-global={train_validation['median_global_recovery']*100:+.2f}% "
             f"seen-edge={train_validation['median_edge_recovery']*100:+.2f}%",
+            flush=True,
+        )
+        first_preview = str(
+            (dict(validation.get("previewArtifacts") or [{}])[0].get("files") or {}).get(
+                "albedoComparison", ""
+            )
+        ) if validation.get("previewArtifacts") else ""
+        print(
+            f"[full-broad-preview] step {end_step}: "
+            f"{first_preview or live_pointer}",
             flush=True,
         )
 
