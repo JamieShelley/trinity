@@ -272,18 +272,37 @@ def parser() -> argparse.ArgumentParser:
 def run(args: argparse.Namespace) -> tuple[int, Path]:
     repo_root = args.repo_root.resolve()
     manifest_path = _manifest_path(repo_root, str(args.manifest))
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest_path.resolve() == (repo_root / MAIN_MANIFEST).resolve():
+        manifest = _prepare_main_corpus(
+            repo_root,
+            manifest_path,
+            shared_cache=str(args.shared_cache),
+            rebuild=bool(args.rebuild_corpus),
+        )
+    else:
+        if not manifest_path.is_file():
+            raise RuntimeError(f"main V16 manifest is missing: {manifest_path}")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
     train_authorities, crops_per_authority, train_crop_count = _training_geometry(manifest)
-    stages = _stage_schedule(train_crop_count, int(args.d4_passes))
+    samples_per_epoch = train_authorities * MAIN_SPATIAL_SAMPLES_PER_AUTHORITY
+    epochs = (
+        8 * int(args.d4_passes)
+        if int(args.d4_passes) > 0
+        else max(1, int(args.epochs))
+    )
+    stages = _epoch_schedule(samples_per_epoch, epochs)
 
     print("NSAMDR V16.2 MAIN RESEARCH TRAINING", flush=True)
     print(f"Manifest            : {manifest_path}", flush=True)
     print(f"Train authorities   : {train_authorities}", flush=True)
     print(f"Crops / authority   : {crops_per_authority}", flush=True)
-    print(f"Train crops          : {train_crop_count}", flush=True)
-    print("Sampling            : authority-balanced", flush=True)
+    print(f"Stored regions       : {train_crop_count}", flush=True)
+    print(f"Fresh samples/epoch : {samples_per_epoch}", flush=True)
+    print("Sampling            : authority-balanced + fresh spatial crops", flush=True)
+    print("Spatial mix         : 50% uniform / 50% structure-detail", flush=True)
     print("Augmentation        : deterministic D4 cyclic", flush=True)
-    print(f"D4 passes requested : {int(args.d4_passes)}", flush=True)
+    print(f"Corpus epochs       : {epochs}", flush=True)
     print(f"Checkpoint stages   : {stages}", flush=True)
     initialization_source = "" if args.resume else str(args.initialize_from or "")
     print(
@@ -303,6 +322,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         device=str(args.device),
         amp_precision=str(args.amp_precision),
         augmentation_policy="d4-cyclic",
+        spatial_policy="balanced-detail",
+        detail_fraction=MAIN_DETAIL_FRACTION,
+        d4_samples_per_variant=MAIN_SPATIAL_SAMPLES_PER_AUTHORITY,
         resume=str(args.resume or ""),
         initialize_from=initialization_source,
         preview_samples=int(args.preview_samples),
@@ -319,7 +341,8 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         train_authorities=train_authorities,
         crops_per_authority=crops_per_authority,
         train_crop_count=train_crop_count,
-        d4_passes=int(args.d4_passes),
+        epochs=epochs,
+        spatial_samples_per_authority=MAIN_SPATIAL_SAMPLES_PER_AUTHORITY,
         stages=stages,
     )
     latest = json.loads(pointer.read_text(encoding="utf-8"))
