@@ -36,7 +36,11 @@ if str(HERE) not in sys.path:
 
 from v14.config import V16Config
 from v14.qualification import sample_metrics
-from v16.broad_prior import AUGMENTATION_POLICIES, AuthorityBalancedSRDataset
+from v16.broad_prior import (
+    AUGMENTATION_POLICIES,
+    SPATIAL_POLICIES,
+    AuthorityBalancedSRDataset,
+)
 from v16.conditioning import StructureConditionedV16Candidate
 
 
@@ -500,6 +504,9 @@ def _train_segment(
     seed: int,
     precision: str,
     augmentation_policy: str,
+    spatial_policy: str,
+    detail_fraction: float,
+    d4_samples_per_variant: int,
     overall_end_step: int | None = None,
 ) -> dict[str, Any]:
     if end_step <= start_step:
@@ -513,6 +520,9 @@ def _train_segment(
         seed=seed,
         degradation="clean",
         augmentation_policy=augmentation_policy,
+        spatial_policy=spatial_policy,
+        detail_fraction=detail_fraction,
+        d4_samples_per_variant=d4_samples_per_variant,
     )
     loader = DataLoader(
         Subset(dataset, range(start_step, end_step)),
@@ -599,6 +609,9 @@ def _train_segment(
         "availableTrainAuthorityCount": int(dataset.authority_count),
         "visitedAuthorityCount": _visited_authorities(dataset, start_step, end_step),
         "augmentationPolicy": str(augmentation_policy),
+        "spatialPolicy": str(spatial_policy),
+        "detailFraction": float(detail_fraction),
+        "d4SamplesPerVariant": int(d4_samples_per_variant),
     }
     result.update(_vram(device))
     return result
@@ -861,6 +874,9 @@ def _evaluate(
     preview_root: Path | None = None,
     preview_samples: int = 0,
     augmentation_policy: str = "legacy-random",
+    spatial_policy: str = "uniform",
+    detail_fraction: float = 0.0,
+    d4_samples_per_variant: int = 1,
 ) -> dict[str, Any]:
     dataset = AuthorityBalancedSRDataset(
         manifest,
@@ -870,6 +886,9 @@ def _evaluate(
         seed=seed,
         degradation="clean",
         augmentation_policy=augmentation_policy,
+        spatial_policy=spatial_policy,
+        detail_fraction=detail_fraction,
+        d4_samples_per_variant=d4_samples_per_variant,
     )
     loader = DataLoader(
         dataset,
@@ -1704,6 +1723,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             seed=seed + 8001,
             precision=args.amp_precision,
             augmentation_policy=augmentation_policy,
+            spatial_policy=str(args.spatial_policy),
+            detail_fraction=float(args.detail_fraction),
+            d4_samples_per_variant=int(args.d4_samples_per_variant),
         )
         ablation_summary = _write_unit_slope_summary(
             preview_root,
@@ -1771,6 +1793,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             seed=seed,
             precision=args.amp_precision,
             augmentation_policy=augmentation_policy,
+            spatial_policy=str(args.spatial_policy),
+            detail_fraction=float(args.detail_fraction),
+            d4_samples_per_variant=int(args.d4_samples_per_variant),
             overall_end_step=stages[-1],
         )
         preview_root = run_dir / "previews" / f"step_{end_step:06d}"
@@ -1797,6 +1822,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             seed=seed + 8001,
             precision=args.amp_precision,
             augmentation_policy=augmentation_policy,
+            spatial_policy=str(args.spatial_policy),
+            detail_fraction=float(args.detail_fraction),
+            d4_samples_per_variant=int(args.d4_samples_per_variant),
         )
         item = {
             "step": int(end_step),
@@ -1921,6 +1949,24 @@ def parser() -> argparse.ArgumentParser:
         choices=AUGMENTATION_POLICIES,
         default="legacy-random",
         help="training augmentation; d4-cyclic is the promoted broad-authority recipe",
+    )
+    value.add_argument(
+        "--spatial-policy",
+        choices=SPATIAL_POLICIES,
+        default="uniform",
+        help="training crop policy inside stored authored regions",
+    )
+    value.add_argument(
+        "--detail-fraction",
+        type=float,
+        default=0.0,
+        help="fraction of train visits that select high-structure spatial crops",
+    )
+    value.add_argument(
+        "--d4-samples-per-variant",
+        type=int,
+        default=1,
+        help="fresh spatial samples per authority/crop before advancing D4 orientation",
     )
     value.add_argument(
         "--resume",
