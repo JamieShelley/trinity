@@ -239,7 +239,14 @@ def build(args: argparse.Namespace) -> tuple[int, Path]:
         else _latest_census(repo_root)
     )
     max_families = int(args.max_authorities) if int(args.max_authorities) > 0 else 10_000
+    output_root = str(args.output_root or DEFAULT_OUTPUT)
+    output_path = Path(output_root)
+    if not output_path.is_absolute():
+        output_path = (repo_root / output_path).resolve()
+    manifest_path_value = output_path / "dataset_manifest.json"
     config = PriorCorpusConfig(
+        dataset_manifest=str(manifest_path_value),
+        dataset_root=str(output_path),
         max_families=max_families,
         crops_per_family=max(1, int(args.crops_per_authority)),
         source_crop_size=int(args.hr_crop_size),
@@ -293,6 +300,11 @@ def parser() -> argparse.ArgumentParser:
     )
     value.add_argument("--repo-root", type=Path, default=Path.cwd())
     value.add_argument("--shared-cache", default=r"C:\CCP\EVE")
+    value.add_argument(
+        "--output-root",
+        default=DEFAULT_OUTPUT,
+        help="dataset output directory; manifest is written as dataset_manifest.json inside it",
+    )
     value.add_argument("--census", type=Path)
     value.add_argument("--max-authorities", type=int, default=0, help="0 uses all >= minimum")
     value.add_argument("--crops-per-authority", type=int, default=2)
