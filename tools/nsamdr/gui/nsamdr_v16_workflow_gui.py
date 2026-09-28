@@ -38,6 +38,7 @@ DIAGNOSTIC_ROOT = REPO_ROOT / "artifacts/nsamdr/diagnostics"
 MAIN_TRAINING_ROOT = REPO_ROOT / "artifacts/nsamdr/main_training"
 APP_TITLE = "NSAMDR V16.2 Workflow"
 STATE_SCHEMA = "nsamdr-v16-operator-workflow-v1"
+MAIN_PREVIEW_CHOICE = "MAIN_V16_LATEST"
 
 EXPERIMENT_RE = re.compile(r"^EXP_\d{4,}$", re.I)
 EPOCH_RE = re.compile(r"Epoch\s+(\d+)\s*/\s*(\d+)\s+phase=([^\s]+)", re.I)
@@ -230,12 +231,41 @@ class App:
                 return experiment_id
         return None
 
+    def _experiment_live_preview(self, experiment_id: str) -> Path | None:
+        candidate = (
+            EXPERIMENT_ROOT
+            / str(experiment_id).upper()
+            / "previews/live/latest_ABCF.png"
+        )
+        return candidate.resolve() if candidate.is_file() else None
+
     def _latest_training_preview(self) -> Path | None:
         experiment_id = self._latest_experiment(training_mode="quick")
-        if experiment_id is None:
+        return (
+            self._experiment_live_preview(experiment_id)
+            if experiment_id is not None
+            else None
+        )
+
+    def _live_main_training_pointer(self) -> dict[str, Any] | None:
+        root = DIAGNOSTIC_ROOT / "v16_full_broad"
+        if not root.is_dir():
             return None
-        candidate = EXPERIMENT_ROOT / experiment_id / "previews/live/latest_ABCF.png"
-        return candidate if candidate.is_file() else None
+        candidates: list[tuple[float, dict[str, Any]]] = []
+        for pointer in root.glob("probe_*/previews/latest.json"):
+            payload = _read_json(pointer)
+            if payload is None:
+                continue
+            if payload.get("schema") != "NSAMDR_V16_FULL_BROAD_LIVE_PREVIEW_V1":
+                continue
+            if str(payload.get("augmentationPolicy") or "") != "d4-cyclic":
+                continue
+            try:
+                stamp = pointer.stat().st_mtime
+            except OSError:
+                continue
+            candidates.append((stamp, payload))
+        return max(candidates, key=lambda item: item[0])[1] if candidates else None
 
     def _main_training_pointer(self) -> dict[str, Any] | None:
         return _read_json(MAIN_TRAINING_ROOT / "latest.json")
@@ -251,6 +281,23 @@ class App:
         return path.resolve() if path.is_file() else None
 
     def _latest_main_preview(self) -> Path | None:
+        live = self._live_main_training_pointer() or {}
+        raw = str(live.get("albedoComparison") or "").strip()
+        if raw:
+            path = Path(raw)
+            if not path.is_absolute():
+                path = REPO_ROOT / path
+            if path.is_file():
+                return path.resolve()
+        live_root = str(live.get("previewRoot") or "").strip()
+        if live_root:
+            root = Path(live_root)
+            if not root.is_absolute():
+                root = REPO_ROOT / root
+            matches = sorted(root.glob("sample_*/albedo_comparison.png"))
+            if matches:
+                return matches[0].resolve()
+
         pointer = self._main_training_pointer() or {}
         raw = str(pointer.get("previewAlbedoComparison") or "").strip()
         if raw:
@@ -268,6 +315,9 @@ class App:
             if matches:
                 return matches[0].resolve()
         return None
+
+    def _preview_choices(self) -> list[str]:
+        return [MAIN_PREVIEW_CHOICE, *list(reversed(self._experiment_ids()))]
 
     def _cli_argv(self, *arguments: str) -> list[str]:
         return [sys.executable, "-u", str(CLI), *arguments]
@@ -332,7 +382,12 @@ class App:
 
         if stage_id == "preview":
             experiment = self._value("experiment", "")
-            if not experiment or experiment == "<none>":
+            if (
+                not experiment
+                or experiment == "<none>"
+                or experiment == MAIN_PREVIEW_CHOICE
+                or not _qualified_final(EXPERIMENT_ROOT / experiment)
+            ):
                 return None
             return self._cli_argv(
                 "preview",
@@ -351,8 +406,6 @@ class App:
         return str(variable.get()) if variable is not None else default
 
     def _stage_lock_reason(self, stage_id: str) -> str | None:
-        if stage_id == "preview" and not self._experiment_ids(qualified_only=True):
-            return "No completed qualified EXP_#### final is available yet."
         return None
 
     def _build(self) -> None:
@@ -554,7 +607,7 @@ class App:
         self.preview_combo.pack(side="left")
         ttk.Button(
             footer,
-            text="Render selected preview",
+            text="Preview selected",
             command=self.preview_selected,
         ).pack(side="left", padx=(5, 0))
 
@@ -717,9 +770,9 @@ class App:
             ).pack(anchor="w", pady=2)
 
         elif stage_id == "preview":
-            choices = list(reversed(self._experiment_ids(qualified_only=True)))
+            choices = self._preview_choices()
             self._row(
-                "Experiment",
+                "Preview source",
                 "experiment",
                 choices[0] if choices else "<none>",
                 choices or ["<none>"],
@@ -728,8 +781,12 @@ class App:
             self._row("Target size", "target", "4096", ("1024", "2048", "4096"))
             self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
             self._label(
-                "Contract",
-                "Only a completed qualified immutable production final may be previewed.",
+                "Preview behavior",
+                (
+                    "MAIN_V16_LATEST opens the latest Main V16 epoch preview. "
+                    "Unqualified/rejected EXP runs open their latest A/B/C/F training "
+                    "preview. Qualified finals use the strict production preview renderer."
+                ),
             )
 
         self._update_command_preview()
@@ -761,7 +818,7 @@ class App:
         )
 
     def _refresh_preview_choices(self) -> None:
-        choices = list(reversed(self._experiment_ids(qualified_only=True)))
+        choices = self._preview_choices()
         self.preview_combo.configure(values=choices)
         current = self.preview_target.get().strip().upper()
         if current not in choices:
@@ -814,8 +871,17 @@ class App:
                 "preview-ready" if self._main_training_pointer() is not None else "ready"
             )
         if self.active_stage != "preview":
-            statuses["preview"] = "completed" if preview_done else (
-                "ready" if self._experiment_ids(qualified_only=True) else "locked"
+            research_preview = (
+                self._latest_main_preview() is not None
+                or any(
+                    self._experiment_live_preview(experiment_id) is not None
+                    for experiment_id in self._experiment_ids()
+                )
+            )
+            statuses["preview"] = (
+                "completed" if preview_done else
+                "ready" if research_preview or self._experiment_ids() else
+                "pending"
             )
 
         for stage in STAGES:
@@ -837,6 +903,12 @@ class App:
         if not selection:
             return
         stage_id = str(selection[0])
+        if stage_id == "preview":
+            target = self._value("experiment", "")
+            if target and target != "<none>":
+                self.preview_target.set(target)
+            self.preview_selected()
+            return
         lock = self._stage_lock_reason(stage_id)
         if lock:
             messagebox.showinfo("NSAMDR", lock)
@@ -847,18 +919,53 @@ class App:
         self._start_process(stage_id, command)
 
     def preview_selected(self) -> None:
-        experiment = self.preview_target.get().strip().upper()
-        if not experiment:
-            messagebox.showinfo("NSAMDR", "No qualified preview experiment is available.")
+        target = self.preview_target.get().strip().upper()
+        if not target:
+            messagebox.showinfo("NSAMDR", "No preview source is selected.")
             return
-        self.tree.selection_set("preview")
-        self._selected()
-        variable = self.vars.get("experiment")
-        if variable is not None:
-            variable.set(experiment)
-        command = self._command_for_stage("preview")
-        if command is not None:
-            self._start_process("preview", command)
+
+        if target == MAIN_PREVIEW_CHOICE:
+            preview = self._latest_main_preview()
+            if preview is None:
+                messagebox.showinfo(
+                    "NSAMDR",
+                    (
+                        "No Main V16 epoch preview exists yet. "
+                        "During Main V16 Training it becomes available after the first "
+                        "596-crop corpus epoch completes."
+                    ),
+                )
+                return
+            _open_path(preview)
+            return
+
+        experiment_dir = EXPERIMENT_ROOT / target
+        if not experiment_dir.is_dir():
+            messagebox.showinfo("NSAMDR", f"Experiment is missing: {target}")
+            return
+
+        if _qualified_final(experiment_dir):
+            self.tree.selection_set("preview")
+            self._selected()
+            variable = self.vars.get("experiment")
+            if variable is not None:
+                variable.set(target)
+            command = self._command_for_stage("preview")
+            if command is not None:
+                self._start_process("preview", command)
+            return
+
+        preview = self._experiment_live_preview(target)
+        if preview is None:
+            messagebox.showinfo(
+                "NSAMDR",
+                (
+                    f"{target} has no training preview yet. Raven Quick publishes "
+                    "A/B/C/F immediately after each completed SR epoch."
+                ),
+            )
+            return
+        _open_path(preview)
 
     def _start_process(self, stage_id: str, command: list[str]) -> None:
         if self.process is not None and self.process.poll() is None:
