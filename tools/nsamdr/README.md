@@ -107,10 +107,11 @@ does not yet include the D4 + broad-authority recipe being qualified in the
 active V16.2 diagnostics. Exit code `2` after all SR epochs can therefore mean
 **candidate qualification rejected**, not a software/runtime failure.
 
-Raven Quick publishes its `A/B/C/F` training preview immediately after every
-completed SR epoch, before later qualification telemetry. The GUI Preview
-selector includes all `EXP_####` runs, including rejected/unqualified runs, so
-the visual result remains inspectable even when qualification fails.
+Raven Quick publishes its `A/B/C/F` texture diagnostic immediately after every
+completed SR epoch, before later qualification telemetry. It also publishes the
+exact epoch checkpoint before validation, so the real EVE DX11 training render
+can be generated even if later qualification telemetry fails. Published epoch
+checkpoints are not rewritten after publication.
 
 ### Main V16 research training
 
@@ -140,9 +141,12 @@ corpus epoch**:
 ```
 
 The run evaluates held-out authorities and writes visual comparisons after every
-epoch under `previews/step_NNNNNN/`. A stable `previews/latest.json` pointer
-is updated immediately, so **MAIN_V16_LATEST** in the GUI Preview selector can
-open the latest epoch while training is still running.
+epoch under `previews/step_NNNNNN/`. Each epoch also gets an immutable
+`checkpoints/step_NNNNNN.pt` snapshot; `resume_checkpoint.pt` remains the
+mutable continuation copy. A stable `previews/latest.json` pointer binds the
+latest preview to its immutable epoch checkpoint, so **MAIN_V16_LATEST** can be
+used by either the texture preview or the real EVE renderer while training is
+still running.
 
 Latest-run metadata is written to:
 
@@ -162,16 +166,35 @@ bypass candidate qualification gates and does not promote a production final.
 ### GUI Preview selector
 
 The bottom **Preview** selector is intentional and works for both research and
-production results:
+production results. It now exposes two different preview actions:
 
 ```text
-MAIN_V16_LATEST  -> latest completed Main V16 epoch preview
-EXP_####         -> latest Raven A/B/C/F training preview if unqualified/rejected
-EXP_####         -> strict production render if the experiment is qualified
+Texture preview
+  MAIN_V16_LATEST -> latest held-out Main V16 comparison image
+  EXP_####        -> latest Raven A/B/C/F texture diagnostic
+
+Render selected preview
+  MAIN_V16_LATEST -> real EVE DX11 ship using B baseline vs current C checkpoint
+  rejected EXP    -> real EVE DX11 ship using B baseline vs current C checkpoint
+  qualified EXP   -> strict immutable production renderer
 ```
 
-This allows previewing intermediate training without weakening production
-qualification rules.
+Research rendering is explicitly `training-intermediate` and unqualified. It
+uses the existing Granny-free DX11 ship viewer and the same mesh/camera/shader
+for the authored source, deterministic 4x baseline and current candidate. The
+renderer may stay open while training continues; completed Raven/Main epochs
+publish immutable checkpoint snapshots so the selected render can hot-reload
+the next epoch safely.
+
+The native research renderer can also be launched directly:
+
+```bat
+scripts\build\nsamdr.bat render-preview EXP_0009 --watch
+scripts\build\nsamdr.bat render-preview MAIN_V16_LATEST --watch
+```
+
+This restores the earlier real-ship training preview without weakening
+production qualification rules.
 
 The direct production preview command remains strict:
 
