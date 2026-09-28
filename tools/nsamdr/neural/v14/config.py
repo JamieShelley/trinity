@@ -19,6 +19,7 @@ class V16Config:
     validation_hr_size: int = 512
     validation_lr_size: int = 128
     native_validation_max_families: int = 4
+    native_validation_hr_size: int = 1024
     minimum_heldout_samples: int = 4
     tiles_per_epoch: int = 192
     validation_tiles: int = 32
@@ -89,6 +90,10 @@ class V16Config:
             raise ValueError("validation_hr_size must equal validation_lr_size * scale")
         if self.production_overlap_lr * 2 >= self.production_tile_lr:
             raise ValueError("production overlap must be less than half the LR tile")
+        if self.native_validation_hr_size < self.validation_hr_size:
+            raise ValueError("native_validation_hr_size must be >= validation_hr_size")
+        if self.native_validation_hr_size % self.scale != 0:
+            raise ValueError("native_validation_hr_size must be divisible by scale")
 
         architecture_values = (
             self.lr_context_channels,
