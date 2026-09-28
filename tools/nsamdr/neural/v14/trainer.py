@@ -309,6 +309,15 @@ class V16Trainer:
                         flush=True,
                     )
 
+            # Publish the visual result immediately after the epoch. Preview is
+            # an operator feature, not something that should be lost if later
+            # qualification telemetry fails.
+            if self.device.type == "cuda":
+                torch.cuda.empty_cache()
+            self._save_preview(epoch, f"sr-{degradation}")
+            if self.device.type == "cuda":
+                torch.cuda.empty_cache()
+
             _metrics, report = self._validate(final=False)
             report["epoch"] = epoch
             report["degradation"] = degradation
@@ -341,7 +350,6 @@ class V16Trainer:
                 f"qualified={'YES' if report['passed'] else 'NO'}",
                 flush=True,
             )
-            self._save_preview(epoch, f"sr-{degradation}")
             selection_key = (1 if bool(report["passed"]) else 0, score)
             if selection_key > best_key:
                 best_key = selection_key
