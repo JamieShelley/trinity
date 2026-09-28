@@ -335,9 +335,14 @@ class NSAMDRCommandLineApplication:
         forwarded = [
             "--device", args.device,
             "--amp-precision", args.amp_precision,
-            "--d4-passes", str(args.d4_passes),
+            "--epochs", str(args.epochs),
             "--preview-samples", str(args.preview_samples),
+            "--shared-cache", args.shared_cache,
         ]
+        if args.d4_passes:
+            forwarded += ["--d4-passes", str(args.d4_passes)]
+        if args.rebuild_corpus:
+            forwarded.append("--rebuild-corpus")
         if args.resume:
             forwarded += ["--resume", args.resume]
         elif args.initialize_from:
@@ -518,8 +523,11 @@ class NSAMDRCommandLineApplication:
             choices=("auto", "bf16", "fp16"),
             default="auto",
         )
-        main_train.add_argument("--d4-passes", type=int, default=1)
+        main_train.add_argument("--epochs", type=int, default=1)
+        main_train.add_argument("--d4-passes", type=int, default=0)
         main_train.add_argument("--preview-samples", type=int, default=4)
+        main_train.add_argument("--shared-cache", default=r"C:\CCP\EVE")
+        main_train.add_argument("--rebuild-corpus", action="store_true")
         main_train.add_argument("--resume", default="")
         main_train.add_argument("--initialize-from", default="")
         main_train.set_defaults(handler=self._command_main_train)
