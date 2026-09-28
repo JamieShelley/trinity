@@ -52,12 +52,17 @@ class NSAMDRV16MainTrainingTests(unittest.TestCase):
         normal = np.zeros((2, 2, 2), dtype=np.float32)
         normal[..., 0] = 1.0
 
+        # Dataset normal XY is deliberately clamped to length <= 0.999 so
+        # reconstructed Z remains real/non-zero. Test the transformed direction
+        # against that dataset contract rather than an unclamped unit vector.
+        expected = 0.999
+
         _, rotated, _ = _augment_d4(albedo, normal.copy(), material, 1)
         self.assertTrue(np.allclose(rotated[..., 0], 0.0, atol=1.0e-6))
-        self.assertTrue(np.allclose(rotated[..., 1], 1.0, atol=1.0e-6))
+        self.assertTrue(np.allclose(rotated[..., 1], expected, atol=1.0e-6))
 
         _, mirrored, _ = _augment_d4(albedo, normal.copy(), material, 4)
-        self.assertTrue(np.allclose(mirrored[..., 0], -1.0, atol=1.0e-6))
+        self.assertTrue(np.allclose(mirrored[..., 0], -expected, atol=1.0e-6))
         self.assertTrue(np.allclose(mirrored[..., 1], 0.0, atol=1.0e-6))
 
 
