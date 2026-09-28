@@ -15,13 +15,13 @@ class NSAMDRV16MainTrainingTests(unittest.TestCase):
     def test_one_d4_pass_stage_schedule_matches_full_corpus_coverage(self) -> None:
         self.assertEqual(
             _stage_schedule(596, 1),
-            [596, 1192, 2384, 4768],
+            [596, 1192, 1788, 2384, 2980, 3576, 4172, 4768],
         )
 
     def test_second_d4_pass_extends_from_first_complete_pass(self) -> None:
         self.assertEqual(
             _stage_schedule(596, 2),
-            [596, 1192, 2384, 4768, 9536],
+            [596 * epoch for epoch in range(1, 17)],
         )
 
     def test_training_geometry_requires_uniform_crops_per_authority(self) -> None:
