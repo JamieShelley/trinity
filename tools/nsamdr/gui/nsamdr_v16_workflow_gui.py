@@ -260,6 +260,8 @@ class App:
                 continue
             if str(payload.get("augmentationPolicy") or "") != "d4-cyclic":
                 continue
+            if str(payload.get("spatialPolicy") or "") != "balanced-detail":
+                continue
             try:
                 stamp = pointer.stat().st_mtime
             except OSError:
