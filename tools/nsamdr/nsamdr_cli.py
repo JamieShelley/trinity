@@ -383,8 +383,12 @@ class NSAMDRCommandLineApplication:
         code = self.validate_layout()
         if code or args.layout_only:
             return code
+        # Validation imports the actual neural/preview stack, including OpenCV
+        # and CUDA-built PyTorch modules. Use the canonical managed CUDA
+        # environment rather than the lightweight CPU/bootstrap environment so
+        # validation exercises the same Python dependency set as Raven/Main.
         return self._run(
-            [self._python("cpu"), "-m", "unittest", *CURRENT_TESTS]
+            [self._python("cuda"), "-m", "unittest", *CURRENT_TESTS]
         )
 
     def _safe_target(self, relative: str) -> Path:
