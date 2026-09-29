@@ -361,6 +361,37 @@ class NSAMDRCommandLineApplication:
             env=env,
         )
 
+    def _command_context_probe(self, args: argparse.Namespace) -> int:
+        source_code = self._source_freshness_preflight()
+        if source_code:
+            return source_code
+        python = self._python("cuda")
+        env = os.environ.copy()
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        self._configure_cuda_allocator_env(env)
+        code = self._cuda_preflight(python, env)
+        if code:
+            return code
+        forwarded = [
+            "--device", args.device,
+            "--amp-precision", args.amp_precision,
+            "--steps", str(args.steps),
+            "--preview-samples", str(args.preview_samples),
+        ]
+        if args.checkpoint:
+            forwarded += ["--checkpoint", args.checkpoint]
+        return self._run(
+            [
+                python,
+                "-u",
+                NEURAL_ROOT / "probe_nsamdr_v16_pyramid_context.py",
+                "--repo-root",
+                REPO_ROOT,
+                *forwarded,
+            ],
+            env=env,
+        )
+
     def _command_index_raven(self, args: argparse.Namespace) -> int:
         forwarded = [
             "--shared-cache", args.shared_cache,
@@ -532,6 +563,22 @@ class NSAMDRCommandLineApplication:
         main_train.add_argument("--resume", default="")
         main_train.add_argument("--initialize-from", default="")
         main_train.set_defaults(handler=self._command_main_train)
+
+        context_probe = commands.add_parser("context-probe")
+        context_probe.add_argument(
+            "--device",
+            choices=("auto", "cpu", "cuda"),
+            default="cuda",
+        )
+        context_probe.add_argument(
+            "--amp-precision",
+            choices=("auto", "bf16", "fp16"),
+            default="auto",
+        )
+        context_probe.add_argument("--steps", type=int, default=596)
+        context_probe.add_argument("--preview-samples", type=int, default=4)
+        context_probe.add_argument("--checkpoint", default="")
+        context_probe.set_defaults(handler=self._command_context_probe)
 
         index = commands.add_parser("index")
         index_commands = index.add_subparsers(dest="index_name", required=True)
