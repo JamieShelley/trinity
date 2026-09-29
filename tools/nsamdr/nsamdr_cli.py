@@ -37,6 +37,8 @@ REQUIRED_LAYOUT = (
     "tools/nsamdr/neural/v14/trainer.py",
     "tools/nsamdr/neural/v14/workflow.py",
     "tools/nsamdr/neural/train_nsamdr_v16_main.py",
+    "tools/nsamdr/neural/probe_nsamdr_v16_pyramid_context.py",
+    "tools/nsamdr/neural/v16/pyramid_context.py",
     "tools/nsamdr/neural/render_nsamdr_v16_training_preview.py",
     "tools/nsamdr/neural/v14/preview.py",
     "tools/nsamdr/neural/v14/safe_live_resume_monitored_fourfamily_multiregion_diagnostic.py",
