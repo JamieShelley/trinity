@@ -8,6 +8,7 @@ from torch import nn
 
 from tools.nsamdr.neural.v14.config import V16Config
 from tools.nsamdr.neural.v16.conditioning import StructureConditionedV16Candidate
+from tools.nsamdr.neural.v16.pyramid_context import PyramidContextV16Candidate
 from tools.nsamdr.neural.v16.structure import (
     StructureConditioningEncoder,
     derive_structure_targets,
@@ -47,6 +48,68 @@ class StructureTargetTests(unittest.TestCase):
         self.assertEqual(tuple(edges.shape), (1, 3, 16, 20))
         forbidden = (nn.PixelShuffle, nn.ConvTranspose2d)
         self.assertFalse(any(isinstance(module, forbidden) for module in model.modules()))
+
+    def test_pyramid_context_starts_as_exact_existing_candidate(self) -> None:
+        config = V16Config(
+            train_lr_size=8,
+            train_hr_size=32,
+            validation_lr_size=8,
+            validation_hr_size=32,
+            lr_context_channels=8,
+            lr_blocks=1,
+            hr_channels=24,
+            swin_groups=1,
+            swin_blocks_per_group=1,
+            swin_num_heads=4,
+            swin_window_size=4,
+            map_tail_blocks=1,
+            selector_channels=8,
+            use_gradient_checkpointing=False,
+            tiles_per_epoch=1,
+            validation_tiles=4,
+            minimum_heldout_samples=4,
+            clean_epochs=1,
+            robust_epochs=1,
+            selector_epochs=1,
+            production_tile_lr=8,
+            production_overlap_lr=2,
+        )
+        control = StructureConditionedV16Candidate(
+            config,
+            structure_channels=8,
+            structure_blocks=1,
+        ).eval()
+        candidate = PyramidContextV16Candidate(
+            config,
+            structure_channels=8,
+            structure_blocks=1,
+        ).eval()
+        incompatible = candidate.load_state_dict(control.state_dict(), strict=False)
+        self.assertTrue(incompatible.missing_keys)
+        self.assertTrue(
+            all(name.startswith("pyramid_fusion.") for name in incompatible.missing_keys)
+        )
+        self.assertFalse(incompatible.unexpected_keys)
+
+        albedo = torch.rand(1, 3, 8, 8)
+        normal = torch.rand(1, 2, 8, 8) * 0.5 - 0.25
+        material = torch.rand(1, 3, 8, 8)
+        with torch.no_grad():
+            control_out = control(albedo, normal, material)
+            candidate_out = candidate(albedo, normal, material)
+
+        self.assertTrue(
+            torch.equal(
+                control_out["candidate_albedo"],
+                candidate_out["candidate_albedo"],
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                control_out["candidate_normal"],
+                candidate_out["candidate_normal"],
+            )
+        )
 
     def test_conditioned_candidate_keeps_v16_physical_output_contract(self) -> None:
         config = V16Config(
