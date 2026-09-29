@@ -46,6 +46,22 @@ class NSAMDRCLITests(unittest.TestCase):
         self.assertEqual(args.device, "cuda")
         self.assertTrue(args.watch)
 
+    def test_context_probe_accepts_bounded_arguments(self) -> None:
+        parser = NSAMDRCommandLineApplication().build_parser()
+        args = parser.parse_args(
+            [
+                "context-probe",
+                "--device", "cuda",
+                "--amp-precision", "auto",
+                "--steps", "596",
+                "--preview-samples", "4",
+            ]
+        )
+        self.assertEqual(args.device, "cuda")
+        self.assertEqual(args.amp_precision, "auto")
+        self.assertEqual(args.steps, 596)
+        self.assertEqual(args.preview_samples, 4)
+
     def test_main_train_accepts_operator_gui_arguments(self) -> None:
         parser = NSAMDRCommandLineApplication().build_parser()
         args = parser.parse_args(
