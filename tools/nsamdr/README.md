@@ -131,6 +131,7 @@ D:\REPOS\trinity
 The canonical launcher is:
 
 ```bat
+scripts\build\nsamdr.bat v17-sibling-proof
 scripts\build\nsamdr.bat gui
 ```
 
@@ -490,9 +491,9 @@ This gives genuine `128 -> 512` 4x proof data across hundreds of authorities. Th
 
 Material semantics are not claimed by the fast census. Broad-prior qualification is therefore driven by authored albedo+normal; material remains telemetry until complete SOF/material authority is resolved.
 
-## Active V16.2 experiment
+## Historical V16.2 experiment
 
-The active experiment no longer renders an explicit geometry/profile intermediate. Structure is used only as learned conditioning:
+The rejected V16.2 experiment did not render an explicit geometry/profile intermediate. Structure is used only as learned conditioning:
 
 ```text
 LR authored maps (8 channels)
@@ -850,9 +851,10 @@ tools/nsamdr/neural/v16/
     profiles.py        constants only for rejected profile audit
 ```
 
-Active evidence/data tools:
+Active V17 proof and historical V16 evidence tools:
 
 ```text
+probe_nsamdr_v17_sibling_architecture.py
 scan_eve_authored_corpus.py
 prepare_nsamdr_v16_authored_prior_corpus.py
 audit_nsamdr_v16_structure_support.py
