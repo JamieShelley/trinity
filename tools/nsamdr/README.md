@@ -108,6 +108,15 @@ transfer proof:
 If step 2 still produces a pixelated/sharpened B-like result, reject V17
 immediately. Do not rescue it with more epochs or a broad run.
 
+Run the bounded V17 proof directly:
+
+```bat
+scripts\build\nsamdr.bat v17-sibling-proof
+```
+
+The proof writes trained-crop and unseen-sibling `A/B/C` sheets at every
+checkpoint. The final sibling sheet is the required visual decision artifact.
+
 
 ## Quick start / operator guide
 
@@ -146,11 +155,10 @@ tools/nsamdr/gui/nsamdr_v16_structure_workflow_gui.py
 Use **Advanced diagnostics** in the operator GUI for the Stage 2 runtime,
 structure-support audit, boundary-profile audit and corpus-census controls.
 
-Main V16 Training is now wired to the evidence-backed research recipe:
-authority-balanced broad-authority sampling plus deterministic D4 augmentation.
-It produces held-out research previews and resumable checkpoints. It is **not**
-a production promotion path: candidate, material and BenefitSelector gates remain
-unchanged and still block production qualification.
+The GUI still exposes the historical V16 Main workflow for reproducibility and
+comparison. Do **not** use it to extend V16 training while V17 is at the sibling
+architecture gate. V17 is intentionally CLI-first until the unseen-sibling
+visual proof passes.
 
 ### Validate the active checkout
 
@@ -355,9 +363,10 @@ Prepare and launch the default EVE asset preview:
 scripts\build\nsamdr.bat native eve
 ```
 
-### Active V16 diagnostic commands
+### Historical V16 diagnostic commands
 
-The commands used by the current V16 evidence ladder are:
+The commands below reproduce the closed V16 evidence ladder. They are not the
+active architecture path:
 
 ```bat
 scripts\build\nsamdr.bat eve-census
@@ -383,32 +392,25 @@ README.
 
 ### Current GUI/production status
 
-The historical README described the older V9 production implementation and a
-`full-train` command. The old V9 full-training command has **not** been revived.
-Instead, **Main V16 Training** now runs the V16.2 spatial-diversity research
-recipe: fresh crops from 1024 authored regions, 50/50 uniform/detail sampling,
-authority balancing and deterministic D4. It emits resumable checkpoints,
-held-out metrics and research preview panels,
-but cannot create a production final until the existing qualification chain is
-satisfied.
+The operator GUI and V16 Main controls remain available as historical tooling,
+preview infrastructure and production-path scaffolding. They are **not** the
+active architecture-development entry point.
 
-The intended end state remains the same operator flow:
+The active sequence is now:
 
 ```text
-GUI
- -> prepare/select authored data
- -> train the production candidate
+V17 one-crop fit
+ -> same-authority unseen-sibling visual proof
+ -> small multi-authority sibling proof
+ -> independent-authority proof
+ -> only then integrate V17 into Main/GUI broad training
  -> qualify C
  -> train/qualify BenefitSelector
- -> generate immutable preview artifacts
- -> launch A RAW SOURCE vs B NSAMDR FINAL
+ -> immutable production preview
 ```
 
-The training recipe is now integrated into the main GUI research path. The next
-evidence comes from that broad Main V16 run and its held-out previews; production
-promotion remains gated exactly as before.
-
-`EXAMPLE.png` is the visual target. `NSAMDR_FULL_SYSTEM_ARCHITECTURE.png` is the long-term production-system target; experimental branches must still earn their place through held-out evidence.
+`EXAMPLE.png` is a hard visual architecture target. A metric improvement that
+still looks like a pixelated or merely sharpened B does not advance the model.
 
 ## Production contract
 
@@ -430,9 +432,12 @@ Final protected-region requirement:
 protectedPreservationRate >= 0.990
 ```
 
-## Current evidence
+## Historical V16 evidence
 
-The V16 Swin reconstruction body is **locally capable but not multi-family qualified**.
+V16 is **rejected as the active production candidate** because fixed-crop
+capacity did not transfer to unseen spatial regions. The evidence below is kept
+because it establishes the negative result and prevents repeating the same
+experiments.
 
 Capacity passes the unchanged gates:
 
