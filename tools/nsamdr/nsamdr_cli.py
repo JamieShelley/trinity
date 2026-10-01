@@ -389,8 +389,7 @@ class NSAMDRCommandLineApplication:
             "--neighbourhood-channels", str(args.neighbourhood_channels),
             "--decoder-hidden-channels", str(args.decoder_hidden_channels),
         ]
-        for value in args.stages:
-            forwarded += ["--stages", str(value)]
+        forwarded += ["--stages", *[str(value) for value in args.stages]]
         if args.manifest:
             forwarded += ["--manifest", args.manifest]
         return self._run(
