@@ -4,6 +4,111 @@
 
 [![Visual target](./EXAMPLE.png)](./EXAMPLE.png)
 
+## Current architecture status — V16 rejected, V17 active proof
+
+The README visual target is now an **architecture gate**, not a late production
+check. A candidate that improves aggregate metrics but still looks like a
+pixelated/sharpened deterministic baseline is rejected.
+
+V16 is retained for reproducibility and as negative evidence, but it is no
+longer the active reconstruction architecture.
+
+### Why V16 was rejected
+
+V16 proved train-fit capacity but failed the actual spatial-generalisation
+requirement:
+
+```text
+fixed known crops
+    1 authority                    >60% recovery; candidate gates pass
+    4 authorities                 >60% recovery; candidate gates pass
+    16 authorities                ~60% global / ~65% edge
+
+same-authority unseen sibling crop
+    global / edge                  ~14-17% range
+
+broad spatial Main, step 1192
+    global                         14.16%
+    edge                           11.04%
+    gradient                       10.66%
+    lattice excess                 21.55%
+
+V16 wider-LR-context probe
+    global                         15.63%
+    edge                           13.09%
+    gradient                       12.30%
+    lattice excess                 21.32%
+```
+
+The fixed-crop results established that V16 can **memorise and represent** the
+required authored residual. They did not establish that its reconstruction
+representation can infer where missing sub-LR-pixel structure belongs on unseen
+material.
+
+The failure mechanism is now explicit. V16 first creates an HR grid through
+bicubic/bilinear interpolation, then asks a fixed-HR Swin refinement body to
+correct that already-upsampled baseline. It has no learned reconstruction
+decoder and no explicit relative subpixel query. This is a poor match for the
+source material: long manufactured seams, narrow panel features and aligned
+physical-map boundaries whose HR placement can lie inside a single LR texel.
+
+Do **not** spend more GPU time extending V16 Main epochs, the V16 pyramid-context
+probe, residual-gain tuning or broad-authority scaling. Those questions are
+closed.
+
+### V17 active architecture proof
+
+V17 moves the learned reconstruction mechanism back to LR space and makes
+subpixel placement explicit without absolute UV memorisation:
+
+```text
+LR albedo RGB + normal XY + material RGB
+                    |
+                    v
+       physical LR feature encoder
+       + analytic physical-map gradients
+       + wide LR receptive field
+                    |
+                    v
+       local continuous query decoder
+       encoded neighbourhood
+       + relative (dx,dy) inside LR texel
+       + continuous LR evidence
+                    |
+                    v
+       HR physical residual (A/N/M)
+                    |
+                    v
+             project(B + residual)
+                    |
+                    v
+                    C
+```
+
+V17 uses **relative** subpixel coordinates only. It does not receive absolute UV
+coordinates, ship identity or authored HR geometry at inference. The deterministic
+baseline B, aligned physical-map contract, normal projection, qualification
+metrics, lattice checks and later BenefitSelector contract remain unchanged.
+
+### Corrected proof order
+
+Broad training is forbidden until the architecture passes the cheap spatial
+transfer proof:
+
+```text
+1. Fit one authored crop.
+2. Evaluate a different authored crop from the SAME authority, never trained.
+3. Inspect A/B/C visually: thin seams and manufactured boundaries must actually
+   reappear, not merely sharpen B.
+4. Repeat on a small multi-authority sibling-crop set.
+5. Only then evaluate independent authorities.
+6. Only then run broad Main training and production qualification.
+```
+
+If step 2 still produces a pixelated/sharpened B-like result, reject V17
+immediately. Do not rescue it with more epochs or a broad run.
+
+
 ## Quick start / operator guide
 
 Run all commands from the Trinity repository root:
@@ -113,7 +218,7 @@ exact epoch checkpoint before validation, so the real EVE DX11 training render
 can be generated even if later qualification telemetry fails. Published epoch
 checkpoints are not rewritten after publication.
 
-### Main V16 research training
+### Historical V16 Main research training — do not extend
 
 Run the spatial-diversity smoke test directly:
 
@@ -726,9 +831,12 @@ The broad diagnostic corpus stores 512px native-authored crops and can train sma
 
 The proven V16 reconstruction body remains under `tools/nsamdr/neural/v14/` for active checkpoint/import compatibility.
 
-Current V16.2 code:
+Current reconstruction research code:
 
 ```text
+tools/nsamdr/neural/v17/
+    model.py           active LR encoder + coordinate-conditioned HR residual decoder
+
 tools/nsamdr/neural/v16/
     structure.py       analytic + learned structure conditioning
     conditioning.py    identity-initialized structure-conditioned V16 wrapper
