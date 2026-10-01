@@ -39,6 +39,8 @@ REQUIRED_LAYOUT = (
     "tools/nsamdr/neural/train_nsamdr_v16_main.py",
     "tools/nsamdr/neural/probe_nsamdr_v16_pyramid_context.py",
     "tools/nsamdr/neural/v16/pyramid_context.py",
+    "tools/nsamdr/neural/probe_nsamdr_v17_sibling_architecture.py",
+    "tools/nsamdr/neural/v17/model.py",
     "tools/nsamdr/neural/render_nsamdr_v16_training_preview.py",
     "tools/nsamdr/neural/v14/preview.py",
     "tools/nsamdr/neural/v14/safe_live_resume_monitored_fourfamily_multiregion_diagnostic.py",
@@ -54,6 +56,7 @@ REQUIRED_LAYOUT = (
 )
 
 CURRENT_TESTS = (
+    "tools.nsamdr.neural.test_nsamdr_v17_model",
     "tools.nsamdr.neural.test_nsamdr_v16_structure",
     "tools.nsamdr.neural.test_nsamdr_v16_boundary_profiles",
     "tools.nsamdr.neural.test_nsamdr_v16_dataset_split",
@@ -363,6 +366,45 @@ class NSAMDRCommandLineApplication:
             env=env,
         )
 
+    def _command_v17_sibling_proof(self, args: argparse.Namespace) -> int:
+        source_code = self._source_freshness_preflight()
+        if source_code:
+            return source_code
+        python = self._python("cuda")
+        env = os.environ.copy()
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        self._configure_cuda_allocator_env(env)
+        code = self._cuda_preflight(python, env)
+        if code:
+            return code
+
+        forwarded = [
+            "--device", args.device,
+            "--amp-precision", args.amp_precision,
+            "--authority-id", args.authority_id,
+            "--hr-size", str(args.hr_size),
+            "--learning-rate", str(args.learning_rate),
+            "--minimum-target-residual", str(args.minimum_target_residual),
+            "--encoder-channels", str(args.encoder_channels),
+            "--neighbourhood-channels", str(args.neighbourhood_channels),
+            "--decoder-hidden-channels", str(args.decoder_hidden_channels),
+        ]
+        for value in args.stages:
+            forwarded += ["--stages", str(value)]
+        if args.manifest:
+            forwarded += ["--manifest", args.manifest]
+        return self._run(
+            [
+                python,
+                "-u",
+                NEURAL_ROOT / "probe_nsamdr_v17_sibling_architecture.py",
+                "--repo-root",
+                REPO_ROOT,
+                *forwarded,
+            ],
+            env=env,
+        )
+
     def _command_context_probe(self, args: argparse.Namespace) -> int:
         source_code = self._source_freshness_preflight()
         if source_code:
@@ -509,7 +551,7 @@ class NSAMDRCommandLineApplication:
     def build_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
             prog="nsamdr",
-            description="NSAMDR V16.2 development and production utilities",
+            description="NSAMDR development and production utilities",
         )
         commands = parser.add_subparsers(dest="command", required=True)
 
@@ -565,6 +607,32 @@ class NSAMDRCommandLineApplication:
         main_train.add_argument("--resume", default="")
         main_train.add_argument("--initialize-from", default="")
         main_train.set_defaults(handler=self._command_main_train)
+
+        v17_sibling = commands.add_parser("v17-sibling-proof")
+        v17_sibling.add_argument(
+            "--device",
+            choices=("auto", "cpu", "cuda"),
+            default="cuda",
+        )
+        v17_sibling.add_argument(
+            "--amp-precision",
+            choices=("auto", "bf16", "fp16"),
+            default="auto",
+        )
+        v17_sibling.add_argument("--authority-id", default="13006d2b807f89ac")
+        v17_sibling.add_argument("--manifest", default="")
+        v17_sibling.add_argument("--hr-size", type=int, default=512)
+        v17_sibling.add_argument(
+            "--stages",
+            nargs="+",
+            default=["64,128,256,384"],
+        )
+        v17_sibling.add_argument("--learning-rate", type=float, default=2.0e-4)
+        v17_sibling.add_argument("--minimum-target-residual", type=float, default=0.01)
+        v17_sibling.add_argument("--encoder-channels", type=int, default=96)
+        v17_sibling.add_argument("--neighbourhood-channels", type=int, default=128)
+        v17_sibling.add_argument("--decoder-hidden-channels", type=int, default=192)
+        v17_sibling.set_defaults(handler=self._command_v17_sibling_proof)
 
         context_probe = commands.add_parser("context-probe")
         context_probe.add_argument(
