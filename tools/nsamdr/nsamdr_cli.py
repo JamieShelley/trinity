@@ -24,6 +24,7 @@ REQUIRED_LAYOUT = (
     "scripts/build/setup_nsamdr_cpu.bat",
     "scripts/build/run_nsamdr_obj_preview_dx11.bat",
     "scripts/build/nsamdr/NSAMDROBJProjectInclude.cmake",
+    "tools/nsamdr/gui/nsamdr_v17_workflow_gui.py",
     "tools/nsamdr/gui/nsamdr_v16_workflow_gui.py",
     "tools/nsamdr/gui/nsamdr_v16_structure_workflow_gui.py",
     "tools/nsamdr/neural/v14/baseline.py",
@@ -65,7 +66,7 @@ CURRENT_TESTS = (
     "tools.nsamdr.neural.test_nsamdr_eve_corpus_census",
     "tools.nsamdr.neural.test_nsamdr_v16_main_training",
     "tools.nsamdr.neural.test_nsamdr_v16_render_preview",
-    "tools.nsamdr.gui.test_nsamdr_v16_workflow_gui",
+    "tools.nsamdr.gui.test_nsamdr_v17_workflow_gui",
     "tools.nsamdr.test_nsamdr_cli",
 )
 
@@ -269,7 +270,7 @@ class NSAMDRCommandLineApplication:
 
     def _command_gui(self, _args: argparse.Namespace) -> int:
         return self._python_script(
-            "tools/nsamdr/gui/nsamdr_v16_workflow_gui.py",
+            "tools/nsamdr/gui/nsamdr_v17_workflow_gui.py",
             [],
             kind="cpu",
         )
