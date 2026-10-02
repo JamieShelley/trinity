@@ -158,10 +158,11 @@ tools/nsamdr/gui/nsamdr_v16_structure_workflow_gui.py
 Use **Advanced diagnostics** in the operator GUI for the Stage 2 runtime,
 structure-support audit, boundary-profile audit and corpus-census controls.
 
-The canonical GUI now uses V17 for the active architecture stage. Historical
-V16 tooling remains available through the old operator file, advanced
-diagnostics, and legacy preview choices, but broad V16 Main training is no longer
-the normal GUI path.
+The canonical GUI now uses V17 for the active architecture stage. The old
+`nsamdr_v16_workflow_gui.py` path is a compatibility wrapper that launches the
+V17 GUI, so it cannot accidentally start the rejected V16 Main workflow.
+Historical V16 diagnostics and preview artifacts remain available through the
+advanced diagnostics surface and legacy preview choices.
 
 ### Validate the active checkout
 
