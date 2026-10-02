@@ -8,9 +8,22 @@ silently launch the rejected V16 Main workflow.
 from __future__ import annotations
 
 try:
-    from .nsamdr_v17_workflow_gui import *  # noqa: F401,F403
+    from . import nsamdr_v17_workflow_gui as _v17
 except ImportError:  # pragma: no cover - direct script execution
-    from nsamdr_v17_workflow_gui import *  # type: ignore # noqa: F401,F403
+    import nsamdr_v17_workflow_gui as _v17  # type: ignore
+
+App = _v17.App
+Stage = _v17.Stage
+STAGES = _v17.STAGES
+BY_ID = _v17.BY_ID
+APP_TITLE = _v17.APP_TITLE
+STATE_SCHEMA = _v17.STATE_SCHEMA
+V17_PREVIEW_CHOICE = _v17.V17_PREVIEW_CHOICE
+MAIN_PREVIEW_CHOICE = _v17.MAIN_PREVIEW_CHOICE
+_format_duration = _v17._format_duration
+_qualified_final = _v17._qualified_final
+_read_json = _v17._read_json
+main = _v17.main
 
 
 if __name__ == "__main__":
