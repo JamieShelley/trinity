@@ -284,25 +284,41 @@ class App:
 
     def _latest_v17_proof_dir(self) -> Path | None:
         latest = self._latest_v17_proof_report()
-        return latest[0].parent if latest is not None else None
+        if latest is not None:
+            return latest[0].parent
+        if not V17_PROOF_ROOT.is_dir():
+            return None
+        candidates: list[tuple[float, Path]] = []
+        for path in V17_PROOF_ROOT.glob("proof_*"):
+            if not path.is_dir():
+                continue
+            try:
+                stamp = path.stat().st_mtime
+            except OSError:
+                continue
+            candidates.append((stamp, path))
+        return max(candidates, key=lambda item: item[0])[1].resolve() if candidates else None
 
     def _latest_v17_preview(self, *, role: str = "sibling") -> Path | None:
         latest = self._latest_v17_proof_report()
-        if latest is None:
-            return None
-        report_path, payload = latest
-        snapshots = list(payload.get("snapshots") or [])
-        for snapshot in reversed(snapshots):
-            previews = dict(snapshot.get("previews") or {})
-            raw = str(previews.get(role) or "").strip()
-            if raw:
-                path = Path(raw)
-                if not path.is_absolute():
-                    path = REPO_ROOT / path
-                if path.is_file():
-                    return path.resolve()
+        if latest is not None:
+            report_path, payload = latest
+            snapshots = list(payload.get("snapshots") or [])
+            for snapshot in reversed(snapshots):
+                previews = dict(snapshot.get("previews") or {})
+                raw = str(previews.get(role) or "").strip()
+                if raw:
+                    path = Path(raw)
+                    if not path.is_absolute():
+                        path = REPO_ROOT / path
+                    if path.is_file():
+                        return path.resolve()
+            run_dir = report_path.parent
+        else:
+            run_dir = self._latest_v17_proof_dir()
+            if run_dir is None:
+                return None
 
-        run_dir = report_path.parent
         matches = sorted(
             run_dir.glob(f"stage_*/{role}_ABC.png"),
             key=lambda path: path.parent.name,
