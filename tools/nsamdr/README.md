@@ -135,16 +135,18 @@ scripts\build\nsamdr.bat v17-sibling-proof
 scripts\build\nsamdr.bat gui
 ```
 
-This opens the restored operator workflow GUI:
+This opens the active V17 operator workflow GUI:
 
 ```text
-tools/nsamdr/gui/nsamdr_v16_workflow_gui.py
+tools/nsamdr/gui/nsamdr_v17_workflow_gui.py
 ```
 
-The operator GUI again presents the normal workflow as **environment -> Raven
-Quick -> Main V16 Training -> Preview**, with stage controls, command preview,
-runtime progress/log output, experiment detection and qualified-preview
-selection.
+The operator GUI now presents **environment -> legacy Raven comparison -> V17
+Sibling Architecture Proof -> Preview / visual gate**. The V17 stage runs the
+same bounded sibling proof as the CLI, exposes its architecture parameters,
+tracks update progress, and opens the latest trained/sibling A/B/C sheets.
+Historical V16 Main/preview artifacts remain accessible for comparison, but the
+GUI no longer presents broad V16 Main training as the active architecture path.
 
 The previous structure-only V16.2 GUI is retained as an advanced diagnostics
 surface:
@@ -156,10 +158,10 @@ tools/nsamdr/gui/nsamdr_v16_structure_workflow_gui.py
 Use **Advanced diagnostics** in the operator GUI for the Stage 2 runtime,
 structure-support audit, boundary-profile audit and corpus-census controls.
 
-The GUI still exposes the historical V16 Main workflow for reproducibility and
-comparison. Do **not** use it to extend V16 training while V17 is at the sibling
-architecture gate. V17 is intentionally CLI-first until the unseen-sibling
-visual proof passes.
+The canonical GUI now uses V17 for the active architecture stage. Historical
+V16 tooling remains available through the old operator file, advanced
+diagnostics, and legacy preview choices, but broad V16 Main training is no longer
+the normal GUI path.
 
 ### Validate the active checkout
 
