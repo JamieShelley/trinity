@@ -881,19 +881,38 @@ class App:
                 _path, report = latest
                 snapshots = list(report.get("snapshots") or [])
                 final = snapshots[-1] if snapshots else {}
-                sibling = dict(final.get("sibling") or {})
-                metrics = dict(sibling.get("metrics") or {})
-                early = dict(report.get("finalSiblingEarlyTransferGate") or {})
+                trained = dict(final.get("trained") or {})
+                trained_metrics = dict(trained.get("metrics") or {})
+                trained_pass = bool(report.get("trainedCandidateGatePass"))
                 self._label(
-                    "Latest sibling result",
+                    "Latest trained result",
                     (
-                        f"global {float(metrics.get('global_recovery') or 0.0)*100:.2f}% | "
-                        f"edge {float(metrics.get('edge_recovery') or 0.0)*100:.2f}% | "
-                        f"gradient {float(metrics.get('gradient_recovery') or 0.0)*100:.2f}% | "
-                        f"1px {float(metrics.get('detail_recovery_1px') or 0.0)*100:.2f}% | "
-                        f"numerical early gate {'PASS' if early and all(early.values()) else 'FAIL/INCOMPLETE'}"
+                        f"global {float(trained_metrics.get('global_recovery') or 0.0)*100:.2f}% | "
+                        f"edge {float(trained_metrics.get('edge_recovery') or 0.0)*100:.2f}% | "
+                        f"gradient {float(trained_metrics.get('gradient_recovery') or 0.0)*100:.2f}% | "
+                        f"1px {float(trained_metrics.get('detail_recovery_1px') or 0.0)*100:.2f}% | "
+                        f"fit gate {'PASS' if trained_pass else 'FAIL'}"
                     ),
                 )
+                if bool(report.get("siblingEvaluated")):
+                    sibling = dict(final.get("sibling") or {})
+                    metrics = dict(sibling.get("metrics") or {})
+                    early = dict(report.get("finalSiblingEarlyTransferGate") or {})
+                    self._label(
+                        "Latest sibling result",
+                        (
+                            f"global {float(metrics.get('global_recovery') or 0.0)*100:.2f}% | "
+                            f"edge {float(metrics.get('edge_recovery') or 0.0)*100:.2f}% | "
+                            f"gradient {float(metrics.get('gradient_recovery') or 0.0)*100:.2f}% | "
+                            f"1px {float(metrics.get('detail_recovery_1px') or 0.0)*100:.2f}% | "
+                            f"early gate {'PASS' if early and all(early.values()) else 'FAIL'}"
+                        ),
+                    )
+                else:
+                    self._label(
+                        "Sibling status",
+                        "Not evaluated: trained crop did not pass the architecture fit gate.",
+                    )
             ttk.Button(
                 self.form,
                 text="Open latest unseen sibling A/B/C",
