@@ -259,7 +259,7 @@ class App:
             payload = _read_json(report_path)
             if payload is None:
                 continue
-            if payload.get("schema") != "NSAMDR_V17_SIBLING_ARCHITECTURE_PROOF_V1":
+            if payload.get("schema") not in {"NSAMDR_V17_SIBLING_ARCHITECTURE_PROOF_V1", "NSAMDR_V17_SIBLING_ARCHITECTURE_PROOF_V2"}:
                 continue
             try:
                 stamp = report_path.stat().st_mtime
@@ -825,20 +825,20 @@ class App:
                 )
 
         elif stage_id == "train":
-            self._label("Model", "V17.0 coordinate-conditioned physical-map reconstruction")
+            self._label("Model", "V17.1 local-ensemble implicit physical-map reconstruction")
             self._label(
                 "Architecture",
                 (
-                    "128 LR physical maps -> LR encoder + analytic gradients -> local 3x3 "
-                    "feature neighbourhood + relative subpixel coordinates -> 512 HR residual -> B + residual."
+                    "128 LR physical maps -> LR encoder + analytic gradients -> four surrounding "
+                    "LR anchor queries using relative dx/dy -> bilinear local-ensemble blend -> 512 HR residual -> B + residual."
                 ),
             )
             self._label(
                 "Architecture gate",
                 (
-                    "Train only crop A. Crop B from the same authority is never trained. "
-                    "The final sibling A/B/C image must visibly restore thin manufactured "
-                    "features rather than merely sharpen the deterministic baseline."
+                    "Train only crop A until it passes the unchanged candidate fit gates. Only then "
+                    "evaluate crop B from the same authority. The sibling A/B/C image must "
+                    "visibly restore thin manufactured features rather than merely sharpen B."
                 ),
             )
             self._row("Authority", "authority_id", "13006d2b807f89ac")
