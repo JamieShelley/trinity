@@ -10,17 +10,6 @@ The V17 architecture gate is deliberately cheap: train one authored crop,
 evaluate a different never-trained crop from the same authority, and inspect the
 A/B/C sibling sheet. Broad training is not allowed until that transfer is
 visually credible.
-"""Canonical NSAMDR V16.2 operator workflow GUI.
-
-This restores the operator-oriented workflow surface used before the temporary
-structure-only diagnostic GUI became the default. The diagnostic GUI remains
-available as an advanced tool; this file owns the normal setup -> development
-training -> main training -> preview workflow.
-
-Main V16 research training uses fresh spatial crops from larger authored source
-regions, authority balancing, a 50/50 uniform/detail crop mix, and deterministic
-D4. It remains explicitly non-promotable until the existing candidate, material
-and BenefitSelector qualification gates are satisfied.
 """
 from __future__ import annotations
 
