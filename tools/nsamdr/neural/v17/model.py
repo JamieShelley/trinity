@@ -1,15 +1,18 @@
-"""NSAMDR V17 coordinate-conditioned physical-map reconstruction.
+"""NSAMDR V17.1 local-ensemble physical-map reconstruction.
 
-V16 built an HR grid first and then refined it. V17 instead learns the
-reconstruction mapping in LR space and queries an HR residual at relative
-subpixel coordinates. Absolute UV coordinates are never provided.
+V16 built an HR grid first and refined it. V17.0 introduced explicit repeating
+subpixel phase coordinates, but that recreated a 4x lattice. V17.1 keeps the LR
+physical encoder and replaces that decoder with a continuity-safe local ensemble.
+
+Each HR query is evaluated against the four surrounding LR feature anchors using
+only its relative dx/dy to each anchor. The four shared-decoder predictions are
+bilinearly blended, so there is no hard coordinate reset at LR texel boundaries
+and no absolute UV input.
 
 The deterministic 4x baseline remains the projection anchor:
     C = project(B + predicted_residual)
 """
 from __future__ import annotations
-
-import math
 
 import torch
 from torch import nn
@@ -26,7 +29,7 @@ except ImportError:  # pragma: no cover - script-mode diagnostics
 def _group_gradient(value: torch.Tensor) -> torch.Tensor:
     value = value.float()
     dx = F.pad(value[..., :, 1:] - value[..., :, :-1], (0, 1, 0, 0))
-    dy = F.pad(value[..., 1:, :] - value[..., :-1, :], (0, 0, 0, 1))
+    dy = F.pad(value[..., 1:, :] - value[..., :-1, :].abs(), (0, 0, 0, 1))
     return torch.sqrt((dx * dx + dy * dy).mean(dim=1, keepdim=True) + 1.0e-8)
 
 
@@ -111,62 +114,55 @@ class PhysicalMapEncoder(nn.Module):
         return self.tail(self.blocks(value))
 
 
-def _relative_coordinate_channels(
+def _query_axis_geometry(
     *,
-    height: int,
-    width: int,
+    source_size: int,
     scale: int,
     device: torch.device,
     dtype: torch.dtype,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return continuous LR query coordinate, lower/upper anchors and blend fraction."""
+
+    if source_size < 1 or scale < 1:
+        raise ValueError("source size and scale must be positive")
+    target_size = int(source_size) * int(scale)
+    position = (
+        (torch.arange(target_size, device=device, dtype=dtype) + 0.5)
+        / float(scale)
+        - 0.5
+    ).clamp(0.0, float(source_size - 1))
+    lower = torch.floor(position).to(torch.long)
+    upper = torch.clamp(lower + 1, max=source_size - 1)
+    fraction = position - lower.to(dtype)
+    fraction = torch.where(upper == lower, torch.zeros_like(fraction), fraction)
+    return position, lower, upper, fraction
+
+
+def _gather_anchor(
+    value: torch.Tensor,
+    y_index: torch.Tensor,
+    x_index: torch.Tensor,
 ) -> torch.Tensor:
-    """Return relative HR-pixel coordinates inside each LR texel.
+    """Gather one LR anchor value for every HR query position."""
 
-    Coordinates are local only. No absolute UV or authority identity appears.
-    For 4x the raw dx/dy values are -0.75, -0.25, +0.25, +0.75.
-    """
-
-    if scale < 1:
-        raise ValueError("scale must be positive")
-    y_phase = (
-        ((torch.arange(height, device=device, dtype=dtype) % scale) + 0.5)
-        / float(scale)
-        * 2.0
-        - 1.0
-    )
-    x_phase = (
-        ((torch.arange(width, device=device, dtype=dtype) % scale) + 0.5)
-        / float(scale)
-        * 2.0
-        - 1.0
-    )
-    dy = y_phase.view(1, 1, height, 1).expand(1, 1, height, width)
-    dx = x_phase.view(1, 1, 1, width).expand(1, 1, height, width)
-    pi = float(math.pi)
-    return torch.cat(
-        (
-            dx,
-            dy,
-            dx * dx,
-            dy * dy,
-            dx * dy,
-            torch.sin(pi * dx),
-            torch.cos(pi * dx),
-            torch.sin(pi * dy),
-            torch.cos(pi * dy),
-        ),
-        dim=1,
-    )
+    n, c, h, w = value.shape
+    yy = y_index.view(-1, 1).expand(-1, x_index.numel())
+    xx = x_index.view(1, -1).expand(y_index.numel(), -1)
+    linear = (yy * w + xx).reshape(1, 1, -1).expand(n, c, -1)
+    gathered = torch.gather(value.reshape(n, c, h * w), 2, linear)
+    return gathered.reshape(n, c, y_index.numel(), x_index.numel())
 
 
 class RelativeQueryDecoder(nn.Module):
-    """Decode HR residuals from LR features plus local subpixel coordinates.
+    """Continuity-safe local-ensemble implicit residual decoder.
 
-    A 3x3 LR neighbourhood is encoded before continuous HR querying. The query
-    representation is shared across all texels and receives only relative
-    subpixel position, preventing direct absolute-layout memorisation.
+    For every HR query, the same decoder is evaluated relative to each of the
+    four surrounding LR anchors. The outputs are bilinearly blended. Coordinate
+    input is only (dx, dy) relative to the sampled anchor; no periodic phase
+    encoding and no absolute UV are present.
     """
 
-    COORD_CHANNELS = 9
+    COORD_CHANNELS = 2
     OUTPUT_CHANNELS = 8
 
     def __init__(
@@ -225,6 +221,51 @@ class RelativeQueryDecoder(nn.Module):
         unfolded = F.unfold(features, kernel_size=3, padding=1)
         return unfolded.view(n, c * 9, h, w)
 
+    def _decode_anchor(
+        self,
+        *,
+        features_lr: torch.Tensor,
+        neighbourhood_lr: torch.Tensor,
+        lr_maps: torch.Tensor,
+        y_index: torch.Tensor,
+        x_index: torch.Tensor,
+        query_y: torch.Tensor,
+        query_x: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        feature = _gather_anchor(features_lr, y_index, x_index)
+        neighbourhood = _gather_anchor(neighbourhood_lr, y_index, x_index)
+        evidence = _gather_anchor(lr_maps, y_index, x_index)
+
+        rel_y = (
+            query_y.view(-1, 1)
+            - y_index.to(query_y.dtype).view(-1, 1)
+        )
+        rel_x = (
+            query_x.view(1, -1)
+            - x_index.to(query_x.dtype).view(1, -1)
+        )
+        h_hr = query_y.numel()
+        w_hr = query_x.numel()
+        coords = torch.cat(
+            (
+                rel_x.view(1, 1, 1, w_hr).expand(
+                    features_lr.shape[0], 1, h_hr, w_hr
+                ),
+                rel_y.view(1, 1, h_hr, 1).expand(
+                    features_lr.shape[0], 1, h_hr, w_hr
+                ),
+            ),
+            dim=1,
+        )
+        hidden = self.mlp(
+            torch.cat((feature, neighbourhood, evidence, coords), dim=1)
+        )
+        return {
+            "albedo": self.albedo_head(hidden),
+            "normal": self.normal_head(hidden),
+            "material": self.material_head(hidden),
+        }
+
     def forward(
         self,
         features_lr: torch.Tensor,
@@ -233,58 +274,64 @@ class RelativeQueryDecoder(nn.Module):
         if features_lr.shape[-2:] != lr_maps.shape[-2:]:
             raise ValueError("feature and LR-map sizes must match")
         h, w = (int(value) for value in features_lr.shape[-2:])
-        target_size = (h * self.scale, w * self.scale)
-
+        dtype = features_lr.float().dtype
+        query_y, y0, y1, fy = _query_axis_geometry(
+            source_size=h,
+            scale=self.scale,
+            device=features_lr.device,
+            dtype=dtype,
+        )
+        query_x, x0, x1, fx = _query_axis_geometry(
+            source_size=w,
+            scale=self.scale,
+            device=features_lr.device,
+            dtype=dtype,
+        )
         neighbourhood_lr = self.neighbourhood_reduce(
             self._neighbourhood(features_lr)
         )
-        # Continuous latent/evidence interpolation supplies cross-cell continuity.
-        feature_query = F.interpolate(
-            features_lr.float(),
-            size=target_size,
-            mode="bilinear",
-            align_corners=False,
-        )
-        neighbourhood_query = F.interpolate(
-            neighbourhood_lr.float(),
-            size=target_size,
-            mode="bilinear",
-            align_corners=False,
-        )
-        evidence_query = F.interpolate(
-            lr_maps.float(),
-            size=target_size,
-            mode="bilinear",
-            align_corners=False,
-        )
-        coords = _relative_coordinate_channels(
-            height=target_size[0],
-            width=target_size[1],
-            scale=self.scale,
-            device=features_lr.device,
-            dtype=features_lr.float().dtype,
-        ).expand(features_lr.shape[0], -1, -1, -1)
 
-        hidden = self.mlp(
-            torch.cat(
-                (
-                    feature_query,
-                    neighbourhood_query,
-                    evidence_query,
-                    coords,
-                ),
-                dim=1,
-            )
+        weights = (
+            (1.0 - fy).view(-1, 1) * (1.0 - fx).view(1, -1),
+            (1.0 - fy).view(-1, 1) * fx.view(1, -1),
+            fy.view(-1, 1) * (1.0 - fx).view(1, -1),
+            fy.view(-1, 1) * fx.view(1, -1),
         )
-        return {
-            "albedo": self.albedo_head(hidden),
-            "normal": self.normal_head(hidden),
-            "material": self.material_head(hidden),
-        }
+        anchors = (
+            (y0, x0),
+            (y0, x1),
+            (y1, x0),
+            (y1, x1),
+        )
+
+        result: dict[str, torch.Tensor] | None = None
+        for weight, (yi, xi) in zip(weights, anchors):
+            prediction = self._decode_anchor(
+                features_lr=features_lr,
+                neighbourhood_lr=neighbourhood_lr,
+                lr_maps=lr_maps,
+                y_index=yi,
+                x_index=xi,
+                query_y=query_y,
+                query_x=query_x,
+            )
+            weight_hr = weight.view(1, 1, query_y.numel(), query_x.numel())
+            if result is None:
+                result = {
+                    name: value * weight_hr
+                    for name, value in prediction.items()
+                }
+            else:
+                for name, value in prediction.items():
+                    result[name] = result[name] + value * weight_hr
+
+        if result is None:  # pragma: no cover - positive dimensions guarantee anchors
+            raise RuntimeError("local ensemble produced no predictions")
+        return result
 
 
 class NSAMDRV17(nn.Module):
-    """Active V17 candidate: LR physical encoder + relative query decoder."""
+    """Active V17.1 candidate: LR encoder + local-ensemble implicit decoder."""
 
     def __init__(
         self,
@@ -372,15 +419,19 @@ class NSAMDRV17(nn.Module):
 
     def architecture_contract(self) -> dict[str, object]:
         return {
-            "revision": "V17.0-proof",
+            "revision": "V17.1-proof",
             "scale": int(self.config.scale),
             "productionForward": (
                 "LR aligned physical maps -> LR physical encoder -> "
-                "continuous local relative-coordinate query decoder -> "
-                "bounded physical residual -> deterministic B projection -> C"
+                "four-anchor local implicit queries using relative dx/dy -> "
+                "bilinear local-ensemble blend -> bounded physical residual -> "
+                "deterministic B projection -> C"
             ),
             "absoluteUvCoordinatesUsed": False,
             "relativeSubpixelCoordinatesUsed": True,
+            "periodicPhaseEncodingUsed": False,
+            "localEnsembleUsed": True,
+            "localEnsembleAnchors": 4,
             "learnedHrReconstructionDecoder": True,
             "pixelShuffleUsed": False,
             "transposedConvolutionUsed": False,
