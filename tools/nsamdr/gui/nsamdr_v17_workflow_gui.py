@@ -76,7 +76,7 @@ STAGES = (
     Stage(
         "train",
         "2",
-        "V17 Sibling Architecture Proof",
+        "V17.1 Sibling Architecture Proof",
         "Train one authored crop, evaluate an unseen sibling crop from the same authority, and require visual A/B/C review before any broad training.",
     ),
     Stage(
@@ -179,8 +179,8 @@ class App:
         self.scope_text = tk.StringVar(value="Qualified production final: checking")
         self.recipe_text = tk.StringVar(
             value=(
-                "Active architecture: V17 LR physical encoder + relative-coordinate "
-                "subpixel residual decoder. Current gate: unseen same-authority sibling crop."
+                "Active architecture: V17.1 LR physical encoder + four-anchor local-ensemble "
+                "implicit decoder. Current gate: train fit, then unseen same-authority sibling."
             )
         )
         self.preview_target = tk.StringVar(value="")
