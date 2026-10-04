@@ -883,7 +883,7 @@ Current reconstruction research code:
 
 ```text
 tools/nsamdr/neural/v17/
-    model.py           active LR encoder + coordinate-conditioned HR residual decoder
+    model.py           active V17.1 LR encoder + four-anchor local-ensemble implicit decoder
 
 tools/nsamdr/neural/v16/
     structure.py       analytic + learned structure conditioning
