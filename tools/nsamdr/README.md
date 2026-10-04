@@ -56,10 +56,39 @@ Do **not** spend more GPU time extending V16 Main epochs, the V16 pyramid-contex
 probe, residual-gain tuning or broad-authority scaling. Those questions are
 closed.
 
-### V17 active architecture proof
+### V17 architecture proof — V17.0 rejected, V17.1 active
 
-V17 moves the learned reconstruction mechanism back to LR space and makes
-subpixel placement explicit without absolute UV memorisation:
+V17.0 correctly moved reconstruction into LR feature space, but its decoder used
+a repeating coordinate phase inside every LR texel. That recreated explicit 4x
+phase ownership and produced a severe lattice. The bounded proof rejected V17.0
+before broad training:
+
+```text
+trained crop @384
+    global recovery          17.83%
+    edge recovery            15.58%
+    gradient recovery        12.84%
+    1px detail               10.45%
+    lattice excess           34.04%
+
+unseen sibling @384
+    global recovery           1.94%
+    edge recovery             1.41%
+    gradient recovery         5.69%
+    1px detail               -3.43%
+    lattice excess           37.32%
+```
+
+The failure was architectural, not a reason to add epochs. V17.0 did not pass
+the trained-crop fit gate, so its sibling result is retained only as negative
+evidence.
+
+### V17.1 active architecture
+
+V17.1 keeps the LR physical encoder and removes the repeating phase decoder.
+For each HR query, the same implicit decoder is evaluated against the four
+surrounding LR feature anchors using only relative `dx,dy` to each anchor. The
+four predictions are then bilinearly blended:
 
 ```text
 LR albedo RGB + normal XY + material RGB
@@ -70,10 +99,12 @@ LR albedo RGB + normal XY + material RGB
        + wide LR receptive field
                     |
                     v
-       local continuous query decoder
-       encoded neighbourhood
-       + relative (dx,dy) inside LR texel
-       + continuous LR evidence
+       four surrounding LR anchors
+          /       /       \       \
+       query    query     query    query
+       dx,dy    dx,dy     dx,dy    dx,dy
+          \       \       /       /
+           bilinear local-ensemble blend
                     |
                     v
        HR physical residual (A/N/M)
@@ -85,38 +116,46 @@ LR albedo RGB + normal XY + material RGB
                     C
 ```
 
-V17 uses **relative** subpixel coordinates only. It does not receive absolute UV
-coordinates, ship identity or authored HR geometry at inference. The deterministic
-baseline B, aligned physical-map contract, normal projection, qualification
-metrics, lattice checks and later BenefitSelector contract remain unchanged.
+V17.1 has no absolute UV input, no periodic phase/Fourier encoding, no
+PixelShuffle, no transposed convolution and no fixed-HR Swin reconstruction
+body. The deterministic baseline B, aligned physical-map contract, normal
+projection, qualification metrics, lattice checks and later BenefitSelector
+contract remain unchanged.
 
-### Corrected proof order
+### Enforced proof order
 
-Broad training is forbidden until the architecture passes the cheap spatial
-transfer proof:
+The proof script now enforces the architecture gate instead of merely reporting
+both crops:
 
 ```text
-1. Fit one authored crop.
-2. Evaluate a different authored crop from the SAME authority, never trained.
-3. Inspect A/B/C visually: thin seams and manufactured boundaries must actually
-   reappear, not merely sharpen B.
-4. Repeat on a small multi-authority sibling-crop set.
-5. Only then evaluate independent authorities.
-6. Only then run broad Main training and production qualification.
+1. Train one authored crop.
+2. At bounded checkpoints, evaluate ONLY that trained crop.
+3. The trained crop must pass the unchanged candidate fit gates:
+       global   >= 45%
+       edge     >= 60%
+       gradient >= 35%
+       lattice  <= 15%
+4. If the trained crop still fails at the final bounded stage:
+       REJECT architecture; do not interpret sibling transfer.
+5. Only after train-fit PASS:
+       evaluate the unseen sibling crop exactly once.
+6. Inspect sibling A/B/C visually.
+7. Only then consider small multi-authority transfer and later broad training.
 ```
 
-If step 2 still produces a pixelated/sharpened B-like result, reject V17
-immediately. Do not rescue it with more epochs or a broad run.
+A sharpened/pixelated B-like result, visible 4x phase structure, or failure to
+fit the known crop rejects the architecture. Do not rescue it with broad
+training.
 
-Run the bounded V17 proof directly:
+Run the bounded proof:
 
 ```bat
 scripts\build\nsamdr.bat v17-sibling-proof
 ```
 
-The proof writes trained-crop and unseen-sibling `A/B/C` sheets at every
-checkpoint. The final sibling sheet is the required visual decision artifact.
-
+The proof writes trained-crop A/B/C sheets at each bounded checkpoint. It writes
+an unseen sibling A/B/C sheet only if the trained crop first passes all candidate
+fit gates.
 
 ## Quick start / operator guide
 
