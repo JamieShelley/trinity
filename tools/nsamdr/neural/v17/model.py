@@ -29,7 +29,7 @@ except ImportError:  # pragma: no cover - script-mode diagnostics
 def _group_gradient(value: torch.Tensor) -> torch.Tensor:
     value = value.float()
     dx = F.pad(value[..., :, 1:] - value[..., :, :-1], (0, 1, 0, 0))
-    dy = F.pad(value[..., 1:, :] - value[..., :-1, :].abs(), (0, 0, 0, 1))
+    dy = F.pad((value[..., 1:, :] - value[..., :-1, :]).abs(), (0, 0, 0, 1))
     return torch.sqrt((dx * dx + dy * dy).mean(dim=1, keepdim=True) + 1.0e-8)
 
 
