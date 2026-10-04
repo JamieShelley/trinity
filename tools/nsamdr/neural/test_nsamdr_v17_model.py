@@ -8,7 +8,8 @@ from torch import nn
 from tools.nsamdr.neural.v14.config import V16Config
 from tools.nsamdr.neural.v17.model import (
     NSAMDRV17,
-    _relative_coordinate_channels,
+    RelativeQueryDecoder,
+    _query_axis_geometry,
 )
 
 
@@ -40,21 +41,32 @@ def _config() -> V16Config:
 
 
 class V17ModelTests(unittest.TestCase):
-    def test_relative_coordinates_repeat_per_lr_texel_without_absolute_uv(self) -> None:
-        coords = _relative_coordinate_channels(
-            height=8,
-            width=8,
+    def test_local_ensemble_geometry_is_continuous_and_weights_partition_unity(self) -> None:
+        position, lower, upper, fraction = _query_axis_geometry(
+            source_size=4,
             scale=4,
             device=torch.device("cpu"),
             dtype=torch.float32,
         )
-        self.assertEqual(tuple(coords.shape), (1, 9, 8, 8))
-        self.assertTrue(torch.equal(coords[:, :, :4, :4], coords[:, :, 4:, :4]))
-        self.assertTrue(torch.equal(coords[:, :, :4, :4], coords[:, :, :4, 4:]))
-        self.assertEqual(
-            [round(float(v), 2) for v in coords[0, 0, 0, :4]],
-            [-0.75, -0.25, 0.25, 0.75],
+        self.assertEqual(position.numel(), 16)
+        self.assertTrue(bool(torch.all(position[1:] >= position[:-1])))
+        self.assertTrue(bool(torch.all(fraction >= 0.0)))
+        self.assertTrue(bool(torch.all(fraction <= 1.0)))
+        self.assertTrue(bool(torch.all(upper >= lower)))
+
+        wy0 = 1.0 - fraction
+        wy1 = fraction
+        weights = (
+            wy0.view(-1, 1) * wy0.view(1, -1),
+            wy0.view(-1, 1) * wy1.view(1, -1),
+            wy1.view(-1, 1) * wy0.view(1, -1),
+            wy1.view(-1, 1) * wy1.view(1, -1),
         )
+        total = sum(weights)
+        self.assertTrue(torch.allclose(total, torch.ones_like(total), atol=1.0e-6))
+
+    def test_decoder_uses_only_two_relative_coordinate_channels(self) -> None:
+        self.assertEqual(RelativeQueryDecoder.COORD_CHANNELS, 2)
 
     def test_candidate_starts_exactly_at_deterministic_baseline(self) -> None:
         model = NSAMDRV17(
@@ -82,7 +94,7 @@ class V17ModelTests(unittest.TestCase):
         self.assertEqual(tuple(output["candidate_normal"].shape), (1, 2, 32, 32))
         self.assertEqual(tuple(output["candidate_material"].shape), (1, 3, 32, 32))
 
-    def test_v17_has_no_pixelshuffle_or_transposed_convolution(self) -> None:
+    def test_v17_has_no_phase_decoder_pixelshuffle_or_transposed_convolution(self) -> None:
         model = NSAMDRV17(
             _config(),
             encoder_channels=16,
@@ -92,8 +104,12 @@ class V17ModelTests(unittest.TestCase):
         forbidden = (nn.PixelShuffle, nn.ConvTranspose2d)
         self.assertFalse(any(isinstance(module, forbidden) for module in model.modules()))
         contract = model.architecture_contract()
+        self.assertEqual(contract["revision"], "V17.1-proof")
         self.assertTrue(contract["relativeSubpixelCoordinatesUsed"])
         self.assertFalse(contract["absoluteUvCoordinatesUsed"])
+        self.assertFalse(contract["periodicPhaseEncodingUsed"])
+        self.assertTrue(contract["localEnsembleUsed"])
+        self.assertEqual(contract["localEnsembleAnchors"], 4)
         self.assertTrue(contract["learnedHrReconstructionDecoder"])
         self.assertFalse(contract["fixedHrSwinRefinerUsed"])
 
