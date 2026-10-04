@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""V17 one-authority unseen-sibling-crop architecture proof.
+"""V17.1 train-fit-first unseen-sibling architecture proof.
 
-This is the first gate for the replacement reconstruction architecture. It
-trains exactly one authored crop, then evaluates a different authored crop from
-that same authority with no further training. Broad-authority training is
-intentionally out of scope until this proof is visually credible.
+Proof order is enforced:
+1. Train exactly one authored crop.
+2. The trained crop must pass the unchanged candidate fit gates.
+3. Only then evaluate a different never-trained crop from the same authority.
+4. Require visual A/B/C review before any broader training.
+
+If the trained crop does not pass by the final bounded stage, the architecture
+is rejected at train fit and sibling transfer is not interpreted.
 """
 from __future__ import annotations
 
@@ -41,8 +45,8 @@ from v16.broad_prior import AuthorityBalancedSRDataset
 from v17.model import NSAMDRV17
 
 
-SCHEMA = "NSAMDR_V17_SIBLING_ARCHITECTURE_PROOF_V1"
-CHECKPOINT_SCHEMA = "NSAMDR_V17_SIBLING_ARCHITECTURE_CHECKPOINT_V1"
+SCHEMA = "NSAMDR_V17_SIBLING_ARCHITECTURE_PROOF_V2"
+CHECKPOINT_SCHEMA = "NSAMDR_V17_SIBLING_ARCHITECTURE_CHECKPOINT_V2"
 DEFAULT_AUTHORITY = "13006d2b807f89ac"
 EARLY_TRANSFER_GATE = {
     "global_recovery": 0.30,
@@ -99,7 +103,6 @@ def _batch_for_record(
     device: torch.device,
 ) -> tuple[dict[str, torch.Tensor], dict[str, str]]:
     selected = dict(record)
-    # Validation mode gives an exact deterministic center crop with no augmentation.
     selected["split"] = "validation"
     dataset = AuthorityBalancedSRDataset(
         {"crops": [selected]},
@@ -150,6 +153,25 @@ def _evaluate(
     return result, outputs
 
 
+def _target_albedo_residual_magnitude(
+    model: NSAMDRV17,
+    batch: dict[str, torch.Tensor],
+) -> float:
+    with torch.no_grad():
+        baseline, _normal, _material = model.baseline(
+            batch["lr_albedo"],
+            batch["lr_normal"],
+            batch["lr_material"],
+        )
+    return float(
+        (batch["target_albedo"].float() - baseline.float())
+        .abs()
+        .mean()
+        .detach()
+        .cpu()
+    )
+
+
 def _tensor_rgb(value: torch.Tensor) -> np.ndarray:
     return (
         value.detach()
@@ -195,12 +217,12 @@ def _write_preview(
         (
             _preview_panel(authored, "A  AUTHORED"),
             _preview_panel(baseline, "B  DETERMINISTIC 4X"),
-            _preview_panel(candidate, f"C  V17 {role.upper()}"),
+            _preview_panel(candidate, f"C  V17.1 {role.upper()}"),
         ),
         axis=1,
     )
     if not cv2.imwrite(str(path), sheet, [cv2.IMWRITE_PNG_COMPRESSION, 3]):
-        raise RuntimeError(f"could not write V17 preview: {path}")
+        raise RuntimeError(f"could not write V17.1 preview: {path}")
 
 
 def _train_one(
@@ -321,6 +343,17 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         foreach=False,
     )
 
+    train_target_residual = _target_albedo_residual_magnitude(model, train_batch)
+    sibling_target_residual = _target_albedo_residual_magnitude(model, sibling_batch)
+    if train_target_residual < float(args.minimum_target_residual):
+        raise RuntimeError(
+            "selected trained crop is too close to deterministic B; choose another authority"
+        )
+    if sibling_target_residual < float(args.minimum_target_residual):
+        raise RuntimeError(
+            "selected sibling crop is too close to deterministic B; choose another authority"
+        )
+
     initial_train, initial_train_outputs = _evaluate(
         model,
         train_batch,
@@ -328,25 +361,6 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         device=device,
         precision=str(args.amp_precision),
     )
-    initial_sibling, initial_sibling_outputs = _evaluate(
-        model,
-        sibling_batch,
-        config,
-        device=device,
-        precision=str(args.amp_precision),
-    )
-    if float(initial_train["residualDiagnostics"]["target_residual_magnitude"]) < float(
-        args.minimum_target_residual
-    ):
-        raise RuntimeError(
-            "selected trained crop is too close to deterministic B; choose another authority"
-        )
-    if float(initial_sibling["residualDiagnostics"]["target_residual_magnitude"]) < float(
-        args.minimum_target_residual
-    ):
-        raise RuntimeError(
-            "selected sibling crop is too close to deterministic B; choose another authority"
-        )
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     run_dir = (
@@ -361,36 +375,37 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         initial_train_outputs,
         role="trained",
     )
-    _write_preview(
-        run_dir / "stage_000000" / "sibling_ABC.png",
-        sibling_batch,
-        initial_sibling_outputs,
-        role="sibling",
-    )
 
-    print("NSAMDR V17 UNSEEN-SIBLING ARCHITECTURE PROOF", flush=True)
+    print("NSAMDR V17.1 TRAIN-FIT-FIRST SIBLING ARCHITECTURE PROOF", flush=True)
     print(f"Authority        : {authority_id}", flush=True)
     print(f"Trained crop     : {train_meta['cropId']}", flush=True)
-    print(f"Sibling crop     : {sibling_meta['cropId']} (never trained)", flush=True)
+    print(f"Sibling crop     : {sibling_meta['cropId']} (held until train-fit gate passes)", flush=True)
     print(f"Stages           : {stages}", flush=True)
     print("Sampling         : fixed authored 512 crop; clean 128 LR; no augmentation", flush=True)
-    print("Architecture     : LR encoder + relative-coordinate local query decoder", flush=True)
-    print("Absolute UV      : forbidden", flush=True)
+    print("Architecture     : LR encoder + four-anchor local-ensemble implicit decoder", flush=True)
+    print("Coordinates      : relative dx/dy only; no periodic phase encoding; no absolute UV", flush=True)
     print(_summary_line("Initial trained ", initial_train), flush=True)
-    print(_summary_line("Initial sibling ", initial_sibling), flush=True)
 
     snapshots: list[dict[str, Any]] = [
         {
             "update": 0,
             "trained": initial_train,
-            "sibling": initial_sibling,
-            "siblingEarlyTransferGate": _transfer_gate(initial_sibling),
+            "trainedCandidateGatePass": bool(all(initial_train["gateChecks"].values())),
+            "siblingEvaluated": False,
+            "previews": {
+                "trained": str(
+                    (run_dir / "stage_000000" / "trained_ABC.png").resolve()
+                ),
+            },
         }
     ]
     started = time.monotonic()
     stage_set = set(stages)
     latest_train = initial_train
-    latest_sibling = initial_sibling
+    latest_sibling: dict[str, Any] | None = None
+    trained_gate_pass = False
+    stop_update = 0
+    decision = "reject-trained-fit"
 
     for update in range(1, stages[-1] + 1):
         train_loss = _train_one(
@@ -421,40 +436,62 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             device=device,
             precision=str(args.amp_precision),
         )
-        latest_sibling, sibling_outputs = _evaluate(
-            model,
-            sibling_batch,
-            config,
-            device=device,
-            precision=str(args.amp_precision),
-        )
         stage_dir = run_dir / f"stage_{update:06d}"
+        trained_preview = stage_dir / "trained_ABC.png"
         _write_preview(
-            stage_dir / "trained_ABC.png",
+            trained_preview,
             train_batch,
             train_outputs,
             role="trained",
         )
-        _write_preview(
-            stage_dir / "sibling_ABC.png",
-            sibling_batch,
-            sibling_outputs,
-            role="sibling",
-        )
-        snapshot = {
+        trained_gate = dict(latest_train["gateChecks"])
+        trained_gate_pass = bool(all(trained_gate.values()))
+        snapshot: dict[str, Any] = {
             "update": update,
             "trainLossBeforeUpdate": train_loss,
             "trained": latest_train,
-            "sibling": latest_sibling,
-            "siblingEarlyTransferGate": _transfer_gate(latest_sibling),
+            "trainedCandidateGatePass": trained_gate_pass,
+            "siblingEvaluated": False,
             "previews": {
-                "trained": str((stage_dir / "trained_ABC.png").resolve()),
-                "sibling": str((stage_dir / "sibling_ABC.png").resolve()),
+                "trained": str(trained_preview.resolve()),
             },
         }
-        snapshots.append(snapshot)
         print(_summary_line(f"Stage {update:4d} train  ", latest_train), flush=True)
-        print(_summary_line(f"Stage {update:4d} sibling", latest_sibling), flush=True)
+        print(f"Stage {update:4d} train gates: {trained_gate}", flush=True)
+
+        if trained_gate_pass:
+            latest_sibling, sibling_outputs = _evaluate(
+                model,
+                sibling_batch,
+                config,
+                device=device,
+                precision=str(args.amp_precision),
+            )
+            sibling_preview = stage_dir / "sibling_ABC.png"
+            _write_preview(
+                sibling_preview,
+                sibling_batch,
+                sibling_outputs,
+                role="sibling",
+            )
+            sibling_gate = _transfer_gate(latest_sibling)
+            snapshot["sibling"] = latest_sibling
+            snapshot["siblingEvaluated"] = True
+            snapshot["siblingEarlyTransferGate"] = sibling_gate
+            snapshot["previews"]["sibling"] = str(sibling_preview.resolve())
+            print(
+                "TRAIN-FIT GATE PASSED: evaluating unseen sibling exactly once.",
+                flush=True,
+            )
+            print(_summary_line(f"Stage {update:4d} sibling", latest_sibling), flush=True)
+            print(f"Stage {update:4d} sibling early gate: {sibling_gate}", flush=True)
+            decision = "sibling-visual-review-required"
+            stop_update = update
+            snapshots.append(snapshot)
+            break
+
+        snapshots.append(snapshot)
+        stop_update = update
 
     checkpoint_path = run_dir / "checkpoint.pt"
     torch.save(
@@ -466,7 +503,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             "manifest": str(manifest_path.resolve()),
             "config": config.to_dict(),
             "architecture": model.architecture_contract(),
-            "update": int(stages[-1]),
+            "update": int(stop_update),
             "modelState": model.state_dict(),
             "optimizerState": optimizer.state_dict(),
         },
@@ -474,7 +511,11 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     )
 
     trained_gate = dict(latest_train["gateChecks"])
-    sibling_gate = _transfer_gate(latest_sibling)
+    sibling_gate = (
+        _transfer_gate(latest_sibling)
+        if latest_sibling is not None
+        else None
+    )
     report = {
         "schema": SCHEMA,
         "architecture": model.architecture_contract(),
@@ -482,16 +523,25 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "trainedCrop": train_meta,
         "siblingCrop": sibling_meta,
         "stages": stages,
+        "stopUpdate": int(stop_update),
+        "decision": decision,
         "minimumTargetResidual": float(args.minimum_target_residual),
+        "trainTargetAlbedoResidualMagnitude": train_target_residual,
+        "siblingTargetAlbedoResidualMagnitude": sibling_target_residual,
         "earlySiblingTransferThresholds": EARLY_TRANSFER_GATE,
         "finalTrainedCandidateGate": trained_gate,
         "finalSiblingEarlyTransferGate": sibling_gate,
-        "trainedCandidateGatePass": bool(all(trained_gate.values())),
-        "siblingNumericalGatePass": bool(all(sibling_gate.values())),
-        "visualGateRequired": True,
+        "trainedCandidateGatePass": bool(trained_gate_pass),
+        "siblingEvaluated": latest_sibling is not None,
+        "siblingNumericalGatePass": (
+            bool(all(sibling_gate.values())) if sibling_gate is not None else None
+        ),
+        "visualGateRequired": latest_sibling is not None,
         "visualGateInstruction": (
             "Inspect sibling_ABC.png. Thin authored seams/manufactured boundaries "
-            "must visibly reappear in C; a sharpened/pixelated B-like result rejects V17."
+            "must visibly reappear in C; a sharpened/pixelated B-like result rejects V17.1."
+            if latest_sibling is not None
+            else "No sibling visual gate: trained crop failed the candidate fit gate."
         ),
         "checkpoint": str(checkpoint_path.resolve()),
         "snapshots": snapshots,
@@ -504,27 +554,40 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     )
 
     print("=" * 84, flush=True)
-    print("V17 SIBLING ARCHITECTURE DECISION", flush=True)
+    print("V17.1 ARCHITECTURE DECISION", flush=True)
     print(_summary_line("Final trained ", latest_train), flush=True)
-    print(_summary_line("Final sibling ", latest_sibling), flush=True)
     print(f"Trained candidate gates : {trained_gate}", flush=True)
-    print(f"Sibling early gate      : {sibling_gate}", flush=True)
-    print(
-        "Visual decision         : REQUIRED - inspect final sibling_ABC.png before any broad run",
-        flush=True,
-    )
-    print(
-        f"Sibling preview         : "
-        f"{run_dir / f'stage_{stages[-1]:06d}' / 'sibling_ABC.png'}",
-        flush=True,
-    )
+    if latest_sibling is None:
+        print(
+            "Decision                : REJECT AT TRAIN FIT - sibling was not evaluated",
+            flush=True,
+        )
+        print(
+            f"Trained preview         : "
+            f"{run_dir / f'stage_{stop_update:06d}' / 'trained_ABC.png'}",
+            flush=True,
+        )
+    else:
+        print(_summary_line("Final sibling ", latest_sibling), flush=True)
+        print(f"Sibling early gate      : {sibling_gate}", flush=True)
+        print(
+            "Decision                : TRAIN FIT PASSED - visual sibling review required",
+            flush=True,
+        )
+        print(
+            f"Sibling preview         : "
+            f"{run_dir / f'stage_{stop_update:06d}' / 'sibling_ABC.png'}",
+            flush=True,
+        )
     print(f"Report                  : {report_path}", flush=True)
     return 0, report_path
 
 
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(
-        description="Train one V17 crop and test an unseen sibling crop from the same authority"
+        description=(
+            "Train one V17.1 crop; evaluate unseen sibling only after train-fit gates pass"
+        )
     )
     value.add_argument("--repo-root", type=Path, default=Path.cwd())
     value.add_argument("--manifest", default=DEFAULT_MANIFEST)
