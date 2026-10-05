@@ -54,13 +54,13 @@ class NSAMDRCLITests(unittest.TestCase):
                 "--device", "cuda",
                 "--amp-precision", "auto",
                 "--authority-id", "13006d2b807f89ac",
-                "--stages", "64,128,256,384",
+                "--stages", "512,768,1024,1536",
             ]
         )
         self.assertEqual(args.device, "cuda")
         self.assertEqual(args.amp_precision, "auto")
         self.assertEqual(args.authority_id, "13006d2b807f89ac")
-        self.assertEqual(args.stages, ["64,128,256,384"])
+        self.assertEqual(args.stages, ["512,768,1024,1536"])
         self.assertEqual(args.hr_size, 512)
 
     def test_context_probe_accepts_bounded_arguments(self) -> None:
