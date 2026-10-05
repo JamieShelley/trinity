@@ -122,6 +122,24 @@ body. The deterministic baseline B, aligned physical-map contract, normal
 projection, qualification metrics, lattice checks and later BenefitSelector
 contract remain unchanged.
 
+The first V17.1 bounded run at 384 updates did not pass train fit, but its
+trained-crop curve was still improving materially rather than plateauing:
+
+```text
+trained crop @384
+    global recovery          17.34%
+    edge recovery            14.14%
+    gradient recovery        12.48%
+    1px detail                2.90%
+    lattice excess           28.78%
+```
+
+Because this run is cheap and the fit curve was still moving, the bounded
+train-fit horizon is extended to `512, 768, 1024, 1536` updates. Sibling
+evaluation remains blocked until the trained crop passes every unchanged
+candidate gate. This is still a single-crop architecture proof, not broad
+training.
+
 ### Enforced proof order
 
 The proof script now enforces the architecture gate instead of merely reporting
@@ -152,6 +170,10 @@ Run the bounded proof:
 ```bat
 scripts\build\nsamdr.bat v17-sibling-proof
 ```
+
+Default checkpoints are now `512,768,1024,1536`. The proof exits the train-fit
+phase as soon as all candidate gates pass and only then evaluates the unseen
+sibling once.
 
 The proof writes trained-crop A/B/C sheets at each bounded checkpoint. It writes
 an unseen sibling A/B/C sheet only if the trained crop first passes all candidate
