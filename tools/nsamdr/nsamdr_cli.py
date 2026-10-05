@@ -625,7 +625,7 @@ class NSAMDRCommandLineApplication:
         v17_sibling.add_argument(
             "--stages",
             nargs="+",
-            default=["64,128,256,384"],
+            default=["512,768,1024,1536"],
         )
         v17_sibling.add_argument("--learning-rate", type=float, default=2.0e-4)
         v17_sibling.add_argument("--minimum-target-residual", type=float, default=0.01)
