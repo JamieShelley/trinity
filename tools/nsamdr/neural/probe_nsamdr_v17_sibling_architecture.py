@@ -596,7 +596,7 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument(
         "--stages",
         nargs="+",
-        default=["64,128,256,384"],
+        default=["512,768,1024,1536"],
         help="cumulative exact-crop updates",
     )
     value.add_argument("--minimum-target-residual", type=float, default=0.01)
