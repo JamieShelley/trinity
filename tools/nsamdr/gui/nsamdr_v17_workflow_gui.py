@@ -463,7 +463,7 @@ class App:
                 "--hr-size",
                 self._value("hr_size", "512"),
                 "--stages",
-                self._value("stages", "64,128,256,384"),
+                self._value("stages", "512,768,1024,1536"),
                 "--learning-rate",
                 self._value("learning_rate", "0.0002"),
                 "--minimum-target-residual",
@@ -846,8 +846,8 @@ class App:
             self._row(
                 "Checkpoint updates",
                 "stages",
-                "64,128,256,384",
-                ("64,128,256,384", "64,128,256", "32,64,128"),
+                "512,768,1024,1536",
+                ("512,768,1024,1536", "64,128,256", "32,64,128"),
             )
             self._row("Learning rate", "learning_rate", "0.0002")
             self._row("Minimum target residual", "minimum_target_residual", "0.01")
