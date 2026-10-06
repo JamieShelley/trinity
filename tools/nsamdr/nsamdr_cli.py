@@ -387,8 +387,9 @@ class NSAMDRCommandLineApplication:
             "--learning-rate", str(args.learning_rate),
             "--minimum-target-residual", str(args.minimum_target_residual),
             "--encoder-channels", str(args.encoder_channels),
-            "--neighbourhood-channels", str(args.neighbourhood_channels),
-            "--decoder-hidden-channels", str(args.decoder_hidden_channels),
+            "--mid-channels", str(args.mid_channels),
+            "--detail-channels", str(args.detail_channels),
+            "--decoder-blocks", str(args.decoder_blocks),
         ]
         forwarded += ["--stages", *[str(value) for value in args.stages]]
         if args.manifest:
@@ -625,13 +626,13 @@ class NSAMDRCommandLineApplication:
         v17_sibling.add_argument(
             "--stages",
             nargs="+",
-            default=["512,768,1024,1536"],
+            default=["128,256,384,512,768"],
         )
         v17_sibling.add_argument("--learning-rate", type=float, default=2.0e-4)
         v17_sibling.add_argument("--minimum-target-residual", type=float, default=0.01)
         v17_sibling.add_argument("--encoder-channels", type=int, default=96)
-        v17_sibling.add_argument("--neighbourhood-channels", type=int, default=128)
-        v17_sibling.add_argument("--decoder-hidden-channels", type=int, default=192)
+        v17_sibling.add_argument("--mid-channels", type=int, default=64)
+        v17_sibling.add_argument("--detail-channels", type=int, default=48)\n        v17_sibling.add_argument("--decoder-blocks", type=int, default=4)
         v17_sibling.set_defaults(handler=self._command_v17_sibling_proof)
 
         context_probe = commands.add_parser("context-probe")
