@@ -6,11 +6,7 @@ import torch
 from torch import nn
 
 from tools.nsamdr.neural.v14.config import V16Config
-from tools.nsamdr.neural.v17.model import (
-    NSAMDRV17,
-    RelativeQueryDecoder,
-    _query_axis_geometry,
-)
+from tools.nsamdr.neural.v17.model import MultiScaleResidualDecoder, NSAMDRV17
 
 
 def _config() -> V16Config:
@@ -41,39 +37,32 @@ def _config() -> V16Config:
 
 
 class V17ModelTests(unittest.TestCase):
-    def test_local_ensemble_geometry_is_continuous_and_weights_partition_unity(self) -> None:
-        position, lower, upper, fraction = _query_axis_geometry(
-            source_size=4,
+    def test_multiscale_decoder_emits_mid_and_hr_residual_bands(self) -> None:
+        decoder = MultiScaleResidualDecoder(
+            feature_channels=16,
+            mid_channels=12,
+            detail_channels=10,
+            blocks_per_stage=1,
             scale=4,
-            device=torch.device("cpu"),
-            dtype=torch.float32,
-        )
-        self.assertEqual(position.numel(), 16)
-        self.assertTrue(bool(torch.all(position[1:] >= position[:-1])))
-        self.assertTrue(bool(torch.all(fraction >= 0.0)))
-        self.assertTrue(bool(torch.all(fraction <= 1.0)))
-        self.assertTrue(bool(torch.all(upper >= lower)))
-
-        wy0 = 1.0 - fraction
-        wy1 = fraction
-        weights = (
-            wy0.view(-1, 1) * wy0.view(1, -1),
-            wy0.view(-1, 1) * wy1.view(1, -1),
-            wy1.view(-1, 1) * wy0.view(1, -1),
-            wy1.view(-1, 1) * wy1.view(1, -1),
-        )
-        total = sum(weights)
-        self.assertTrue(torch.allclose(total, torch.ones_like(total), atol=1.0e-6))
-
-    def test_decoder_uses_only_two_relative_coordinate_channels(self) -> None:
-        self.assertEqual(RelativeQueryDecoder.COORD_CHANNELS, 2)
+        ).eval()
+        features = torch.rand(1, 16, 8, 8)
+        maps = torch.rand(1, 8, 8, 8)
+        with torch.no_grad():
+            output = decoder(features, maps)
+        self.assertEqual(tuple(output["mid_residual"].shape), (1, 8, 16, 16))
+        self.assertEqual(tuple(output["mid_residual_hr"].shape), (1, 8, 32, 32))
+        self.assertEqual(tuple(output["detail_residual"].shape), (1, 8, 32, 32))
+        self.assertEqual(tuple(output["albedo"].shape), (1, 3, 32, 32))
+        self.assertEqual(tuple(output["normal"].shape), (1, 2, 32, 32))
+        self.assertEqual(tuple(output["material"].shape), (1, 3, 32, 32))
 
     def test_candidate_starts_exactly_at_deterministic_baseline(self) -> None:
         model = NSAMDRV17(
             _config(),
             encoder_channels=16,
-            neighbourhood_channels=24,
-            decoder_hidden_channels=32,
+            mid_channels=12,
+            detail_channels=10,
+            decoder_blocks=1,
         ).eval()
         albedo = torch.rand(1, 3, 8, 8)
         normal = torch.rand(1, 2, 8, 8) * 0.5 - 0.25
@@ -94,22 +83,26 @@ class V17ModelTests(unittest.TestCase):
         self.assertEqual(tuple(output["candidate_normal"].shape), (1, 2, 32, 32))
         self.assertEqual(tuple(output["candidate_material"].shape), (1, 3, 32, 32))
 
-    def test_v17_has_no_phase_decoder_pixelshuffle_or_transposed_convolution(self) -> None:
+    def test_v17_2_has_no_phase_decoder_pixelshuffle_or_transposed_convolution(self) -> None:
         model = NSAMDRV17(
             _config(),
             encoder_channels=16,
-            neighbourhood_channels=24,
-            decoder_hidden_channels=32,
+            mid_channels=12,
+            detail_channels=10,
+            decoder_blocks=1,
         )
         forbidden = (nn.PixelShuffle, nn.ConvTranspose2d)
         self.assertFalse(any(isinstance(module, forbidden) for module in model.modules()))
         contract = model.architecture_contract()
-        self.assertEqual(contract["revision"], "V17.1-proof")
-        self.assertTrue(contract["relativeSubpixelCoordinatesUsed"])
+        self.assertEqual(contract["revision"], "V17.2-proof")
         self.assertFalse(contract["absoluteUvCoordinatesUsed"])
+        self.assertFalse(contract["relativeSubpixelCoordinatesUsed"])
         self.assertFalse(contract["periodicPhaseEncodingUsed"])
-        self.assertTrue(contract["localEnsembleUsed"])
-        self.assertEqual(contract["localEnsembleAnchors"], 4)
+        self.assertFalse(contract["localEnsembleUsed"])
+        self.assertTrue(contract["multiScaleResidualDecoderUsed"])
+        self.assertEqual(contract["decoderScales"], [2, 4])
+        self.assertTrue(contract["resizeConvolutionUsed"])
+        self.assertTrue(contract["learnedHrDetailStageUsed"])
         self.assertTrue(contract["learnedHrReconstructionDecoder"])
         self.assertFalse(contract["fixedHrSwinRefinerUsed"])
 
