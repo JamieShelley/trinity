@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""V17.1 train-fit-first unseen-sibling architecture proof.
+"""V17.2 train-fit-first unseen-sibling architecture proof.
 
 Proof order is enforced:
 1. Train exactly one authored crop.
@@ -45,8 +45,8 @@ from v16.broad_prior import AuthorityBalancedSRDataset
 from v17.model import NSAMDRV17
 
 
-SCHEMA = "NSAMDR_V17_SIBLING_ARCHITECTURE_PROOF_V2"
-CHECKPOINT_SCHEMA = "NSAMDR_V17_SIBLING_ARCHITECTURE_CHECKPOINT_V2"
+SCHEMA = "NSAMDR_V17_SIBLING_ARCHITECTURE_PROOF_V3"
+CHECKPOINT_SCHEMA = "NSAMDR_V17_SIBLING_ARCHITECTURE_CHECKPOINT_V3"
 DEFAULT_AUTHORITY = "13006d2b807f89ac"
 EARLY_TRANSFER_GATE = {
     "global_recovery": 0.30,
@@ -217,12 +217,12 @@ def _write_preview(
         (
             _preview_panel(authored, "A  AUTHORED"),
             _preview_panel(baseline, "B  DETERMINISTIC 4X"),
-            _preview_panel(candidate, f"C  V17.1 {role.upper()}"),
+            _preview_panel(candidate, f"C  V17.2 {role.upper()}"),
         ),
         axis=1,
     )
     if not cv2.imwrite(str(path), sheet, [cv2.IMWRITE_PNG_COMPRESSION, 3]):
-        raise RuntimeError(f"could not write V17.1 preview: {path}")
+        raise RuntimeError(f"could not write V17.2 preview: {path}")
 
 
 def _train_one(
@@ -331,8 +331,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     model = NSAMDRV17(
         config,
         encoder_channels=int(args.encoder_channels),
-        neighbourhood_channels=int(args.neighbourhood_channels),
-        decoder_hidden_channels=int(args.decoder_hidden_channels),
+        mid_channels=int(args.mid_channels),
+        detail_channels=int(args.detail_channels),
+        decoder_blocks=int(args.decoder_blocks),
     ).to(device)
     model.set_candidate_training()
     optimizer = torch.optim.Adam(
@@ -376,14 +377,14 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         role="trained",
     )
 
-    print("NSAMDR V17.1 TRAIN-FIT-FIRST SIBLING ARCHITECTURE PROOF", flush=True)
+    print("NSAMDR V17.2 TRAIN-FIT-FIRST SIBLING ARCHITECTURE PROOF", flush=True)
     print(f"Authority        : {authority_id}", flush=True)
     print(f"Trained crop     : {train_meta['cropId']}", flush=True)
     print(f"Sibling crop     : {sibling_meta['cropId']} (held until train-fit gate passes)", flush=True)
     print(f"Stages           : {stages}", flush=True)
     print("Sampling         : fixed authored 512 crop; clean 128 LR; no augmentation", flush=True)
-    print("Architecture     : LR encoder + four-anchor local-ensemble implicit decoder", flush=True)
-    print("Coordinates      : relative dx/dy only; no periodic phase encoding; no absolute UV", flush=True)
+    print("Architecture     : LR encoder + 2x mid-band + 4x high-detail residual decoder", flush=True)
+    print("Upsampling       : bilinear resize-convolution; no PixelShuffle/ConvTranspose/phase tensor", flush=True)
     print(_summary_line("Initial trained ", initial_train), flush=True)
 
     snapshots: list[dict[str, Any]] = [
@@ -539,7 +540,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "visualGateRequired": latest_sibling is not None,
         "visualGateInstruction": (
             "Inspect sibling_ABC.png. Thin authored seams/manufactured boundaries "
-            "must visibly reappear in C; a sharpened/pixelated B-like result rejects V17.1."
+            "must visibly reappear in C; a sharpened/pixelated B-like result rejects V17.2."
             if latest_sibling is not None
             else "No sibling visual gate: trained crop failed the candidate fit gate."
         ),
@@ -554,7 +555,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     )
 
     print("=" * 84, flush=True)
-    print("V17.1 ARCHITECTURE DECISION", flush=True)
+    print("V17.2 ARCHITECTURE DECISION", flush=True)
     print(_summary_line("Final trained ", latest_train), flush=True)
     print(f"Trained candidate gates : {trained_gate}", flush=True)
     if latest_sibling is None:
@@ -586,7 +587,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(
         description=(
-            "Train one V17.1 crop; evaluate unseen sibling only after train-fit gates pass"
+            "Train one V17.2 crop; evaluate unseen sibling only after train-fit gates pass"
         )
     )
     value.add_argument("--repo-root", type=Path, default=Path.cwd())
@@ -596,15 +597,15 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument(
         "--stages",
         nargs="+",
-        default=["512,768,1024,1536"],
+        default=["128,256,384,512,768"],
         help="cumulative exact-crop updates",
     )
     value.add_argument("--minimum-target-residual", type=float, default=0.01)
     value.add_argument("--seed", type=int, default=17001)
     value.add_argument("--learning-rate", type=float, default=2.0e-4)
     value.add_argument("--encoder-channels", type=int, default=96)
-    value.add_argument("--neighbourhood-channels", type=int, default=128)
-    value.add_argument("--decoder-hidden-channels", type=int, default=192)
+    value.add_argument("--mid-channels", type=int, default=64)
+    value.add_argument("--detail-channels", type=int, default=48)\n    value.add_argument("--decoder-blocks", type=int, default=4)
     value.add_argument(
         "--device",
         choices=("auto", "cpu", "cuda"),
