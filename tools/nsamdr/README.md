@@ -56,39 +56,40 @@ Do **not** spend more GPU time extending V16 Main epochs, the V16 pyramid-contex
 probe, residual-gain tuning or broad-authority scaling. Those questions are
 closed.
 
-### V17 architecture proof — V17.0 rejected, V17.1 active
+### V17 architecture proof — V17.0/V17.1 rejected, V17.2 active
 
 V17.0 correctly moved reconstruction into LR feature space, but its decoder used
 a repeating coordinate phase inside every LR texel. That recreated explicit 4x
-phase ownership and produced a severe lattice. The bounded proof rejected V17.0
-before broad training:
+phase ownership and produced a severe lattice.
+
+V17.1 removed that phase ownership with a four-anchor local-ensemble implicit
+decoder. It was more stable and its train-fit curve improved, but by 1536 exact
+single-crop updates it was flattening far below the known fixed-crop capability:
 
 ```text
-trained crop @384
-    global recovery          17.83%
-    edge recovery            15.58%
-    gradient recovery        12.84%
-    1px detail               10.45%
-    lattice excess           34.04%
+V17.1 trained crop @1536
+    global recovery          28.48%
+    edge recovery            24.84%
+    gradient recovery        20.50%
+    1px detail                7.24%
+    lattice excess           20.37%
 
-unseen sibling @384
-    global recovery           1.94%
-    edge recovery             1.41%
-    gradient recovery         5.69%
-    1px detail               -3.43%
-    lattice excess           37.32%
+candidate gates
+    global                   >=45%
+    edge                     >=60%
+    gradient                 >=35%
+    lattice                  <=15%
 ```
 
-The failure was architectural, not a reason to add epochs. V17.0 did not pass
-the trained-crop fit gate, so its sibling result is retained only as negative
-evidence.
+The V17.1 candidate residual had learned the broad correction direction, but the
+bilinear local-ensemble decoder still favoured smooth/broad structure over
+narrow authored 1-2 px manufactured detail. The sibling crop was correctly not
+evaluated because train fit never passed.
 
-### V17.1 active architecture
+### V17.2 active architecture
 
-V17.1 keeps the LR physical encoder and removes the repeating phase decoder.
-For each HR query, the same implicit decoder is evaluated against the four
-surrounding LR feature anchors using only relative `dx,dy` to each anchor. The
-four predictions are then bilinearly blended:
+V17.2 keeps the LR physical encoder and replaces the smooth implicit decoder
+with an explicit learned residual pyramid:
 
 ```text
 LR albedo RGB + normal XY + material RGB
@@ -99,15 +100,22 @@ LR albedo RGB + normal XY + material RGB
        + wide LR receptive field
                     |
                     v
-       four surrounding LR anchors
-          /       /       \       \
-       query    query     query    query
-       dx,dy    dx,dy     dx,dy    dx,dy
-          \       \       /       /
-           bilinear local-ensemble blend
+             256 residual stage
+       resize-convolution + residual blocks
+       predicts mid-band physical residual
                     |
                     v
-       HR physical residual (A/N/M)
+             512 detail stage
+       refined 256 features
+       + direct LR latent/evidence path
+       + resize-convolution residual blocks
+       predicts narrow high-detail residual
+                    |
+                    v
+        upsample(mid residual) + detail
+                    |
+                    v
+       bounded physical residual (A/N/M)
                     |
                     v
              project(B + residual)
@@ -116,64 +124,53 @@ LR albedo RGB + normal XY + material RGB
                     C
 ```
 
-V17.1 has no absolute UV input, no periodic phase/Fourier encoding, no
-PixelShuffle, no transposed convolution and no fixed-HR Swin reconstruction
-body. The deterministic baseline B, aligned physical-map contract, normal
-projection, qualification metrics, lattice checks and later BenefitSelector
-contract remain unchanged.
+This decoder gives the model an actual learned 512-resolution detail-generation
+stage instead of asking a smooth anchor blend to express 1px seams. It still
+uses no absolute UV input, no periodic phase/Fourier encoding, no PixelShuffle,
+no transposed convolution and no fixed-HR Swin reconstruction body.
 
-The first V17.1 bounded run at 384 updates did not pass train fit, but its
-trained-crop curve was still improving materially rather than plateauing:
-
-```text
-trained crop @384
-    global recovery          17.34%
-    edge recovery            14.14%
-    gradient recovery        12.48%
-    1px detail                2.90%
-    lattice excess           28.78%
-```
-
-Because this run is cheap and the fit curve was still moving, the bounded
-train-fit horizon is extended to `512, 768, 1024, 1536` updates. Sibling
-evaluation remains blocked until the trained crop passes every unchanged
-candidate gate. This is still a single-crop architecture proof, not broad
-training.
+The deterministic baseline B, aligned physical-map contract, normal projection,
+qualification metrics, lattice checks and later BenefitSelector contract remain
+unchanged.
 
 ### Enforced proof order
 
-The proof script now enforces the architecture gate instead of merely reporting
-both crops:
+The same train-fit-first architecture gate remains in force:
 
 ```text
 1. Train one authored crop.
 2. At bounded checkpoints, evaluate ONLY that trained crop.
-3. The trained crop must pass the unchanged candidate fit gates:
+3. The trained crop must pass:
        global   >= 45%
        edge     >= 60%
        gradient >= 35%
        lattice  <= 15%
-4. If the trained crop still fails at the final bounded stage:
-       REJECT architecture; do not interpret sibling transfer.
+4. Failure at the final bounded stage rejects V17.2.
 5. Only after train-fit PASS:
        evaluate the unseen sibling crop exactly once.
 6. Inspect sibling A/B/C visually.
 7. Only then consider small multi-authority transfer and later broad training.
 ```
 
-A sharpened/pixelated B-like result, visible 4x phase structure, or failure to
-fit the known crop rejects the architecture. Do not rescue it with broad
-training.
+The V17.2 bounded checkpoints are:
 
-Run the bounded proof:
+```text
+128
+256
+384
+512
+768
+```
+
+V16 previously demonstrated ~60% fixed-crop recovery in this regime, so V17.2
+must recover comparable known-crop capacity quickly. More epochs or broad
+training are not a rescue path for a failed train-fit proof.
+
+Run the proof:
 
 ```bat
 scripts\build\nsamdr.bat v17-sibling-proof
 ```
-
-Default checkpoints are now `512,768,1024,1536`. The proof exits the train-fit
-phase as soon as all candidate gates pass and only then evaluates the unseen
-sibling once.
 
 The proof writes trained-crop A/B/C sheets at each bounded checkpoint. It writes
 an unseen sibling A/B/C sheet only if the trained crop first passes all candidate
@@ -905,7 +902,7 @@ Current reconstruction research code:
 
 ```text
 tools/nsamdr/neural/v17/
-    model.py           active V17.1 LR encoder + four-anchor local-ensemble implicit decoder
+    model.py           active V17.2 LR encoder + 2x/4x multi-scale residual decoder
 
 tools/nsamdr/neural/v16/
     structure.py       analytic + learned structure conditioning
