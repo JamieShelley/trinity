@@ -605,7 +605,8 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--learning-rate", type=float, default=2.0e-4)
     value.add_argument("--encoder-channels", type=int, default=96)
     value.add_argument("--mid-channels", type=int, default=64)
-    value.add_argument("--detail-channels", type=int, default=48)\n    value.add_argument("--decoder-blocks", type=int, default=4)
+    value.add_argument("--detail-channels", type=int, default=48)
+    value.add_argument("--decoder-blocks", type=int, default=4)
     value.add_argument(
         "--device",
         choices=("auto", "cpu", "cuda"),
