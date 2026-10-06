@@ -76,7 +76,7 @@ STAGES = (
     Stage(
         "train",
         "2",
-        "V17.1 Sibling Architecture Proof",
+        "V17.2 Sibling Architecture Proof",
         "Train one authored crop, evaluate an unseen sibling crop from the same authority, and require visual A/B/C review before any broad training.",
     ),
     Stage(
@@ -179,8 +179,8 @@ class App:
         self.scope_text = tk.StringVar(value="Qualified production final: checking")
         self.recipe_text = tk.StringVar(
             value=(
-                "Active architecture: V17.1 LR physical encoder + four-anchor local-ensemble "
-                "implicit decoder. Current gate: train fit, then unseen same-authority sibling."
+                "Active architecture: V17.2 LR physical encoder + 2x/4x multi-scale residual "
+                "decoder. Current gate: train fit, then unseen same-authority sibling."
             )
         )
         self.preview_target = tk.StringVar(value="")
@@ -259,7 +259,7 @@ class App:
             payload = _read_json(report_path)
             if payload is None:
                 continue
-            if payload.get("schema") not in {"NSAMDR_V17_SIBLING_ARCHITECTURE_PROOF_V1", "NSAMDR_V17_SIBLING_ARCHITECTURE_PROOF_V2"}:
+            if payload.get("schema") not in {"NSAMDR_V17_SIBLING_ARCHITECTURE_PROOF_V1", "NSAMDR_V17_SIBLING_ARCHITECTURE_PROOF_V2", "NSAMDR_V17_SIBLING_ARCHITECTURE_PROOF_V3"}:
                 continue
             try:
                 stamp = report_path.stat().st_mtime
@@ -463,17 +463,19 @@ class App:
                 "--hr-size",
                 self._value("hr_size", "512"),
                 "--stages",
-                self._value("stages", "512,768,1024,1536"),
+                self._value("stages", "128,256,384,512,768"),
                 "--learning-rate",
                 self._value("learning_rate", "0.0002"),
                 "--minimum-target-residual",
                 self._value("minimum_target_residual", "0.01"),
                 "--encoder-channels",
                 self._value("encoder_channels", "96"),
-                "--neighbourhood-channels",
-                self._value("neighbourhood_channels", "128"),
-                "--decoder-hidden-channels",
-                self._value("decoder_hidden_channels", "192"),
+                "--mid-channels",
+                self._value("mid_channels", "64"),
+                "--detail-channels",
+                self._value("detail_channels", "48"),
+                "--decoder-blocks",
+                self._value("decoder_blocks", "4"),
             )
             manifest = self._value("manifest", "").strip()
             if manifest:
@@ -825,12 +827,12 @@ class App:
                 )
 
         elif stage_id == "train":
-            self._label("Model", "V17.1 local-ensemble implicit physical-map reconstruction")
+            self._label("Model", "V17.2 multi-scale physical residual reconstruction")
             self._label(
                 "Architecture",
                 (
-                    "128 LR physical maps -> LR encoder + analytic gradients -> four surrounding "
-                    "LR anchor queries using relative dx/dy -> bilinear local-ensemble blend -> 512 HR residual -> B + residual."
+                    "128 LR physical maps -> LR encoder + analytic gradients -> 256 mid-band "
+                    "resize-convolution residual stage -> 512 high-detail residual stage -> B + residual."
                 ),
             )
             self._label(
@@ -846,23 +848,29 @@ class App:
             self._row(
                 "Checkpoint updates",
                 "stages",
-                "512,768,1024,1536",
-                ("512,768,1024,1536", "64,128,256", "32,64,128"),
+                "128,256,384,512,768",
+                ("128,256,384,512,768", "128,256,384,512", "64,128,256,384"),
             )
             self._row("Learning rate", "learning_rate", "0.0002")
             self._row("Minimum target residual", "minimum_target_residual", "0.01")
             self._row("Encoder channels", "encoder_channels", "96", ("64", "96", "128"))
             self._row(
-                "Neighbourhood channels",
-                "neighbourhood_channels",
-                "128",
-                ("96", "128", "160"),
+                "Mid-stage channels",
+                "mid_channels",
+                "64",
+                ("48", "64", "96"),
             )
             self._row(
-                "Decoder hidden channels",
-                "decoder_hidden_channels",
-                "192",
-                ("128", "192", "256"),
+                "Detail-stage channels",
+                "detail_channels",
+                "48",
+                ("32", "48", "64"),
+            )
+            self._row(
+                "Decoder blocks / stage",
+                "decoder_blocks",
+                "4",
+                ("2", "4", "6"),
             )
             self._row("Device", "device", "cuda", ("cuda", "auto", "cpu"))
             self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
