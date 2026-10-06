@@ -77,7 +77,7 @@ STAGES = (
         "train",
         "2",
         "V17.2 Sibling Architecture Proof",
-        "Train one authored crop, evaluate an unseen sibling crop from the same authority, and require visual A/B/C review before any broad training.",
+        "Fit one authored crop with V17.2; evaluate an unseen sibling only after train-fit gates pass, then require visual A/B/C review before broad training.",
     ),
     Stage(
         "preview",
