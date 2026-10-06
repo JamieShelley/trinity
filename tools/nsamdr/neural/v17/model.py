@@ -1,16 +1,23 @@
-"""NSAMDR V17.1 local-ensemble physical-map reconstruction.
+"""NSAMDR V17.2 multi-scale physical residual reconstruction.
 
-V16 built an HR grid first and refined it. V17.0 introduced explicit repeating
-subpixel phase coordinates, but that recreated a 4x lattice. V17.1 keeps the LR
-physical encoder and replaces that decoder with a continuity-safe local ensemble.
+V17.0 failed because repeating subpixel phase coordinates recreated a 4x
+lattice. V17.1 removed that phase ownership with a local-ensemble implicit
+decoder, but the bilinear blend remained too smooth: it learned broad structure
+while failing to reproduce narrow 1-2 px manufactured detail.
 
-Each HR query is evaluated against the four surrounding LR feature anchors using
-only its relative dx/dy to each anchor. The four shared-decoder predictions are
-bilinearly blended, so there is no hard coordinate reset at LR texel boundaries
-and no absolute UV input.
+V17.2 keeps the proven LR physical encoder and replaces the implicit decoder
+with an explicit learned residual pyramid:
 
-The deterministic 4x baseline remains the projection anchor:
-    C = project(B + predicted_residual)
+    128 LR encoded physical evidence
+        -> 256 mid-band residual stage
+        -> 512 high-detail residual stage
+        -> sum(mid-upsample, detail)
+        -> bounded physical residual
+        -> deterministic B projection
+        -> C
+
+Upsampling is resize-convolution only. There is no PixelShuffle, transposed
+convolution, fixed 4x phase tensor, absolute UV input or fixed-HR Swin body.
 """
 from __future__ import annotations
 
@@ -29,7 +36,7 @@ except ImportError:  # pragma: no cover - script-mode diagnostics
 def _group_gradient(value: torch.Tensor) -> torch.Tensor:
     value = value.float()
     dx = F.pad(value[..., :, 1:] - value[..., :, :-1], (0, 1, 0, 0))
-    dy = F.pad((value[..., 1:, :] - value[..., :-1, :]).abs(), (0, 0, 0, 1))
+    dy = F.pad(value[..., 1:, :] - value[..., :-1, :], (0, 0, 0, 1))
     return torch.sqrt((dx * dx + dy * dy).mean(dim=1, keepdim=True) + 1.0e-8)
 
 
@@ -60,8 +67,22 @@ class DilatedResidualBlock(nn.Module):
         return value + residual * 0.20
 
 
+class ResidualConvBlock(nn.Module):
+    """Phase-neutral resize-convolution refinement block."""
+
+    def __init__(self, channels: int) -> None:
+        super().__init__()
+        self.conv1 = nn.Conv2d(channels, channels, 3, padding=1)
+        self.conv2 = nn.Conv2d(channels, channels, 3, padding=1)
+        self.act = nn.GELU()
+
+    def forward(self, value: torch.Tensor) -> torch.Tensor:
+        residual = self.conv2(self.act(self.conv1(value)))
+        return value + residual * 0.20
+
+
 class PhysicalMapEncoder(nn.Module):
-    """Encode aligned LR physical maps before any HR raster is created."""
+    """Encode aligned LR physical maps before any HR residual is created."""
 
     INPUT_CHANNELS = 8
     ANALYTIC_CHANNELS = 3
@@ -114,157 +135,81 @@ class PhysicalMapEncoder(nn.Module):
         return self.tail(self.blocks(value))
 
 
-def _query_axis_geometry(
-    *,
-    source_size: int,
-    scale: int,
-    device: torch.device,
-    dtype: torch.dtype,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Return continuous LR query coordinate, lower/upper anchors and blend fraction."""
+class MultiScaleResidualDecoder(nn.Module):
+    """Learn mid-band and high-detail residuals at 2x and 4x explicitly.
 
-    if source_size < 1 or scale < 1:
-        raise ValueError("source size and scale must be positive")
-    target_size = int(source_size) * int(scale)
-    position = (
-        (torch.arange(target_size, device=device, dtype=dtype) + 0.5)
-        / float(scale)
-        - 0.5
-    ).clamp(0.0, float(source_size - 1))
-    lower = torch.floor(position).to(torch.long)
-    upper = torch.clamp(lower + 1, max=source_size - 1)
-    fraction = position - lower.to(dtype)
-    fraction = torch.where(upper == lower, torch.zeros_like(fraction), fraction)
-    return position, lower, upper, fraction
-
-
-def _gather_anchor(
-    value: torch.Tensor,
-    y_index: torch.Tensor,
-    x_index: torch.Tensor,
-) -> torch.Tensor:
-    """Gather one LR anchor value for every HR query position."""
-
-    n, c, h, w = value.shape
-    yy = y_index.view(-1, 1).expand(-1, x_index.numel())
-    xx = x_index.view(1, -1).expand(y_index.numel(), -1)
-    linear = (yy * w + xx).reshape(1, 1, -1).expand(n, c, -1)
-    gathered = torch.gather(value.reshape(n, c, h * w), 2, linear)
-    return gathered.reshape(n, c, y_index.numel(), x_index.numel())
-
-
-class RelativeQueryDecoder(nn.Module):
-    """Continuity-safe local-ensemble implicit residual decoder.
-
-    For every HR query, the same decoder is evaluated relative to each of the
-    four surrounding LR anchors. The outputs are bilinearly blended. Coordinate
-    input is only (dx, dy) relative to the sampled anchor; no periodic phase
-    encoding and no absolute UV are present.
+    The 256 stage establishes larger manufactured contours. The 512 stage sees
+    the refined 256 features plus direct LR latent/evidence paths and is free to
+    generate narrow high-frequency residuals. This avoids forcing 1px details
+    through a smooth four-anchor blend.
     """
 
-    COORD_CHANNELS = 2
     OUTPUT_CHANNELS = 8
+    SCALES = (2, 4)
 
     def __init__(
         self,
         *,
         feature_channels: int,
-        neighbourhood_channels: int = 128,
-        hidden_channels: int = 192,
+        mid_channels: int = 64,
+        detail_channels: int = 48,
+        blocks_per_stage: int = 4,
         scale: int = 4,
     ) -> None:
         super().__init__()
-        if min(feature_channels, neighbourhood_channels, hidden_channels, scale) < 1:
+        if int(scale) != 4:
+            raise ValueError("V17.2 decoder currently requires exactly 4x")
+        if min(feature_channels, mid_channels, detail_channels, blocks_per_stage) < 1:
             raise ValueError("decoder dimensions must be positive")
         self.feature_channels = int(feature_channels)
-        self.neighbourhood_channels = int(neighbourhood_channels)
-        self.hidden_channels = int(hidden_channels)
+        self.mid_channels = int(mid_channels)
+        self.detail_channels = int(detail_channels)
+        self.blocks_per_stage = int(blocks_per_stage)
         self.scale = int(scale)
 
-        self.neighbourhood_reduce = nn.Sequential(
-            nn.Conv2d(
-                self.feature_channels * 9,
-                self.neighbourhood_channels,
-                1,
-            ),
-            nn.GELU(),
-            nn.Conv2d(
-                self.neighbourhood_channels,
-                self.neighbourhood_channels,
-                1,
-            ),
-            nn.GELU(),
+        self.mid_in = nn.Conv2d(
+            self.feature_channels + 8,
+            self.mid_channels,
+            3,
+            padding=1,
         )
-        decoder_inputs = (
-            self.feature_channels
-            + self.neighbourhood_channels
-            + 8
-            + self.COORD_CHANNELS
+        self.mid_blocks = nn.Sequential(
+            *(ResidualConvBlock(self.mid_channels) for _ in range(self.blocks_per_stage))
         )
-        self.mlp = nn.Sequential(
-            nn.Conv2d(decoder_inputs, self.hidden_channels, 1),
-            nn.GELU(),
-            nn.Conv2d(self.hidden_channels, self.hidden_channels, 1),
-            nn.GELU(),
-        )
-        self.albedo_head = nn.Conv2d(self.hidden_channels, 3, 1)
-        self.normal_head = nn.Conv2d(self.hidden_channels, 2, 1)
-        self.material_head = nn.Conv2d(self.hidden_channels, 3, 1)
+        self.mid_head = nn.Conv2d(self.mid_channels, self.OUTPUT_CHANNELS, 3, padding=1)
 
-        # Identity-safe start: before training C == B exactly.
-        for head in (self.albedo_head, self.normal_head, self.material_head):
+        self.detail_in = nn.Conv2d(
+            self.mid_channels + self.feature_channels + 8,
+            self.detail_channels,
+            3,
+            padding=1,
+        )
+        self.detail_blocks = nn.Sequential(
+            *(
+                ResidualConvBlock(self.detail_channels)
+                for _ in range(self.blocks_per_stage)
+            )
+        )
+        self.detail_head = nn.Conv2d(
+            self.detail_channels,
+            self.OUTPUT_CHANNELS,
+            3,
+            padding=1,
+        )
+
+        # Identity-safe start: both residual bands are exactly zero.
+        for head in (self.mid_head, self.detail_head):
             nn.init.zeros_(head.weight)
             nn.init.zeros_(head.bias)
 
-    def _neighbourhood(self, features: torch.Tensor) -> torch.Tensor:
-        n, c, h, w = features.shape
-        unfolded = F.unfold(features, kernel_size=3, padding=1)
-        return unfolded.view(n, c * 9, h, w)
-
-    def _decode_anchor(
-        self,
-        *,
-        features_lr: torch.Tensor,
-        neighbourhood_lr: torch.Tensor,
-        lr_maps: torch.Tensor,
-        y_index: torch.Tensor,
-        x_index: torch.Tensor,
-        query_y: torch.Tensor,
-        query_x: torch.Tensor,
-    ) -> dict[str, torch.Tensor]:
-        feature = _gather_anchor(features_lr, y_index, x_index)
-        neighbourhood = _gather_anchor(neighbourhood_lr, y_index, x_index)
-        evidence = _gather_anchor(lr_maps, y_index, x_index)
-
-        rel_y = (
-            query_y.view(-1, 1)
-            - y_index.to(query_y.dtype).view(-1, 1)
+    @staticmethod
+    def _resize(value: torch.Tensor, size: tuple[int, int]) -> torch.Tensor:
+        return F.interpolate(
+            value.float(),
+            size=size,
+            mode="bilinear",
+            align_corners=False,
         )
-        rel_x = (
-            query_x.view(1, -1)
-            - x_index.to(query_x.dtype).view(1, -1)
-        )
-        h_hr = query_y.numel()
-        w_hr = query_x.numel()
-        coords = torch.cat(
-            (
-                rel_x.view(1, 1, 1, w_hr).expand(
-                    features_lr.shape[0], 1, h_hr, w_hr
-                ),
-                rel_y.view(1, 1, h_hr, 1).expand(
-                    features_lr.shape[0], 1, h_hr, w_hr
-                ),
-            ),
-            dim=1,
-        )
-        hidden = self.mlp(
-            torch.cat((feature, neighbourhood, evidence, coords), dim=1)
-        )
-        return {
-            "albedo": self.albedo_head(hidden),
-            "normal": self.normal_head(hidden),
-            "material": self.material_head(hidden),
-        }
 
     def forward(
         self,
@@ -274,72 +219,50 @@ class RelativeQueryDecoder(nn.Module):
         if features_lr.shape[-2:] != lr_maps.shape[-2:]:
             raise ValueError("feature and LR-map sizes must match")
         h, w = (int(value) for value in features_lr.shape[-2:])
-        dtype = features_lr.float().dtype
-        query_y, y0, y1, fy = _query_axis_geometry(
-            source_size=h,
-            scale=self.scale,
-            device=features_lr.device,
-            dtype=dtype,
-        )
-        query_x, x0, x1, fx = _query_axis_geometry(
-            source_size=w,
-            scale=self.scale,
-            device=features_lr.device,
-            dtype=dtype,
-        )
-        neighbourhood_lr = self.neighbourhood_reduce(
-            self._neighbourhood(features_lr)
-        )
+        mid_size = (h * 2, w * 2)
+        hr_size = (h * 4, w * 4)
 
-        weights = (
-            (1.0 - fy).view(-1, 1) * (1.0 - fx).view(1, -1),
-            (1.0 - fy).view(-1, 1) * fx.view(1, -1),
-            fy.view(-1, 1) * (1.0 - fx).view(1, -1),
-            fy.view(-1, 1) * fx.view(1, -1),
-        )
-        anchors = (
-            (y0, x0),
-            (y0, x1),
-            (y1, x0),
-            (y1, x1),
-        )
+        features_mid = self._resize(features_lr, mid_size)
+        evidence_mid = self._resize(lr_maps, mid_size)
+        mid = F.gelu(self.mid_in(torch.cat((features_mid, evidence_mid), dim=1)))
+        mid = self.mid_blocks(mid)
+        mid_residual = self.mid_head(mid)
 
-        result: dict[str, torch.Tensor] | None = None
-        for weight, (yi, xi) in zip(weights, anchors):
-            prediction = self._decode_anchor(
-                features_lr=features_lr,
-                neighbourhood_lr=neighbourhood_lr,
-                lr_maps=lr_maps,
-                y_index=yi,
-                x_index=xi,
-                query_y=query_y,
-                query_x=query_x,
-            )
-            weight_hr = weight.view(1, 1, query_y.numel(), query_x.numel())
-            if result is None:
-                result = {
-                    name: value * weight_hr
-                    for name, value in prediction.items()
-                }
-            else:
-                for name, value in prediction.items():
-                    result[name] = result[name] + value * weight_hr
+        # The detail stage receives both refined mid features and a direct LR
+        # latent/evidence path so narrow detail is not bottlenecked by mid-band
+        # smoothing.
+        mid_hr = self._resize(mid, hr_size)
+        features_hr = self._resize(features_lr, hr_size)
+        evidence_hr = self._resize(lr_maps, hr_size)
+        detail = F.gelu(
+            self.detail_in(torch.cat((mid_hr, features_hr, evidence_hr), dim=1))
+        )
+        detail = self.detail_blocks(detail)
+        detail_residual = self.detail_head(detail)
 
-        if result is None:  # pragma: no cover - positive dimensions guarantee anchors
-            raise RuntimeError("local ensemble produced no predictions")
-        return result
+        mid_residual_hr = self._resize(mid_residual, hr_size)
+        raw = mid_residual_hr + detail_residual
+        return {
+            "albedo": raw[:, 0:3],
+            "normal": raw[:, 3:5],
+            "material": raw[:, 5:8],
+            "mid_residual": mid_residual,
+            "mid_residual_hr": mid_residual_hr,
+            "detail_residual": detail_residual,
+        }
 
 
 class NSAMDRV17(nn.Module):
-    """Active V17.1 candidate: LR encoder + local-ensemble implicit decoder."""
+    """Active V17.2 candidate: LR encoder + learned multi-scale residual decoder."""
 
     def __init__(
         self,
         contract: V16Config | None = None,
         *,
         encoder_channels: int = 96,
-        neighbourhood_channels: int = 128,
-        decoder_hidden_channels: int = 192,
+        mid_channels: int = 64,
+        detail_channels: int = 48,
+        decoder_blocks: int = 4,
     ) -> None:
         super().__init__()
         self.config = contract or V16Config()
@@ -349,10 +272,11 @@ class NSAMDRV17(nn.Module):
 
         self.baseline = Baseline4x(self.config.scale)
         self.encoder = PhysicalMapEncoder(channels=int(encoder_channels))
-        self.decoder = RelativeQueryDecoder(
+        self.decoder = MultiScaleResidualDecoder(
             feature_channels=int(encoder_channels),
-            neighbourhood_channels=int(neighbourhood_channels),
-            hidden_channels=int(decoder_hidden_channels),
+            mid_channels=int(mid_channels),
+            detail_channels=int(detail_channels),
+            blocks_per_stage=int(decoder_blocks),
             scale=int(self.config.scale),
         )
 
@@ -408,6 +332,9 @@ class NSAMDRV17(nn.Module):
             "candidate_residual_albedo": c_albedo - b_albedo,
             "candidate_residual_normal": c_normal - b_normal,
             "candidate_residual_material": c_material - b_material,
+            "decoder_mid_residual": raw["mid_residual"],
+            "decoder_mid_residual_hr": raw["mid_residual_hr"],
+            "decoder_detail_residual": raw["detail_residual"],
         }
 
     def set_candidate_training(self) -> None:
@@ -419,19 +346,23 @@ class NSAMDRV17(nn.Module):
 
     def architecture_contract(self) -> dict[str, object]:
         return {
-            "revision": "V17.1-proof",
+            "revision": "V17.2-proof",
             "scale": int(self.config.scale),
             "productionForward": (
                 "LR aligned physical maps -> LR physical encoder -> "
-                "four-anchor local implicit queries using relative dx/dy -> "
-                "bilinear local-ensemble blend -> bounded physical residual -> "
+                "2x mid-band resize-convolution residual stage -> "
+                "4x high-detail resize-convolution residual stage -> "
+                "sum residual bands -> bounded physical residual -> "
                 "deterministic B projection -> C"
             ),
             "absoluteUvCoordinatesUsed": False,
-            "relativeSubpixelCoordinatesUsed": True,
+            "relativeSubpixelCoordinatesUsed": False,
             "periodicPhaseEncodingUsed": False,
-            "localEnsembleUsed": True,
-            "localEnsembleAnchors": 4,
+            "localEnsembleUsed": False,
+            "multiScaleResidualDecoderUsed": True,
+            "decoderScales": list(MultiScaleResidualDecoder.SCALES),
+            "resizeConvolutionUsed": True,
+            "learnedHrDetailStageUsed": True,
             "learnedHrReconstructionDecoder": True,
             "pixelShuffleUsed": False,
             "transposedConvolutionUsed": False,
@@ -441,6 +372,7 @@ class NSAMDRV17(nn.Module):
             "candidateIdentityAtInitialization": True,
             "encoderDilations": list(self.encoder.dilations),
             "encoderChannels": int(self.encoder.channels),
-            "decoderNeighbourhoodChannels": int(self.decoder.neighbourhood_channels),
-            "decoderHiddenChannels": int(self.decoder.hidden_channels),
+            "decoderMidChannels": int(self.decoder.mid_channels),
+            "decoderDetailChannels": int(self.decoder.detail_channels),
+            "decoderBlocksPerStage": int(self.decoder.blocks_per_stage),
         }
