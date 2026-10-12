@@ -93,7 +93,7 @@ class V17Visual4096Tests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "sealed"):
                 _reviewed_source(manifest, report, anchor)
 
-    def test_native_4096_reference_is_mandatory(self) -> None:
+    def test_native_1024_input_fallback_without_false_4096_reference(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "a.png").touch()
@@ -111,10 +111,52 @@ class V17Visual4096Tests(unittest.TestCase):
             }
             report = {"validationCropIds": [f"{authority}_001"],
                       "finalTestCropIds": []}
-            with self.assertRaisesRegex(RuntimeError, "native authored albedo"):
+            family, crop = _reviewed_source(data, report, authority)
+            self.assertEqual(family["albedo"]["width"], 2048)
+            selected, _, _ = _choose_reviewed_source(data, report, "auto")
+            self.assertEqual(selected, authority)
+            self.assertEqual(
+                _region_box(crop, (2048, 2048), size=1024),
+                (0, 0, 1024, 1024),
+            )
+            # A real 1024 native input is valid; it is NOT native 4096 truth.
+            data["families"][0]["albedo"]["width"] = 512
+            data["families"][0]["albedo"]["height"] = 512
+            with self.assertRaisesRegex(RuntimeError, "smaller than 1024"):
                 _reviewed_source(data, report, authority)
             with self.assertRaisesRegex(RuntimeError, "No reviewed authority"):
                 _choose_reviewed_source(data, report, "auto")
+
+    def test_native_4096_source_is_preferred_to_native_1024_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for name in ("a.png", "n.png"):
+                (root / name).touch()
+            first, second = PREVIOUS_VALIDATION_AUTHORITIES[:2]
+            manifest = {
+                "families": [
+                    {
+                        "familyId": first,
+                        "albedo": {"path": str(root / "a.png"), "width": 2048, "height": 2048},
+                        "normal": {"path": str(root / "n.png")},
+                    },
+                    {
+                        "familyId": second,
+                        "albedo": {"path": str(root / "a.png"), "width": 4096, "height": 4096},
+                        "normal": {"path": str(root / "n.png")},
+                    },
+                ],
+                "crops": [
+                    {"crop_id": f"{first}_001", "source_box": [0, 0, 500000, 500000]},
+                    {"crop_id": f"{second}_001", "source_box": [0, 0, 250000, 250000]},
+                ],
+            }
+            report = {
+                "validationCropIds": [f"{first}_001", f"{second}_001"],
+                "finalTestCropIds": [],
+            }
+            selected, _, _ = _choose_reviewed_source(manifest, report, "auto")
+            self.assertEqual(selected, second)
 
     def test_native_region_is_not_upscaled(self) -> None:
         self.assertEqual(
