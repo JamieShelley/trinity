@@ -297,6 +297,20 @@ class App:
         _stamp, path, report = max(candidates, key=lambda item: item[0])
         return path.resolve(), report
 
+    def _completed_v17_generalization_update(self) -> int | None:
+        latest = self._latest_v17_generalization_report()
+        if latest is None:
+            return None
+        report_path, report = latest
+        try:
+            update = int(report["stopUpdate"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if update < 1:
+            return None
+        checkpoint = report_path.parent / f"stage_{update:06d}" / "checkpoint.pt"
+        return update if checkpoint.is_file() else None
+
     def _latest_v17_generalization_preview(self) -> Path | None:
         latest = self._latest_v17_generalization_report()
         if latest is None:
@@ -1089,10 +1103,34 @@ class App:
             self._row("Anchor authority", "authority_id", "13006d2b807f89ac")
             self._row("Train authorities", "authorities", "4", ("2", "4", "8", "16"))
             self._row("HR target size", "hr_size", "512", ("512",))
-            self._row("Checkpoint updates", "stages", "2048,4096,6144,8192",
-                      ("2048,4096,6144,8192", "2048,4096,6144",
-                       "4096,8192,12288,16384"), editable=True)
-            self._row("Resume mode", "resume", "auto", ("auto", "fresh"))
+            completed_update = self._completed_v17_generalization_update()
+            continuation_stages = (
+                f"{completed_update + 4096},{completed_update + 8192}"
+                if completed_update is not None
+                else "12288,16384"
+            )
+            default_stages = (
+                continuation_stages if completed_update is not None
+                else "2048,4096,6144,8192"
+            )
+            stage_presets = tuple(dict.fromkeys((
+                default_stages,
+                "12288,16384",
+                "2048,4096,6144,8192",
+                "2048,4096,6144",
+                "4096,8192,12288,16384",
+            )))
+            self._row("Checkpoint updates", "stages", default_stages,
+                      stage_presets, editable=True)
+            default_resume = (
+                "Continue latest completed" if completed_update is not None else "auto"
+            )
+            self._row("Resume mode", "resume", default_resume,
+                      ("Continue latest completed", "auto", "fresh"))
+            if completed_update is not None:
+                self._label("Available checkpoint", f"Completed update {completed_update}; continue without resetting the optimizer.")
+            else:
+                self._label("Available checkpoint", "No completed generalization checkpoint detected. Continuing requires a completed checkpoint.")
             self._row("Learning rate", "learning_rate", "0.0002")
             self._row("Minimum target residual", "minimum_target_residual", "0.01")
             self._row("Encoder channels", "encoder_channels", "96", ("96",))
