@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""One inference-only 1024->4096 V17.2 A/B/C diagnostic for a reviewed V2 authority.
+"""One inference-only 1024->4096 V17.2 diagnostic from a reviewed V2 authority.
 
-Uses a native authored 4096 albedo region, V2's selected checkpoint and a
-1024 clean physical input. Never opens an untouched V2 final-test authority.
-No training, checkpoint modification, qualification or native EVE promotion.
+When genuine 4096 authored pixels exist, make an A/B/C reconstruction comparison.
+Otherwise use genuine authored 1024 pixels as input and export 4096 B/C only.
+Never fake a 4096 A, inspect sealed final-test sibling sources, retrain or promote.
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def _reviewed_source(
     report: dict[str, Any],
     authority: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Only already-evaluated V1 development authorities; reject sealed families."""
+    """Only previously examined V1 development authorities; reject sealed families."""
     reviewed_ids = set(report.get("validationCropIds") or ())
     reviewed_families = {item.rsplit("_", 1)[0] for item in reviewed_ids}
     if authority not in PREVIOUS_VALIDATION_AUTHORITIES or authority not in reviewed_families:
@@ -78,8 +78,8 @@ def _reviewed_source(
     if family is None or crop is None:
         raise RuntimeError(f"no authored family/crop provenance for reviewed authority {authority}")
     source = family.get("albedo") or {}
-    if min(int(source.get("width") or 0), int(source.get("height") or 0)) < HR_SIZE:
-        raise RuntimeError(f"native authored albedo for {authority} is smaller than {HR_SIZE}")
+    if min(int(source.get("width") or 0), int(source.get("height") or 0)) < LR_SIZE:
+        raise RuntimeError(f"native authored albedo for {authority} is smaller than {LR_SIZE}")
     normal = family.get("normal") or {}
     if not normal.get("path"):
         raise RuntimeError(f"aligned authored normal missing for {authority}")
@@ -93,23 +93,33 @@ def _choose_reviewed_source(
 ) -> tuple[str, dict[str, Any], dict[str, Any]]:
     choices = [requested] if requested != "auto" else list(PREVIOUS_VALIDATION_AUTHORITIES)
     problems: list[str] = []
+    available: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
     for authority in choices:
         try:
             family, crop = _reviewed_source(manifest, report, authority)
-            return authority, family, crop
+            available.append((authority, family, crop))
         except RuntimeError as error:
             problems.append(str(error))
+    if available:
+        # Prefer true 4096 ground truth, but a genuine 1024 input is sufficient
+        # for an explicitly *ungraded* 4096 neural visual diagnostic.
+        return max(available, key=lambda value: min(
+            int(value[1]["albedo"]["width"]), int(value[1]["albedo"]["height"]),
+        ))
     raise RuntimeError(
-        "No reviewed authority has a local genuine >=4096 authored albedo "
-        "and aligned normal. The existing 512 crops cannot be passed off as "
-        "native 4096 ground truth. " + " | ".join(problems)
+        "No reviewed authority has local >=1024 native authored albedo "
+        "and aligned normal. Refusing to invent source information. "
+        + " | ".join(problems)
     )
 
 
-def _region_box(crop: dict[str, Any], shape: tuple[int, int]) -> tuple[int, int, int, int]:
-    """Native 4096 region centered around the previously reviewed sibling crop."""
+def _region_box(
+    crop: dict[str, Any], shape: tuple[int, int], *,
+    size: int = HR_SIZE,
+) -> tuple[int, int, int, int]:
+    """Native region at requested source size around the reviewed sibling crop."""
     height, width = shape
-    if min(height, width) < HR_SIZE:
+    if min(height, width) < size:
         raise RuntimeError("refusing to upscale authored ground truth")
     values = crop.get("source_box") or crop.get("sourceBox")
     if not isinstance(values, (list, tuple)) or len(values) != 4:
@@ -119,16 +129,16 @@ def _region_box(crop: dict[str, Any], shape: tuple[int, int]) -> tuple[int, int,
         raise RuntimeError("invalid reviewed source box")
     center_x = int(round((normalized[0] + normalized[2]) * 0.5 * width))
     center_y = int(round((normalized[1] + normalized[3]) * 0.5 * height))
-    left = max(0, min(width - HR_SIZE, center_x - HR_SIZE // 2))
-    top = max(0, min(height - HR_SIZE, center_y - HR_SIZE // 2))
-    return left, top, left + HR_SIZE, top + HR_SIZE
+    left = max(0, min(width - size, center_x - size // 2))
+    top = max(0, min(height - size, center_y - size // 2))
+    return left, top, left + size, top + size
 
 
 def _prepare_authored(
     repo: Path, family: dict[str, Any], crop: dict[str, Any],
     temp: Path,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
-    """Decode original physical maps, retaining *native* albedo pixels for A."""
+    """Decode native physical maps; never resize original A pixels."""
     loader = AuthoredTextureDatasetRepository()
     sources: dict[str, Path] = {}
     source_meta: dict[str, Any] = {}
@@ -149,22 +159,25 @@ def _prepare_authored(
         source_meta[role] = {"logical": src.logical, "path": src.path,
                              "width": src.width, "height": src.height}
     albedo = loader._load_rgb(sources["albedo"])
-    left, top, right, bottom = _region_box(crop, albedo.shape[:2])
+    region_size = HR_SIZE if min(albedo.shape[:2]) >= HR_SIZE else LR_SIZE
+    left, top, right, bottom = _region_box(
+        crop, albedo.shape[:2], size=region_size,
+    )
     reference = np.ascontiguousarray(albedo[top:bottom, left:right])
     normalized_box = (
         left / albedo.shape[1], top / albedo.shape[0],
         right / albedo.shape[1], bottom / albedo.shape[0],
     )
     normal, normal_encoding = loader.load_normal_training_rgb(sources["normal"])
-    normal = loader._crop_aligned(normal, normalized_box, HR_SIZE, nearest=False)
+    normal = loader._crop_aligned(normal, normalized_box, region_size, nearest=False)
     normal_xy = _normalise_xy(normal[..., :2].astype(np.float32) / 127.5 - 1.0)
     if "material" in sources:
         material = loader._crop_aligned(
-            loader._load_rgb(sources["material"]), normalized_box, HR_SIZE, nearest=True,
+            loader._load_rgb(sources["material"]), normalized_box, region_size, nearest=True,
         ).astype(np.float32) / 255.0
         material_status = "authored"
     else:
-        material = np.full((HR_SIZE, HR_SIZE, 3), 128.0 / 255.0, dtype=np.float32)
+        material = np.full((region_size, region_size, 3), 128.0 / 255.0, dtype=np.float32)
         material_status = "unsupervised-neutral-placeholder"
     return reference, normal_xy, material, {
         "nativeAlbedoBox": [left, top, right, bottom],
@@ -172,6 +185,8 @@ def _prepare_authored(
         "sources": source_meta, "normalEncoding": normal_encoding,
         "materialStatus": material_status,
         "nativeAuthoredPixels": True,
+        "nativeRegionSize": region_size,
+        "native4096ReferenceAvailable": region_size == HR_SIZE,
     }
 
 
@@ -304,30 +319,42 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         authored, normal, material, provenance = _prepare_authored(
             repo, family, crop, Path(scratch),
         )
-    # Reuse the same clean 4x degradation used for 512px V17.2 validation.
-    lr_a, lr_n, lr_m = _degrade(
-        authored.astype(np.float32)/255.0, normal, material,
-        LR_SIZE, "clean", random.Random(17001),
-    )
+    has_true_reference = bool(provenance["native4096ReferenceAvailable"])
+    if has_true_reference:
+        # Exact controlled reconstruction: native 4096 A -> clean 1024 input.
+        lr_a, lr_n, lr_m = _degrade(
+            authored.astype(np.float32) / 255.0, normal, material,
+            LR_SIZE, "clean", random.Random(17001),
+        )
+    else:
+        # Real 1024 authored input. A 4096 reference does not exist; never
+        # synthesize one and never calculate metrics requiring it.
+        if authored.shape != (LR_SIZE, LR_SIZE, 3):
+            raise RuntimeError("input-only mode requires native 1024 authored pixels")
+        lr_a = authored.astype(np.float32) / 255.0
+        lr_n, lr_m = normal, material
     del normal, material
     print(
         f"[v17-4096] selected={checkpoint} authority={authority} "
         f"input={LR_SIZE}x{LR_SIZE} output={HR_SIZE}x{HR_SIZE} "
-        f"tileLR={args.tile_lr} haloLR={args.halo_lr} training=disabled",
+        f"tileLR={args.tile_lr} haloLR={args.halo_lr} training=disabled "
+        f"mode={'native-reference' if has_true_reference else 'visual-only-no-reference'}",
         flush=True,
     )
     baseline, candidate = _tiled_4x(
         model, lr_a, lr_n, lr_m, device=device, precision=args.amp_precision,
         tile_lr=args.tile_lr, halo_lr=args.halo_lr,
     )
-    if authored.shape != baseline.shape or authored.shape != candidate.shape:
-        raise RuntimeError("4096 output dimensions do not match native authored reference")
+    if baseline.shape != (HR_SIZE, HR_SIZE, 3) or candidate.shape != baseline.shape:
+        raise RuntimeError("tiled neural output is not 4096 square")
+    if has_true_reference and authored.shape != baseline.shape:
+        raise RuntimeError("native 4096 authored reference size mismatch")
     root = report_path.parent / "resolution_4096"
     root.mkdir(exist_ok=True)
     result_dir = root / f"visual_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     result_dir.mkdir(exist_ok=False)
     images = {
-        "A_authored_4096": authored,
+        ("A_authored_4096" if has_true_reference else "A_native_input_1024"): authored,
         "B_deterministic_4096": baseline,
         "C_v17_4096": candidate,
     }
@@ -338,10 +365,15 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         paths[label] = str(path.resolve())
     # Downsampled contact sheet is for navigation only; inspect originals at 100%.
     reduced = [
-        _preview_panel(cv2.resize(img, (1024, 1024), interpolation=cv2.INTER_AREA).astype(np.float32)/255.0, label)
-        for label, img in (("A AUTHORED 4096", authored),
-                           ("B DETERMINISTIC 4X", baseline),
-                           ("C V17.2 4096", candidate))
+        _preview_panel(
+            cv2.resize(img, (1024, 1024), interpolation=cv2.INTER_AREA).astype(np.float32)/255.0,
+            label,
+        )
+        for label, img in (
+            ("A AUTHORED 4096" if has_true_reference else "A NATIVE 1024 INPUT (NO 4096 TRUTH)", authored),
+            ("B DETERMINISTIC 4X 4096", baseline),
+            ("C V17.2 4X 4096", candidate),
+        )
     ]
     sheet_path = result_dir / "ABC_overview_1024.png"
     if not cv2.imwrite(str(sheet_path), np.concatenate(reduced, axis=1)):
@@ -352,6 +384,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "checkpoint": str(checkpoint), "v2Report": str(report_path),
         "checkpointUpdate": int(payload["update"]), "authorityId": authority,
         "reviewedDevelopmentCrop": f"{authority}_001",
+        "comparisonMode": "native-reference" if has_true_reference else "visual-only-no-reference",
+        "native4096ReferenceAvailable": has_true_reference,
+        "groundTruthRecoveryMetricsAvailable": has_true_reference,
         "independentHoldout": False,
         "mayOverlapTrainingRegions": True,
         "purpose": "qualitative full-resolution research diagnostic only",
@@ -360,7 +395,21 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "tileLR": args.tile_lr, "haloLR": args.halo_lr,
         "nativeReference": provenance, "images": paths,
         "overview": str(sheet_path.resolve()),
-        "diagnosticMetrics": _metrics(authored, baseline, candidate),
+        "diagnosticMetrics": (
+            _metrics(authored, baseline, candidate)
+            if has_true_reference else {
+                "candidateChangedFraction1LSB": float(
+                    np.mean(np.any(baseline != candidate, axis=2))
+                ),
+                "baselineCandidateMAE": float(
+                    np.mean(np.abs(
+                        baseline.astype(np.float32) - candidate.astype(np.float32)
+                    )) / 255.0
+                ),
+                "groundTruthReferenceAvailable": False,
+                "note": "B/C differences only; no authored 4096 reference or recovery claims",
+            }
+        ),
         "elapsedSeconds": time.monotonic()-clock,
     }
     output = result_dir / "report.json"
