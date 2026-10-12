@@ -294,12 +294,18 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     final_result, final_previews = None, {}
     if test_pass:
         final_test = load(splits["final_test"], 2001)
-        final_result = _evaluate_set(model, final_test, config, device=device,
-                                     precision=args.amp_precision, sibling=True)
-        final_previews = _sheets(
-            selected_dir, model, final_test, _ids(splits["final_test"]),
-            config, device=device, precision=args.amp_precision, role="final_test",
-        )
+        final_metrics: list[dict[str, Any]] = []
+        for index, (batch, crop_id) in enumerate(
+            zip(final_test, _ids(splits["final_test"]))
+        ):
+            metrics, output = _evaluate(
+                model, batch, config, device=device, precision=args.amp_precision,
+            )
+            final_metrics.append(metrics)
+            image = selected_dir / f"final_test_{index:02d}_ABC.png"
+            _write_preview(image, batch, output, role="final_test")
+            final_previews[crop_id] = str(image.resolve())
+        final_result = _summarize(final_metrics, sibling=True)
     decision = (
         "final-test-visual-review-required" if final_result and final_result["allPass"]
         else "reject-final-transfer" if final_result is not None
