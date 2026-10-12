@@ -41,6 +41,7 @@ REQUIRED_LAYOUT = (
     "tools/nsamdr/neural/probe_nsamdr_v16_pyramid_context.py",
     "tools/nsamdr/neural/v16/pyramid_context.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_sibling_architecture.py",
+    "tools/nsamdr/neural/test_nsamdr_v17_sibling_proof.py",
     "tools/nsamdr/neural/v17/model.py",
     "tools/nsamdr/neural/render_nsamdr_v16_training_preview.py",
     "tools/nsamdr/neural/v14/preview.py",
@@ -58,6 +59,7 @@ REQUIRED_LAYOUT = (
 
 CURRENT_TESTS = (
     "tools.nsamdr.neural.test_nsamdr_v17_model",
+    "tools.nsamdr.neural.test_nsamdr_v17_sibling_proof",
     "tools.nsamdr.neural.test_nsamdr_v16_structure",
     "tools.nsamdr.neural.test_nsamdr_v16_boundary_profiles",
     "tools.nsamdr.neural.test_nsamdr_v16_dataset_split",
