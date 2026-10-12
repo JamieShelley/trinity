@@ -463,7 +463,7 @@ class App:
                 "--hr-size",
                 self._value("hr_size", "512"),
                 "--stages",
-                self._value("stages", "128,256,384,512,768"),
+                self._value("stages", "896,1024,1280,1536"),
                 "--learning-rate",
                 self._value("learning_rate", "0.0002"),
                 "--minimum-target-residual",
@@ -476,6 +476,8 @@ class App:
                 self._value("detail_channels", "48"),
                 "--decoder-blocks",
                 self._value("decoder_blocks", "4"),
+                "--resume",
+                self._value("resume", "auto"),
             )
             manifest = self._value("manifest", "").strip()
             if manifest:
@@ -838,6 +840,7 @@ class App:
             self._label(
                 "Architecture gate",
                 (
+                    "Resume the latest compatible V17.2 train-fit checkpoint by default. "
                     "Train only crop A until it passes the unchanged candidate fit gates. Only then "
                     "evaluate crop B from the same authority. The sibling A/B/C image must "
                     "visibly restore thin manufactured features rather than merely sharpen B."
@@ -848,10 +851,16 @@ class App:
             self._row(
                 "Checkpoint updates",
                 "stages",
-                "128,256,384,512,768",
-                ("128,256,384,512,768", "128,256,384,512", "64,128,256,384"),
+                "896,1024,1280,1536",
+                ("896,1024,1280,1536", "896,1024,1280", "1024,1280,1536"),
             )
             self._row("Learning rate", "learning_rate", "0.0002")
+            self._row(
+                "Training control",
+                "resume",
+                "auto",
+                ("auto", "latest", "fresh"),
+            )
             self._row("Minimum target residual", "minimum_target_residual", "0.01")
             self._row("Encoder channels", "encoder_channels", "96", ("64", "96", "128"))
             self._row(
