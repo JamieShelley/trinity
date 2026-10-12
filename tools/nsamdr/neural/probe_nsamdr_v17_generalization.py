@@ -282,9 +282,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "d4Variants": 8, "startUpdate": start, "stopUpdate": stop,
         "requestedStages": future, "resumeSource": str(resume or ""),
         "candidateThresholds": {
-            "globalRecovery": config.min_global_recovery,
-            "edgeRecovery": config.min_edge_recovery,
-            "gradientRecovery": config.min_gradient_recovery,
+            "globalRecovery": config.candidate_global_recovery_required,
+            "edgeRecovery": config.candidate_edge_recovery_required,
+            "gradientRecovery": config.candidate_gradient_recovery_required,
         },
         "earlySiblingTransferThresholds": EARLY_TRANSFER_GATE,
         "trained": final_train, "siblings": final_siblings,
