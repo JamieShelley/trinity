@@ -11,7 +11,7 @@ import torch
 from tools.nsamdr.nsamdr_cli import _app
 from tools.nsamdr.neural.probe_nsamdr_v17_generalization_v2 import (
     CHECKPOINT_SCHEMA, PREVIOUS_VALIDATION_AUTHORITIES, SCHEMA,
-    _ids, _promote_checkpoint, _resolve_resume, _restore, _save, _split_pairs, _validation_score,
+    _ids, _promote_checkpoint, _resume_path, _restore, _save, _split_pairs, _validation_score,
 )
 
 
@@ -217,10 +217,10 @@ class V17GeneralizationV2Tests(unittest.TestCase):
                 checkpoint.write_bytes(b"checkpoint")
             (finished / "report.json").write_text(json.dumps({"schema": SCHEMA}))
             self.assertEqual(
-                _resolve_resume(root, "auto"),
+                _resume_path(root, "auto"),
                 pending / "stage_006144/checkpoint.pt",
             )
-            self.assertIsNone(_resolve_resume(root, "fresh"))
+            self.assertIsNone(_resume_path(root, "fresh"))
 
     def test_managed_cli_exposes_v2_defaults(self) -> None:
         options = _app.build_parser().parse_args(["v17-generalization-v2"])
