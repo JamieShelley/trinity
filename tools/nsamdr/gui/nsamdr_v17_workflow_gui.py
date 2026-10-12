@@ -1090,7 +1090,8 @@ class App:
             self._row("Train authorities", "authorities", "4", ("2", "4", "8", "16"))
             self._row("HR target size", "hr_size", "512", ("512",))
             self._row("Checkpoint updates", "stages", "2048,4096,6144,8192",
-                      ("2048,4096,6144,8192", "4096,8192,12288,16384"), editable=True)
+                      ("2048,4096,6144,8192", "2048,4096,6144",
+                       "4096,8192,12288,16384"), editable=True)
             self._row("Resume mode", "resume", "auto", ("auto", "fresh"))
             self._row("Learning rate", "learning_rate", "0.0002")
             self._row("Minimum target residual", "minimum_target_residual", "0.01")
