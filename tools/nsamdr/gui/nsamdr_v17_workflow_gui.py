@@ -1101,6 +1101,26 @@ class App:
             self._row("Device", "device", "cuda", ("cuda", "auto", "cpu"))
             self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
             self._row("Manifest override", "manifest", "")
+            latest = self._latest_v17_generalization_report()
+            if latest is not None:
+                report_path, report = latest
+                trained = dict(report.get("trained") or {})
+                siblings = dict(report.get("siblings") or {})
+                self._label(
+                    "Latest diagnostic",
+                    (
+                        f"{report.get('decision', 'unknown')} | "
+                        f"train all PASS: {bool(trained.get('allPass'))} | "
+                        f"siblings all PASS: {bool(siblings.get('allPass'))}"
+                    ),
+                )
+                preview = self._latest_v17_generalization_preview()
+                directory = preview.parent if preview is not None else report_path.parent
+                ttk.Button(
+                    self.form,
+                    text="Open all unseen sibling A/B/C sheets",
+                    command=lambda folder=directory: _open_path(folder),
+                ).pack(anchor="w", pady=(8, 2))
 
         elif stage_id == "preview":
             choices = self._preview_choices()
