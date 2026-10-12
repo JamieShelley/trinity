@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict
 from datetime import datetime
 import json
 from pathlib import Path
 import sys
 import time
-from typing import Any
+from typing import Any, Callable
 import torch
 
 HERE = Path(__file__).resolve().parent
@@ -16,7 +17,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from probe_nsamdr_v16_full_broad import DEFAULT_MANIFEST, _device
-from probe_nsamdr_v17_generalization import _augment_batch, _score, _select_pairs
+from probe_nsamdr_v17_generalization import _augment_batch, _score
 from probe_nsamdr_v17_sibling_architecture import (
     EARLY_TRANSFER_GATE, _batch_for_record, _evaluate, _parse_stages,
     _target_albedo_residual_magnitude, _train_one, _write_preview,
@@ -36,24 +37,73 @@ DEFAULT_STAGES = "6144,12288,18432,24576,30720"
 
 def _split_pairs(
     manifest: dict[str, Any], *, anchor: str, authorities: int,
+    eligible_training: Callable[[dict[str, Any]], bool] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """One crop/authority for learning; V1 siblings for validation; others sealed."""
+    """Select from independent paired authorities, inspecting train crops only.
+
+    Four previously evaluated authorities are fixed development authorities.
+    Extra authorities are sorted deterministically; an unsuitable *training*
+    crop may be replaced without opening or scoring its sealed test sibling.
+    """
     if authorities < 12:
         raise ValueError("V2 requires at least 12 training authorities")
     if anchor != PREVIOUS_VALIDATION_AUTHORITIES[0]:
         raise ValueError("V2 anchor must be the existing V1 anchor")
-    pairs = _select_pairs(manifest, anchor, authorities)
-    index = {
-        str(a.get("family_id") or a.get("familyId")): b for a, b in pairs
-    }
-    if not set(PREVIOUS_VALIDATION_AUTHORITIES).issubset(index):
-        raise RuntimeError("all four V1 development authorities are required")
-    train = [a for a, _ in pairs]
-    validation = [index[authority] for authority in PREVIOUS_VALIDATION_AUTHORITIES]
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in manifest.get("crops", []):
+        if str(record.get("split")) != "train":
+            continue
+        family = str(record.get("family_id") or record.get("familyId") or "")
+        if family:
+            groups[family].append(dict(record))
+    paired: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    for authority, records in groups.items():
+        records.sort(key=lambda row: (
+            str(row.get("crop_id") or row.get("cropId") or ""),
+            str(row.get("path") or ""),
+        ))
+        if len(records) < 2:
+            continue
+        training, sibling = records[:2]
+        train_id = str(training.get("crop_id") or training.get("cropId") or "")
+        sibling_id = str(sibling.get("crop_id") or sibling.get("cropId") or "")
+        if not train_id or not sibling_id or train_id == sibling_id:
+            continue
+        if not training.get("path") or not sibling.get("path"):
+            continue
+        if training["path"] == sibling["path"]:
+            continue
+        paired[authority] = (training, sibling)
+    missing = sorted(set(PREVIOUS_VALIDATION_AUTHORITIES) - paired.keys())
+    if missing:
+        raise RuntimeError(f"V2 requires all four V1 development authorities; missing: {missing}")
+    candidate_ids = [
+        *PREVIOUS_VALIDATION_AUTHORITIES,
+        *sorted(set(paired) - set(PREVIOUS_VALIDATION_AUTHORITIES)),
+    ]
+    chosen: list[str] = []
+    for authority in candidate_ids:
+        training, _sealed_sibling = paired[authority]
+        if eligible_training is not None and not eligible_training(training):
+            if authority in PREVIOUS_VALIDATION_AUTHORITIES:
+                raise RuntimeError(
+                    f"required V1 development train crop has insufficient target residual: "
+                    f"{training.get('crop_id') or training.get('cropId')}"
+                )
+            continue
+        chosen.append(authority)
+        if len(chosen) == authorities:
+            break
+    if len(chosen) != authorities:
+        raise RuntimeError(
+            f"V2 needs {authorities} eligible paired training authorities, "
+            f"but found {len(chosen)}; inspect training-crop residual diagnostics"
+        )
+    train = [paired[authority][0] for authority in chosen]
+    validation = [paired[authority][1] for authority in PREVIOUS_VALIDATION_AUTHORITIES]
     final_test = [
-        b for a, b in pairs
-        if str(a.get("family_id") or a.get("familyId"))
-        not in PREVIOUS_VALIDATION_AUTHORITIES
+        paired[authority][1] for authority in chosen
+        if authority not in PREVIOUS_VALIDATION_AUTHORITIES
     ]
     if len(final_test) < 8:
         raise RuntimeError("at least eight untouched test siblings required")
@@ -188,8 +238,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     repo = args.repo_root.resolve()
     manifest_path = Path(args.manifest)
     manifest_path = (repo / manifest_path).resolve() if not manifest_path.is_absolute() else manifest_path.resolve()
-    splits = _split_pairs(json.loads(manifest_path.read_text(encoding="utf-8")),
-                          anchor=args.authority_id, authorities=int(args.authorities))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     stages = _parse_stages(list(args.stages))
     if args.patience < 1 or args.min_improvement < 0:
         raise ValueError("patience must be positive and minimum improvement nonnegative")
@@ -209,8 +258,6 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             for index, record in enumerate(records)
         ]
 
-    training = load(splits["training"], 1)
-    validation = load(splits["validation"], 1001)
     # Final-test records must not be loaded or evaluated during training/selection.
     torch.manual_seed(args.seed)
     model = NSAMDRV17(
@@ -220,10 +267,43 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     model.set_candidate_training()
     optimizer = torch.optim.Adam(model.trainable_parameters(), lr=args.learning_rate,
                                  betas=(0.9, 0.999), eps=1e-8, foreach=False)
-    for records, batches in ((splits["training"], training), (splits["validation"], validation)):
-        for record, batch in zip(records, batches):
-            if _target_albedo_residual_magnitude(model, batch) < args.minimum_target_residual:
-                raise RuntimeError(f"insufficient target residual: {record.get('crop_id')}")
+    train_batches: dict[str, dict[str, torch.Tensor]] = {}
+    rejected_training: list[dict[str, Any]] = []
+    training_residuals: dict[str, float] = {}
+
+    def suitable_training(record: dict[str, Any]) -> bool:
+        crop_id = str(record.get("crop_id") or record.get("cropId") or "")
+        batch = _batch_for_record(record, config, seed=args.seed + 1, device=device)[0]
+        magnitude = _target_albedo_residual_magnitude(model, batch)
+        training_residuals[crop_id] = magnitude
+        if magnitude < args.minimum_target_residual:
+            rejected_training.append({"cropId": crop_id, "targetResidual": magnitude})
+            print(
+                f"[v17-generalization-v2] skip training crop={crop_id} "
+                f"targetResidual={magnitude:.6f} below {args.minimum_target_residual:.6f}",
+                flush=True,
+            )
+            return False
+        train_batches[crop_id] = batch
+        return True
+
+    splits = _split_pairs(
+        manifest, anchor=args.authority_id, authorities=int(args.authorities),
+        eligible_training=suitable_training,
+    )
+    training = [train_batches[crop_id] for crop_id in _ids(splits["training"])]
+    validation = load(splits["validation"], 1001)
+    for record, batch in zip(splits["validation"], validation):
+        if _target_albedo_residual_magnitude(model, batch) < args.minimum_target_residual:
+            raise RuntimeError(
+                f"insufficient development validation target residual: "
+                f"{record.get('crop_id') or record.get('cropId')}"
+            )
+    print(
+        f"[v17-generalization-v2] eligibility accepted={len(training)} "
+        f"rejected={len(rejected_training)} threshold={args.minimum_target_residual:.6f}",
+        flush=True,
+    )
     resume = _resume_path(repo, args.resume)
     start, history, best_update, best_score, stale = 0, [], 0, float("-inf"), 0
     best_qualified = False
@@ -345,6 +425,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "validationCropIds": _ids(splits["validation"]),
         "finalTestCropIds": _ids(splits["final_test"]),
         "finalTestSealedUntilSelection": True, "finalTestEvaluated": test_pass,
+        "trainingResidualThreshold": args.minimum_target_residual,
+        "trainingCropResiduals": training_residuals,
+        "rejectedTrainingCrops": rejected_training,
         "finalTestEvaluationCount": int(test_pass),
         "earlySiblingTransferThresholds": EARLY_TRANSFER_GATE,
         "trainedGateThresholds": {
