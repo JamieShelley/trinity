@@ -6,6 +6,8 @@ from pathlib import Path
 from tools.nsamdr.gui.nsamdr_v17_workflow_gui import (
     APP_TITLE,
     V17_PREVIEW_CHOICE,
+    V17_GENERALIZATION_CHOICE,
+    STAGES,
     _format_duration,
     _qualified_final,
 )
@@ -15,6 +17,8 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
     def test_v17_gui_identity(self) -> None:
         self.assertEqual(APP_TITLE, "NSAMDR V17 Workflow")
         self.assertEqual(V17_PREVIEW_CHOICE, "V17_SIBLING_LATEST")
+        self.assertEqual(V17_GENERALIZATION_CHOICE, "V17_GENERALIZATION_LATEST")
+        self.assertIn("generalize", [stage.id for stage in STAGES])
 
     def test_format_duration(self) -> None:
         self.assertEqual(_format_duration(65), "1m 05s")
