@@ -329,6 +329,23 @@ class App:
         _time, path, report = max(reports, key=lambda item: item[0])
         return path.resolve(), report
 
+    def _latest_v17_v3_report(self) -> tuple[Path, dict[str, Any]] | None:
+        if not V17_V3_ROOT.is_dir():
+            return None
+        found: list[tuple[float, Path, dict[str, Any]]] = []
+        for path in V17_V3_ROOT.glob("proof_*/report.json"):
+            report = _read_json(path)
+            if report is None or report.get("schema") != "NSAMDR_V17_SPATIAL_GENERALIZATION_PROOF_V1":
+                continue
+            try:
+                found.append((path.stat().st_mtime, path, report))
+            except OSError:
+                continue
+        if not found:
+            return None
+        _time, path, report = max(found, key=lambda item: item[0])
+        return path.resolve(), report
+
     def _latest_v17_v2_previews(self) -> Path | None:
         latest = self._latest_v17_v2_report()
         if latest is None:
@@ -713,6 +730,24 @@ class App:
                 "--patience", self._value("patience", "2"),
                 "--min-improvement", self._value("min_improvement", "0.002"),
                 "--resume", self._value("resume", "fresh"),
+            )
+            manifest = self._value("manifest", "").strip()
+            if manifest:
+                command += ["--manifest", manifest]
+            return command
+
+        if stage_id == "generalize_v3":
+            command = self._cli_argv(
+                "v17-spatial-generalization",
+                "--device", self._value("device", "cuda"),
+                "--amp-precision", self._value("amp", "auto"),
+                "--arm", self._value("arm", "both"),
+                "--authorities", "12",
+                "--stages", self._value("stages", "12288,24576,36864,49152"),
+                "--resume", self._value("resume", "fresh"),
+                "--patience", self._value("patience", "2"),
+                "--min-improvement", self._value("min_improvement", "0.002"),
+                "--minimum-target-residual", "0.01",
             )
             manifest = self._value("manifest", "").strip()
             if manifest:
