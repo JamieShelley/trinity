@@ -196,6 +196,69 @@ rate 0.0002, gradient clipping at norm 1.0, and deterministic D4 crop
 augmentations. Evaluation metrics and checkpoint selection are separate from
 the per-update optimization loss.
 
+#### V17.3 spatial-diversity experiment — implementation ready, not yet executed
+
+Stage **5 — V17.3 Spatial Generalization** is an isolated training-data
+experiment. It **reuses the V17.2 architecture, 512→128 clean 4× training
+contract, optimization loss, learning rate (0.0002), candidate gates and
+transfer gates**. V17.2 V2 reports/checkpoints remain unchanged. The V17.3
+namespace is `artifacts/nsamdr/diagnostics/v17_spatial_generalization/`.
+
+**Matched arms:** `fixed` repeatedly trains one native authored 512-pixel
+region per selected authority, while `spatial` trains changing native
+512-pixel regions using 50% uniform and 50% structure-biased sampling.
+Both arms use the same 12 training authorities, seed, D4 augmentation
+schedule, frozen training probes, 4 independent-authority validation crops,
+and bounded checkpoints. The source manifests refer to original authored
+textures, not merely the pre-generated 512 crops.
+
+**Sealed-source protection:** V17.3 excludes *every* V2 training, validation
+and final-test authority from training because moving windows over native
+textures could expose the V2 sealed sibling regions. V17.3 development
+validation and its eight sealed final-test authorities come from the
+original V16 corpus's complete-authority `validation` split. Only
+*training* candidates may be screened for minimum target residual;
+independent development and final-test selections are not reranked using
+their recovery scores. The eight V17.3 final-test crop bundles are not
+loaded until an arm passes both training and development validation gates.
+These new development crops have not been represented as previously
+unseen after this experiment; the final test is evaluated at most once.
+
+**Source audit:** `physical_map_audit.json` records each training
+authority's native albedo/normal sizes, normal alpha-green versus
+red-green-fallback encoding, material-map supervision availability,
+and the selected/frozen authority IDs. Missing packed material channels
+use the existing neutral unsupervised placeholder; material loss is
+not silently introduced.
+
+Checkpoint schedule: `12288,24576,36864,49152`; early-stop patience
+2 validation checkpoints, minimum validation score gain 0.002. Arm
+checkpoints include model state, Adam optimizer state, training and
+validation metrics, seed, and the frozen manifest/split fingerprint.
+`--resume auto` resumes only an unfinished **identical** V17.3 experiment.
+
+Run from the repository root:
+
+```bat
+scripts\build\nsamdr.bat validate
+scripts\build\nsamdr.bat gui
+```
+
+In the GUI select **Stage 5 — V17.3 Spatial Generalization**,
+`Experiment arms = both`, `Resume = fresh`, then **Run selected**.
+For terminal-only execution:
+
+```bat
+scripts\build\nsamdr.bat v17-spatial-generalization --arm both --resume fresh
+```
+
+Once run, compare the `fixed` and `spatial` selected-checkpoint
+validation curves and A/B/C sheets. **Passing training alone is
+insufficient:** independent-authority validation and the sealed final
+test must pass their existing gates, followed by visual review. This
+V17.3 experiment is **not yet trained or qualified** merely because
+its implementation is committed.
+
 #### 1024 → 4096 visual-only probe
 
 The 12,288-update checkpoint also completed tiled inference from a **native
