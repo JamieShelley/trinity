@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1040" viewBox="0 0 1800 1040" role="img" aria-label="NSAMDR V17.2 learned residual architecture and training proof">
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#08121f"/><stop offset="1" stop-color="#10182d"/></linearGradient>
+<linearGradient id="teal" x2="1" y2="1"><stop stop-color="#12d6c5"/><stop offset="1" stop-color="#168ca7"/></linearGradient>
+<linearGradient id="violet" x2="1" y2="1"><stop stop-color="#b6a1ff"/><stop offset="1" stop-color="#7757ff"/></linearGradient>
+<filter id="glow"><feGaussianBlur stdDeviation="11"/></filter>
+<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#8ea6c5"/></marker>
+<marker id="arrPink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#f38aaf"/></marker>
+<style>
+text{font-family:Inter,"Segoe UI",Arial,sans-serif;fill:#e9f0fb}
+.mono{font-family:Consolas,"DejaVu Sans Mono",monospace}
+.heading{font-weight:750;font-size:46px}
+.subtitle{font-size:20px;fill:#90a7c6}
+.section{font-size:20px;font-weight:700;letter-spacing:2px;fill:#9db5d2}
+.node-title{font-size:24px;font-weight:700}
+.node-line{font-size:18px;fill:#b8c8df}
+.pill{font-size:16px;font-weight:700;letter-spacing:1px}
+.small{font-size:17px;fill:#9db0cc}
+</style></defs>
+<rect width="1800" height="1040" fill="url(#bg)"/>
+<path d="M0 160H1800M0 735H1800" stroke="#223451" stroke-width="2"/>
+<circle cx="1600" cy="200" r="250" fill="#21b9d5" opacity=".026"/>
+<circle cx="240" cy="630" r="300" fill="#8b5cf6" opacity=".035"/>
+<text x="76" y="75" class="heading">NSAMDR <tspan fill="#40dfcb">V17.2</tspan></text>
+<text x="78" y="112" class="subtitle">Neural Structure-Aware Material Detail Reconstruction · 4× physical-map super-resolution</text>
+<rect x="1368" y="45" width="342" height="45" rx="22" fill="#381d30" stroke="#d66c92"/>
+<text x="1539" y="74" text-anchor="middle" class="pill" fill="#ffb4c8">RESEARCH · NOT QUALIFIED</text>
+<text x="78" y="198" class="section">01  /  FORWARD PASS</text>
+<rect x="80" y="244" width="264" height="167" rx="19" fill="#103333" stroke="#20d9c6" stroke-opacity=".8" stroke-width="1.9"/>
+<rect x="80" y="244" width="7" height="167" rx="3" fill="#20d9c6"/>
+<text x="102" y="286" class="node-title" font-size="24" fill="#20d9c6">INPUT · LR</text>
+<text x="102" y="325" class="node-line" font-size="18">Albedo RGB         3 ch</text>
+<text x="102" y="353" class="node-line" font-size="18">Normal XY           2 ch</text>
+<text x="102" y="381" class="node-line" font-size="18">Material RGB       3 ch</text>
+<rect x="466" y="238" width="286" height="168" rx="19" fill="#251f42" stroke="#a48dff" stroke-opacity=".8" stroke-width="1.9"/>
+<rect x="466" y="238" width="7" height="168" rx="3" fill="#a48dff"/>
+<text x="488" y="280" class="node-title" font-size="24" fill="#a48dff">BASELINE · B</text>
+<text x="488" y="319" class="node-line" font-size="18">Bicubic albedo</text>
+<text x="488" y="347" class="node-line" font-size="18">Bilinear normal</text>
+<text x="488" y="375" class="node-line" font-size="18">Nearest material</text>
+<rect x="466" y="445" width="286" height="201" rx="19" fill="#111e30" stroke="#42bedc" stroke-opacity=".8" stroke-width="1.9"/>
+<rect x="466" y="445" width="7" height="201" rx="3" fill="#42bedc"/>
+<text x="488" y="487" class="node-title" font-size="24" fill="#42bedc">PHYSICAL ENCODER</text>
+<text x="488" y="526" class="node-line" font-size="18">Analytic gradients  +3 ch</text>
+<text x="488" y="554" class="node-line" font-size="18">96 learned feature channels</text>
+<text x="488" y="582" class="node-line" font-size="18">8 dilated conv. blocks</text>
+<text x="488" y="610" class="node-line" font-size="18">1, 2, 4, 8, 4, 2, 1, 1</text>
+<rect x="831" y="445" width="258" height="201" rx="19" fill="#111e30" stroke="#42bedc" stroke-opacity=".8" stroke-width="1.9"/>
+<rect x="831" y="445" width="7" height="201" rx="3" fill="#42bedc"/>
+<text x="853" y="487" class="node-title" font-size="24" fill="#42bedc">MID · 2×</text>
+<text x="853" y="526" class="node-line" font-size="18">Resize-conv refinement</text>
+<text x="853" y="554" class="node-line" font-size="18">64 channels · 4 blocks</text>
+<text x="853" y="582" class="node-line" font-size="18">8-channel residual head</text>
+<text x="853" y="610" class="node-line" font-size="18">Manufactured contours</text>
+<rect x="1165" y="445" width="258" height="201" rx="19" fill="#111e30" stroke="#42bedc" stroke-opacity=".8" stroke-width="1.9"/>
+<rect x="1165" y="445" width="7" height="201" rx="3" fill="#42bedc"/>
+<text x="1187" y="487" class="node-title" font-size="24" fill="#42bedc">DETAIL · 4×</text>
+<text x="1187" y="526" class="node-line" font-size="18">Mid + direct LR skips</text>
+<text x="1187" y="554" class="node-line" font-size="18">48 channels · 4 blocks</text>
+<text x="1187" y="582" class="node-line" font-size="18">8-channel residual head</text>
+<text x="1187" y="610" class="node-line" font-size="18">Narrow seam recovery</text>
+<rect x="1470" y="445" width="250" height="201" rx="19" fill="#322039" stroke="#f38aaf" stroke-opacity=".8" stroke-width="1.9"/>
+<rect x="1470" y="445" width="7" height="201" rx="3" fill="#f38aaf"/>
+<text x="1492" y="487" class="node-title" font-size="24" fill="#f38aaf">RESIDUAL · Δ</text>
+<text x="1492" y="526" class="node-line" font-size="18">Upsample mid + detail</text>
+<text x="1492" y="554" class="node-line" font-size="18">Tanh bounded channels</text>
+<text x="1492" y="582" class="node-line" font-size="18">Albedo / normal / mat.</text>
+<text x="1492" y="610" class="node-line" font-size="18">Caps: .40 / .20 / .25</text>
+<rect x="1460" y="238" width="260" height="168" rx="19" fill="#322039" stroke="#f38aaf" stroke-opacity=".8" stroke-width="1.9"/>
+<rect x="1460" y="238" width="7" height="168" rx="3" fill="#f38aaf"/>
+<text x="1482" y="280" class="node-title" font-size="24" fill="#f38aaf">OUTPUT · C</text>
+<text x="1482" y="319" class="node-line" font-size="18">C = project(B + Δ)</text>
+<text x="1482" y="347" class="node-line" font-size="18">Albedo: clamp [0,1]</text>
+<text x="1482" y="375" class="node-line" font-size="18">Normal: normalize XY</text>
+<text x="1482" y="403" class="node-line" font-size="18">Material: clamp [0,1]</text>
+<path d="M344 315H466" fill="none" stroke="#8ea6c5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arr)"/>
+<path d="M344 365H410V543H466" fill="none" stroke="#8ea6c5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arr)"/>
+<path d="M752 540H831" fill="none" stroke="#8ea6c5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arr)"/>
+<path d="M1089 540H1165" fill="none" stroke="#8ea6c5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arr)"/>
+<path d="M1423 540H1470" fill="none" stroke="#f38aaf" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrPink)"/>
+<path d="M1595 445V406" fill="none" stroke="#f38aaf" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrPink)"/>
+<path d="M752 308H1460" fill="none" stroke="#a48dff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arr)"/>
+<path d="M751 609H795V684H1144V620H1165" fill="none" stroke="#42bedc" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 8" marker-end="url(#arr)"/>
+<text x="962" y="677" text-anchor="middle" font-size="17" fill="#93abc9">Direct LR feature / physical evidence skips</text>
+<text x="794" y="294" text-anchor="start" font-size="16" fill="#b4a1ff">Deterministic path to B</text>
+<text x="1320" y="429" text-anchor="start" font-size="16" fill="#f38aaf">Learned correction branch</text>
+<rect x="81" y="671" width="364" height="41" rx="20" fill="#173746" stroke="#2f7990"/><text x="263" y="698" text-anchor="middle" class="pill" fill="#80e7ed">Identity-safe zero-init residual heads</text>
+<rect x="470" y="671" width="328" height="41" rx="20" fill="#26304c" stroke="#53638d"/><text x="634" y="698" text-anchor="middle" class="pill" fill="#bfc8ff">No PixelShuffle or transposed conv</text>
+<text x="78" y="777" class="section">02  /  SUPERVISION &amp; CHECKPOINT SELECTION</text>
+<rect x="80" y="813" width="315" height="164" rx="19" fill="#103333" stroke="#20d9c6" stroke-opacity=".8" stroke-width="1.9"/>
+<rect x="80" y="813" width="7" height="164" rx="3" fill="#20d9c6"/>
+<text x="102" y="855" class="node-title" font-size="24" fill="#20d9c6">AUTHORED TRUTH · A</text>
+<text x="102" y="894" class="node-line" font-size="18">Native 512 × 512 crop</text>
+<text x="102" y="922" class="node-line" font-size="18">Clean 4× downsample → LR</text>
+<text x="102" y="950" class="node-line" font-size="18">12 selected train authorities</text>
+<rect x="426" y="813" width="492" height="164" rx="19" fill="#33291f" stroke="#e0ac66" stroke-opacity=".8" stroke-width="1.9"/>
+<rect x="426" y="813" width="7" height="164" rx="3" fill="#e0ac66"/>
+<text x="448" y="855" class="node-title" font-size="24" fill="#e0ac66">LEARNING OBJECTIVE</text>
+<text x="448" y="894" class="node-line" font-size="17">L1 albedo + 0.50 gradient + 0.35 normal</text>
+<text x="448" y="922" class="node-line" font-size="17">1.00 albedo residual + 0.25 normal residual</text>
+<text x="448" y="950" class="node-line" font-size="17">Adam 2e−4 · backprop · grad clip 1.0</text>
+<rect x="950" y="813" width="389" height="164" rx="19" fill="#25203f" stroke="#a48dff" stroke-opacity=".8" stroke-width="1.9"/>
+<rect x="950" y="813" width="7" height="164" rx="3" fill="#a48dff"/>
+<text x="972" y="855" class="node-title" font-size="24" fill="#a48dff">VALIDATE / SELECT</text>
+<text x="972" y="894" class="node-line" font-size="17">4 previously reviewed siblings</text>
+<text x="972" y="922" class="node-line" font-size="17">Score: global + 2×edge + gradient</text>
+<text x="972" y="950" class="node-line" font-size="17">  + 1px detail − lattice penalty</text>
+<rect x="1370" y="813" width="350" height="164" rx="19" fill="#322039" stroke="#f38aaf" stroke-opacity=".8" stroke-width="1.9"/>
+<rect x="1370" y="813" width="7" height="164" rx="3" fill="#f38aaf"/>
+<text x="1392" y="855" class="node-title" font-size="24" fill="#f38aaf">PROOF DECISION</text>
+<text x="1392" y="894" class="node-line" font-size="17">Best checkpoint: 12,288</text>
+<text x="1392" y="922" class="node-line" font-size="17">Rejected validation transfer</text>
+<text x="1392" y="950" class="node-line" font-size="17">8 final-test siblings unopened</text>
+<path d="M395 900H426" fill="none" stroke="#e0ac66" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arr)"/>
+<path d="M918 900H950" fill="none" stroke="#a48dff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arr)"/>
+<path d="M1339 900H1370" fill="none" stroke="#f38aaf" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrPink)"/>
+<rect x="80" y="995" width="1640" height="28" rx="13" fill="#15253a"/>
+<text x="900" y="1015" text-anchor="middle" font-size="16" fill="#afc1dd">4096 visual probe: native 1024 input → tiled 4096 B/C · no 4096 authored reference · no training updates · no final-test access</text>
+</svg>
