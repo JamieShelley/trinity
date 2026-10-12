@@ -7,6 +7,7 @@ from pathlib import Path
 
 import torch
 
+from tools.nsamdr.nsamdr_cli import _app
 from tools.nsamdr.neural.probe_nsamdr_v17_generalization import (
     _augment_batch,
     _resume_path,
@@ -81,6 +82,13 @@ class V17GeneralizationProofTests(unittest.TestCase):
             {"metrics": metrics, "gateChecks": {"global": True, "edge": False}},
         ]
         self.assertFalse(_score(results, sibling=False)["allPass"])
+
+    def test_managed_cli_exposes_isolated_generalization(self) -> None:
+        args = _app.build_parser().parse_args(["v17-generalization-proof"])
+        self.assertEqual(args.command, "v17-generalization-proof")
+        self.assertEqual(args.authorities, 4)
+        self.assertEqual(args.stages, ["2048,4096,6144,8192"])
+        self.assertEqual(args.resume, "auto")
 
     def test_auto_resume_excludes_completed_runs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
