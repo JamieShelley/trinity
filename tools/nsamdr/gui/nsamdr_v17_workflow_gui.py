@@ -338,6 +338,38 @@ class App:
                 return image.resolve()
         return None
 
+    def _latest_v17_4096_visual_dir(self) -> Path | None:
+        latest = self._latest_v17_v2_report()
+        if latest is None:
+            return None
+        report_path, _report = latest
+        directory = report_path.parent / "resolution_4096"
+        candidates = list(directory.glob("visual_*/report.json"))
+        if not candidates:
+            return None
+        existing = [path for path in candidates if path.is_file()]
+        if not existing:
+            return None
+        return max(existing, key=lambda item: item.stat().st_mtime).parent.resolve()
+
+    def _run_v17_4096_visual(self) -> None:
+        if self._latest_v17_v2_report() is None:
+            messagebox.showinfo("NSAMDR", "Run Generalization V2 before the 4096 visual diagnostic.")
+            return
+        command = self._cli_argv(
+            "v17-4096-visual-proof", "--device", "cuda",
+            "--amp-precision", "auto", "--authority-id", "auto",
+            "--tile-lr", "128", "--halo-lr", "64",
+        )
+        self._start_process("generalize_v2", command)
+
+    def _open_v17_4096_visual(self) -> None:
+        folder = self._latest_v17_4096_visual_dir()
+        if folder is None:
+            messagebox.showinfo("NSAMDR", "No 4096 V17.2 diagnostic has completed yet.")
+        else:
+            _open_path(folder)
+
     def _completed_v17_generalization_update(self) -> int | None:
         latest = self._latest_v17_generalization_report()
         if latest is None:
@@ -1260,6 +1292,19 @@ class App:
                     self.form, text="Open V2 report folder",
                     command=lambda folder=path.parent: _open_path(folder),
                 ).pack(anchor="w", pady=2)
+                self._label(
+                    "4096 research probe",
+                    "Use selected V2 checkpoint. One reviewed authority; true native 4096 A "
+                    "and 1024-input 4x B/C. No additional training or sealed-test access.",
+                )
+                ttk.Button(
+                    self.form, text="Run one 1024 -> 4096 A/B/C visual proof",
+                    command=self._run_v17_4096_visual,
+                ).pack(anchor="w", pady=(8, 2))
+                ttk.Button(
+                    self.form, text="Open latest 4096 A/B/C proof folder",
+                    command=self._open_v17_4096_visual,
+                ).pack(anchor="w", pady=2)
 
         elif stage_id == "preview":
             choices = self._preview_choices()
@@ -1582,6 +1627,7 @@ class App:
         self.progress_value.set(0.0)
         self.progress_text.set("Starting...")
         self.active_stage = stage_id
+        self._visual_4096_active = "v17-4096-visual-proof" in command
         self.process_started_at = time.monotonic()
         self._set_status(stage_id, "running")
         self._update_run_state()
@@ -1716,6 +1762,8 @@ class App:
                 elif kind == "done":
                     code = int(payload)
                     stage_id = self.active_stage
+                    visual_4096 = bool(getattr(self, "_visual_4096_active", False))
+                    self._visual_4096_active = False
                     self.process = None
                     self.active_stage = None
                     self.progress_value.set(100.0)
@@ -1731,7 +1779,9 @@ class App:
                             rejected = str(manifest.get("status") or "").lower() == "training-rejected"
 
                     if stage_id:
-                        if rejected:
+                        if visual_4096:
+                            pass  # A diagnostic must not alter Generalization V2 qualification.
+                        elif rejected:
                             self._set_status(stage_id, "rejected")
                         elif stage_id == "train" and code == 0:
                             self._set_status(stage_id, "visual-review")
@@ -1752,7 +1802,12 @@ class App:
                         else:
                             self._set_status(stage_id, "completed" if code == 0 else "failed")
 
-                    if rejected:
+                    if visual_4096:
+                        self.progress_text.set(
+                            "4096 A/B/C proof complete; open its folder in Stage 4"
+                            if code == 0 else f"4096 A/B/C proof failed, exit code {code}"
+                        )
+                    elif rejected:
                         self.progress_text.set(
                             f"Training completed; {rejected_experiment} was rejected by candidate qualification"
                         )
