@@ -279,6 +279,119 @@ def _summary_line(label: str, result: dict[str, Any]) -> str:
     )
 
 
+def _latest_resume_checkpoint(
+    repo_root: Path,
+    *,
+    authority_id: str,
+    required: bool,
+) -> Path | None:
+    root = repo_root / "artifacts/nsamdr/diagnostics/v17_sibling_architecture"
+    candidates: list[tuple[float, Path]] = []
+    if root.is_dir():
+        for report_path in root.glob("proof_*/report.json"):
+            try:
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                continue
+            if not isinstance(report, dict) or report.get("schema") != SCHEMA:
+                continue
+            if str(report.get("authorityId") or "") != str(authority_id):
+                continue
+            if bool(report.get("siblingEvaluated")):
+                continue
+            architecture = dict(report.get("architecture") or {})
+            if str(architecture.get("revision") or "") != "V17.2-proof":
+                continue
+            raw = str(report.get("checkpoint") or "").strip()
+            if not raw:
+                continue
+            checkpoint = Path(raw)
+            if not checkpoint.is_absolute():
+                checkpoint = repo_root / checkpoint
+            if not checkpoint.is_file():
+                continue
+            try:
+                stamp = checkpoint.stat().st_mtime
+            except OSError:
+                continue
+            candidates.append((stamp, checkpoint.resolve()))
+    if candidates:
+        return max(candidates, key=lambda item: item[0])[1]
+    if required:
+        raise RuntimeError("no compatible V17.2 train-fit checkpoint is available to resume")
+    return None
+
+
+def _resolve_resume_checkpoint(
+    repo_root: Path,
+    raw: str,
+    *,
+    authority_id: str,
+) -> Path | None:
+    value = str(raw or "").strip()
+    lowered = value.lower()
+    if lowered in {"", "fresh", "none"}:
+        return None
+    if lowered in {"auto", "latest"}:
+        return _latest_resume_checkpoint(
+            repo_root,
+            authority_id=authority_id,
+            required=lowered == "latest",
+        )
+    path = Path(value)
+    if not path.is_absolute():
+        path = repo_root / path
+    if not path.is_file():
+        raise RuntimeError(f"V17.2 resume checkpoint is missing: {path}")
+    return path.resolve()
+
+
+def _load_resume_checkpoint(
+    checkpoint: Path,
+    *,
+    model: NSAMDRV17,
+    optimizer: torch.optim.Optimizer,
+    authority_id: str,
+    train_meta: dict[str, str],
+    sibling_meta: dict[str, str],
+    manifest_path: Path,
+    device: torch.device,
+) -> int:
+    try:
+        payload = torch.load(checkpoint, map_location=device, weights_only=False)
+    except TypeError:
+        payload = torch.load(checkpoint, map_location=device)
+    if not isinstance(payload, dict) or payload.get("schema") != CHECKPOINT_SCHEMA:
+        raise RuntimeError(f"V17.2 resume checkpoint schema mismatch: {checkpoint}")
+    if str(payload.get("authorityId") or "") != str(authority_id):
+        raise RuntimeError("V17.2 resume authority does not match the requested authority")
+    if str(payload.get("trainCropId") or "") != str(train_meta["cropId"]):
+        raise RuntimeError("V17.2 resume trained crop does not match the current proof")
+    if str(payload.get("siblingCropId") or "") != str(sibling_meta["cropId"]):
+        raise RuntimeError("V17.2 resume sibling crop does not match the current proof")
+
+    raw_manifest = Path(str(payload.get("manifest") or ""))
+    if not raw_manifest.is_absolute():
+        raw_manifest = manifest_path.parent / raw_manifest
+    try:
+        same_manifest = raw_manifest.resolve() == manifest_path.resolve()
+    except OSError:
+        same_manifest = False
+    if not same_manifest:
+        raise RuntimeError("V17.2 resume manifest does not match the current proof")
+
+    architecture = dict(payload.get("architecture") or {})
+    if architecture != model.architecture_contract():
+        raise RuntimeError("V17.2 resume architecture does not match the current model")
+
+    model.load_state_dict(payload["modelState"], strict=True)
+    optimizer.load_state_dict(payload["optimizerState"])
+    update = int(payload.get("update") or 0)
+    if update < 1:
+        raise RuntimeError("V17.2 resume checkpoint has no completed training updates")
+    return update
+
+
 def run(args: argparse.Namespace) -> tuple[int, Path]:
     repo_root = args.repo_root.resolve()
     manifest_path = Path(args.manifest)
@@ -344,6 +457,29 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         foreach=False,
     )
 
+    resume_checkpoint = _resolve_resume_checkpoint(
+        repo_root,
+        str(args.resume),
+        authority_id=authority_id,
+    )
+    start_update = 0
+    if resume_checkpoint is not None:
+        start_update = _load_resume_checkpoint(
+            resume_checkpoint,
+            model=model,
+            optimizer=optimizer,
+            authority_id=authority_id,
+            train_meta=train_meta,
+            sibling_meta=sibling_meta,
+            manifest_path=manifest_path,
+            device=device,
+        )
+        stages = [stage for stage in stages if stage > start_update]
+        if not stages:
+            raise RuntimeError(
+                f"all requested V17.2 stages are <= resumed update {start_update}"
+            )
+
     train_target_residual = _target_albedo_residual_magnitude(model, train_batch)
     sibling_target_residual = _target_albedo_residual_magnitude(model, sibling_batch)
     if train_target_residual < float(args.minimum_target_residual):
@@ -371,7 +507,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     )
     run_dir.mkdir(parents=True, exist_ok=True)
     _write_preview(
-        run_dir / "stage_000000" / "trained_ABC.png",
+        run_dir / f"stage_{start_update:06d}" / "trained_ABC.png",
         train_batch,
         initial_train_outputs,
         role="trained",
@@ -381,7 +517,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     print(f"Authority        : {authority_id}", flush=True)
     print(f"Trained crop     : {train_meta['cropId']}", flush=True)
     print(f"Sibling crop     : {sibling_meta['cropId']} (held until train-fit gate passes)", flush=True)
+    print(f"Start update     : {start_update}", flush=True)
     print(f"Stages           : {stages}", flush=True)
+    print(f"Resume checkpoint: {resume_checkpoint or '<fresh>'}", flush=True)
     print("Sampling         : fixed authored 512 crop; clean 128 LR; no augmentation", flush=True)
     print("Architecture     : LR encoder + 2x mid-band + 4x high-detail residual decoder", flush=True)
     print("Upsampling       : bilinear resize-convolution; no PixelShuffle/ConvTranspose/phase tensor", flush=True)
@@ -389,13 +527,13 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
 
     snapshots: list[dict[str, Any]] = [
         {
-            "update": 0,
+            "update": start_update,
             "trained": initial_train,
             "trainedCandidateGatePass": bool(all(initial_train["gateChecks"].values())),
             "siblingEvaluated": False,
             "previews": {
                 "trained": str(
-                    (run_dir / "stage_000000" / "trained_ABC.png").resolve()
+                    (run_dir / f"stage_{start_update:06d}" / "trained_ABC.png").resolve()
                 ),
             },
         }
@@ -405,10 +543,10 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     latest_train = initial_train
     latest_sibling: dict[str, Any] | None = None
     trained_gate_pass = False
-    stop_update = 0
+    stop_update = start_update
     decision = "reject-trained-fit"
 
-    for update in range(1, stages[-1] + 1):
+    for update in range(start_update + 1, stages[-1] + 1):
         train_loss = _train_one(
             model,
             optimizer,
@@ -417,9 +555,10 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             device=device,
             precision=str(args.amp_precision),
         )
-        if update == 1 or update % 32 == 0:
+        if update == start_update + 1 or update % 32 == 0:
             elapsed = max(time.monotonic() - started, 1.0e-6)
-            rate = update / elapsed
+            segment_update = update - start_update
+            rate = segment_update / elapsed
             eta = (stages[-1] - update) / max(rate, 1.0e-6)
             print(
                 f"[v17-sibling] update {update:4d}/{stages[-1]} "
@@ -505,6 +644,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
             "config": config.to_dict(),
             "architecture": model.architecture_contract(),
             "update": int(stop_update),
+            "resumeSource": str(resume_checkpoint) if resume_checkpoint is not None else "",
             "modelState": model.state_dict(),
             "optimizerState": optimizer.state_dict(),
         },
@@ -524,7 +664,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "trainedCrop": train_meta,
         "siblingCrop": sibling_meta,
         "stages": stages,
+        "startUpdate": int(start_update),
         "stopUpdate": int(stop_update),
+        "resumeSource": str(resume_checkpoint) if resume_checkpoint is not None else "",
         "decision": decision,
         "minimumTargetResidual": float(args.minimum_target_residual),
         "trainTargetAlbedoResidualMagnitude": train_target_residual,
@@ -597,10 +739,15 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument(
         "--stages",
         nargs="+",
-        default=["128,256,384,512,768"],
+        default=["896,1024,1280,1536"],
         help="cumulative exact-crop updates",
     )
     value.add_argument("--minimum-target-residual", type=float, default=0.01)
+    value.add_argument(
+        "--resume",
+        default="auto",
+        help="fresh, auto, latest, or a V17.2 checkpoint path",
+    )
     value.add_argument("--seed", type=int, default=17001)
     value.add_argument("--learning-rate", type=float, default=2.0e-4)
     value.add_argument("--encoder-channels", type=int, default=96)
