@@ -153,9 +153,16 @@ class V17GeneralizationProofTests(unittest.TestCase):
             self.assertEqual(snapshots, historical)
             for expected, actual in zip(original, second.parameters()):
                 self.assertTrue(torch.equal(expected, actual.detach()))
+            original_state = optimizer.state_dict()["state"]
+            resumed_state = second_optimizer.state_dict()["state"]
+            self.assertEqual(set(original_state), set(resumed_state))
+            for key in original_state:
+                self.assertEqual(set(original_state[key]), set(resumed_state[key]))
+                for name, value in original_state[key].items():
+                    self.assertTrue(torch.equal(value, resumed_state[key][name]))
             self.assertEqual(
-                second_optimizer.state_dict()["state"],
-                optimizer.state_dict()["state"],
+                optimizer.state_dict()["param_groups"],
+                second_optimizer.state_dict()["param_groups"],
             )
 
     def test_auto_resume_excludes_completed_runs(self) -> None:
