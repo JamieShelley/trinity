@@ -271,6 +271,60 @@ class App:
         _stamp, report_path, payload = max(candidates, key=lambda item: item[0])
         return report_path.resolve(), payload
 
+    def _v17_resume_update(self, authority_id: str, resume_mode: str) -> int | None:
+        """Read the update count from the checkpoint that V17.2 auto-resume selects."""
+        if resume_mode not in {"auto", "latest"} or not V17_PROOF_ROOT.is_dir():
+            return None
+        candidates: list[tuple[float, int]] = []
+        for report_path in V17_PROOF_ROOT.glob("proof_*/report.json"):
+            report = _read_json(report_path)
+            if report is None or report.get("schema") != "NSAMDR_V17_SIBLING_ARCHITECTURE_PROOF_V3":
+                continue
+            if str(report.get("authorityId") or "") != authority_id:
+                continue
+            if bool(report.get("siblingEvaluated")):
+                continue
+            if (report.get("architecture") or {}).get("revision") != "V17.2-proof":
+                continue
+            raw = str(report.get("checkpoint") or "").strip()
+            if not raw:
+                continue
+            checkpoint = Path(raw)
+            if not checkpoint.is_absolute():
+                checkpoint = REPO_ROOT / checkpoint
+            if not checkpoint.is_file():
+                continue
+            try:
+                update = int(report["stopUpdate"])
+                stamp = checkpoint.stat().st_mtime
+            except (KeyError, TypeError, ValueError, OSError):
+                continue
+            if update > 0:
+                candidates.append((stamp, update))
+        return max(candidates, key=lambda item: item[0])[1] if candidates else None
+
+    def _v17_stage_error(self) -> str | None:
+        raw = self._value("stages")
+        try:
+            stages = sorted({
+                int(token.strip())
+                for token in raw.replace(";", ",").split(",")
+                if token.strip()
+            })
+        except ValueError:
+            return "Checkpoint updates must be comma-separated positive integers."
+        if not stages or stages[0] <= 0:
+            return "Checkpoint updates must contain at least one positive integer."
+        resumed = self._v17_resume_update(
+            self._value("authority_id"), self._value("resume")
+        )
+        if resumed is not None and stages[-1] <= resumed:
+            return (
+                f"All requested stages are at or below resumed update {resumed}. "
+                f"Choose at least one stage above {resumed} (e.g. {resumed + 256})."
+            )
+        return None
+
     def _latest_v17_proof_dir(self) -> Path | None:
         latest = self._latest_v17_proof_report()
         if latest is not None:
@@ -737,6 +791,8 @@ class App:
         key: str,
         default: str,
         choices: tuple[str, ...] | list[str] | None = None,
+        *,
+        editable: bool = False,
     ) -> None:
         row = ttk.Frame(self.form)
         row.pack(fill="x", pady=2)
@@ -750,7 +806,7 @@ class App:
                 row,
                 textvariable=variable,
                 values=tuple(choices),
-                state="readonly",
+                state="normal" if editable else "readonly",
             )
         widget.pack(side="left", fill="x", expand=True)
         variable.trace_add("write", lambda *_args: self._update_command_preview())
@@ -848,11 +904,25 @@ class App:
             )
             self._row("Authority", "authority_id", "13006d2b807f89ac")
             self._row("HR target size", "hr_size", "512", ("512",))
+            resume_update = self._v17_resume_update("13006d2b807f89ac", "auto")
+            default_stages = (
+                ",".join(str(resume_update + 256 * step) for step in range(1, 5))
+                if resume_update is not None
+                else "896,1024,1280,1536"
+            )
+            stage_presets = tuple(dict.fromkeys((
+                default_stages,
+                "896,1024,1280,1536",
+                "896,1024,1280",
+                "1024,1280,1536",
+                "1792,2048,2304,2560",
+            )))
             self._row(
                 "Checkpoint updates",
                 "stages",
-                "896,1024,1280,1536",
-                ("896,1024,1280,1536", "896,1024,1280", "1024,1280,1536"),
+                default_stages,
+                stage_presets,
+                editable=True,
             )
             self._row("Learning rate", "learning_rate", "0.0002")
             self._row(
@@ -1097,6 +1167,11 @@ class App:
         if lock:
             messagebox.showinfo("NSAMDR", lock)
             return
+        if stage_id == "train":
+            error = self._v17_stage_error()
+            if error is not None:
+                messagebox.showerror("NSAMDR checkpoint updates", error)
+                return
         command = self._command_for_stage(stage_id)
         if command is None:
             return
