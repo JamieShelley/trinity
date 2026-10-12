@@ -24,6 +24,7 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
         self.assertEqual(V17_V2_CHOICE, "V17_GENERALIZATION_V2_LATEST")
         self.assertIn("generalize", [stage.id for stage in STAGES])
         self.assertIn("generalize_v2", [stage.id for stage in STAGES])
+        self.assertIn("generalize_v3", [stage.id for stage in STAGES])
         self.assertEqual(STAGES[-1].id, "preview")
 
     def test_completed_checkpoint_detection_does_not_require_tk(self) -> None:
@@ -70,6 +71,32 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
                 self.assertEqual(app._latest_v17_4096_visual_dir(), folder.resolve())
                 (folder / "report.json").unlink()
                 self.assertIsNone(app._latest_v17_4096_visual_dir())
+
+    def test_v17_v3_gui_builds_controlled_match_command(self) -> None:
+        app = App.__new__(App)
+        app.vars = {}
+        command = app._command_for_stage("generalize_v3")
+        self.assertIsNotNone(command)
+        self.assertIn("v17-spatial-generalization", command)
+        self.assertIn("both", command)
+        self.assertIn("12288,24576,36864,49152", command)
+        self.assertIn("fresh", command)
+
+    def test_v17_v3_report_discovery_requires_correct_schema(self) -> None:
+        from tools.nsamdr.gui import nsamdr_v17_workflow_gui as gui
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / "proof_01/report.json"
+            path.parent.mkdir()
+            path.write_text(json.dumps({"schema":"NSAMDR_V17_SPATIAL_GENERALIZATION_PROOF_V1",
+                                        "decision":"reject-independent-validation"}))
+            app = App.__new__(App)
+            with patch.object(gui, "V17_V3_ROOT", root):
+                found = app._latest_v17_v3_report()
+                self.assertIsNotNone(found)
+                self.assertEqual(found[0], path.resolve())
+                path.write_text('{"schema":"not-v17"}')
+                self.assertIsNone(app._latest_v17_v3_report())
 
     def test_format_duration(self) -> None:
         self.assertEqual(_format_duration(65), "1m 05s")
