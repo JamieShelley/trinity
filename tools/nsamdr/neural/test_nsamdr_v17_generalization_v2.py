@@ -72,7 +72,7 @@ class V17GeneralizationV2Tests(unittest.TestCase):
         manifest = _manifest()
         for row in manifest["crops"]:
             if row["crop_id"] == f"{PREVIOUS_VALIDATION_AUTHORITIES[0]}_001":
-                row["path"] = f"/data/{PREVIOUS_VALIDATION_AUTHORITIES[0]}_0.npz"
+                row["path"] = "/data/extra_00_1.npz"
         with self.assertRaisesRegex(RuntimeError, "identities overlap"):
             _split_pairs(manifest, anchor=PREVIOUS_VALIDATION_AUTHORITIES[0], authorities=12)
 
