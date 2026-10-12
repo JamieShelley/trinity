@@ -57,6 +57,20 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
             with patch.object(App, "_latest_v17_v2_report", return_value=data):
                 self.assertEqual(app._latest_v17_v2_previews(), sheet.resolve())
 
+    def test_4096_visual_folder_is_scoped_to_latest_v2_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            report = root / "proof_01/report.json"
+            folder = root / "proof_01/resolution_4096/visual_01"
+            folder.mkdir(parents=True)
+            (folder / "report.json").write_text('{"schema":"4096"}')
+            app = App.__new__(App)
+            with patch.object(App, "_latest_v17_v2_report",
+                              return_value=(report, {"schema": "v2"})):
+                self.assertEqual(app._latest_v17_4096_visual_dir(), folder.resolve())
+                (folder / "report.json").unlink()
+                self.assertIsNone(app._latest_v17_4096_visual_dir())
+
     def test_format_duration(self) -> None:
         self.assertEqual(_format_duration(65), "1m 05s")
         self.assertEqual(_format_duration(3661), "1h 01m")
