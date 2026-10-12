@@ -11,7 +11,7 @@ import torch
 from tools.nsamdr.nsamdr_cli import _app
 from tools.nsamdr.neural.probe_nsamdr_v17_generalization_v2 import (
     CHECKPOINT_SCHEMA, PREVIOUS_VALIDATION_AUTHORITIES, SCHEMA,
-    _ids, _resolve_resume, _restore, _save, _split_pairs, _validation_score,
+    _ids, _promote_checkpoint, _resolve_resume, _restore, _save, _split_pairs, _validation_score,
 )
 
 
@@ -88,6 +88,20 @@ class V17GeneralizationV2Tests(unittest.TestCase):
         bad_lattice = dict(metrics, lattice_cell_excess=0.2)
         self.assertAlmostEqual(first - _validation_score({"mean": bad_lattice}), 0.1)
 
+    def test_qualification_overrides_higher_nonqualified_score(self) -> None:
+        self.assertTrue(_promote_checkpoint(
+            qualified=True, previous_qualified=False, score=0.8, best_score=0.9,
+            min_improvement=0.002, no_best=False,
+        ))
+        self.assertFalse(_promote_checkpoint(
+            qualified=False, previous_qualified=True, score=2.0, best_score=1.0,
+            min_improvement=0.002, no_best=False,
+        ))
+        self.assertFalse(_promote_checkpoint(
+            qualified=False, previous_qualified=False, score=0.9001, best_score=0.9,
+            min_improvement=0.002, no_best=False,
+        ))
+
     def test_v1_checkpoints_cannot_be_loaded_as_v2(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -125,7 +139,7 @@ class V17GeneralizationV2Tests(unittest.TestCase):
             _save(
                 checkpoint, model, optimizer, manifest=manifest, partitions=partitions,
                 seed=17001, learning_rate=0.0002, update=6144, history=history,
-                best_update=6144, best_score=0.3, stale=0,
+                best_update=6144, best_score=0.3, stale=0, best_qualified=False,
             )
             clone = TinyModel(2, 2)
             clone_optimizer = torch.optim.Adam(clone.parameters(), lr=0.0002)
