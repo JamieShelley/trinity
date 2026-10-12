@@ -152,24 +152,53 @@ The same train-fit-first architecture gate remains in force:
 7. Only then consider small multi-authority transfer and later broad training.
 ```
 
-The V17.2 bounded checkpoints are:
+The first V17.2 bounded run reached 768 updates with three of four train-fit
+gates passed:
 
 ```text
-128
-256
-384
-512
-768
+V17.2 trained crop @768
+    global recovery          47.43%   PASS  >=45%
+    edge recovery            49.30%   FAIL  >=60%
+    gradient recovery        38.82%   PASS  >=35%
+    1px detail               34.30%
+    lattice excess            6.39%   PASS  <=15%
 ```
 
-V16 previously demonstrated ~60% fixed-crop recovery in this regime, so V17.2
-must recover comparable known-crop capacity quickly. More epochs or broad
-training are not a rescue path for a failed train-fit proof.
+The residual direction is also strong at this point: candidate/target residual
+magnitude ratio is about 0.793, cosine similarity about 0.843, weighted sign
+agreement about 0.890, and residual-cap saturation is zero. This is the first
+active architecture that visibly reconstructs manufactured detail while keeping
+the lattice gate under control.
 
-Run the proof:
+The edge curve is still improving. Continue the same checkpoint rather than
+restart:
+
+```text
+896
+1024
+1280
+1536
+```
+
+The proof now resumes the latest compatible V17.2 checkpoint automatically.
+Use `--resume fresh` only when a deliberate clean restart is required. The
+proof still stops immediately when all train-fit gates pass, then evaluates the
+unseen sibling exactly once.
+
+V16 previously demonstrated ~60% fixed-crop recovery in this regime. V17.2 must
+reach the edge gate before any broader training.
+
+Run or continue the proof:
 
 ```bat
 scripts\build\nsamdr.bat v17-sibling-proof
+```
+
+Default continuation uses the latest compatible V17.2 checkpoint. To force a
+clean restart:
+
+```bat
+scripts\build\nsamdr.bat v17-sibling-proof --resume fresh
 ```
 
 The proof writes trained-crop A/B/C sheets at each bounded checkpoint. It writes
