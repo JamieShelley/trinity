@@ -2,9 +2,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tools.nsamdr.gui.nsamdr_v17_workflow_gui import (
     APP_TITLE,
+    App,
     V17_PREVIEW_CHOICE,
     V17_GENERALIZATION_CHOICE,
     STAGES,
@@ -19,6 +21,21 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
         self.assertEqual(V17_PREVIEW_CHOICE, "V17_SIBLING_LATEST")
         self.assertEqual(V17_GENERALIZATION_CHOICE, "V17_GENERALIZATION_LATEST")
         self.assertIn("generalize", [stage.id for stage in STAGES])
+
+    def test_completed_checkpoint_detection_does_not_require_tk(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            report_path = root / "proof_01/report.json"
+            report_path.parent.mkdir(parents=True)
+            checkpoint = report_path.parent / "stage_008192/checkpoint.pt"
+            checkpoint.parent.mkdir(parents=True)
+            checkpoint.write_bytes(b"saved")
+            app = App.__new__(App)
+            report = (report_path, {"stopUpdate": 8192})
+            with patch.object(App, "_latest_v17_generalization_report", return_value=report):
+                self.assertEqual(app._completed_v17_generalization_update(), 8192)
+                checkpoint.unlink()
+                self.assertIsNone(app._completed_v17_generalization_update())
 
     def test_format_duration(self) -> None:
         self.assertEqual(_format_duration(65), "1m 05s")
