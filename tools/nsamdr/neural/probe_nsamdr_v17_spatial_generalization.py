@@ -300,12 +300,6 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         raise ValueError("patience >=1 and nonnegative minimum validation improvement required")
     if args.learning_rate != 0.0002 or args.hr_size != 512:
         raise ValueError("V17.3 first controlled experiment locks V17.2 loss and 512 HR / Adam 0.0002")
-    subsets = _partitions(
-        manifest, v2, train_count=args.authorities,
-        dev_count=4, test_count=8, min_size=1024,
-    )
-    contract = _contract(args, manifest_path, v2_path, subsets)
-    arms = contract["arms"]
     device = _device(args.device)
     config = V16Config(
         dataset_manifest=str(manifest_path),
@@ -315,6 +309,35 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         robust_epochs=1, selector_epochs=1, use_gradient_checkpointing=False,
     )
     config.validate()
+    probe_model, probe_optimizer = _model(config, args, device)
+    training_screen: dict[str, float] = {}
+    rejected_screen: list[dict[str, Any]] = []
+
+    def eligible_training(record: dict[str, Any]) -> bool:
+        batch = _batch_for_record(
+            record, config, seed=args.seed+1, device=device,
+        )[0]
+        magnitude = _target_albedo_residual_magnitude(probe_model, batch)
+        crop = _crop_id(record)
+        training_screen[crop] = magnitude
+        if magnitude < args.minimum_target_residual:
+            rejected_screen.append({"cropId": crop, "targetResidual": magnitude})
+            print(
+                f"[v17-spatial] reject training crop={crop} "
+                f"targetResidual={magnitude:.6f} below {args.minimum_target_residual:.6f}",
+                flush=True,
+            )
+            return False
+        return True
+
+    subsets = _partitions(
+        manifest, v2, train_count=args.authorities,
+        dev_count=4, test_count=8, min_size=1024,
+        eligible_training=eligible_training,
+    )
+    del probe_model, probe_optimizer
+    contract = _contract(args, manifest_path, v2_path, subsets)
+    arms = contract["arms"]
     run_dir = _run_dir(repo, contract, args.resume)
     train_ids = [_id(row) for row in subsets["training"]]
     print(
@@ -357,6 +380,8 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         del initial, _optimizer
         audit = {
             "trainingNativeSources": sampler.audit,
+            "trainingCandidateResiduals": training_screen,
+            "rejectedTrainingCandidates": rejected_screen,
             "trainAuthorities": train_ids,
             "independentValidationAuthorities": [_id(r) for r in subsets["validation"]],
             "sealedFinalTestAuthorities": [_id(r) for r in subsets["final_test"]],
