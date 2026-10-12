@@ -454,6 +454,35 @@ class NSAMDRCommandLineApplication:
             env=env,
         )
 
+    def _command_v17_spatial_generalization(self, args: argparse.Namespace) -> int:
+        source_code = self._source_freshness_preflight()
+        if source_code:
+            return source_code
+        python = self._python("cuda")
+        env = os.environ.copy()
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        self._configure_cuda_allocator_env(env)
+        if args.device != "cpu":
+            code = self._cuda_preflight(python, env)
+            if code:
+                return code
+        forwarded = [
+            "--device", args.device, "--amp-precision", args.amp_precision,
+            "--arm", args.arm, "--authorities", str(args.authorities),
+            "--hr-size", "512", "--stages", *args.stages,
+            "--resume", args.resume, "--seed", str(args.seed),
+            "--learning-rate", "0.0002",
+            "--minimum-target-residual", str(args.minimum_target_residual),
+            "--patience", str(args.patience),
+            "--min-improvement", str(args.min_improvement),
+        ]
+        if args.manifest:
+            forwarded += ["--manifest", args.manifest]
+        return self._run([
+            python, "-u", NEURAL_ROOT / "probe_nsamdr_v17_spatial_generalization.py",
+            "--repo-root", REPO_ROOT, *forwarded,
+        ], env=env)
+
     def _command_context_probe(self, args: argparse.Namespace) -> int:
         source_code = self._source_freshness_preflight()
         if source_code:
