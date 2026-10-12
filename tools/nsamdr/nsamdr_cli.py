@@ -41,6 +41,7 @@ REQUIRED_LAYOUT = (
     "tools/nsamdr/neural/probe_nsamdr_v16_pyramid_context.py",
     "tools/nsamdr/neural/v16/pyramid_context.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_sibling_architecture.py",
+    "tools/nsamdr/neural/probe_nsamdr_v17_generalization.py",
     "tools/nsamdr/neural/test_nsamdr_v17_sibling_proof.py",
     "tools/nsamdr/neural/v17/model.py",
     "tools/nsamdr/neural/render_nsamdr_v16_training_preview.py",
@@ -60,6 +61,7 @@ REQUIRED_LAYOUT = (
 CURRENT_TESTS = (
     "tools.nsamdr.neural.test_nsamdr_v17_model",
     "tools.nsamdr.neural.test_nsamdr_v17_sibling_proof",
+    "tools.nsamdr.neural.test_nsamdr_v17_generalization_proof",
     "tools.nsamdr.neural.test_nsamdr_v16_structure",
     "tools.nsamdr.neural.test_nsamdr_v16_boundary_profiles",
     "tools.nsamdr.neural.test_nsamdr_v16_dataset_split",
@@ -397,11 +399,15 @@ class NSAMDRCommandLineApplication:
         forwarded += ["--stages", *[str(value) for value in args.stages]]
         if args.manifest:
             forwarded += ["--manifest", args.manifest]
+        script = "probe_nsamdr_v17_sibling_architecture.py"
+        if args.command == "v17-generalization-proof":
+            forwarded += ["--authorities", str(args.authorities)]
+            script = "probe_nsamdr_v17_generalization.py"
         return self._run(
             [
                 python,
                 "-u",
-                NEURAL_ROOT / "probe_nsamdr_v17_sibling_architecture.py",
+                NEURAL_ROOT / script,
                 "--repo-root",
                 REPO_ROOT,
                 *forwarded,
@@ -643,6 +649,23 @@ class NSAMDRCommandLineApplication:
         v17_sibling.add_argument("--detail-channels", type=int, default=48)
         v17_sibling.add_argument("--decoder-blocks", type=int, default=4)
         v17_sibling.set_defaults(handler=self._command_v17_sibling_proof)
+
+        generalization = commands.add_parser("v17-generalization-proof")
+        generalization.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cuda")
+        generalization.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
+        generalization.add_argument("--authority-id", default="13006d2b807f89ac")
+        generalization.add_argument("--authorities", type=int, default=4)
+        generalization.add_argument("--manifest", default="")
+        generalization.add_argument("--hr-size", type=int, default=512)
+        generalization.add_argument("--stages", nargs="+", default=["2048,4096,6144,8192"])
+        generalization.add_argument("--learning-rate", type=float, default=2.0e-4)
+        generalization.add_argument("--minimum-target-residual", type=float, default=0.01)
+        generalization.add_argument("--resume", default="auto")
+        generalization.add_argument("--encoder-channels", type=int, default=96)
+        generalization.add_argument("--mid-channels", type=int, default=64)
+        generalization.add_argument("--detail-channels", type=int, default=48)
+        generalization.add_argument("--decoder-blocks", type=int, default=4)
+        generalization.set_defaults(handler=self._command_v17_sibling_proof)
 
         context_probe = commands.add_parser("context-probe")
         context_probe.add_argument(
