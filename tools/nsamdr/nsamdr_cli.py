@@ -43,6 +43,7 @@ REQUIRED_LAYOUT = (
     "tools/nsamdr/neural/probe_nsamdr_v17_sibling_architecture.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_generalization.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_generalization_v2.py",
+    "tools/nsamdr/neural/probe_nsamdr_v17_4096_visual.py",
     "tools/nsamdr/neural/test_nsamdr_v17_sibling_proof.py",
     "tools/nsamdr/neural/v17/model.py",
     "tools/nsamdr/neural/render_nsamdr_v16_training_preview.py",
@@ -64,6 +65,7 @@ CURRENT_TESTS = (
     "tools.nsamdr.neural.test_nsamdr_v17_sibling_proof",
     "tools.nsamdr.neural.test_nsamdr_v17_generalization_proof",
     "tools.nsamdr.neural.test_nsamdr_v17_generalization_v2",
+    "tools.nsamdr.neural.test_nsamdr_v17_4096_visual",
     "tools.nsamdr.neural.test_nsamdr_v16_structure",
     "tools.nsamdr.neural.test_nsamdr_v16_boundary_profiles",
     "tools.nsamdr.neural.test_nsamdr_v16_dataset_split",
@@ -424,6 +426,31 @@ class NSAMDRCommandLineApplication:
             env=env,
         )
 
+    def _command_v17_4096_visual(self, args: argparse.Namespace) -> int:
+        source_code = self._source_freshness_preflight()
+        if source_code:
+            return source_code
+        python = self._python("cuda")
+        env = os.environ.copy()
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        self._configure_cuda_allocator_env(env)
+        if args.device != "cpu":
+            code = self._cuda_preflight(python, env)
+            if code:
+                return code
+        return self._run(
+            [
+                python, "-u", NEURAL_ROOT / "probe_nsamdr_v17_4096_visual.py",
+                "--repo-root", REPO_ROOT,
+                "--device", args.device,
+                "--amp-precision", args.amp_precision,
+                "--authority-id", args.authority_id,
+                "--tile-lr", str(args.tile_lr),
+                "--halo-lr", str(args.halo_lr),
+            ],
+            env=env,
+        )
+
     def _command_context_probe(self, args: argparse.Namespace) -> int:
         source_code = self._source_freshness_preflight()
         if source_code:
@@ -694,6 +721,14 @@ class NSAMDRCommandLineApplication:
         generalization_v2.add_argument("--detail-channels", type=int, default=48)
         generalization_v2.add_argument("--decoder-blocks", type=int, default=4)
         generalization_v2.set_defaults(handler=self._command_v17_sibling_proof)
+
+        visual_4096 = commands.add_parser("v17-4096-visual-proof")
+        visual_4096.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cuda")
+        visual_4096.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
+        visual_4096.add_argument("--authority-id", default="auto")
+        visual_4096.add_argument("--tile-lr", type=int, default=128)
+        visual_4096.add_argument("--halo-lr", type=int, default=64)
+        visual_4096.set_defaults(handler=self._command_v17_4096_visual)
 
         context_probe = commands.add_parser("context-probe")
         context_probe.add_argument(
