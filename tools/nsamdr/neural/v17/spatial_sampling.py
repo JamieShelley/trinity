@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import random
 from pathlib import Path
 import tempfile
-from typing import Any
+from typing import Any, Callable
 
 import cv2
 import numpy as np
@@ -35,7 +35,9 @@ def _family_ids(crops: list[str]) -> set[str]:
 
 def _partitions(manifest: dict[str, Any], v2: dict[str, Any],
                 *, train_count: int = 12, dev_count: int = 4,
-                test_count: int = 8, min_size: int = 1024) -> dict[str, list[dict[str, Any]]]:
+                test_count: int = 8, min_size: int = 1024,
+                eligible_training: Callable[[dict[str, Any]], bool] | None = None,
+                ) -> dict[str, list[dict[str, Any]]]:
     """Select disjoint *whole* authorities without reading any sealed pixels.
 
     V17.3 must not revisit ANY V2 crop authority: full native-source sampling
@@ -72,7 +74,14 @@ def _partitions(manifest: dict[str, Any], v2: dict[str, Any],
         if not a.get("path") or not n.get("path") or not item.get("path"):
             continue
         by_split[split][family] = dict(item)
-    training = [by_split["train"][k] for k in sorted(by_split["train"])[:train_count]]
+    training: list[dict[str, Any]] = []
+    for key in sorted(by_split["train"]):
+        candidate = by_split["train"][key]
+        if eligible_training is not None and not eligible_training(candidate):
+            continue
+        training.append(candidate)
+        if len(training) == train_count:
+            break
     holdouts = [by_split["validation"][k] for k in sorted(by_split["validation"])]
     validation = holdouts[:dev_count]
     final_test = holdouts[dev_count:dev_count + test_count]
