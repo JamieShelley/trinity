@@ -9,6 +9,7 @@ from tools.nsamdr.gui.nsamdr_v17_workflow_gui import (
     App,
     V17_PREVIEW_CHOICE,
     V17_GENERALIZATION_CHOICE,
+    V17_V2_CHOICE,
     STAGES,
     _format_duration,
     _qualified_final,
@@ -20,7 +21,10 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
         self.assertEqual(APP_TITLE, "NSAMDR V17 Workflow")
         self.assertEqual(V17_PREVIEW_CHOICE, "V17_SIBLING_LATEST")
         self.assertEqual(V17_GENERALIZATION_CHOICE, "V17_GENERALIZATION_LATEST")
+        self.assertEqual(V17_V2_CHOICE, "V17_GENERALIZATION_V2_LATEST")
         self.assertIn("generalize", [stage.id for stage in STAGES])
+        self.assertIn("generalize_v2", [stage.id for stage in STAGES])
+        self.assertEqual(STAGES[-1].id, "preview")
 
     def test_completed_checkpoint_detection_does_not_require_tk(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -36,6 +40,22 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
                 self.assertEqual(app._completed_v17_generalization_update(), 8192)
                 checkpoint.unlink()
                 self.assertIsNone(app._completed_v17_generalization_update())
+
+    def test_v2_preview_finds_best_selected_validation_sheet(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            report = root / "proof_01/report.json"
+            report.parent.mkdir()
+            sheet = root / "selected_006144/validation_00_ABC.png"
+            sheet.parent.mkdir()
+            sheet.write_bytes(b"image")
+            app = App.__new__(App)
+            data = (report, {
+                "validationPreviews": {"train_001": str(sheet)},
+                "finalTestPreviews": {},
+            })
+            with patch.object(App, "_latest_v17_v2_report", return_value=data):
+                self.assertEqual(app._latest_v17_v2_previews(), sheet.resolve())
 
     def test_format_duration(self) -> None:
         self.assertEqual(_format_duration(65), "1m 05s")
