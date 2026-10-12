@@ -114,12 +114,34 @@ def _checkpoint(
 
 
 def _resume_path(root: Path, raw: str) -> Path | None:
-    if raw == "fresh":
+    mode = raw.strip()
+    if mode == "fresh":
         return None
-    if raw != "auto":
-        path = Path(raw)
-        return (root / path).resolve() if not path.is_absolute() else path
     runs = root / ROOT
+    if mode in {"completed", "Continue latest completed"}:
+        candidates: list[tuple[float, Path]] = []
+        for report_path in runs.glob("proof_*/report.json"):
+            try:
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+                if not isinstance(report, dict) or report.get("schema") != SCHEMA:
+                    continue
+                update = int(report["stopUpdate"])
+                if update < 1:
+                    continue
+                checkpoint = report_path.parent / f"stage_{update:06d}" / "checkpoint.pt"
+                if checkpoint.is_file():
+                    candidates.append((report_path.stat().st_mtime, checkpoint.resolve()))
+            except (OSError, ValueError, TypeError, KeyError):
+                continue
+        if not candidates:
+            raise RuntimeError(
+                "No completed V17.2 generalization checkpoint found. "
+                "Check the previous report and stage checkpoint, or choose fresh."
+            )
+        return max(candidates, key=lambda item: item[0])[1]
+    if mode != "auto":
+        path = Path(mode)
+        return (root / path).resolve() if not path.is_absolute() else path
     candidates = [
         path for path in runs.glob("proof_*/stage_*/checkpoint.pt")
         if not (path.parents[1] / "report.json").exists()
@@ -312,7 +334,10 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--authorities", type=int, default=4)
     value.add_argument("--hr-size", type=int, default=512)
     value.add_argument("--stages", nargs="+", default=["2048,4096,6144,8192"])
-    value.add_argument("--resume", default="auto")
+    value.add_argument(
+        "--resume", default="auto",
+        help="auto (interrupted runs), fresh, completed / Continue latest completed, or checkpoint path",
+    )
     value.add_argument("--seed", type=int, default=17001)
     value.add_argument("--learning-rate", type=float, default=2e-4)
     value.add_argument("--minimum-target-residual", type=float, default=0.01)
