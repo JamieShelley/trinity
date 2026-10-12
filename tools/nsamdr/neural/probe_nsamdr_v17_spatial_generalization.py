@@ -405,6 +405,23 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         selected_arm = max(candidates, key=lambda item: item["bestValidationScore"]) if candidates else None
         final_result, final_previews = None, {}
         if selected_arm is not None:
+            # Fail closed on interrupted final-test evaluation. The sealed set
+            # must never be replayed when resuming a partially completed proof.
+            sentinel = run_dir / "final_test_started.json"
+            if sentinel.exists():
+                raise RuntimeError(
+                    "V17.3 independent final test was already opened in this "
+                    "incomplete run; cannot evaluate it a second time"
+                )
+            sentinel.write_text(
+                json.dumps({
+                    "schema": SCHEMA,
+                    "selectedArm": selected_arm["arm"],
+                    "finalTestCropIds": contract["partitionCropIds"]["final_test"],
+                    "oneShot": True,
+                }, indent=2) + "\n",
+                encoding="utf-8",
+            )
             model, optimizer = _model(config, args, device)
             _restore(
                 Path(selected_arm["selectedCheckpoint"]), model, optimizer,
