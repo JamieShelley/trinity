@@ -39,6 +39,7 @@ DIAGNOSTIC_ROOT = REPO_ROOT / "artifacts/nsamdr/diagnostics"
 V17_PROOF_ROOT = DIAGNOSTIC_ROOT / "v17_sibling_architecture"
 V17_GENERALIZATION_ROOT = DIAGNOSTIC_ROOT / "v17_generalization"
 V17_V2_ROOT = DIAGNOSTIC_ROOT / "v17_generalization_v2"
+V17_V3_ROOT = DIAGNOSTIC_ROOT / "v17_spatial_generalization"
 MAIN_TRAINING_ROOT = REPO_ROOT / "artifacts/nsamdr/main_training"
 APP_TITLE = "NSAMDR V17 Workflow"
 STATE_SCHEMA = "nsamdr-v17-operator-workflow-v1"
@@ -52,7 +53,7 @@ EPOCH_RE = re.compile(r"Epoch\s+(\d+)\s*/\s*(\d+)\s+phase=([^\s]+)", re.I)
 BATCH_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d+)\s+total=", re.I)
 PROGRESS_RE = re.compile(r"total=(\d+)/(\d+)")
 FULL_BROAD_STEP_RE = re.compile(r"\[full-broad\]\s+step\s+(\d+)\s*/\s*(\d+)", re.I)
-V17_UPDATE_RE = re.compile(r"\[v17-(?:sibling|generalization|generalization-v2)\]\s+update\s+(\d+)\s*/\s*(\d+)", re.I)
+V17_UPDATE_RE = re.compile(r"\[v17-(?:sibling|generalization|generalization-v2|spatial)\]\s+(?:arm=\w+\s+)?update\s+(\d+)\s*/\s*(\d+)", re.I)
 STEP_MS_RE = re.compile(r"\bstep=([0-9]+(?:\.[0-9]+)?)ms\b", re.I)
 
 
@@ -96,8 +97,14 @@ STAGES = (
         "Twelve training authorities, four development siblings, eight sealed final-test siblings; select best validation checkpoint.",
     ),
     Stage(
-        "preview",
+        "generalize_v3",
         "5",
+        "V17.3 Spatial Generalization",
+        "Matched fixed-versus-spatial native texture sampling, independent authority validation and sealed final test; research only.",
+    ),
+    Stage(
+        "preview",
+        "6",
         "Preview / visual gate",
         "Open the latest V17 unseen-sibling A/B/C sheet or historical preview artifacts.",
     ),
