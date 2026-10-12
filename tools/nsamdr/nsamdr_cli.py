@@ -390,6 +390,7 @@ class NSAMDRCommandLineApplication:
             "--mid-channels", str(args.mid_channels),
             "--detail-channels", str(args.detail_channels),
             "--decoder-blocks", str(args.decoder_blocks),
+            "--resume", str(args.resume),
         ]
         forwarded += ["--stages", *[str(value) for value in args.stages]]
         if args.manifest:
@@ -626,10 +627,15 @@ class NSAMDRCommandLineApplication:
         v17_sibling.add_argument(
             "--stages",
             nargs="+",
-            default=["128,256,384,512,768"],
+            default=["896,1024,1280,1536"],
         )
         v17_sibling.add_argument("--learning-rate", type=float, default=2.0e-4)
         v17_sibling.add_argument("--minimum-target-residual", type=float, default=0.01)
+        v17_sibling.add_argument(
+            "--resume",
+            default="auto",
+            help="fresh, auto, latest, or a V17.2 checkpoint path",
+        )
         v17_sibling.add_argument("--encoder-channels", type=int, default=96)
         v17_sibling.add_argument("--mid-channels", type=int, default=64)
         v17_sibling.add_argument("--detail-channels", type=int, default=48)
