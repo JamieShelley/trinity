@@ -228,6 +228,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
     stop = start
     final_train: dict[str, Any] | None = None
     final_siblings: dict[str, Any] | None = None
+    sibling_previews: dict[str, str] = {}
     for update in range(start + 1, future[-1] + 1):
         index = (update - 1) % len(train)
         variant = ((update - 1) // len(train)) % 8
@@ -259,6 +260,9 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
                 metrics, output = _evaluate(model, sample, config, device=device,
                                             precision=args.amp_precision)
                 siblings.append(metrics)
+                sibling_preview = stage / f"sibling_{i:02d}_ABC.png"
+                _write_preview(sibling_preview, sample, output, role="sibling")
+                sibling_previews[holdout_ids[i]] = str(sibling_preview.resolve())
                 if i == 0:
                     _write_preview(stage / "sibling_ABC.png", sample, output, role="sibling")
             final_siblings = _score(siblings, sibling=True)
@@ -290,6 +294,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "trained": final_train, "siblings": final_siblings,
         "snapshots": snapshots,
         "visualGateRequired": decision == "sibling-visual-review-required",
+        "siblingPreviews": sibling_previews,
         "preview": str((run_dir / f"stage_{stop:06d}" / "sibling_ABC.png").resolve()),
         "elapsedSeconds": time.monotonic() - started,
     }
