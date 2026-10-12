@@ -413,6 +413,13 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
                     "V17.3 independent final test was already opened in this "
                     "incomplete run; cannot evaluate it a second time"
                 )
+            model, optimizer = _model(config, args, device)
+            _restore(
+                Path(selected_arm["selectedCheckpoint"]), model, optimizer,
+                contract, str(selected_arm["arm"]), device,
+            )
+            # Mark the one-shot evaluation only after checkpoint verification,
+            # immediately before opening any final-test authored pixels.
             sentinel.write_text(
                 json.dumps({
                     "schema": SCHEMA,
@@ -421,11 +428,6 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
                     "oneShot": True,
                 }, indent=2) + "\n",
                 encoding="utf-8",
-            )
-            model, optimizer = _model(config, args, device)
-            _restore(
-                Path(selected_arm["selectedCheckpoint"]), model, optimizer,
-                contract, str(selected_arm["arm"]), device,
             )
             # ONLY here is the eight-authority independent final test unsealed.
             test_batches = [
