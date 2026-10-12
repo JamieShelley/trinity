@@ -1294,8 +1294,9 @@ class App:
                 ).pack(anchor="w", pady=2)
                 self._label(
                     "4096 research probe",
-                    "Use selected V2 checkpoint. One reviewed authority; true native 4096 A "
-                    "and 1024-input 4x B/C. No additional training or sealed-test access.",
+                    "Use selected V2 checkpoint. Generate 4096 B/C from reviewed 1024 input; "
+                    "show genuine 4096 A only if it exists, otherwise show native 1024 A "
+                    "with no ground-truth metrics. No training or sealed-test access.",
                 )
                 ttk.Button(
                     self.form, text="Run one 1024 -> 4096 A/B/C visual proof",
