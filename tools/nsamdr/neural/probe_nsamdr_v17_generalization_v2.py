@@ -79,6 +79,19 @@ def _validation_score(result: dict[str, Any]) -> float:
     )
 
 
+def _promote_checkpoint(
+    *, qualified: bool, previous_qualified: bool,
+    score: float, best_score: float, min_improvement: float,
+    no_best: bool,
+) -> bool:
+    """A passing checkpoint must supersede any checkpoint that fails gates."""
+    if no_best or (qualified and not previous_qualified):
+        return True
+    if previous_qualified and not qualified:
+        return False
+    return score > best_score + min_improvement
+
+
 def _summarize(results: list[dict[str, Any]], *, sibling: bool) -> dict[str, Any]:
     value = _score(results, sibling=sibling)
     return {
@@ -106,7 +119,7 @@ def _save(path: Path, model: NSAMDRV17, optimizer: torch.optim.Optimizer,
           *, manifest: Path, partitions: dict[str, list[dict[str, Any]]],
           seed: int, learning_rate: float, update: int,
           history: list[dict[str, Any]], best_update: int,
-          best_score: float, stale: int) -> None:
+          best_score: float, stale: int, best_qualified: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema": CHECKPOINT_SCHEMA, "architecture": model.architecture_contract(),
@@ -114,6 +127,7 @@ def _save(path: Path, model: NSAMDRV17, optimizer: torch.optim.Optimizer,
         "seed": int(seed), "learningRate": float(learning_rate),
         "update": int(update), "bestUpdate": int(best_update),
         "bestScore": float(best_score), "stale": int(stale),
+        "bestQualified": bool(best_qualified),
         "history": history, "modelState": model.state_dict(),
         "optimizerState": optimizer.state_dict(),
     }
@@ -212,6 +226,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
                 raise RuntimeError(f"insufficient target residual: {record.get('crop_id')}")
     resume = _resume_path(repo, args.resume)
     start, history, best_update, best_score, stale = 0, [], 0, float("-inf"), 0
+    best_qualified = False
     best_checkpoint: Path | None = None
     if resume is not None:
         data = _restore(
@@ -222,6 +237,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         best_update, best_score, stale = (
             int(data["bestUpdate"]), float(data["bestScore"]), int(data["stale"])
         )
+        best_qualified = bool(data.get("bestQualified", False))
         if best_update:
             best_checkpoint = resume.parent.parent / f"stage_{best_update:06d}" / "checkpoint.pt"
             if not best_checkpoint.is_file():
@@ -252,9 +268,15 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         validation_result = _evaluate_set(model, validation, config, device=device,
                                           precision=args.amp_precision, sibling=True)
         score = _validation_score(validation_result)
-        improved = best_update == 0 or score > best_score + args.min_improvement
+        qualifies = bool(train_result["allPass"] and validation_result["allPass"])
+        improved = _promote_checkpoint(
+            qualified=qualifies, previous_qualified=best_qualified,
+            score=score, best_score=best_score,
+            min_improvement=args.min_improvement, no_best=(best_update == 0),
+        )
         if improved:
             best_update, best_score, stale = update, score, 0
+            best_qualified = qualifies
         else:
             stale += 1
         snapshot = {
@@ -266,14 +288,15 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         checkpoint = run_dir / f"stage_{update:06d}" / "checkpoint.pt"
         _save(checkpoint, model, optimizer, manifest=manifest_path, partitions=splits,
               seed=args.seed, learning_rate=args.learning_rate, update=update,
-              history=history, best_update=best_update, best_score=best_score, stale=stale)
+              history=history, best_update=best_update, best_score=best_score,
+              stale=stale, best_qualified=best_qualified)
         if improved:
             best_checkpoint = checkpoint
         stop = update
         print(f"Stage {update} trainedPass={train_result['allPass']} "
               f"validationPass={validation_result['allPass']} score={score:.5f} "
               f"best={best_update} stale={stale}", flush=True)
-        if train_result["allPass"] and validation_result["allPass"]:
+        if qualifies:
             stop_reason = "training-and-validation-qualified"
             break
         if stale >= args.patience:
@@ -316,6 +339,7 @@ def run(args: argparse.Namespace) -> tuple[int, Path]:
         "decision": decision, "stopReason": stop_reason,
         "startUpdate": start, "stopUpdate": stop, "requestedStages": future,
         "resumeSource": str(resume or ""), "bestValidationUpdate": best_update,
+        "bestQualified": best_qualified,
         "bestValidationScore": best_score, "selectedCheckpoint": str(best_checkpoint.resolve()),
         "trainingCropIds": _ids(splits["training"]),
         "validationCropIds": _ids(splits["validation"]),
