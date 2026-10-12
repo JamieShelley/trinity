@@ -80,8 +80,14 @@ STAGES = (
         "Fit one authored crop with V17.2; evaluate an unseen sibling only after train-fit gates pass, then require visual A/B/C review before broad training.",
     ),
     Stage(
-        "preview",
+        "generalize",
         "3",
+        "V17.2 Multi-authority Generalization Proof",
+        "Bounded D4 training on several authorities, with sibling holdouts; research only.",
+    ),
+    Stage(
+        "preview",
+        "4",
         "Preview / visual gate",
         "Open the latest V17 unseen-sibling A/B/C sheet or historical preview artifacts.",
     ),
@@ -532,6 +538,28 @@ class App:
                 self._value("decoder_blocks", "4"),
                 "--resume",
                 self._value("resume", "auto"),
+            )
+            manifest = self._value("manifest", "").strip()
+            if manifest:
+                command += ["--manifest", manifest]
+            return command
+
+        if stage_id == "generalize":
+            command = self._cli_argv(
+                "v17-generalization-proof",
+                "--device", self._value("device", "cuda"),
+                "--amp-precision", self._value("amp", "auto"),
+                "--authority-id", self._value("authority_id", "13006d2b807f89ac"),
+                "--authorities", self._value("authorities", "4"),
+                "--hr-size", self._value("hr_size", "512"),
+                "--stages", self._value("stages", "2048,4096,6144,8192"),
+                "--learning-rate", self._value("learning_rate", "0.0002"),
+                "--minimum-target-residual", self._value("minimum_target_residual", "0.01"),
+                "--encoder-channels", self._value("encoder_channels", "96"),
+                "--mid-channels", self._value("mid_channels", "64"),
+                "--detail-channels", self._value("detail_channels", "48"),
+                "--decoder-blocks", self._value("decoder_blocks", "4"),
+                "--resume", self._value("resume", "auto"),
             )
             manifest = self._value("manifest", "").strip()
             if manifest:
@@ -1020,6 +1048,25 @@ class App:
                 text="Open historical V16 advanced diagnostics",
                 command=self._open_advanced_gui,
             ).pack(anchor="w", pady=2)
+
+        elif stage_id == "generalize":
+            self._label("Scope", "Research only. Do not run broad or native rendering.")
+            self._label("Training", "One crop per authority; eight D4 variants; siblings held out.")
+            self._row("Anchor authority", "authority_id", "13006d2b807f89ac")
+            self._row("Train authorities", "authorities", "4", ("2", "4", "8", "16"))
+            self._row("HR target size", "hr_size", "512", ("512",))
+            self._row("Checkpoint updates", "stages", "2048,4096,6144,8192",
+                      ("2048,4096,6144,8192", "4096,8192,12288,16384"), editable=True)
+            self._row("Resume mode", "resume", "auto", ("auto", "fresh"))
+            self._row("Learning rate", "learning_rate", "0.0002")
+            self._row("Minimum target residual", "minimum_target_residual", "0.01")
+            self._row("Encoder channels", "encoder_channels", "96", ("96",))
+            self._row("Mid-stage channels", "mid_channels", "64", ("64",))
+            self._row("Detail channels", "detail_channels", "48", ("48",))
+            self._row("Decoder blocks", "decoder_blocks", "4", ("4",))
+            self._row("Device", "device", "cuda", ("cuda", "auto", "cpu"))
+            self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
+            self._row("Manifest override", "manifest", "")
 
         elif stage_id == "preview":
             choices = self._preview_choices()
