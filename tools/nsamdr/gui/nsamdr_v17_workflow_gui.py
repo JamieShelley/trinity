@@ -1349,6 +1349,40 @@ class App:
                     command=self._open_v17_4096_visual,
                 ).pack(anchor="w", pady=2)
 
+        elif stage_id == "generalize_v3":
+            self._label(
+                "Purpose", "Research-only V17.3: compare fixed native regions against "
+                "50% uniform / 50% structure-biased changing regions without changing "
+                "V17.2 architecture or loss.",
+            )
+            self._label(
+                "Data separation", "12 new training authorities exclude every V2 authority. "
+                "4 independent-authority development crops; 8 other independent "
+                "authorities sealed until training and validation gates both pass.",
+            )
+            self._row("Experiment arms", "arm", "both", ("both", "fixed", "spatial"))
+            self._row(
+                "Checkpoints", "stages", "12288,24576,36864,49152",
+                ("12288,24576,36864,49152", "6144,12288,18432,24576"),
+                editable=True,
+            )
+            self._row("Resume", "resume", "fresh", ("fresh", "auto"))
+            self._row("Patience (checkpoints)", "patience", "2", ("2", "3", "4"))
+            self._row("Minimum validation gain", "min_improvement", "0.002")
+            self._row("Manifest override", "manifest", "")
+            latest = self._latest_v17_v3_report()
+            if latest is not None:
+                path, report = latest
+                self._label(
+                    "Latest V17.3", f"{report.get('decision', 'unknown')} | "
+                    f"selected arm: {report.get('selectedArm') or 'none'} | "
+                    f"final-test evaluated: {bool(report.get('finalTestEvaluated'))}",
+                )
+                ttk.Button(
+                    self.form, text="Open V17.3 proof and A/B/C sheets",
+                    command=lambda folder=path.parent: _open_path(folder),
+                ).pack(anchor="w", pady=(8, 2))
+
         elif stage_id == "preview":
             choices = self._preview_choices()
             self._row(
@@ -1464,6 +1498,13 @@ class App:
                 "ready" if latest_v2 is None
                 else "visual-review" if latest_v2[1].get("visualGateRequired")
                 else "rejected"
+            )
+        if self.active_stage != "generalize_v3":
+            latest_v3 = self._latest_v17_v3_report()
+            statuses["generalize_v3"] = (
+                "ready" if latest_v3 is None else
+                "visual-review" if latest_v3[1].get("visualGateRequired") else
+                "rejected"
             )
         if self.active_stage != "preview":
             research_preview = (
@@ -1835,6 +1876,13 @@ class App:
                                 "visual-review" if latest and latest[1].get("visualGateRequired")
                                 else "rejected",
                             )
+                        elif stage_id == "generalize_v3" and code == 0:
+                            latest = self._latest_v17_v3_report()
+                            self._set_status(
+                                stage_id,
+                                "visual-review" if latest and latest[1].get("visualGateRequired")
+                                else "rejected",
+                            )
                         elif stage_id == "generalize_v2" and code == 0:
                             latest = self._latest_v17_v2_report()
                             self._set_status(
@@ -1865,6 +1913,10 @@ class App:
                     elif stage_id == "generalize_v2" and code == 0:
                         self.progress_text.set(
                             "V17 V2 proof complete; inspect best validation checkpoint and sealed test status"
+                        )
+                    elif stage_id == "generalize_v3" and code == 0:
+                        self.progress_text.set(
+                            "V17.3 comparison completed; review independent-authority validation and sealed test status"
                         )
                     else:
                         self.progress_text.set(
