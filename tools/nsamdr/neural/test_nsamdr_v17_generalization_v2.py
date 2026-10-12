@@ -60,6 +60,52 @@ class V17GeneralizationV2Tests(unittest.TestCase):
                 for id in _ids(splits["final_test"]))
         )
 
+    def test_training_only_residual_filter_replaces_bad_authority(self) -> None:
+        screened: list[str] = []
+
+        def eligible(record: dict[str, object]) -> bool:
+            crop_id = str(record["crop_id"])
+            screened.append(crop_id)
+            self.assertTrue(crop_id.endswith("_000"))
+            return crop_id != "extra_00_000"
+
+        splits = _split_pairs(
+            _manifest(), anchor=PREVIOUS_VALIDATION_AUTHORITIES[0],
+            authorities=12, eligible_training=eligible,
+        )
+        training_ids = _ids(splits["training"])
+        self.assertEqual(len(training_ids), 12)
+        self.assertNotIn("extra_00_000", training_ids)
+        self.assertIn("extra_08_000", training_ids)
+        self.assertEqual(
+            _ids(splits["validation"]),
+            [f"{x}_001" for x in PREVIOUS_VALIDATION_AUTHORITIES],
+        )
+        self.assertEqual(len(splits["final_test"]), 8)
+        self.assertNotIn("extra_00_001", _ids(splits["final_test"]))
+        self.assertNotIn("extra_00_001", screened)
+        self.assertTrue(all(id.endswith("_000") for id in screened))
+
+    def test_training_filter_refuses_to_skip_development_anchor(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "required V1 development"):
+            _split_pairs(
+                _manifest(), anchor=PREVIOUS_VALIDATION_AUTHORITIES[0],
+                authorities=12,
+                eligible_training=lambda record: (
+                    record["family_id"] != PREVIOUS_VALIDATION_AUTHORITIES[0]
+                ),
+            )
+
+    def test_training_filter_reports_inadequate_available_corpus(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "eligible paired training authorities"):
+            _split_pairs(
+                _manifest(), anchor=PREVIOUS_VALIDATION_AUTHORITIES[0],
+                authorities=12,
+                eligible_training=lambda record: (
+                    record["family_id"] in PREVIOUS_VALIDATION_AUTHORITIES
+                ),
+            )
+
     def test_partition_rejects_insufficient_corpus_or_duplicate_paths(self) -> None:
         with self.assertRaisesRegex(ValueError, "at least 12"):
             _split_pairs(_manifest(), anchor=PREVIOUS_VALIDATION_AUTHORITIES[0], authorities=4)
