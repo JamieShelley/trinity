@@ -38,11 +38,13 @@ STATE_PATH = GUI_STATE_ROOT / "v17_operator_workflow_state.json"
 DIAGNOSTIC_ROOT = REPO_ROOT / "artifacts/nsamdr/diagnostics"
 V17_PROOF_ROOT = DIAGNOSTIC_ROOT / "v17_sibling_architecture"
 V17_GENERALIZATION_ROOT = DIAGNOSTIC_ROOT / "v17_generalization"
+V17_V2_ROOT = DIAGNOSTIC_ROOT / "v17_generalization_v2"
 MAIN_TRAINING_ROOT = REPO_ROOT / "artifacts/nsamdr/main_training"
 APP_TITLE = "NSAMDR V17 Workflow"
 STATE_SCHEMA = "nsamdr-v17-operator-workflow-v1"
 V17_PREVIEW_CHOICE = "V17_SIBLING_LATEST"
 V17_GENERALIZATION_CHOICE = "V17_GENERALIZATION_LATEST"
+V17_V2_CHOICE = "V17_GENERALIZATION_V2_LATEST"
 MAIN_PREVIEW_CHOICE = "MAIN_V16_LATEST"
 
 EXPERIMENT_RE = re.compile(r"^EXP_\d{4,}$", re.I)
@@ -50,7 +52,7 @@ EPOCH_RE = re.compile(r"Epoch\s+(\d+)\s*/\s*(\d+)\s+phase=([^\s]+)", re.I)
 BATCH_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d+)\s+total=", re.I)
 PROGRESS_RE = re.compile(r"total=(\d+)/(\d+)")
 FULL_BROAD_STEP_RE = re.compile(r"\[full-broad\]\s+step\s+(\d+)\s*/\s*(\d+)", re.I)
-V17_UPDATE_RE = re.compile(r"\[v17-(?:sibling|generalization)\]\s+update\s+(\d+)\s*/\s*(\d+)", re.I)
+V17_UPDATE_RE = re.compile(r"\[v17-(?:sibling|generalization|generalization-v2)\]\s+update\s+(\d+)\s*/\s*(\d+)", re.I)
 STEP_MS_RE = re.compile(r"\bstep=([0-9]+(?:\.[0-9]+)?)ms\b", re.I)
 
 
@@ -88,8 +90,14 @@ STAGES = (
         "Bounded D4 training on several authorities, with sibling holdouts; research only.",
     ),
     Stage(
-        "preview",
+        "generalize_v2",
         "4",
+        "V17.2 Generalization V2",
+        "Twelve training authorities, four development siblings, eight sealed final-test siblings; select best validation checkpoint.",
+    ),
+    Stage(
+        "preview",
+        "5",
         "Preview / visual gate",
         "Open the latest V17 unseen-sibling A/B/C sheet or historical preview artifacts.",
     ),
@@ -296,6 +304,39 @@ class App:
             return None
         _stamp, path, report = max(candidates, key=lambda item: item[0])
         return path.resolve(), report
+
+    def _latest_v17_v2_report(self) -> tuple[Path, dict[str, Any]] | None:
+        if not V17_V2_ROOT.is_dir():
+            return None
+        reports: list[tuple[float, Path, dict[str, Any]]] = []
+        for path in V17_V2_ROOT.glob("proof_*/report.json"):
+            report = _read_json(path)
+            if report is None or report.get("schema") != "NSAMDR_V17_GENERALIZATION_V2_PROOF_V1":
+                continue
+            try:
+                reports.append((path.stat().st_mtime, path, report))
+            except OSError:
+                continue
+        if not reports:
+            return None
+        _time, path, report = max(reports, key=lambda item: item[0])
+        return path.resolve(), report
+
+    def _latest_v17_v2_previews(self) -> Path | None:
+        latest = self._latest_v17_v2_report()
+        if latest is None:
+            return None
+        _path, report = latest
+        source = report.get("finalTestPreviews") or report.get("validationPreviews") or {}
+        if not isinstance(source, dict):
+            return None
+        for raw in source.values():
+            image = Path(str(raw))
+            if not image.is_absolute():
+                image = REPO_ROOT / image
+            if image.is_file():
+                return image.resolve()
+        return None
 
     def _completed_v17_generalization_update(self) -> int | None:
         latest = self._latest_v17_generalization_report()
@@ -513,6 +554,7 @@ class App:
         return [
             V17_PREVIEW_CHOICE,
             V17_GENERALIZATION_CHOICE,
+            V17_V2_CHOICE,
             MAIN_PREVIEW_CHOICE,
             *list(reversed(self._experiment_ids())),
         ]
@@ -608,6 +650,30 @@ class App:
                 "--detail-channels", self._value("detail_channels", "48"),
                 "--decoder-blocks", self._value("decoder_blocks", "4"),
                 "--resume", self._value("resume", "auto"),
+            )
+            manifest = self._value("manifest", "").strip()
+            if manifest:
+                command += ["--manifest", manifest]
+            return command
+
+        if stage_id == "generalize_v2":
+            command = self._cli_argv(
+                "v17-generalization-v2",
+                "--device", self._value("device", "cuda"),
+                "--amp-precision", self._value("amp", "auto"),
+                "--authority-id", "13006d2b807f89ac",
+                "--authorities", self._value("authorities", "12"),
+                "--hr-size", "512",
+                "--stages", self._value("stages", "6144,12288,18432,24576,30720"),
+                "--learning-rate", self._value("learning_rate", "0.0002"),
+                "--minimum-target-residual", "0.01",
+                "--encoder-channels", "96",
+                "--mid-channels", "64",
+                "--detail-channels", "48",
+                "--decoder-blocks", "4",
+                "--patience", self._value("patience", "2"),
+                "--min-improvement", self._value("min_improvement", "0.002"),
+                "--resume", self._value("resume", "fresh"),
             )
             manifest = self._value("manifest", "").strip()
             if manifest:
@@ -1161,6 +1227,40 @@ class App:
                     command=lambda folder=directory: _open_path(folder),
                 ).pack(anchor="w", pady=(8, 2))
 
+        elif stage_id == "generalize_v2":
+            self._label("Purpose", "Experimental validation-selected V17.2 training. Does NOT enable native rendering.")
+            self._label("Supervision", "Train 12 crop-000 authorities; optimize on training only, with deterministic D4.")
+            self._label("Development", "Four previously reviewed V1 siblings: validate at every checkpoint.")
+            self._label("Final test", "Eight other sibling crops remain sealed until training + validation gates pass.")
+            self._row("Training authorities", "authorities", "12", ("12", "16", "24"))
+            self._row("Checkpoint updates", "stages", "6144,12288,18432,24576,30720",
+                      ("6144,12288,18432,24576,30720",
+                       "6144,12288,18432,24576",
+                       "12288,24576,36864"), editable=True)
+            self._row("Resume", "resume", "fresh", ("fresh", "auto"))
+            self._row("Early-stop patience (stages)", "patience", "2", ("2", "3", "4"))
+            self._row("Minimum validation gain", "min_improvement", "0.002")
+            self._row("Learning rate", "learning_rate", "0.0002")
+            self._row("Manifest override", "manifest", "")
+            latest = self._latest_v17_v2_report()
+            if latest is not None:
+                path, report = latest
+                self._label("Last V2 decision", (
+                    f"{report.get('decision', 'unknown')} | best update "
+                    f"{report.get('bestValidationUpdate', '?')} | "
+                    f"sealed test evaluated: {bool(report.get('finalTestEvaluated'))}"
+                ))
+                previews = self._latest_v17_v2_previews()
+                if previews is not None:
+                    ttk.Button(
+                        self.form, text="Open best V2 A/B/C preview folder",
+                        command=lambda folder=previews.parent: _open_path(folder),
+                    ).pack(anchor="w", pady=(8, 2))
+                ttk.Button(
+                    self.form, text="Open V2 report folder",
+                    command=lambda folder=path.parent: _open_path(folder),
+                ).pack(anchor="w", pady=2)
+
         elif stage_id == "preview":
             choices = self._preview_choices()
             self._row(
@@ -1270,10 +1370,18 @@ class App:
                 else "visual-review" if latest[1].get("visualGateRequired")
                 else "rejected"
             )
+        if self.active_stage != "generalize_v2":
+            latest_v2 = self._latest_v17_v2_report()
+            statuses["generalize_v2"] = (
+                "ready" if latest_v2 is None
+                else "visual-review" if latest_v2[1].get("visualGateRequired")
+                else "rejected"
+            )
         if self.active_stage != "preview":
             research_preview = (
                 self._latest_v17_preview() is not None
                 or self._latest_v17_generalization_preview() is not None
+                or self._latest_v17_v2_previews() is not None
                 or self._latest_main_preview() is not None
                 or any(
                     self._experiment_live_preview(experiment_id) is not None
@@ -1350,6 +1458,14 @@ class App:
             _open_path(preview)
             return
 
+        if target == V17_V2_CHOICE:
+            preview = self._latest_v17_v2_previews()
+            if preview is None:
+                messagebox.showinfo("NSAMDR", "No V17.2 V2 validation or final-test A/B/C preview exists.")
+                return
+            _open_path(preview.parent)
+            return
+
         if target == MAIN_PREVIEW_CHOICE:
             preview = self._latest_main_preview()
             if preview is None:
@@ -1399,7 +1515,7 @@ class App:
             messagebox.showinfo("NSAMDR", "No preview source is selected.")
             return
 
-        if target in {V17_PREVIEW_CHOICE, V17_GENERALIZATION_CHOICE}:
+        if target in {V17_PREVIEW_CHOICE, V17_GENERALIZATION_CHOICE, V17_V2_CHOICE}:
             messagebox.showinfo(
                 "NSAMDR",
                 (
@@ -1626,6 +1742,13 @@ class App:
                                 "visual-review" if latest and latest[1].get("visualGateRequired")
                                 else "rejected",
                             )
+                        elif stage_id == "generalize_v2" and code == 0:
+                            latest = self._latest_v17_v2_report()
+                            self._set_status(
+                                stage_id,
+                                "visual-review" if latest and latest[1].get("visualGateRequired")
+                                else "rejected",
+                            )
                         else:
                             self._set_status(stage_id, "completed" if code == 0 else "failed")
 
@@ -1640,6 +1763,10 @@ class App:
                     elif stage_id == "generalize" and code == 0:
                         self.progress_text.set(
                             "V17 generalization proof complete; inspect the transfer report"
+                        )
+                    elif stage_id == "generalize_v2" and code == 0:
+                        self.progress_text.set(
+                            "V17 V2 proof complete; inspect best validation checkpoint and sealed test status"
                         )
                     else:
                         self.progress_text.set(
