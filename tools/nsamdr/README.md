@@ -4,7 +4,7 @@
 
 [![Visual target](./EXAMPLE.png)](./EXAMPLE.png)
 
-## Current architecture status — V16 rejected, V17 active proof
+## Current architecture status — V16 rejected, V17.2 experimental (V2 validation rejected)
 
 The README visual target is now an **architecture gate**, not a late production
 check. A candidate that improves aggregate metrics but still looks like a
@@ -56,7 +56,7 @@ Do **not** spend more GPU time extending V16 Main epochs, the V16 pyramid-contex
 probe, residual-gain tuning or broad-authority scaling. Those questions are
 closed.
 
-### V17 architecture proof — V17.0/V17.1 rejected, V17.2 active
+### V17 architecture proof — V17.0/V17.1 rejected, V17.2 under evaluation
 
 V17.0 correctly moved reconstruction into LR feature space, but its decoder used
 a repeating coordinate phase inside every LR texel. That recreated explicit 4x
@@ -86,7 +86,12 @@ bilinear local-ensemble decoder still favoured smooth/broad structure over
 narrow authored 1-2 px manufactured detail. The sibling crop was correctly not
 evaluated because train fit never passed.
 
-### V17.2 active architecture
+### V17.2 experimental architecture
+
+![V17.2 4× learning, inference and validation architecture](./assets/v17_2_learning_architecture.svg)
+
+*Dark-theme vector diagram; [open the full-resolution SVG](./assets/v17_2_learning_architecture.svg). The inference graph is distinct from the training and validation paths.*
+
 
 V17.2 keeps the LR physical encoder and replaces the smooth implicit decoder
 with an explicit learned residual pyramid:
@@ -132,6 +137,99 @@ no transposed convolution and no fixed-HR Swin reconstruction body.
 The deterministic baseline B, aligned physical-map contract, normal projection,
 qualification metrics, lattice checks and later BenefitSelector contract remain
 unchanged.
+
+#### Generalization V2 evidence — 12 October 2026
+
+**Status: research-only; validation transfer rejected, not qualified for native
+integration or production.** The current V17.2 architecture is still the
+experimental candidate; the Generalization V2 proof does not establish
+successful transfer.
+
+V2 uses 12 eligible `_000` training crops from distinct authored authorities,
+four *already examined* V1 `_001` sibling crops for repeatable development
+validation, and eight additional `_001` sibling crops held for one sealed
+final-test evaluation. The final test was **not** opened, because the training
+and validation gates did not qualify together. The 12 training authorities
+include the four development authorities; the eight sealed test crops are
+siblings of the other eight training authorities, **not** independent
+unseen-authority tests.
+
+| Bounded checkpoint | Mean trained edge recovery | Mean validation edge recovery | Validation objective |
+| --- | ---: | ---: | ---: |
+| 6,144 | 21.42% | 20.18% | 0.9214 |
+| **12,288 (selected)** | **32.29%** | **24.15%** | **1.0568** |
+| 18,432 | 38.05% | 22.64% | 1.0034 |
+| 24,576 (stopped) | 41.92% | 24.01% | 1.0289 |
+
+- The model selected the **12,288-update** checkpoint using the four reviewed
+  validation siblings; further training fit did not consistently improve
+  validation. Stopping reason: `validation-plateau` after two stale stages.
+- At the selected checkpoint, mean validation global recovery was **24.76%**,
+  edge recovery **24.15%**, gradient recovery **21.70%**, and 1px detail
+  recovery **10.92%**. None of the four validation siblings passed the **35%**
+  individual edge-recovery threshold.
+- The remaining training gate requirements are global ≥45%, edge ≥60%,
+  gradient ≥35%, lattice excess ≤15% (evaluated per crop). The separate
+  sibling-transfer requirements are global ≥30%, edge ≥35%, gradient ≥25%,
+  1px detail ≥5%, lattice excess ≤15%.
+- The preflight rejected one unsuitable training crop
+  (`06cf24680e53b831_000`, target residual 0.003872 versus minimum 0.01),
+  and selected an eligible replacement without reading that candidate's
+  sealed sibling.
+- The proof report records `decision=reject-validation-transfer`,
+  `bestQualified=false`, `finalTestEvaluated=false` and
+  `finalTestEvaluationCount=0`.
+
+**Learning mechanics (actual proof implementation).** The input consists of
+LR albedo RGB (3 channels), normal XY (2), and material RGB (3). The encoder
+derives three analytic gradient channels and uses 96 learned channels with
+dilations `1,2,4,8,4,2,1,1`. The decoder has 2× mid-band (64 channels) and 4×
+detail (48 channels) resize-convolution stages, each containing four residual
+blocks. It upsamples and combines the mid/detail residual heads, applies
+bounded `tanh` physical residuals, and projects `B + residual` to candidate
+`C`. The residual heads start at zero so the model initially reproduces B.
+
+Training compares C with the authored 512 target A. The current objective
+contains albedo L1 (1.0), albedo gradient L1 (0.50), normal XY L1 (0.35),
+albedo residual L1 (1.0), and normal residual L1 (0.25). Adam uses learning
+rate 0.0002, gradient clipping at norm 1.0, and deterministic D4 crop
+augmentations. Evaluation metrics and checkpoint selection are separate from
+the per-update optimization loss.
+
+#### 1024 → 4096 visual-only probe
+
+The 12,288-update checkpoint also completed tiled inference from a **native
+1024×1024 authored source** to deterministic B and neural C at 4096×4096
+(128 LR tile, 64 LR halo; reported 7.89 s on the operator's RTX 5080).
+No genuine native 4096 authored reference exists for the selected source:
+the displayed A is the **1024 input**, not a 4096 ground truth. Therefore
+the probe reports **only B/C differences**, not reconstruction accuracy.
+Its measured mean B/C absolute difference was **0.019703** (unit interval);
+73.14% of output pixels differed in at least one channel. The packed material
+input was an unsupervised neutral placeholder and the normal used red/green
+fallback encoding. The probe was non-independent (the selected source may
+overlap trained regions) and did not touch the eight sealed final-test crops.
+
+To rerun **inference only**, use Stage 4's
+**Run one 1024 → 4096 A/B/C visual proof** control, or:
+
+```bat
+scripts\build\nsamdr.bat v17-4096-visual-proof
+```
+
+Do not use the standard Stage 4 **Run selected** control unless a new V2
+training experiment is deliberately intended.
+
+Proof evidence: local `artifacts/nsamdr/diagnostics/v17_generalization_v2/
+proof_20261012-181814/` directory, including `report.json`,
+`selected_012288/`, and `resolution_4096/visual_20261012-190324/`.
+These generated artifacts and checkpoint files are not committed to the
+repository.
+
+**Historical note:** the earlier single-crop continuation instructions
+immediately below describe a superseded exploratory stage; they are retained
+for reproducibility, **not** a recommendation to keep extending the rejected
+V1/V2 training runs.
 
 ### Enforced proof order
 
@@ -228,10 +326,11 @@ This opens the active V17 operator workflow GUI:
 tools/nsamdr/gui/nsamdr_v17_workflow_gui.py
 ```
 
-The operator GUI now presents **environment -> legacy Raven comparison -> V17
-Sibling Architecture Proof -> Preview / visual gate**. The V17 stage runs the
-same bounded sibling proof as the CLI, exposes its architecture parameters,
-tracks update progress, and opens the latest trained/sibling A/B/C sheets.
+The operator GUI includes **Stage 3 — V17.2 Generalization V1** and
+**Stage 4 — V17.2 Generalization V2** (plus earlier sibling diagnostics).
+Stage 4 also provides the one-click 1024→4096 inference-only visual proof.
+All V17.2 proof results remain research-only until the required training,
+transfer and visual qualification gates pass.
 Historical V16 Main/preview artifacts remain accessible for comparison, but the
 GUI no longer presents broad V16 Main training as the active architecture path.
 
