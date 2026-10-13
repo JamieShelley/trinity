@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -196,6 +197,72 @@ class AFProofTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"provenance"):
                 proof._load_stage(path,clone,opt2,contract,"E_frequency_loss",
                                   torch.device("cpu"))
+
+    def test_cuda_resume_restores_cpu_byte_rng_states_after_loading_checkpoint(self):
+        # CPU-only simulation of Windows CUDA resume: passing device='cuda'
+        # must NOT force the checkpoint and RNG states onto the GPU.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "D_continuation/stage_086016/checkpoint.pt"
+            model = TinyModel(2, 2)
+            opt = torch.optim.Adam(model.parameters(), lr=0.0002)
+            contract = {"schema": proof.SCHEMA, "seed": 17301}
+            stage = 86016
+            proof._save_stage(
+                path, model, opt, contract, "D_continuation",
+                stage, [{"update": stage}], stage, 1.332111, 0, False,
+            )
+            payload = torch.load(path, map_location="cpu", weights_only=False)
+            payload["cudaRngState"] = [
+                torch.tensor([1, 17, 255, 0], dtype=torch.uint8)
+            ]
+            torch.save(payload, path)
+            clone = TinyModel(2, 2)
+            clone_opt = torch.optim.Adam(clone.parameters(), lr=0.0002)
+            original_load = torch.load
+            seen_locations = []
+
+            def load_capture(*args, **kwargs):
+                seen_locations.append(kwargs.get("map_location"))
+                return original_load(*args, **kwargs)
+
+            with patch.object(proof.torch, "load", side_effect=load_capture):
+                with patch.object(proof.torch.cuda, "set_rng_state_all") as setter:
+                    restored = proof._load_stage(
+                        path, clone, clone_opt, contract, "D_continuation",
+                        torch.device("cuda"),
+                    )
+            self.assertEqual(restored["update"], 86016)
+            self.assertEqual(seen_locations, ["cpu"])
+            setter.assert_called_once()
+            states = setter.call_args.args[0]
+            self.assertEqual(len(states), 1)
+            self.assertEqual(states[0].dtype, torch.uint8)
+            self.assertEqual(states[0].device.type, "cpu")
+            self.assertTrue(states[0].is_contiguous())
+
+    def test_completed_d_stage_resumption_does_not_retrain(self):
+        # At the terminal D checkpoint, recovery should finish selection and
+        # preview only. E must still be able to start at V17.3 update 49,152.
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / "D_continuation"
+            stage = d / "stage_086016/checkpoint.pt"
+            stage.parent.mkdir(parents=True)
+            model = TinyModel(2, 2)
+            opt = torch.optim.Adam(model.parameters(), lr=0.0002)
+            contract = {"schema": proof.SCHEMA}
+            history = [{"update": 61440}, {"update": 73728}, {"update": 86016}]
+            proof._save_stage(
+                stage, model, opt, contract, "D_continuation", 86016,
+                history, 86016, 1.332111, 0, False,
+            )
+            state = proof._load_stage(
+                stage, TinyModel(2, 2),
+                torch.optim.Adam(TinyModel(2, 2).parameters(), lr=0.0002),
+                contract, "D_continuation", torch.device("cpu"),
+            )
+            self.assertEqual(state["update"], proof.STAGES[-1])
+            self.assertEqual(list(range(state["update"] + 1, proof.STAGES[-1] + 1)), [])
+            self.assertEqual(state["bestUpdate"], 86016)
 
     def test_matched_d_e_comparison_uses_only_common_update_checkpoints(self):
         def row(update, global_value, edge, detail):
