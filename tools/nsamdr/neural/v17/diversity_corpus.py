@@ -127,7 +127,8 @@ def freeze_authorities(repo: Path, source: dict, manifest: dict,
         if row.get("split")!="train" or not Path(str(row.get("path") or "")).is_file():
             raise RuntimeError(f"missing frozen control: {fid}")
         entry=_pair(by_family.get(fid,{}),reader)
-        entry.update({"familyId":fid,"cropId":crop_id(row)})
+        entry.update({"familyId":fid,"cropId":crop_id(row),
+                      "cropBundleSha256":sha256_file(Path(row["path"]))})
         if _collision(entry,controls):
             raise RuntimeError(f"duplicate frozen control: {fid}")
         if suitability and float(suitability(row))<MIN_TARGET_RESIDUAL:
@@ -152,7 +153,8 @@ def freeze_authorities(repo: Path, source: dict, manifest: dict,
         except (OSError,ValueError,TypeError,KeyError) as exc:
             reasons[str(exc).split(":")[0]]+=1
             continue
-        item.update({"familyId":fid,"cropId":crop_id(row)})
+        item.update({"familyId":fid,"cropId":crop_id(row),
+                     "cropBundleSha256":sha256_file(Path(row["path"]))})
         if _collision(item,controls) or _collision(item,list(choices.values())):
             reasons["duplicate-source"]+=1
             continue
@@ -244,7 +246,12 @@ def verify_frozen_selection(selection: dict, source: dict, manifest: dict,
             raise RuntimeError(f"selected source crop changed: {name}")
         if i>=12 and entry["familyId"] in protected:
             raise RuntimeError(f"protected source selected: {name}")
+        if not Path(str(row.get("path") or "")).is_file():
+            raise RuntimeError(f"frozen crop bundle missing: {name}")
+        if verify_bytes and sha256_file(Path(row["path"]))!=entry.get("cropBundleSha256"):
+            raise RuntimeError(f"frozen authored crop bundle SHA changed: {name}")
         family=families.get(entry["familyId"]) or {}
+        reader=AuthoredTextureDatasetRepository()
         for role in ("albedo","normal"):
             src=family.get(role) or {}
             stored=entry[role]
@@ -254,6 +261,11 @@ def verify_frozen_selection(selection: dict, source: dict, manifest: dict,
                 raise RuntimeError(f"source path/role changed: {name}/{role}")
             if verify_bytes and sha256_file(Path(stored["path"]))!=stored["sha256"]:
                 raise RuntimeError(f"source SHA changed: {name}/{role}")
+            verified=_source(src,role,reader)
+            if (verified["format"]!=stored["format"] or
+                verified["width"]!=stored["width"] or
+                verified["height"]!=stored["height"]):
+                raise RuntimeError(f"DDS physical-source format or dimensions changed: {name}/{role}")
         if _collision(entry,seen):
             raise RuntimeError("frozen source duplicate")
         seen.append(entry)
