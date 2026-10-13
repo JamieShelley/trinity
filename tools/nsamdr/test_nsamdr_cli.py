@@ -140,6 +140,37 @@ class NSAMDRCLITests(unittest.TestCase):
         self.assertIn("preview.json",command)
         self.assertNotIn("--audit-only",command)
 
+    def test_v176_read_only_audit_bypasses_cuda_preflight(self) -> None:
+        from unittest.mock import patch
+        from tools.nsamdr.nsamdr_cli import NSAMDRCommandLineApplication
+        app=NSAMDRCommandLineApplication()
+        args=app.build_parser().parse_args([
+            "v176-detail-proof","--audit-only","--stage9-report","stage9.json"])
+        with patch.object(app,"_source_freshness_preflight",return_value=0), \
+             patch.object(app,"_python",return_value="python"), \
+             patch.object(app,"_cuda_preflight",side_effect=AssertionError("audit must not require CUDA")), \
+             patch.object(app,"_run",return_value=0) as dispatch:
+            self.assertEqual(app._command_v176_detail(args),0)
+        command=dispatch.call_args.args[0]
+        self.assertIn("--audit-only",command)
+        self.assertIn("stage9.json",command)
+
+    def test_v176_training_preflight_and_resume_dispatch(self) -> None:
+        from unittest.mock import patch
+        from tools.nsamdr.nsamdr_cli import NSAMDRCommandLineApplication
+        app=NSAMDRCommandLineApplication()
+        args=app.build_parser().parse_args([
+            "v176-detail-proof","--resume","auto","--amp-precision","auto"])
+        with patch.object(app,"_source_freshness_preflight",return_value=0), \
+             patch.object(app,"_python",return_value="python"), \
+             patch.object(app,"_cuda_preflight",return_value=0) as preflight, \
+             patch.object(app,"_run",return_value=0) as dispatch:
+            self.assertEqual(app._command_v176_detail(args),0)
+        preflight.assert_called_once()
+        command=dispatch.call_args.args[0]
+        self.assertIn("auto",command)
+        self.assertNotIn("--audit-only",command)
+
     def test_context_probe_accepts_bounded_arguments(self) -> None:
         parser = NSAMDRCommandLineApplication().build_parser()
         args = parser.parse_args(
