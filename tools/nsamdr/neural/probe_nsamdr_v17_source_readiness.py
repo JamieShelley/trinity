@@ -26,12 +26,18 @@ import torch
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-for folder in (HERE, ROOT):
+REPO_ROOT = HERE.parents[2]
+# Use a single package-qualified identity in tests and script mode. Importing
+# "authored_texture_dataset" separately would create another class object and
+# bypass the unittest patch used to supply deliberately minimal DDS fixtures.
+for folder in (REPO_ROOT, ROOT, HERE):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 
 import eve_asset_test as eve
-from authored_texture_dataset import AuthoredTextureDatasetRepository, TextureSource
+from tools.nsamdr.neural.authored_texture_dataset import (
+    AuthoredTextureDatasetRepository, TextureSource,
+)
 from probe_nsamdr_v17_comprehensive import (
     _antialias_integral, _batch_config, _load_v3_origin, _origin, _records,
 )
