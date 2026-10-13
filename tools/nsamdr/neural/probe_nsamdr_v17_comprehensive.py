@@ -421,7 +421,10 @@ def _save_stage(path: Path, model, optimizer, contract: dict[str, Any],
 
 
 def _load_stage(path: Path, model, opt, contract, arm, device):
-    state = torch.load(path, map_location=device, weights_only=False)
+    # Keep checkpoint RNG ByteTensors on CPU: torch.cuda.set_rng_state_all
+    # rejects CUDA-resident tensors after torch.load(map_location="cuda").
+    # load_state_dict moves model and optimizer state to their parameter devices.
+    state = torch.load(path, map_location="cpu", weights_only=False)
     if (state.get("schema") != CHECKPOINT_SCHEMA
             or state.get("contract") != contract or state.get("arm") != arm
             or state.get("architecture") != model.architecture_contract()):
@@ -430,7 +433,7 @@ def _load_stage(path: Path, model, opt, contract, arm, device):
     opt.load_state_dict(state["optimizerState"])
     torch.set_rng_state(state["torchRngState"].cpu())
     if device.type == "cuda" and state.get("cudaRngState"):
-        torch.cuda.set_rng_state_all(state["cudaRngState"])
+        torch.cuda.set_rng_state_all([rng.cpu().contiguous() for rng in state["cudaRngState"]])
     return state
 
 
