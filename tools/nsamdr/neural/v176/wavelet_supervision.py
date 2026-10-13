@@ -38,18 +38,26 @@ def stationary_haar_details(plane: torch.Tensor) -> dict[str, torch.Tensor]:
         "HH":torch.outer(high,high),
     }
     output = {}
-    for level in LEVELS:
-        dilation = 2 ** (level - 1)
-        padded = F.pad(value,(0,dilation,0,dilation),mode="reflect")
-        bands = {}
-        for name,kernel in taps.items():
-            weights = kernel[None,None].repeat(channels,1,1,1)
-            bands[name] = F.conv2d(
-                padded,weights,groups=channels,dilation=dilation
-            )
-            if name in BAND_NAMES:
-                output[f"L{level}_{name}"] = bands[name]
-        value = bands["LL"]
+    # Keep target and candidate bands in the same fp32 arithmetic even when
+    # the learned convolutions run under an enclosing mixed-precision policy.
+    with torch.autocast(device_type=value.device.type, enabled=False), torch.backends.cudnn.flags(
+        enabled=torch.backends.cudnn.enabled,
+        benchmark=torch.backends.cudnn.benchmark,
+        deterministic=torch.backends.cudnn.deterministic,
+        allow_tf32=False,
+    ):
+        for level in LEVELS:
+            dilation = 2 ** (level - 1)
+            padded = F.pad(value,(0,dilation,0,dilation),mode="reflect")
+            bands = {}
+            for name,kernel in taps.items():
+                weights = kernel[None,None].repeat(channels,1,1,1)
+                bands[name] = F.conv2d(
+                    padded,weights,groups=channels,dilation=dilation
+                )
+                if name in BAND_NAMES:
+                    output[f"L{level}_{name}"] = bands[name]
+            value = bands["LL"]
     return output
 
 
@@ -79,7 +87,7 @@ def detail_supervision_loss(
         candidate.shape != base_candidate.shape or candidate.shape[1] != 3 or
         correction.shape != (candidate.shape[0],1,*candidate.shape[-2:])):
         raise ValueError("Stage 10A loss expects aligned 3-channel authored HR maps")
-    if denominator_floor <= 0:
+    if not math.isfinite(denominator_floor) or denominator_floor <= 0:
         raise ValueError("baseline denominator floor must be positive")
     value = candidate.mean(dim=1,keepdim=True)
     b = baseline.mean(dim=1,keepdim=True)

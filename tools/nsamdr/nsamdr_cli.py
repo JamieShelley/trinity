@@ -55,6 +55,7 @@ REQUIRED_LAYOUT = (
     "tools/nsamdr/neural/v176/fine_detail.py",
     "tools/nsamdr/neural/v176/physical_composition.py",
     "tools/nsamdr/neural/v176/wavelet_supervision.py",
+    "tools/nsamdr/neural/v176/stability.py",
     "tools/nsamdr/neural/v17/diversity_corpus.py",
     "tools/nsamdr/neural/v17/spatial_sampling.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_4096_visual.py",
@@ -88,6 +89,7 @@ CURRENT_TESTS = (
     "tools.nsamdr.neural.test_nsamdr_v176_detail",
     "tools.nsamdr.neural.test_nsamdr_v176_training",
     "tools.nsamdr.neural.test_nsamdr_v176_capacity",
+    "tools.nsamdr.neural.test_nsamdr_v176_stability",
     "tools.nsamdr.neural.test_nsamdr_v17_4096_visual",
     "tools.nsamdr.neural.test_nsamdr_v16_structure",
     "tools.nsamdr.neural.test_nsamdr_v16_boundary_profiles",
@@ -990,7 +992,7 @@ class NSAMDRCommandLineApplication:
         detail.set_defaults(handler=self._command_v176_detail)
 
         capacity=commands.add_parser("v176-capacity-proof")
-        capacity.add_argument("--phase",choices=("diagnose","capacity","compare-features"),default="diagnose")
+        capacity.add_argument("--phase",choices=("diagnose","stability","capacity","compare-features"),default="diagnose")
         capacity.add_argument("--stage10a-report",default="")
         capacity.add_argument("--v3-report",default="")
         capacity.add_argument("--device",choices=("cuda","cpu"),default="cuda")

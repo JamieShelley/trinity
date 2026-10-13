@@ -38,7 +38,10 @@ from tools.nsamdr.neural.v17.diversity_continuation import verify_stage8
 from tools.nsamdr.neural.v17.spatial_sampling import NativeAuthoritySampler, _id
 from tools.nsamdr.neural.v176.fine_detail import NSAMDRV176Detail
 from tools.nsamdr.neural.v176.wavelet_supervision import (
-    LOSS_WEIGHTS, detail_supervision_loss,
+    LOSS_WEIGHTS,
+)
+from tools.nsamdr.neural.v176.stability import (
+    STABILITY_POLICY, NumericalStabilityError, guarded_train_step, save_failure,
 )
 
 SCHEMA="NSAMDR_V176_STAGE10A_DETAIL_SPECIALIST_PROOF_V1"
@@ -217,20 +220,15 @@ def _snapshot(model:NSAMDRV176Detail,training:list,dev:list,config,
             "qualified":bool(trained["allPass"] and validation["allPass"])}
 
 
-def _train_one(model:NSAMDRV176Detail,opt,batch,device:torch.device,precision:str):
-    # Reuse the existing mixed-precision policy; only specialist gradients exist.
+def _train_one(model:NSAMDRV176Detail,opt,batch,device:torch.device,precision:str,
+               *,failure_path=None,context=None):
     from probe_nsamdr_v16_full_broad import _autocast
-    model.train()
-    opt.zero_grad(set_to_none=True)
-    with _autocast(device,precision):
-        result=model(batch["lr_albedo"],batch["lr_normal"],batch["lr_material"])
-        terms=detail_supervision_loss(result,batch)
-    if not bool(torch.isfinite(terms["total"]).item()):
-        raise RuntimeError("non-finite wavelet specialist training objective")
-    terms["total"].backward()
-    torch.nn.utils.clip_grad_norm_(model.trainable_parameters(),1.0)
-    opt.step()
-    return {key:float(t.detach().cpu()) for key,t in terms.items()}
+    try:
+        return guarded_train_step(model,opt,batch,_autocast(device,precision))["lossTerms"]
+    except NumericalStabilityError as exc:
+        if failure_path is not None:
+            save_failure(failure_path,exc,model,opt,context or {})
+        raise
 
 
 def _report_markdown(report:dict)->str:
@@ -286,6 +284,7 @@ def run(args:argparse.Namespace)->tuple[int,Path]:
             "originalBackboneFrozen":True,
             "checkpointUpdates":list(STAGES),
             "lossWeights":LOSS_WEIGHTS,"device":"cuda","ampPrecision":args.amp_precision,
+            "numericalStability":dict(STABILITY_POLICY),
             "dataSampler":"original A12 native spatial, unchanged",
             "finalTestEvaluated":False,
         }
@@ -344,9 +343,14 @@ def run(args:argparse.Namespace)->tuple[int,Path]:
             for update in range(start+1,STAGES[-1]+1):
                 idx=(update-1)%len(authority_ids)
                 exposure=(update-1)//len(authority_ids)
-                raw,_=sampler.sample(authority_ids[idx],exposure,mode="spatial")
+                raw,origin=sampler.sample(authority_ids[idx],exposure,mode="spatial")
                 batch=_augment_batch(_to_device(raw,device),exposure%8)
-                _train_one(model,opt,batch,device,args.amp_precision)
+                _train_one(model,opt,batch,device,args.amp_precision,
+                           failure_path=folder/"failure_tensors.pt",
+                           context={"update":update,"authorityId":authority_ids[idx],
+                                    "cropId":rows[idx].get("crop_id") or rows[idx].get("cropId"),
+                                    "exposure":exposure,"augmentation":exposure%8,
+                                    "sourceRegion":origin})
                 if update==start+1 or update%256==0:
                     print(f"[v176-detail] update {update}/{STAGES[-1]} "
                           f"elapsed={(time.monotonic()-began)/60:.1f}m",flush=True)
@@ -399,6 +403,10 @@ def run(args:argparse.Namespace)->tuple[int,Path]:
                "traceback":traceback.format_exc(),
                "researchOnly":True,"finalTestEvaluated":False,
                "productionPromotionAllowed":False}
+        if isinstance(exc,NumericalStabilityError):
+            error.update({"decision":"BLOCKED_NUMERICAL_STABILITY",
+                          "numericalDiagnostic":exc.diagnostic,
+                          "failingContext":exc.context})
         _atomic_json(folder/"failure.json",error)
         if not any(folder.glob("stage_*/checkpoint.pt")):
             _atomic_json(folder/"report.json",error)

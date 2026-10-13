@@ -7,6 +7,7 @@ indices 1 and 10, and unchanged Stage 10A losses/physical caps.
 
 Phases:
   diagnose:          inspect original Stage 10A 0/3072/6144 checkpoints
+  stability:         short authority-1 trial through the known failure interval
   capacity:          2 isolated 10-channel specialist fits (one per authority)
   compare-features:  2 matched pairs, 10 vs 58 frozen-HR-feature channels
 """
@@ -45,18 +46,21 @@ from tools.nsamdr.neural.v17.spatial_sampling import NativeAuthoritySampler, _id
 from tools.nsamdr.neural.v176.fine_detail import NSAMDRV176Detail
 from tools.nsamdr.neural.v176.detail_capacity import (
     HARD_TRAINING_INDICES, MODES, HRFeatureDetail, create_matched_variants,
-    diagnostic_batch, gradient_statistics,
+    diagnostic_batch,
 )
-from tools.nsamdr.neural.v176.wavelet_supervision import detail_supervision_loss
+from tools.nsamdr.neural.v176.stability import (
+    STABILITY_POLICY, NumericalStabilityError, guarded_train_step, save_failure,
+)
 
 SCHEMA="NSAMDR_V176_STAGE10A1_CAPACITY_ISOLATION_V1"
 CHECKPOINT_SCHEMA="NSAMDR_V176_STAGE10A1_CAPACITY_CHECKPOINT_V1"
 ROOT="artifacts/nsamdr/diagnostics/v176_stage10a1_capacity"
 STAGES=(0,1536,3072,6144)
+STABILITY_STAGES=(0,256,512,1024,1536,1792,2048,2560,2816,3072)
 ALT_EXPOSURES=(20000,20001,20002,20003)
 SEED=17611
 LEARNING_RATE=.0002
-PHASES=("diagnose","capacity","compare-features")
+PHASES=("diagnose","stability","capacity","compare-features")
 
 
 def _folder(repo:Path,resume:str,phase:str)->Path:
@@ -68,6 +72,8 @@ def _folder(repo:Path,resume:str,phase:str)->Path:
     possible=[p for p in root.glob("proof_*")
               if (p/"run_manifest.json").is_file()
               and not (p/"report.json").is_file()
+              and not ((p/"failure.json").is_file() and
+                       _read(p/"failure.json").get("decision")=="BLOCKED_NUMERICAL_STABILITY")
               and _read(p/"run_manifest.json").get("phase")==phase]
     if len(possible)!=1:
         raise RuntimeError(f"Stage 10A.1 {phase} resume requires one unfinished proof; got {len(possible)}")
@@ -156,9 +162,19 @@ def _evaluation(model, batch, config,device,amp)->dict:
 
 
 def _snapshot(model, fixed,alternates,config,device,amp,update:int)->dict:
-    fixed_result=_evaluation(model,fixed,config,device,amp)
-    alt=[_evaluation(model,b,config,device,amp) for b in alternates]
-    stats=diagnostic_batch(model,fixed)
+    try:
+        fixed_result=_evaluation(model,fixed,config,device,amp)
+        stats=diagnostic_batch(model,fixed)
+    except NumericalStabilityError as exc:
+        exc.context.update({"evaluationProbe":"fixed"})
+        raise
+    alt=[]
+    for index,batch in enumerate(alternates):
+        try:
+            alt.append(_evaluation(model,batch,config,device,amp))
+        except NumericalStabilityError as exc:
+            exc.context.update({"evaluationProbe":"alternate","alternateIndex":index})
+            raise
     return {
         "update":update,"fixed":fixed_result,"alternateRegions":alt,
         "alternateMeanEdge":sum(row["metrics"]["edge_recovery"] for row in alt)/len(alt),
@@ -168,21 +184,14 @@ def _snapshot(model, fixed,alternates,config,device,amp,update:int)->dict:
     }
 
 
-def _train_step(model,opt,batch,device,amp,collect:bool)->dict|None:
-    model.train()
-    opt.zero_grad(set_to_none=True)
-    with _autocast(device,amp):
-        out=model(batch["lr_albedo"],batch["lr_normal"],batch["lr_material"])
-        losses=detail_supervision_loss(out,batch)
-    if not torch.isfinite(losses["total"]).item():
-        raise RuntimeError("non-finite specialist loss")
-    losses["total"].backward()
-    metrics=({"gradient":gradient_statistics(model),
-              "lossTerms":{k:float(v.detach()) for k,v in losses.items()}}
-             if collect else None)
-    torch.nn.utils.clip_grad_norm_(model.trainable_parameters(),1.0)
-    opt.step()
-    return metrics
+def _train_step(model,opt,batch,device,amp,collect:bool,*,failure_path=None,context=None)->dict|None:
+    try:
+        metrics=guarded_train_step(model,opt,batch,_autocast(device,amp),collect=collect)
+        return metrics if collect else None
+    except NumericalStabilityError as exc:
+        if failure_path is not None:
+            save_failure(failure_path,exc,model,opt,context or {})
+        raise
 
 
 def _save(path,model,opt,contract,arm,update,history):
@@ -202,11 +211,12 @@ def _save(path,model,opt,contract,arm,update,history):
 
 def _restore(path,model,opt,contract,arm,device):
     obj=torch.load(path,map_location="cpu",weights_only=True)
+    stages=tuple(contract.get("stages",STAGES))
     if (obj.get("schema")!=CHECKPOINT_SCHEMA or obj.get("contract")!=contract or
         obj.get("arm")!=arm or obj.get("architecture")!=model.architecture_contract() or
-        obj.get("update") not in STAGES or
+        obj.get("update") not in stages or
         [x.get("update") for x in obj.get("history",[])]!=
-        [x for x in STAGES if x<=obj["update"]]):
+        [x for x in stages if x<=obj["update"]]):
         raise RuntimeError("Stage 10A.1 resume contract/arm/history mismatch")
     model.specialist.load_state_dict(obj["detailState"],strict=True)
     opt.load_state_dict(obj["optimizerState"])
@@ -241,6 +251,8 @@ def _arm_name(index:int,mode:str)->str:
 def _run_arm(root,model,contract,authority,index,mode,sampler,config,device,amp):
     arm=_arm_name(index,mode)
     folder=root/arm
+    stages=tuple(contract.get("stages",STAGES))
+    diagnostic_interval=16 if contract.get("phase")=="stability" else 256
     if (folder/"arm_report.json").is_file():
         r=_read(folder/"arm_report.json")
         if r.get("runContractSha256")!=sha256_json(contract) or r.get("arm")!=arm:
@@ -263,25 +275,50 @@ def _run_arm(root,model,contract,authority,index,mode,sampler,config,device,amp)
         history=list(state["history"])
     else:
         start=0
-        history=[_snapshot(candidate,fixed,alternate,config,device,amp,0)]
+        try:
+            history=[_snapshot(candidate,fixed,alternate,config,device,amp,0)]
+        except NumericalStabilityError as exc:
+            probe=exc.context.get("evaluationProbe")
+            origin=meta[exc.context["alternateIndex"]] if probe=="alternate" else {"samplingPolicy":"fixed"}
+            save_failure(folder/"failure_tensors.pt",exc,candidate,optimizer,
+                         {"arm":arm,"authorityIndex":index,"authorityId":authority,"update":0,
+                          "cropId":contract.get("trainingAuthorities",{}).get(str(index),{}).get("cropId"),
+                          "sourceRegion":origin,**exc.context})
+            raise
         _save(folder/"stage_000000"/"checkpoint.pt",candidate,optimizer,
               contract,arm,0,history)
     began=time.monotonic()
     recent=[]
-    for update in range(start+1,STAGES[-1]+1):
-        raw,_=sampler.sample(authority,update-1,mode="spatial")
+    for update in range(start+1,stages[-1]+1):
+        raw,origin=sampler.sample(authority,update-1,mode="spatial")
         batch=_augment_batch(_to_device(raw,device),(update-1)%8)
+        context={"arm":arm,"authorityIndex":index,"authorityId":authority,
+                 "cropId":contract.get("trainingAuthorities",{}).get(str(index),{}).get("cropId"),
+                 "update":update,"exposure":update-1,"augmentation":(update-1)%8,
+                 "sourceRegion":origin}
         metrics=_train_step(candidate,optimizer,batch,device,amp,
-                            collect=(update==start+1 or update%256==0))
+                            collect=(update==start+1 or update%diagnostic_interval==0),
+                            failure_path=folder/"failure_tensors.pt",context=context)
         if metrics is not None:
-            recent.append({"update":update,**metrics})
+            row={**context,**metrics}
+            recent.append(row)
             recent=recent[-16:]
-        if update not in STAGES[1:]:
+            folder.mkdir(parents=True,exist_ok=True)
+            with (folder/"telemetry.jsonl").open("a",encoding="utf-8") as stream:
+                stream.write(json.dumps(row,sort_keys=True,allow_nan=False)+"\n")
+        if update not in stages[1:]:
             if update%256==0:
-                print(f"[v176-capacity] {arm} {update}/{STAGES[-1]}",flush=True)
+                print(f"[v176-capacity] {arm} {update}/{stages[-1]}",flush=True)
             continue
-        snap=_snapshot(candidate,fixed,alternate,config,device,amp,update)
-        snap["recentTrainGradients"]=recent
+        try:
+            snap=_snapshot(candidate,fixed,alternate,config,device,amp,update)
+        except NumericalStabilityError as exc:
+            probe=exc.context.get("evaluationProbe")
+            origin=meta[exc.context["alternateIndex"]] if probe=="alternate" else {"samplingPolicy":"fixed"}
+            save_failure(folder/"failure_tensors.pt",exc,candidate,optimizer,
+                         {**context,"sourceRegion":origin,**exc.context})
+            raise
+        snap["recentTrainGradients"]=list(recent)
         snap["backboneSha256"]=_tensor_sha(candidate.backbone)
         if snap["backboneSha256"]!=expected_sha:
             raise RuntimeError("frozen Stage 9 backbone changed")
@@ -291,10 +328,10 @@ def _run_arm(root,model,contract,authority,index,mode,sampler,config,device,amp)
         _atomic_json(folder/"progress.json",{"arm":arm,"update":update,
                                               "fixedEdge":snap["fixed"]["metrics"]["edge_recovery"],
                                               "alternateMeanEdge":snap["alternateMeanEdge"]})
-    if [x["update"] for x in history]!=list(STAGES):
+    if [x["update"] for x in history]!=list(stages):
         raise RuntimeError("bounded authority specialization history incomplete")
     result={"arm":arm,"authorityIndex":index,"authorityId":authority,"mode":mode,
-            "startUpdate":0,"stopUpdate":6144,"history":history,
+            "startUpdate":0,"stopUpdate":stages[-1],"history":history,
             "alternateProbeOrigins":meta,
             "runContractSha256":sha256_json(contract),
             "elapsedSeconds":time.monotonic()-began,
@@ -309,6 +346,10 @@ def _run_arm(root,model,contract,authority,index,mode,sampler,config,device,amp)
 
 
 def _decision(arms:dict, phase:str)->dict:
+    if phase=="stability":
+        return {"decision":"STABILITY_TRIAL_COMPLETED_TRAIN_ONLY",
+                "numericalStability":"WITHIN_REGISTERED_LIMITS",
+                "comparisons":{}}
     comparisons={}
     for index in HARD_TRAINING_INDICES:
         plain=arms.get(_arm_name(index,"output10"))
@@ -371,9 +412,11 @@ def run(args):
         rows=selected_rows(selection,manifest,"A12")
         if len(rows)!=12 or [_id(r) for r in rows]!=stage9audit["trainingAuthorityIds"]:
             raise RuntimeError("hard-authority indices are not the original frozen A12")
+        indices=(1,) if args.phase=="stability" else HARD_TRAINING_INDICES
+        stages=STABILITY_STAGES if args.phase=="stability" else STAGES
         identities={str(i):{"authorityId":_id(rows[i]),
                             "cropId":rows[i].get("crop_id") or rows[i].get("cropId")}
-                    for i in HARD_TRAINING_INDICES}
+                    for i in indices}
         contract={"schema":SCHEMA,"phase":args.phase,
                   "parentStage9CheckpointSha256":stage9audit["stage9A12CheckpointSha256"],
                   "parentBackboneTensorSha256":stage9audit["stage9BackboneTensorSha256"],
@@ -382,10 +425,11 @@ def run(args):
                   "sourceManifestSha256":stage9audit["sourceManifestSha256"],
                   "selectionSha256":stage9audit["stage8SelectionSha256"],
                   "trainingAuthorities":identities,
-                  "seed":SEED,"stages":list(STAGES),
+                  "seed":SEED,"stages":list(stages),
                   "alternateExposures":list(ALT_EXPOSURES),
                   "learningRate":LEARNING_RATE,"loss":"unchanged Stage10A stationary Haar",
                   "frozenBackbone":True,"ampPrecision":args.amp_precision,
+                  "numericalStability":dict(STABILITY_POLICY),
                   "device":args.device,"finalTestEnabled":False,
                   "developmentPixelsOpened":0,"finalTestPixelsOpened":0}
         manifest_path=folder/"run_manifest.json"
@@ -411,7 +455,7 @@ def run(args):
         if _tensor_sha(backbone)!=stage9audit["stage9BackboneTensorSha256"]:
             raise RuntimeError("Stage9 frozen backbone tensor SHA mismatch")
         sampler=NativeAuthoritySampler(
-            repo,manifest,[rows[i] for i in HARD_TRAINING_INDICES],
+            repo,manifest,[rows[i] for i in indices],
             hr_size=512,seed=17301,
         )
         try:
@@ -437,10 +481,10 @@ def run(args):
                 report["decision"]="CORRECTION_DIAGNOSTICS_RESEARCH_ONLY"
             else:
                 armresults={}
-                for i in HARD_TRAINING_INDICES:
+                for i in indices:
                     torch.manual_seed(SEED+i)
                     plain,rich=create_matched_variants(backbone,seed=SEED+i)
-                    pairs=(("output10",plain),) if args.phase=="capacity" else (
+                    pairs=(("output10",plain),) if args.phase in ("capacity","stability") else (
                         ("output10",plain),("hr_features58",rich))
                     for mode,_unused in pairs:
                         result=_run_arm(folder,(plain,rich),contract,_id(rows[i]),i,
@@ -460,6 +504,10 @@ def run(args):
                "researchOnly":True,"developmentPixelsOpened":0,
                "finalTestEvaluated":False,
                "productionPromotionAllowed":False}
+        if isinstance(exc,NumericalStabilityError):
+            error.update({"decision":"BLOCKED_NUMERICAL_STABILITY",
+                          "numericalDiagnostic":exc.diagnostic,
+                          "failingContext":exc.context})
         _atomic_json(folder/"failure.json",error)
         if not any(folder.glob("*/stage_*/checkpoint.pt")):
             _atomic_json(folder/"report.json",error)

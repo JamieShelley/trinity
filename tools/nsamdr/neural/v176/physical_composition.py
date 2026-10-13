@@ -8,6 +8,8 @@ from __future__ import annotations
 import torch
 from torch.nn import functional as F
 
+from .stability import STABILITY_POLICY, NumericalStabilityError, require_tensor
+
 
 def gaussian_highpass(
     correction: torch.Tensor,
@@ -26,18 +28,33 @@ def gaussian_highpass(
         raise ValueError("Gaussian sigma and radius must be positive")
     if min(correction.shape[-2:]) < 2:
         raise ValueError("detail plane is too small")
-    plane = correction.float()
-    offsets = torch.arange(
-        -int(radius), int(radius) + 1,
-        device=plane.device, dtype=plane.dtype,
-    )
-    one_d = torch.exp(-0.5 * (offsets / float(sigma)).square())
-    one_d = one_d / one_d.sum()
-    kernel = torch.outer(one_d, one_d)[None, None]
-    border = "reflect" if min(plane.shape[-2:]) > int(radius) else "replicate"
-    padded = F.pad(plane, (radius, radius, radius, radius), mode=border)
-    lowpass = F.conv2d(padded, kernel)
-    return plane - lowpass
+    require_tensor("fine_detail_raw", correction, STABILITY_POLICY["rawMaxAbs"])
+    # .float() alone does not stop an enclosing autocast from reducing the
+    # convolution precision and leaking a large DC component into the detail.
+    with torch.autocast(device_type=correction.device.type, enabled=False), torch.backends.cudnn.flags(
+        enabled=torch.backends.cudnn.enabled,
+        benchmark=torch.backends.cudnn.benchmark,
+        deterministic=torch.backends.cudnn.deterministic,
+        allow_tf32=False,
+    ):
+        plane = correction.float()
+        offsets = torch.arange(
+            -int(radius), int(radius) + 1,
+            device=plane.device, dtype=plane.dtype,
+        )
+        one_d = torch.exp(-0.5 * (offsets / float(sigma)).square())
+        one_d = one_d / one_d.sum()
+        kernel = torch.outer(one_d, one_d)[None, None]
+        border = "reflect" if min(plane.shape[-2:]) > int(radius) else "replicate"
+        padded = F.pad(plane, (radius, radius, radius, radius), mode=border)
+        lowpass = F.conv2d(padded, kernel)
+        result = plane - lowpass
+    try:
+        require_tensor("fine_detail_highpass", result, STABILITY_POLICY["highpassMaxAbs"])
+    except NumericalStabilityError as exc:
+        exc.tensors["fine_detail_raw"] = plane.detach().cpu().contiguous()
+        raise
+    return result
 
 
 def compose_albedo_detail(
@@ -61,6 +78,9 @@ def compose_albedo_detail(
         raise ValueError("detail must be one scalar field aligned with V17.2 HR")
     if not 0.0 < float(albedo_residual_cap) <= 1.0:
         raise ValueError("albedo residual cap must be within (0,1]")
+    require_tensor("backbone_raw_albedo", raw)
+    require_tensor("baseline_albedo", baseline, 1.0)
+    require_tensor("fine_detail_highpass", detail_highpass, STABILITY_POLICY["highpassMaxAbs"])
     updated_raw = raw + detail_highpass.float()
     bounded = torch.tanh(updated_raw) * float(albedo_residual_cap)
     candidate = (baseline + bounded).clamp(0.0, 1.0)

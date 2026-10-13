@@ -8,7 +8,6 @@ weights. Both branches start with bit-identical C0 candidate outputs.
 from __future__ import annotations
 
 import copy
-import math
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -16,6 +15,7 @@ from torch.nn import functional as F
 from .fine_detail import NSAMDRV176Detail, FineDetailSpecialist, FineResidualBlock
 from .physical_composition import compose_albedo_detail, gaussian_highpass
 from .wavelet_supervision import detail_supervision_loss, stationary_haar_details
+from .stability import STABILITY_POLICY, gradient_statistics, tensor_statistics, require_tensor
 
 MODES = ("output10", "hr_features58")
 HARD_TRAINING_INDICES = (1, 10)
@@ -118,34 +118,6 @@ def create_matched_variants(backbone, seed: int = 17611):
     return plain,rich
 
 
-def tensor_statistics(value: torch.Tensor) -> dict[str,float]:
-    v=value.detach().float()
-    return {
-        "meanAbs":float(v.abs().mean()),
-        "rms":float(v.square().mean().sqrt()),
-        "maxAbs":float(v.abs().amax()),
-        "aboveOneLsbFraction":float((v.abs() >= (1/255)).float().mean()),
-    }
-
-
-def gradient_statistics(model: NSAMDRV176Detail) -> dict[str, float]:
-    norms = {}
-    squared=0.0
-    count=0
-    for name,param in model.specialist.named_parameters():
-        if param.grad is None:
-            continue
-        norm=float(param.grad.detach().float().norm())
-        squared+=norm*norm
-        count+=1
-        if name in ("head.weight","head.bias","stem.weight","stem.bias"):
-            norms[name]=norm
-    if any(param.grad is not None for param in model.backbone.parameters()):
-        raise RuntimeError("frozen Stage 9 backbone received gradients")
-    return {"totalL2":math.sqrt(squared),"tensorsWithGrad":count,
-            "selectedParameterGradL2":norms}
-
-
 def diagnostic_batch(model: NSAMDRV176Detail, batch: dict) -> dict:
     """Training-only loss gradient probe; performs NO optimizer update."""
     model.train()
@@ -154,6 +126,8 @@ def diagnostic_batch(model: NSAMDRV176Detail, batch: dict) -> dict:
     terms=detail_supervision_loss(outputs,batch)
     terms["total"].backward()
     grads=gradient_statistics(model)
+    require_tensor("gradient/diagnosticL2",torch.tensor(grads["totalL2"],dtype=torch.float64),
+                   STABILITY_POLICY["gradientMaxL2"])
     target=batch["target_albedo"].detach().float().mean(dim=1,keepdim=True)
     b=outputs["baseline_albedo"].detach().float().mean(dim=1,keepdim=True)
     candidate=outputs["candidate_albedo"].detach().float().mean(dim=1,keepdim=True)
