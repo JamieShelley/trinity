@@ -53,7 +53,7 @@ def compose_albedo_detail(
     """
     raw = original["candidate_raw_residual_albedo"].float()
     baseline = original["baseline_albedo"].float()
-    if raw.ndim != 4 or raw.shape[1] != 3 or baseline.shape != raw:
+    if raw.ndim != 4 or raw.shape[1] != 3 or baseline.shape != raw.shape:
         raise ValueError("expected aligned V17.2 N x 3 x HR x HR albedo tensors")
     if detail_highpass.ndim != 4 or tuple(detail_highpass.shape) != (
         raw.shape[0], 1, raw.shape[2], raw.shape[3]
