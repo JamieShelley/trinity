@@ -26,6 +26,7 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
         self.assertIn("generalize_v2", [stage.id for stage in STAGES])
         self.assertIn("generalize_v3", [stage.id for stage in STAGES])
         self.assertIn("comprehensive_af", [stage.id for stage in STAGES])
+        self.assertIn("source_readiness", [stage.id for stage in STAGES])
         self.assertEqual(STAGES[-1].id, "preview")
 
     def test_completed_checkpoint_detection_does_not_require_tk(self) -> None:
@@ -127,6 +128,36 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
                 self.assertEqual(found[0], report.resolve())
                 report.write_text('{"schema":"not-a-f"}')
                 self.assertIsNone(app._latest_v17_af_report())
+
+    def test_source_readiness_gui_creates_cpu_only_command(self) -> None:
+        app=App.__new__(App)
+        app.vars={}
+        command=app._command_for_stage("source_readiness")
+        self.assertIsNotNone(command)
+        self.assertIn("v17-source-readiness",command)
+        self.assertIn("--device",command)
+        self.assertIn("cpu",command)
+        self.assertNotIn("--skip-conditioning",command)
+        self.assertNotIn("v17-comprehensive-af",command)
+
+    def test_source_readiness_strict_report_discovery(self) -> None:
+        from tools.nsamdr.gui import nsamdr_v17_workflow_gui as gui
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            report=root/"proof_01/report.json"
+            report.parent.mkdir()
+            report.write_text(json.dumps({
+                "schema":"NSAMDR_V17_5_SOURCE_READINESS_V1",
+                "decision":"requires-verification-and-controlled-training",
+                "finalTestEvaluated":False,
+            }))
+            app=App.__new__(App)
+            with patch.object(gui,"V17_SOURCE_ROOT",root):
+                latest=app._latest_v17_source_report()
+                self.assertIsNotNone(latest)
+                self.assertEqual(latest[0],report.resolve())
+                report.write_text('{"schema":"other-proof"}')
+                self.assertIsNone(app._latest_v17_source_report())
 
     def test_format_duration(self) -> None:
         self.assertEqual(_format_duration(65), "1m 05s")
