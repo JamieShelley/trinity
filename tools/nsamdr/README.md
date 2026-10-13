@@ -4,7 +4,7 @@
 
 [![Visual target](./EXAMPLE.png)](./EXAMPLE.png)
 
-## Current architecture status — V16 rejected; V17.4 transfer unqualified; V17.5 diversity proof implemented
+## Current architecture status — V17.5 Stage 8 diversity unqualified; Stage 9 matched continuation implemented
 
 The README visual target is now an **architecture gate**, not a late production
 check. A candidate that improves aggregate metrics but still looks like a
@@ -318,7 +318,9 @@ Proof folder: `artifacts/nsamdr/diagnostics/v17_source_readiness/proof_*/`, cont
 
 #### V17.5 Stage 8 — frozen native-authority diversity A12/B64 proof
 
-**Implementation committed; Windows source validation, actual training and model qualification pending.** Stage 8 leaves the V17.2 architecture, original loss, normal decoding, D4, native sampler and degradation unchanged. It is an isolated research namespace.
+**Execution update (13 October 2026):** The Stage 8 matched A12/B64 run completed to 24,576 updates per arm. A12 reached 27.20% mean independent-development edge recovery; B64 reached 27.64%, an increase of only 0.44 percentage points, and lattice regression prevented complete qualification (0/4 B64 development crops passed all gates). B64's training fit on the shared original twelve was weaker, after 384 versus A12's 2,048 exposures per authority. The recorded outcome was NO_DEMONSTRATED_BENEFIT and the eight sealed final-test authorities were not evaluated. Earlier selection-only and training proof selection SHA256 fingerprints differ; this does not imply changed training authorities until the two frozen roster files are compared. Procedures below are historical and retained for reproducibility. Stage 9, not another fresh Stage 8 rerun, is the next research action.
+
+Stage 8 leaves the V17.2 architecture, original loss, normal decoding, D4, native sampler and degradation unchanged. It is an isolated research namespace.
 
 A12 consists of exactly the original twelve V17.3 training authorities in their frozen order. B64 is the same twelve followed by exactly 52 eligible training authorities from the existing authored-prior manifest, not the unrestricted Stage 7 index census. Each new ship authority must have real native >=1024 BC4 albedo and BC5 normal DDS, matching headers and declared dimensions, an existing genuine authored 512 crop, minimum training-only deterministic-baseline target residual 0.01 and immutable content SHA256 evidence. All V2 protected families and **all** original V16 validation families are excluded. Logical resource, local path or paired content duplicates cannot qualify. The same four independent-development crops and eight sealed final-test IDs remain untouched by selection. Insufficient usable train authorities blocks the experiment rather than reducing 64.
 
@@ -340,6 +342,37 @@ scripts\build\nsamdr.bat v17-5-diversity-proof --resume fresh
 
 GUI Stage 8 exposes the same controls. Interrupted staged training resumes with --resume auto. For seed 17302 create a new proof with --seed 17302 --selection PATH_TO_original_frozen_selection.json. Outputs are under artifacts/nsamdr/diagnostics/v17_5_diversity/proof_*/, including source/selection audits, frozen_selection.json, run_manifest.json, A12/B64 staged checkpoints, per-crop metrics and development previews, report.json/report.md, and failure.json for unexpected errors. No BenefitSelector training, production promotion, sealed test opening or native 4096 proof is permitted in this stage.
 
+
+#### V17.5 Stage 9 — provenance plus matched native 49,152-update continuation
+
+**Implemented, not yet Windows validated or executed.** This is a separate, research-only Stage 9 proof. It never modifies existing Stage 8 checkpoints, reports, selected authorities, architecture or loss.
+
+The input must be a **completed, research-only Stage 8 A12/B64 training report**, not a selection-only report. By default the runner selects the latest eligible completed Stage 8 proof; use --stage8-report to pin the exact report explicitly. The original training source is authoritative, not a regenerated 64-authority roster. Preflight verifies the full Stage 8 run contract, 12/64 ordered source IDs, same four development crop IDs, same eight sealed final metadata IDs, original V2/V16 protected source ledgers, raw DDS formats, all source/crop hashes and the A12/B64 final stage_024576 model+optimizer+RNG checkpoints. Any training-source/provenance mismatch blocks continuation.
+
+The earlier CPU selection-only report is compared for identity and SHA256 if available (or supply --selection-only-report explicitly). If a preview does not match, the Stage 9 proof records MISMATCH_ROSTER_OR_SOURCE or a metadata-only fingerprint change. This cannot change the trained Stage 8 roster. It must be reviewed independently; the original matched A12/B64 result remains anchored to the actual Stage 8 training roster.
+
+Continue **both** A12 and B64 from their last 24,576-update optimizer and RNG state to checkpoints at **36,864 and 49,152** (no early stopping, no reinitialization). Same deterministic native spatial 50/50 sampling, D4 variant progression, V17.2 model and existing loss. Never substitute an earlier selected-best checkpoint for the last completed training state when resuming. Stage 9 checkpoints have a new schema and carry stage/source/arm/seed/optimizer provenance; interrupted Stage 9 proofs can resume from an exact saved checkpoint without altering Stage 8 artifacts.
+
+Each checkpoint retains the original fixed training probe and four independent-development crop evaluations, recovery/lattice thresholds, original validation score and qualified-first best-checkpoint selection. Additional diagnostics distinguish the original 12 common training probes from the other 52 B64 probes, record the normal/residual-direction cosine, the 4x phase energy and lattice behavior, and show all four independent-development crops individually. Compare *matched last-update* A12/B64 snapshots for research decisions. Best-validation checkpoints and selected-development A/B/C previews are separately recorded so cherry-picked checkpoints cannot distort the controlled test.
+
+At 49,152 updates, A12 has 4,096 training-authority exposures and B64 has 768. This is **equal additional compute**, not equal per-authority exposure. The original per-crop train and independent-development thresholds remain unchanged. Stage 9 never opens the eight sealed final-test authorities or promotes C, F, native render or 4096 quality.
+
+Run on Windows from D:\REPOS\trinity:
+
+~~~bat
+git switch NSAMDR
+git fetch origin NSAMDR
+git merge --ff-only FETCH_HEAD
+scripts\build\nsamdr.bat validate
+scripts\build\nsamdr.bat v17-5-matched-continuation --audit-only
+scripts\build\nsamdr.bat v17-5-matched-continuation --resume fresh
+~~~
+
+In the GUI use Stage 9 — V17.5 Matched Continuation A12/B64. Its **Audit provenance only** checkbox defaults to enabled. Review its report, then deselect it to start GPU continuation. Interrupted Stage 9 runs with a completed 36,864 checkpoint may use --resume auto, keeping the exact source contract and prior Stage 9 proof selection. Stage 9 reads only the 64 training authorities and the four development authorities.
+
+Outputs are under artifacts/nsamdr/diagnostics/v17_5_matched_continuation/proof_*/, including provenance.json with preview drift details, run_manifest.json, A12/B64 stage_036864 and stage_049152 optimizer checkpoints, per-authority train/development diagnostics, selected A/B/C previews and report.json/report.md. Explicit blockers create failure.json. Outcomes are research signals, not production acceptance: VALIDATION_QUALIFIED_RESEARCH_ONLY, EXPOSURE_BENEFIT_SIGNAL, RECOVERY_LATTICE_CONFLICT, PERSISTENT_COMMON_AUTHORITY_UNDERFIT and NO_COMPELLING_CONTINUATION_BENEFIT.
+
+If Stage 9 does not give substantial worst-crop development edge improvement with lattice at or below 15%, further repetitions of the same training schedule are not the default next step. The next separately gated experiment should test explicit HR structure supervision versus an unchanged matched decoder, or a balanced training curriculum if B64 remains underfit.
 
 #### 1024 → 4096 visual-only probe
 
