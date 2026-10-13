@@ -104,6 +104,42 @@ class NSAMDRCLITests(unittest.TestCase):
         self.assertIn("frozen.json",command)
         self.assertIn("auto",command)
 
+    def test_stage9_audit_uses_cpu_only_preflight(self) -> None:
+        from unittest.mock import patch
+        from tools.nsamdr.nsamdr_cli import NSAMDRCommandLineApplication
+        app=NSAMDRCommandLineApplication()
+        args=app.build_parser().parse_args([
+            "v17-5-matched-continuation","--audit-only",
+            "--stage8-report","parent.json"])
+        with patch.object(app,"_source_freshness_preflight",return_value=0), \
+             patch.object(app,"_python",return_value="python"), \
+             patch.object(app,"_cuda_preflight",side_effect=AssertionError("audit never preflights GPU")), \
+             patch.object(app,"_run",return_value=0) as dispatch:
+            self.assertEqual(app._command_v17_5_matched_continuation(args),0)
+        command=dispatch.call_args.args[0]
+        self.assertIn("--audit-only",command)
+        self.assertIn("parent.json",command)
+
+    def test_stage9_cuda_run_checks_gpu_and_forwards_original_precision(self) -> None:
+        from unittest.mock import patch
+        from tools.nsamdr.nsamdr_cli import NSAMDRCommandLineApplication
+        app=NSAMDRCommandLineApplication()
+        args=app.build_parser().parse_args([
+            "v17-5-matched-continuation","--resume","auto",
+            "--amp-precision","auto",
+            "--selection-only-report","preview.json"])
+        with patch.object(app,"_source_freshness_preflight",return_value=0), \
+             patch.object(app,"_python",return_value="python"), \
+             patch.object(app,"_cuda_preflight",return_value=0) as check, \
+             patch.object(app,"_run",return_value=0) as dispatch:
+            self.assertEqual(app._command_v17_5_matched_continuation(args),0)
+        check.assert_called_once()
+        command=dispatch.call_args.args[0]
+        self.assertIn("--resume",command)
+        self.assertIn("auto",command)
+        self.assertIn("preview.json",command)
+        self.assertNotIn("--audit-only",command)
+
     def test_context_probe_accepts_bounded_arguments(self) -> None:
         parser = NSAMDRCommandLineApplication().build_parser()
         args = parser.parse_args(
