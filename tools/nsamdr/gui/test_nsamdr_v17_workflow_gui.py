@@ -27,6 +27,8 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
         self.assertIn("generalize_v3", [stage.id for stage in STAGES])
         self.assertIn("comprehensive_af", [stage.id for stage in STAGES])
         self.assertIn("source_readiness", [stage.id for stage in STAGES])
+        self.assertIn("diversity_proof", [stage.id for stage in STAGES])
+        self.assertEqual(next(stage.number for stage in STAGES if stage.id=="preview"),"9")
         self.assertEqual(STAGES[-1].id, "preview")
 
     def test_completed_checkpoint_detection_does_not_require_tk(self) -> None:
@@ -158,6 +160,42 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
                 self.assertEqual(latest[0],report.resolve())
                 report.write_text('{"schema":"other-proof"}')
                 self.assertIsNone(app._latest_v17_source_report())
+
+    def test_stage8_gui_command_preserves_matched_defaults(self) -> None:
+        app=App.__new__(App)
+        app.vars={}
+        command=app._command_for_stage("diversity_proof")
+        self.assertIn("v17-5-diversity-proof",command)
+        self.assertIn("cuda",command)
+        self.assertIn("fresh",command)
+        self.assertIn("17301",command)
+        self.assertNotIn("--selection-only",command)
+        self.assertNotIn("--selection",command)
+
+    def test_stage8_gui_can_run_selection_only_without_retraining(self) -> None:
+        from unittest.mock import MagicMock
+        app=App.__new__(App)
+        app.vars={"selection_only":MagicMock()}
+        app.vars["selection_only"].get.return_value=True
+        command=app._command_for_stage("diversity_proof")
+        self.assertIn("--selection-only",command)
+
+    def test_stage8_report_discovery_requires_exact_schema(self) -> None:
+        from tools.nsamdr.gui import nsamdr_v17_workflow_gui as gui
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            report=root/"proof_01/report.json"
+            report.parent.mkdir()
+            report.write_text(json.dumps({
+                "schema":"NSAMDR_V17_5_NATIVE_AUTHORITY_DIVERSITY_PROOF_V1",
+                "decision":"NO_DEMONSTRATED_BENEFIT","researchOnly":True,
+                "finalTestEvaluated":False,
+            }))
+            app=App.__new__(App)
+            with patch.object(gui,"V17_DIVERSITY_ROOT",root):
+                self.assertEqual(app._latest_v17_diversity_report()[0],report.resolve())
+                report.write_text('{"schema":"wrong"}')
+                self.assertIsNone(app._latest_v17_diversity_report())
 
     def test_format_duration(self) -> None:
         self.assertEqual(_format_duration(65), "1m 05s")
