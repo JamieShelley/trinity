@@ -173,6 +173,47 @@ class SourceReadinessTests(unittest.TestCase):
             self.assertEqual(report["normalOrientation"],"UNVERIFIED")
             self.assertEqual(report["status"],"WARN")
 
+    def test_normal_evidence_can_be_json_serialized_without_numpy_scalar(self):
+        # The proof must not crash after a long DDS audit due to numpy.bool_.
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            native=root/"sha1_has_no_extension"
+            _dds_header(native,width=8,height=8)
+            pixel=np.zeros((8,8,4),dtype=np.uint8)
+            pixel[...,3]=np.arange(8,dtype=np.uint8)[None,:]*20
+            image=root/"rgba.png"
+            Image.fromarray(pixel,mode="RGBA").save(image)
+            manifest={"families":[{
+                "familyId":"abc0000000000000",
+                "albedo":None,
+                "normal":{
+                    "role":"normal","logical":"res:/ship_n.dds",
+                    "path":str(native),"width":8,"height":8,
+                    "mip_count":11,"format":"DXT1",
+                },
+            }]}
+            parts={"training":[{"family_id":"abc0000000000000"}],
+                   "validation":[],"final_test":[]}
+            with patch.object(AuthoredTextureDatasetRepository,"parse_dds_header",
+                              return_value=(8,8,11,"DXT1")):
+                with patch.object(AuthoredTextureDatasetRepository,"_decode_source",
+                                  side_effect=lambda *_:image):
+                    with patch.object(proof,"_rgba_native_if_supported",
+                                      return_value=(None,"unavailable")):
+                        report=proof._audit_a(root,manifest,parts)
+            self.assertTrue(report["perAuthority"][0]["maps"]["normal"]["alphaVarying"])
+            json.dumps(report)  # Raises if NumPy scalars accidentally leak.
+
+    def test_source_alignment_is_observational_not_a_semantic_verdict(self):
+        rng=np.random.default_rng(123)
+        img=rng.integers(0,256,(256,256),dtype=np.uint8)
+        albedo=np.stack([img,img,img],axis=-1)
+        normal=np.stack([img,img],axis=-1)
+        alignment=proof._alignment_evidence(albedo,normal)
+        self.assertEqual(alignment["status"],"PASS")
+        self.assertEqual(alignment["peakOffsetAt256"],[0,0])
+        self.assertIn("warning",alignment)
+
     def test_report_schema_and_cli_defaults(self):
         args=proof.parser().parse_args([])
         self.assertEqual(args.device,"cpu")
