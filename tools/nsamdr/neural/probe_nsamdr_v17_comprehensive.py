@@ -698,9 +698,46 @@ def run(args: argparse.Namespace) -> tuple[int,Path]:
           f"sealedFinalTest={len(parts['final_test'])}",flush=True)
     phases: dict[str,dict[str,Any]]={}
     audit_path=folder/"ABC_audits.json"
-    sampler=NativeAuthoritySampler(
-        repo,manifest,parts["training"],hr_size=512,seed=17301,
-    )
+    try:
+        sampler=NativeAuthoritySampler(
+            repo,manifest,parts["training"],hr_size=512,seed=17301,
+        )
+    except (OSError, ValueError, RuntimeError, KeyError) as exc:
+        # Decode/missing-source errors are part of audit A; emit a durable
+        # blocked proof rather than leaving a misleading incomplete train run.
+        cause=f"{type(exc).__name__}: {exc}"
+        phases={
+            "A_source":{"status":"FAIL","hardFailures":[cause],
+                        "summary":"Mandatory training source could not be decoded"},
+            "B_sampling":{"status":"SKIPPED","summary":"A source failed"},
+            "C_degradation":{"status":"SKIPPED","summary":"A source failed"},
+            "D_continuation":{"status":"SKIPPED","summary":"A source failed"},
+            "E_frequency_loss":{"status":"SKIPPED","summary":"A source failed"},
+            "F_architecture":{"status":"SKIPPED","summary":"A source failed"},
+        }
+        report={
+            "schema":SCHEMA,"researchOnly":True,
+            "productionPromotionAllowed":False,
+            "qualificationGatesModified":False,
+            "decision":"reject-source-audit",
+            "phases":phases,"armResults":{},
+            "sourceV3Report":source["v3Report"],
+            "sourceCheckpointSha256":source["checkpointSha256"],
+            "trainingCropIds":source["splits"]["training"],
+            "validationCropIds":source["splits"]["validation"],
+            "finalTestCropIds":source["splits"]["final_test"],
+            "finalTestSealedUntilQualification":True,
+            "finalTestEvaluated":False,"finalTestEvaluationCount":0,
+            "selectedFinalTest":None,"finalTestPreviews":{},
+            "visualGateRequired":False,
+        }
+        output=folder/"report.json"
+        output.write_text(json.dumps(report,indent=2,sort_keys=True)+"\n",
+                          encoding="utf-8")
+        _write_markdown(folder,report)
+        print(f"[v17-af] BLOCKED source audit: {cause}; report={output}",
+              flush=True)
+        return 0,output
     try:
         if audit_path.is_file():
             audits=_json(audit_path)
