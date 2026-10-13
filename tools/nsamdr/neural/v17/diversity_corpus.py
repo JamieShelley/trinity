@@ -236,7 +236,24 @@ def verify_frozen_selection(selection: dict, source: dict, manifest: dict,
         raise RuntimeError("historical V17.3/V2/manifest SHA or path mismatch")
     crops={str(x.get("crop_id") or x.get("cropId")):x for x in manifest.get("crops",[])}
     families={str(x.get("familyId") or x.get("family_id")):x for x in manifest.get("families",[])}
-    protected=set(selection["protection"]["v2FamilyIds"])|set(selection["protection"]["v16ValidationFamilyIds"])
+    v2=json.loads(Path(source["v2Report"]).read_text(encoding="utf-8"))
+    if v2.get("schema")!="NSAMDR_V17_GENERALIZATION_V2_PROOF_V1":
+        raise RuntimeError("invalid original V2 proof")
+    expected_v2=_family_ids([*(v2.get("trainingCropIds") or []),
+                            *(v2.get("validationCropIds") or []),
+                            *(v2.get("finalTestCropIds") or [])])
+    expected_v16={authority_id(row) for row in manifest.get("crops",[])
+                  if row.get("split")=="validation"}
+    if (set(selection["protection"]["v2FamilyIds"])!=expected_v2 or
+        set(selection["protection"]["v16ValidationFamilyIds"])!=expected_v16 or
+        selection["protection"]["frozenDevFamilyIds"]!=[
+            authority_id(row) for row in parts["validation"]] or
+        selection["protection"]["frozenFinalFamilyIds"]!=[
+            authority_id(row) for row in parts["final_test"]]):
+        raise RuntimeError("frozen protection ledger differs from authoritative sources")
+    protected=expected_v2|expected_v16
+    if selection.get("selectionPolicy")!="A12-frozen-plus-52-ship-only-BC4-BC5-training-authorities":
+        raise RuntimeError("frozen source-selection policy changed")
     seen=[]
     for i,(name,entry) in enumerate(zip(selection["expandedTrainingCropIds"],
                                         selection["selectedAuthoritySources"])):
