@@ -7,7 +7,7 @@ import struct
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import numpy as np
 from PIL import Image
@@ -86,6 +86,32 @@ class SourceReadinessTests(unittest.TestCase):
             self.assertFalse(modern["formatSemanticsVerified"])
             self.assertFalse(out["semanticPBRCompletenessVerified"])
             self.assertFalse(out["trainingCorpusModified"])
+
+    def test_mip_evidence_never_invents_a_comparison(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"hashed_file"
+            _dds_header(path)
+            pixels=np.zeros((16,16,4),dtype=np.uint8)
+            evidence=proof._mip_evidence(path,pixels,11)
+            self.assertEqual(evidence["status"],"UNAVAILABLE")
+            self.assertIsNone(evidence["actualMip2VsAreaMAE"])
+
+    def test_mip_evidence_does_not_depend_on_dds_extension(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"content_addressed"
+            _dds_header(path)
+            with patch.object(proof.Image,"open") as open_image:
+                ctx=MagicMock()
+                ctx.__enter__.return_value.n_frames=3
+                img=ctx.__enter__.return_value
+                img.convert.return_value=np.zeros((4,4,4),dtype=np.uint8)
+                # Native decoder path is deliberately extension-less.
+                open_image.return_value=ctx
+                result=proof._mip_evidence(path,np.zeros((16,16,4),
+                                           dtype=np.uint8),11)
+            self.assertEqual(result["status"],"PASS")
+            self.assertEqual(result["actualMip2VsAreaMAE"],0.0)
+            open_image.assert_called_once_with(path)
 
     def test_normal_hypotheses_do_not_infer_orientation(self):
         rgba=np.zeros((8,8,4),dtype=np.uint8)
