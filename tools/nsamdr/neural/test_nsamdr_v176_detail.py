@@ -119,6 +119,23 @@ class FineDetailArchitectureTests(unittest.TestCase):
         self.assertTrue(torch.allclose(diff[:,1:2],delta,atol=1e-7))
         self.assertTrue(torch.allclose(diff[:,2:3],delta,atol=1e-7))
 
+    def test_compositor_checks_both_albedo_shapes_and_accepts_matching_inputs(self) -> None:
+        original = {
+            "candidate_raw_residual_albedo": torch.zeros(2, 3, 16, 24),
+            "baseline_albedo": torch.full((2, 3, 16, 24), 0.5),
+            "candidate_albedo": torch.full((2, 3, 16, 24), 0.5),
+        }
+        delta = torch.zeros(2, 1, 16, 24)
+        output = compose_albedo_detail(original, delta, albedo_residual_cap=0.4)
+        self.assertTrue(torch.equal(
+            output["candidate_albedo"], original["candidate_albedo"]
+        ))
+        self.assertEqual(tuple(output["candidate_albedo"].shape), (2, 3, 16, 24))
+        wrong = dict(original)
+        wrong["baseline_albedo"] = torch.zeros(2, 3, 16, 23)
+        with self.assertRaisesRegex(ValueError, "aligned V17.2"):
+            compose_albedo_detail(wrong, delta, albedo_residual_cap=0.4)
+
     def test_invalid_detail_shapes_and_cap_rejected(self) -> None:
         model=_model().eval()
         with torch.no_grad():
