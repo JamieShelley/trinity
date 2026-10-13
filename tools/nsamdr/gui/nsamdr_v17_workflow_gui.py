@@ -42,6 +42,7 @@ V17_V2_ROOT = DIAGNOSTIC_ROOT / "v17_generalization_v2"
 V17_V3_ROOT = DIAGNOSTIC_ROOT / "v17_spatial_generalization"
 V17_AF_ROOT = DIAGNOSTIC_ROOT / "v17_comprehensive_proof"
 V17_SOURCE_ROOT = DIAGNOSTIC_ROOT / "v17_source_readiness"
+V17_DIVERSITY_ROOT = DIAGNOSTIC_ROOT / "v17_5_diversity"
 MAIN_TRAINING_ROOT = REPO_ROOT / "artifacts/nsamdr/main_training"
 APP_TITLE = "NSAMDR V17 Workflow"
 STATE_SCHEMA = "nsamdr-v17-operator-workflow-v1"
@@ -117,8 +118,14 @@ STAGES = (
         "Read-only DDS channels, generation census, sampling and frozen conditioning.",
     ),
     Stage(
-        "preview",
+        "diversity_proof",
         "8",
+        "V17.5 Native Authority Diversity Proof",
+        "Matched 12 versus 64 training authorities, frozen independent development, sealed final untouched.",
+    ),
+    Stage(
+        "preview",
+        "9",
         "Preview / visual gate",
         "Open the latest V17 unseen-sibling A/B/C sheet or historical preview artifacts.",
     ),
@@ -342,6 +349,23 @@ class App:
             return None
         _time, path, report = max(reports, key=lambda item: item[0])
         return path.resolve(), report
+
+    def _latest_v17_diversity_report(self) -> tuple[Path, dict[str, Any]] | None:
+        if not V17_DIVERSITY_ROOT.is_dir():
+            return None
+        reports: list[tuple[float, Path, dict[str, Any]]] = []
+        for path in V17_DIVERSITY_ROOT.glob("proof_*/report.json"):
+            report = _read_json(path)
+            if report is None or report.get("schema") != "NSAMDR_V17_5_NATIVE_AUTHORITY_DIVERSITY_PROOF_V1":
+                continue
+            try:
+                reports.append((path.stat().st_mtime, path.resolve(), report))
+            except OSError:
+                continue
+        if not reports:
+            return None
+        _when, path, report = max(reports, key=lambda item: item[0])
+        return path, report
 
     def _latest_v17_source_report(self) -> tuple[Path, dict[str, Any]] | None:
         if not V17_SOURCE_ROOT.is_dir():
@@ -816,6 +840,24 @@ class App:
             source = self._value("v3_report", "").strip()
             if source:
                 command += ["--v3-report", source]
+            return command
+
+        if stage_id == "diversity_proof":
+            command = self._cli_argv(
+                "v17-5-diversity-proof",
+                "--device", self._value("device", "cuda"),
+                "--amp-precision", self._value("amp", "auto"),
+                "--resume", self._value("resume", "fresh"),
+                "--seed", self._value("seed", "17301"),
+            )
+            if self._value("selection_only", "False").lower() in ("1", "true"):
+                command.append("--selection-only")
+            source = self._value("v3_report", "").strip()
+            if source:
+                command += ["--v3-report", source]
+            cohort = self._value("selection", "").strip()
+            if cohort:
+                command += ["--selection", cohort]
             return command
 
         if stage_id == "source_readiness":
@@ -1484,6 +1526,30 @@ class App:
                 ttk.Button(self.form, text="Open consolidated proof folder",
                            command=lambda folder=path.parent: _open_path(folder)).pack(anchor="w", pady=2)
 
+        elif stage_id == "diversity_proof":
+            self._label("Purpose", "Matched A12/B64 V17.5 authority-diversity research with unchanged V17.2 architecture.")
+            self._label("Data", "A12 is the original 12 native training authorities. B64 adds 52 qualified training authorities.")
+            self._label("Protected sources", "Same 4 independent development crops; 8 sealed final authorities are NEVER evaluated.")
+            self._label("Checkpoints", "6,144 / 12,288 / 24,576 exact optimizer updates per arm, no early stop.")
+            self._label("Research only", "No BenefitSelector training, no production promotion, no final unsealing.")
+            self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
+            self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
+            self._row("Resume mode", "resume", "fresh", ("fresh", "auto"))
+            self._row("Training seed", "seed", "17301", ("17301", "17302"))
+            self._row("Frozen selection (required for seed 17302)", "selection", "")
+            self._row("V17.3 report override (optional)", "v3_report", "")
+            self._check("Verify selection only (zero training updates)", "selection_only", False)
+            ttk.Button(self.form, text="Run Stage 8 V17.5 A12/B64 proof",
+                       command=self.run_selected).pack(anchor="w", pady=(8, 2))
+            latest = self._latest_v17_diversity_report()
+            if latest is not None:
+                path, report = latest
+                self._label("Latest Stage 8",
+                            f"{report.get('decision','unknown')} | "
+                            f"final-test evaluated: {bool(report.get('finalTestEvaluated'))}")
+                ttk.Button(self.form, text="Open Stage 8 report folder",
+                           command=lambda folder=path.parent: _open_path(folder)).pack(anchor="w", pady=2)
+
         elif stage_id == "source_readiness":
             self._label("Purpose", "V17.5 A–C read-only DDS source, texture census, sampling and conditioning diagnostics.")
             self._label("No training", "No model updates, original checkpoint changes, or final-test pixel access.")
@@ -1626,6 +1692,13 @@ class App:
                 "ready" if latest_v3 is None else
                 "visual-review" if latest_v3[1].get("visualGateRequired") else
                 "rejected"
+            )
+        if self.active_stage != "diversity_proof":
+            latest_diversity = self._latest_v17_diversity_report()
+            statuses["diversity_proof"] = (
+                "ready" if latest_diversity is None else
+                "completed" if latest_diversity[1].get("decision") != "BLOCKED"
+                else "failed"
             )
         if self.active_stage != "source_readiness":
             latest_source = self._latest_v17_source_report()
@@ -2011,6 +2084,12 @@ class App:
                                 stage_id,
                                 "visual-review" if latest and latest[1].get("visualGateRequired")
                                 else "rejected",
+                            )
+                        elif stage_id == "diversity_proof" and code == 0:
+                            latest = self._latest_v17_diversity_report()
+                            self._set_status(
+                                stage_id, "completed" if latest and
+                                latest[1].get("researchOnly") else "failed",
                             )
                         elif stage_id == "source_readiness" and code == 0:
                             latest = self._latest_v17_source_report()
