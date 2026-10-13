@@ -123,6 +123,37 @@ def _rgba_native_if_supported(path: Path) -> tuple[np.ndarray | None, str]:
         return None, f"unavailable: {type(exc).__name__}"
 
 
+def _mip_evidence(source: Path, decoded_rgba: np.ndarray, mip_count: int) -> dict[str, Any]:
+    """Check genuine hashed DDS mip level 2, if actually exposed by Pillow."""
+    result: dict[str, Any] = {
+        "headerMipCount": int(mip_count), "status": "UNAVAILABLE",
+        "reason": "Native decoder does not expose aligned mip level 2",
+        "actualMip2VsAreaMAE": None,
+    }
+    try:
+        with Image.open(source) as image:
+            result["decoderFrameCount"] = int(getattr(image, "n_frames", 1))
+            if result["decoderFrameCount"] < 3 or mip_count < 3:
+                return result
+            image.seek(2)
+            target_h, target_w = decoded_rgba.shape[0]//4, decoded_rgba.shape[1]//4
+            candidate=np.asarray(image.convert("RGBA"),dtype=np.uint8)
+            if candidate.shape[:2] != (target_h,target_w):
+                result["reason"] = "Native mip dimensions do not match 4x"
+                return result
+            synthetic=cv2.resize(decoded_rgba, (target_w,target_h),
+                                 interpolation=cv2.INTER_AREA)
+            result.update({
+                "status":"PASS", "reason":"Decoded DDS mip2 compared with area filter",
+                "actualMip2VsAreaMAE":float(np.abs(
+                    candidate.astype(np.int16)-synthetic.astype(np.int16)
+                ).mean()/255),
+            })
+    except (OSError, ValueError, EOFError, NotImplementedError) as exc:
+        result["reason"] = f"Native DDS mip decoder unavailable: {type(exc).__name__}"
+    return result
+
+
 def _audit_a(repo: Path, manifest: dict[str, Any],
              parts: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     indexed = {str(f.get("familyId") or f.get("family_id")): f
@@ -173,6 +204,7 @@ def _audit_a(repo: Path, manifest: dict[str, Any],
                         "convertedChannels": _stats(rgba),
                         "independentDecoder": method,
                         "converterVsPillowMAE": mismatch,
+                        "sourceMipEvidence": _mip_evidence(source, rgba, mips),
                         "decoderEquivalence": "UNAVAILABLE" if mismatch is None
                                               else "PASS" if mismatch <= 2/255 else "WARN",
                     })
