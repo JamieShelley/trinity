@@ -12,11 +12,18 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+import sys
 import time
 import traceback
 from typing import Any
 
 import torch
+
+HERE=Path(__file__).resolve().parent
+REPO_ROOT=HERE.parents[2]
+for folder in (REPO_ROOT,HERE):
+    if str(folder) not in sys.path:
+        sys.path.insert(0,str(folder))
 
 from probe_nsamdr_v16_full_broad import _device, _to_device
 from probe_nsamdr_v17_comprehensive import _batch_config, _origin, _records
@@ -29,10 +36,10 @@ from probe_nsamdr_v17_5_diversity import (
     _assert_unchanged_architecture, _atomic_json, _checkpoint_load as load_stage8,
     _make_model, _tensor_sha,
 )
-from v17.diversity_corpus import (
+from tools.nsamdr.neural.v17.diversity_corpus import (
     SELECTION_SEED, selected_rows, sha256_file, sha256_json,
 )
-from v17.diversity_continuation import (
+from tools.nsamdr.neural.v17.diversity_continuation import (
     ARMS, SCHEMA as PROVENANCE_SCHEMA, UPDATES, decide,
     diagnostic_summary, find_stage8_report, probe_groups, verify_stage8,
 )
@@ -316,11 +323,11 @@ def run(args: argparse.Namespace) -> tuple[int,Path]:
         stage8_path,source,manifest,parts,preview_path=args.selection_only_report)
     if str(args.device) != parent_contract["device"] or args.amp_precision != parent_contract["ampPrecision"]:
         raise RuntimeError("Stage 9 requires exact Stage 8 CUDA device and AMP precision")
-    device=_device(args.device)
+    device=_device("cpu" if args.audit_only else args.device)
     config=_batch_config(source)
     folder=_new_directory(repo,args.resume)
     try:
-        contract=_contract(audit,parent_contract,device=str(device),amp=args.amp_precision)
+        contract=_contract(audit,parent_contract,device=parent_contract["device"],amp=args.amp_precision)
         provenance=folder/"provenance.json"
         manifest_path=folder/"run_manifest.json"
         if args.resume=="auto":
