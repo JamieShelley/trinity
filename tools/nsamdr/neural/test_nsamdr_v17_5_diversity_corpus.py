@@ -102,6 +102,74 @@ class DiversityCorpusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"locked"):
             d.freeze_authorities(Path("."),{}, {},{}, {},selection_seed=17302)
 
+    def _fixture(self, root: Path, candidate_count: int = 80):
+        def row(fid,split):
+            p=root/(fid+".npz")
+            p.write_bytes(b"training-crop-only")
+            return {"family_id":fid,"crop_id":fid+"_000",
+                    "split":split,"path":str(p)}
+        training=[row(f"control{i:03d}","train") for i in range(12)]
+        dev=[row(f"dev{i:03d}","validation") for i in range(4)]
+        sealed=[row(f"sealed{i:03d}","validation") for i in range(8)]
+        extra=[row(f"cand{i:03d}","train") for i in range(candidate_count)]
+        manifest={"crops":training+dev+sealed+extra,
+                  "families":[{"familyId":r["family_id"]}
+                              for r in training+dev+sealed+extra]}
+        for path in ("manifest","v2","v3"):
+            (root/path).write_text("origin-"+path)
+        v2={"schema":"NSAMDR_V17_GENERALIZATION_V2_PROOF_V1",
+            "trainingCropIds":["cand000_000"],
+            "validationCropIds":[],"finalTestCropIds":[]}
+        source={"manifest":str(root/"manifest"),"v2Report":str(root/"v2"),
+                "v3Report":str(root/"v3"),
+                "v3ReportSha256":d.sha256_file(root/"v3")}
+        parts={"training":training,"validation":dev,"final_test":sealed}
+        return source,manifest,parts,v2
+
+    def test_freeze_is_deterministic_and_never_selects_protected_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            source,manifest,parts,v2=self._fixture(root)
+            def fake_pair(family,_reader):
+                fid=family["familyId"]
+                return {"albedo":{"logical":fid+"-a","path":fid+"-a",
+                                  "sha256":fid+"-a"},
+                        "normal":{"logical":fid+"-n","path":fid+"-n",
+                                  "sha256":fid+"-n"},"stratum":"ship/class"}
+            with patch.object(d,"_pair",side_effect=fake_pair):
+                selection,audit=d.freeze_authorities(
+                    root,source,manifest,parts,v2,suitability=lambda row:.02)
+                second,_=d.freeze_authorities(
+                    root,source,manifest,parts,v2,suitability=lambda row:.02)
+            self.assertEqual(selection,second)
+            self.assertEqual(selection["expandedTrainingCropIds"][:12],
+                             [x["crop_id"] for x in parts["training"]])
+            self.assertEqual(len(selection["expandedTrainingCropIds"]),64)
+            self.assertEqual(len(set(selection["expandedTrainingCropIds"])),64)
+            self.assertNotIn("cand000_000",selection["expandedTrainingCropIds"])
+            self.assertEqual(selection["developmentCropIds"],
+                             [x["crop_id"] for x in parts["validation"]])
+            self.assertEqual(selection["sealedFinalCropIds"],
+                             [x["crop_id"] for x in parts["final_test"]])
+            self.assertEqual(audit["developmentPixelsOpened"],0)
+            self.assertEqual(audit["sealedPixelsOpened"],0)
+            self.assertEqual(audit["selectedAdditional"],52)
+
+    def test_too_small_eligible_corpus_blocks_without_reducing_b64(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            source,manifest,parts,v2=self._fixture(root,candidate_count=20)
+            def fake_pair(family,_reader):
+                fid=family["familyId"]
+                return {"albedo":{"logical":fid+"-a","path":fid+"-a","sha256":fid+"-a"},
+                        "normal":{"logical":fid+"-n","path":fid+"-n","sha256":fid+"-n"},
+                        "stratum":"ship/class"}
+            with patch.object(d,"_pair",side_effect=fake_pair):
+                with self.assertRaisesRegex(RuntimeError,
+                                            "BLOCKED_INSUFFICIENT_ELIGIBLE_TRAIN_AUTHORITIES"):
+                    d.freeze_authorities(root,source,manifest,parts,v2,
+                                         suitability=lambda row:.02)
+
     def test_unsupported_arm_rejected(self):
         with self.assertRaisesRegex(ValueError,"arm"):
             d.selected_rows({}, {}, "unsafe")
