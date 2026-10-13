@@ -4,7 +4,7 @@
 
 [![Visual target](./EXAMPLE.png)](./EXAMPLE.png)
 
-## Current architecture status — V17.5 Stage 8 diversity unqualified; Stage 9 matched continuation implemented
+## Current architecture status — V17.5 Stage 9 unqualified; V17.6 Stage 10A detail-specialist implementation and CPU verification
 
 The README visual target is now an **architecture gate**, not a late production
 check. A candidate that improves aggregate metrics but still looks like a
@@ -345,7 +345,9 @@ GUI Stage 8 exposes the same controls. Interrupted staged training resumes with 
 
 #### V17.5 Stage 9 — provenance plus matched native 49,152-update continuation
 
-**Implemented, not yet Windows validated or executed.** This is a separate, research-only Stage 9 proof. It never modifies existing Stage 8 checkpoints, reports, selected authorities, architecture or loss.
+**Execution update (13 October 2026):** Matched A12/B64 Stage 9 continuation completed through 49,152 updates for both arms. A12 independent-development mean edge recovery reached 28.53%; B64 reached 28.73%, with worst edges 20.29% and 20.09% respectively. B64 max lattice excess was 15.86% (required <=15%), and full candidate training/development gates were not satisfied. Decision was RECOVERY_LATTICE_CONFLICT. A12 common-12 fixed train probes averaged 37.61% edge; B64 common-12 ~26.30%; B64 additional-52 ~21.31%. No sealed final authorities opened, no production promotion. The procedure below is historical/reproducible; V17.6 architecture is the next workstream.
+
+This is a separate, research-only Stage 9 proof. It never modifies existing Stage 8 checkpoints, reports, selected authorities, architecture or loss.
 
 The input must be a **completed, research-only Stage 8 A12/B64 training report**, not a selection-only report. By default the runner selects the latest eligible completed Stage 8 proof; use --stage8-report to pin the exact report explicitly. The original training source is authoritative, not a regenerated 64-authority roster. Preflight verifies the full Stage 8 run contract, 12/64 ordered source IDs, same four development crop IDs, same eight sealed final metadata IDs, original V2/V16 protected source ledgers, raw DDS formats, all source/crop hashes and the A12/B64 final stage_024576 model+optimizer+RNG checkpoints. Any training-source/provenance mismatch blocks continuation.
 
@@ -376,7 +378,7 @@ If Stage 9 does not give substantial worst-crop development edge improvement wit
 
 #### V17.6 Stage 10A — frozen V17.2 plus fine-detail specialist (architecture checkpoint)
 
-**Architecture modules and 19 targeted CPU regression tests committed; Windows tests and GPU training have NOT yet run.** This is a new, isolated architecture-only checkpoint, not another Stage 8/9 training continuation. Original V17.2 and the V17.5 proof checkpoints remain immutable. The eight sealed final-test authorities stay closed; the four development authorities must not be used as optimizer inputs or for source selection.
+**Architecture modules and 20 targeted CPU regression tests committed. First Windows validation (13 October 2026) ran 204 tests and FAILED with seven errors in Stage 10A only: the compositor compared `baseline.shape != raw` rather than `baseline.shape != raw.shape`, rejecting valid matching albedo tensors. This exact comparison is corrected in commit `eb805bbd5a2b7b70b56d6ea222dfb4b429b85718`; a new matching/mismatching shape regression was added. Re-run required; passing Windows tests and GPU training are NOT YET verified.** This is a new, isolated architecture-only checkpoint, not another Stage 8/9 training continuation. Original V17.2 and the V17.5 proof checkpoints remain immutable. The eight sealed final-test authorities stay closed; the four development authorities must not be used as optimizer inputs or for source selection.
 
 New modules under tools/nsamdr/neural/v176/:
 
@@ -397,7 +399,7 @@ git merge --ff-only FETCH_HEAD
 scripts\build\nsamdr.bat validate
 ~~~
 
-The validation command now discovers tools.nsamdr.neural.test_nsamdr_v176_detail alongside all existing regressions. No new V17.6 GPU CLI command or GUI training button is provided by this architecture-only checkpoint.
+The validation command now discovers tools.nsamdr.neural.test_nsamdr_v176_detail alongside all existing regressions. The prior 204-test failure should resolve at the corrected shape comparison but **is not yet confirmed passing**; do not treat Stage 10A as runtime-validated without a fresh test log. No V17.6 GPU CLI command or GUI training button was provided by the initial architecture checkpoint.
 
 #### 1024 → 4096 visual-only probe
 
