@@ -243,14 +243,25 @@ def _run_arm(arm: str, folder: Path, contract: dict,
         previews = _sheets(root/f"selected_{best:06d}",model,development,
                            selection["developmentCropIds"],config,
                            device=device,precision=amp,role="validation")
+        best_snapshot = (
+            latest if best == UPDATES[-1] else
+            next((x for x in history if x["update"] == best), None)
+        )
+        if best_snapshot is None:
+            historical = next((x for x in stage8_report["armResults"][arm]["history"]
+                               if x["update"] == best), None)
+            if historical is None:
+                raise RuntimeError("selected best checkpoint has no historical metrics")
+            best_snapshot = historical
         output={
             "arm":arm,"runContractSha256":sha256_json(contract),
             "startUpdate":START_UPDATE,"stopUpdate":UPDATES[-1],
             "bestValidationUpdate":best,"bestValidationScore":best_score,
             "selectedCheckpoint":str(chosen_path.resolve()),
-            "selectedTrained":latest["trained"],
-            "selectedValidation":latest["validation"],
-            "selectedTrainedGroups":latest["trainProbeGroups"],
+            "selectedTrained":best_snapshot["trained"],
+            "selectedValidation":best_snapshot["validation"],
+            "selectedTrainedGroups":(best_snapshot.get("trainProbeGroups") or
+                                     probe_groups(best_snapshot["trained"],arm)),
             "bestCheckpointWasUsedForPreviews":True,
             "atFinalUpdate":latest,
             "history":history,"validationPreviews":previews,
