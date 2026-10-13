@@ -25,6 +25,7 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
         self.assertIn("generalize", [stage.id for stage in STAGES])
         self.assertIn("generalize_v2", [stage.id for stage in STAGES])
         self.assertIn("generalize_v3", [stage.id for stage in STAGES])
+        self.assertIn("comprehensive_af", [stage.id for stage in STAGES])
         self.assertEqual(STAGES[-1].id, "preview")
 
     def test_completed_checkpoint_detection_does_not_require_tk(self) -> None:
@@ -97,6 +98,35 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
                 self.assertEqual(found[0], path.resolve())
                 path.write_text('{"schema":"not-v17"}')
                 self.assertIsNone(app._latest_v17_v3_report())
+
+    def test_af_gui_builds_automatic_a_to_f_command(self) -> None:
+        app = App.__new__(App)
+        app.vars = {}
+        command = app._command_for_stage("comprehensive_af")
+        self.assertIsNotNone(command)
+        self.assertIn("v17-comprehensive-af", command)
+        self.assertIn("fresh", command)
+        self.assertIn("cuda", command)
+        self.assertNotIn("--audit-only", command)
+
+    def test_af_gui_report_discovery_is_strict(self) -> None:
+        from tools.nsamdr.gui import nsamdr_v17_workflow_gui as gui
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            report = root / "proof_01/report.json"
+            report.parent.mkdir()
+            report.write_text(json.dumps({
+                "schema": "NSAMDR_V17_COMPREHENSIVE_AF_PROOF_V1",
+                "decision": "reject-independent-validation",
+                "finalTestEvaluated": False,
+            }))
+            app = App.__new__(App)
+            with patch.object(gui, "V17_AF_ROOT", root):
+                found = app._latest_v17_af_report()
+                self.assertIsNotNone(found)
+                self.assertEqual(found[0], report.resolve())
+                report.write_text('{"schema":"not-a-f"}')
+                self.assertIsNone(app._latest_v17_af_report())
 
     def test_format_duration(self) -> None:
         self.assertEqual(_format_duration(65), "1m 05s")
