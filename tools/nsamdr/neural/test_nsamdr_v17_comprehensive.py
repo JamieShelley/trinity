@@ -197,6 +197,30 @@ class AFProofTests(unittest.TestCase):
                 proof._load_stage(path,clone,opt2,contract,"E_frequency_loss",
                                   torch.device("cpu"))
 
+    def test_matched_d_e_comparison_uses_only_common_update_checkpoints(self):
+        def row(update, global_value, edge, detail):
+            return {
+                "update":update,
+                "validationScore":global_value+2*edge,
+                "validation":{"mean":{
+                    "global_recovery":global_value,
+                    "edge_recovery":edge,
+                    "gradient_recovery":0.2,
+                    "detail_recovery_1px":detail,
+                    "lattice_cell_excess":0.1,
+                }},
+            }
+        results={
+            "D_continuation":{"history":[row(61440,0.2,0.25,0.1),row(73728,0.22,0.3,0.11)]},
+            "E_frequency_loss":{"history":[row(61440,0.24,0.28,0.17)]},
+        }
+        paired=proof._matched_comparison(results)
+        self.assertEqual(len(paired),1)
+        self.assertEqual(paired[0]["update"],61440)
+        self.assertAlmostEqual(paired[0]["delta_edge_recovery"],0.03)
+        self.assertAlmostEqual(paired[0]["delta_detail_recovery_1px"],0.07)
+        self.assertEqual(proof._matched_comparison({}),[])
+
     def test_cli_command_and_test_suite_registered(self):
         app=NSAMDRCommandLineApplication()
         parsed=app.build_parser().parse_args(["v17-comprehensive-af","--audit-only"])
