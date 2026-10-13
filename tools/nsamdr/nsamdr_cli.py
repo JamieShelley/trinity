@@ -47,6 +47,8 @@ REQUIRED_LAYOUT = (
     "tools/nsamdr/neural/probe_nsamdr_v17_comprehensive.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_source_readiness.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_5_diversity.py",
+    "tools/nsamdr/neural/probe_nsamdr_v17_5_matched_continuation.py",
+    "tools/nsamdr/neural/v17/diversity_continuation.py",
     "tools/nsamdr/neural/v17/diversity_corpus.py",
     "tools/nsamdr/neural/v17/spatial_sampling.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_4096_visual.py",
@@ -76,6 +78,7 @@ CURRENT_TESTS = (
     "tools.nsamdr.neural.test_nsamdr_v17_source_readiness",
     "tools.nsamdr.neural.test_nsamdr_v17_5_diversity_corpus",
     "tools.nsamdr.neural.test_nsamdr_v17_5_diversity_proof",
+    "tools.nsamdr.neural.test_nsamdr_v17_5_matched_continuation",
     "tools.nsamdr.neural.test_nsamdr_v17_4096_visual",
     "tools.nsamdr.neural.test_nsamdr_v16_structure",
     "tools.nsamdr.neural.test_nsamdr_v16_boundary_profiles",
@@ -566,6 +569,34 @@ class NSAMDRCommandLineApplication:
             command += ["--selection-only"]
         return self._run(command, env=env)
 
+    def _command_v17_5_matched_continuation(self, args: argparse.Namespace) -> int:
+        if self._source_freshness_preflight():
+            return 1
+        python = self._python("cuda")
+        env = os.environ.copy()
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        self._configure_cuda_allocator_env(env)
+        if not args.audit_only:
+            code = self._cuda_preflight(python, env)
+            if code:
+                return code
+        command = [
+            python, "-u", NEURAL_ROOT / "probe_nsamdr_v17_5_matched_continuation.py",
+            "--repo-root", REPO_ROOT,
+            "--resume", args.resume,
+            "--device", args.device,
+            "--amp-precision", args.amp_precision,
+        ]
+        if args.audit_only:
+            command.append("--audit-only")
+        if args.stage8_report:
+            command += ["--stage8-report", args.stage8_report]
+        if args.v3_report:
+            command += ["--v3-report", args.v3_report]
+        if args.selection_only_report:
+            command += ["--selection-only-report", args.selection_only_report]
+        return self._run(command, env=env)
+
     def _command_context_probe(self, args: argparse.Namespace) -> int:
         source_code = self._source_freshness_preflight()
         if source_code:
@@ -877,6 +908,16 @@ class NSAMDRCommandLineApplication:
         diversity.add_argument("--selection-only", action="store_true")
         diversity.add_argument("--selection", default="")
         diversity.set_defaults(handler=self._command_v17_5_diversity)
+
+        continuation = commands.add_parser("v17-5-matched-continuation")
+        continuation.add_argument("--stage8-report", default="")
+        continuation.add_argument("--v3-report", default="")
+        continuation.add_argument("--selection-only-report", default="")
+        continuation.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
+        continuation.add_argument("--device", choices=("cuda",), default="cuda")
+        continuation.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
+        continuation.add_argument("--audit-only", action="store_true")
+        continuation.set_defaults(handler=self._command_v17_5_matched_continuation)
 
         visual_4096 = commands.add_parser("v17-4096-visual-proof")
         visual_4096.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cuda")
