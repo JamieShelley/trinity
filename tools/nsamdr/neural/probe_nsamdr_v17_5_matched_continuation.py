@@ -327,17 +327,17 @@ def _markdown(report: dict) -> str:
 
 def run(args: argparse.Namespace) -> tuple[int,Path]:
     repo=args.repo_root.resolve()
-    stage8_path=find_stage8_report(repo,args.stage8_report)
-    source=_origin(repo,args.v3_report)
-    manifest,parts=_records(source)
-    selection,parent_contract,audit=verify_stage8(
-        stage8_path,source,manifest,parts,preview_path=args.selection_only_report)
-    if str(args.device) != parent_contract["device"] or args.amp_precision != parent_contract["ampPrecision"]:
-        raise RuntimeError("Stage 9 requires exact Stage 8 CUDA device and AMP precision")
-    device=_device("cpu" if args.audit_only else args.device)
-    config=_batch_config(source)
     folder=_new_directory(repo,args.resume)
     try:
+        stage8_path=find_stage8_report(repo,args.stage8_report)
+        source=_origin(repo,args.v3_report)
+        manifest,parts=_records(source)
+        selection,parent_contract,audit=verify_stage8(
+            stage8_path,source,manifest,parts,preview_path=args.selection_only_report)
+        if str(args.device) != parent_contract["device"] or args.amp_precision != parent_contract["ampPrecision"]:
+            raise RuntimeError("Stage 9 requires exact Stage 8 CUDA device and AMP precision")
+        device=_device("cpu" if args.audit_only else args.device)
+        config=_batch_config(source)
         contract=_contract(audit,parent_contract,device=parent_contract["device"],amp=args.amp_precision)
         provenance=folder/"provenance.json"
         manifest_path=folder/"run_manifest.json"
