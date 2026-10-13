@@ -397,10 +397,24 @@ def run(args:argparse.Namespace)->tuple[int,Path]:
         return 0,folder/"report.json"
     except BaseException as exc:
         # An interrupted run remains resumable; no misleading completed proof.
-        _atomic_json(folder/"failure.json",{"schema":SCHEMA,"decision":"BLOCKED",
-                     "reason":f"{type(exc).__name__}: {exc}",
-                     "traceback":traceback.format_exc(),
-                     "finalTestEvaluated":False,"productionPromotionAllowed":False})
+        failure={"schema":SCHEMA,"decision":"BLOCKED",
+                 "reason":f"{type(exc).__name__}: {exc}",
+                 "traceback":traceback.format_exc(),
+                 "researchOnly":True,"finalTestEvaluated":False,
+                 "finalTestEvaluationCount":0,"productionPromotionAllowed":False}
+        _atomic_json(folder/"failure.json",failure)
+        # Selection/provenance blockers produce a final inspectable report.
+        # Interrupted training keeps the directory unfinished so auto resume
+        # can restore the latest exact model/optimizer/RNG checkpoint.
+        has_checkpoint=any(folder.glob("*/stage_*/checkpoint.pt"))
+        has_arm_report=any(folder.glob("*/arm_report.json"))
+        if not has_checkpoint and not has_arm_report:
+            blocked={**failure,"qualificationGatesModified":False,
+                     "selectedFinalTest":None,
+                     "trainingUpdates":0,"armResults":{},
+                     "reportPath":str(folder/"report.json")}
+            _atomic_json(folder/"report.json",blocked)
+            (folder/"report.md").write_text(_markdown(blocked),encoding="utf-8")
         print(f"[v17-diversity] BLOCKED {type(exc).__name__}: {exc} folder={folder}",flush=True)
         raise
 
