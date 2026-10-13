@@ -172,10 +172,20 @@ def diagnostic_batch(model: NSAMDRV176Detail, batch: dict) -> dict:
         "appliedAlbedoChange":tensor_statistics(
             outputs["candidate_albedo"]-outputs["base_candidate_albedo"]),
         "gradient":grads,
-        "normalUnchanged":bool(torch.equal(
-            outputs["candidate_normal"],model.backbone(
-                batch["lr_albedo"],batch["lr_normal"],batch["lr_material"]
-            )["candidate_normal"])),
     }
+    # Validate physical pass-through without constructing a second autograd
+    # graph. A hook on the rich model must not retain a 48xHR feature tensor.
+    with torch.no_grad():
+        original=model.backbone(
+            batch["lr_albedo"],batch["lr_normal"],batch["lr_material"]
+        )
+        result["normalUnchanged"]=bool(torch.equal(
+            outputs["candidate_normal"],original["candidate_normal"]
+        ))
+        result["materialUnchanged"]=bool(torch.equal(
+            outputs["candidate_material"],original["candidate_material"]
+        ))
+    if isinstance(model,HRFeatureDetail):
+        model._feature=None
     model.zero_grad(set_to_none=True)
     return result
