@@ -205,7 +205,24 @@ class MatchedContinuationTests(unittest.TestCase):
         for arm,n in (("A12",12),("B64",64)):
             checkpoint=root/arm/"stage_024576/checkpoint.pt"
             checkpoint.parent.mkdir(parents=True)
-            checkpoint.write_bytes(b"checkpoint-"+arm.encode())
+            torch.save({
+                "schema":"NSAMDR_V17_5_DIVERSITY_CHECKPOINT_V1",
+                "contract":parent,"arm":arm,"update":24576,
+                "history":[{"update":u} for u in (6144,12288,24576)],
+                "bestUpdate":24576,"bestScore":1.1,"bestQualified":False,
+                "architecture":{
+                    "revision":"V17.2-proof","scale":4,
+                    "encoderChannels":96,"decoderMidChannels":64,
+                    "decoderDetailChannels":48,"decoderBlocksPerStage":4,
+                },
+                "modelState":{"encoder.weight":torch.ones(2,2)},
+                "optimizerState":{
+                    "state":{0:{"step":torch.tensor(24576)}},
+                    "param_groups":[{"lr":.0002,"betas":(.9,.999),
+                                     "foreach":False}]},
+                "torchRngState":torch.get_rng_state(),
+                "cudaRngState":[torch.zeros(16,dtype=torch.uint8)],
+            },checkpoint)
             report["armResults"][arm]={
                 "arm":arm,"optimizerUpdates":24576,
                 "runContractSha256":sha256_json(parent),
@@ -254,6 +271,30 @@ class MatchedContinuationTests(unittest.TestCase):
             contract.compare_selection_preview(selection_fixture(),
                                                Path("stage8/report.json"),
                                                specified="does-not-exist.json")
+
+    def test_inspection_detects_tampered_optimizer_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/"proof_01"
+            root.mkdir()
+            report_path,report,_=self._stage8_test_files(root)
+            path=root/"A12/stage_024576/checkpoint.pt"
+            state=torch.load(path,map_location="cpu",weights_only=True)
+            state["optimizerState"]["state"]={}
+            torch.save(state,path)
+            with self.assertRaisesRegex(RuntimeError,"model or Adam"):
+                contract.verify_checkpoint_state(path,"A12",report["runContract"])
+
+    def test_inspection_detects_missing_cuda_rng(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/"proof_01"
+            root.mkdir()
+            report_path,report,_=self._stage8_test_files(root)
+            path=root/"B64/stage_024576/checkpoint.pt"
+            state=torch.load(path,map_location="cpu",weights_only=True)
+            state["cudaRngState"]=None
+            torch.save(state,path)
+            with self.assertRaisesRegex(RuntimeError,"RNG"):
+                contract.verify_checkpoint_state(path,"B64",report["runContract"])
 
     def test_matched_checkpoints_are_not_cherry_picked(self):
         base={"armResults":{}}
