@@ -489,7 +489,7 @@ class NSAMDRCommandLineApplication:
         source_code = self._source_freshness_preflight()
         if source_code:
             return source_code
-        python = self._python("cuda" if not args.audit_only else "cpu")
+        python = self._python("cuda")  # audit-only reuses installed environment; skips GPU preflight
         env = os.environ.copy()
         env.setdefault("PYTHONUNBUFFERED", "1")
         self._configure_cuda_allocator_env(env)
