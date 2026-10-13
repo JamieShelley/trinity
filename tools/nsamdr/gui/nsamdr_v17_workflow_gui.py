@@ -40,6 +40,7 @@ V17_PROOF_ROOT = DIAGNOSTIC_ROOT / "v17_sibling_architecture"
 V17_GENERALIZATION_ROOT = DIAGNOSTIC_ROOT / "v17_generalization"
 V17_V2_ROOT = DIAGNOSTIC_ROOT / "v17_generalization_v2"
 V17_V3_ROOT = DIAGNOSTIC_ROOT / "v17_spatial_generalization"
+V17_AF_ROOT = DIAGNOSTIC_ROOT / "v17_comprehensive_proof"
 MAIN_TRAINING_ROOT = REPO_ROOT / "artifacts/nsamdr/main_training"
 APP_TITLE = "NSAMDR V17 Workflow"
 STATE_SCHEMA = "nsamdr-v17-operator-workflow-v1"
@@ -53,7 +54,7 @@ EPOCH_RE = re.compile(r"Epoch\s+(\d+)\s*/\s*(\d+)\s+phase=([^\s]+)", re.I)
 BATCH_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d+)\s+total=", re.I)
 PROGRESS_RE = re.compile(r"total=(\d+)/(\d+)")
 FULL_BROAD_STEP_RE = re.compile(r"\[full-broad\]\s+step\s+(\d+)\s*/\s*(\d+)", re.I)
-V17_UPDATE_RE = re.compile(r"\[v17-(?:sibling|generalization|generalization-v2|spatial)\]\s+(?:arm=\w+\s+)?update\s+(\d+)\s*/\s*(\d+)", re.I)
+V17_UPDATE_RE = re.compile(r"\[v17-(?:sibling|generalization|generalization-v2|spatial|af)\]\s+(?:arm=\w+\s+)?update\s+(\d+)\s*/\s*(\d+)", re.I)
 STEP_MS_RE = re.compile(r"\bstep=([0-9]+(?:\.[0-9]+)?)ms\b", re.I)
 
 
@@ -103,8 +104,14 @@ STAGES = (
         "Matched fixed-versus-spatial native texture sampling, independent authority validation and sealed final test; research only.",
     ),
     Stage(
-        "preview",
+        "comprehensive_af",
         "6",
+        "V17.4 Comprehensive A–F Proof",
+        "Unified physical-source, sampling, degradation, matched continuation, loss ablation, and architecture diagnostics.",
+    ),
+    Stage(
+        "preview",
+        "7",
         "Preview / visual gate",
         "Open the latest V17 unseen-sibling A/B/C sheet or historical preview artifacts.",
     ),
@@ -327,6 +334,23 @@ class App:
         if not reports:
             return None
         _time, path, report = max(reports, key=lambda item: item[0])
+        return path.resolve(), report
+
+    def _latest_v17_af_report(self) -> tuple[Path, dict[str, Any]] | None:
+        if not V17_AF_ROOT.is_dir():
+            return None
+        candidates: list[tuple[float, Path, dict[str, Any]]] = []
+        for path in V17_AF_ROOT.glob("proof_*/report.json"):
+            report = _read_json(path)
+            if report is None or report.get("schema") != "NSAMDR_V17_COMPREHENSIVE_AF_PROOF_V1":
+                continue
+            try:
+                candidates.append((path.stat().st_mtime, path, report))
+            except OSError:
+                continue
+        if not candidates:
+            return None
+        _stamp, path, report = max(candidates, key=lambda item: item[0])
         return path.resolve(), report
 
     def _latest_v17_v3_report(self) -> tuple[Path, dict[str, Any]] | None:
@@ -752,6 +776,22 @@ class App:
             manifest = self._value("manifest", "").strip()
             if manifest:
                 command += ["--manifest", manifest]
+            return command
+
+        if stage_id == "comprehensive_af":
+            command = self._cli_argv(
+                "v17-comprehensive-af",
+                "--device", self._value("device", "cuda"),
+                "--amp-precision", self._value("amp", "auto"),
+                "--resume", self._value("resume", "fresh"),
+                "--patience", self._value("patience", "2"),
+                "--min-improvement", self._value("min_improvement", "0.002"),
+            )
+            if self._value("audit_only", "False").lower() in ("true", "1"):
+                command.append("--audit-only")
+            source = self._value("v3_report", "").strip()
+            if source:
+                command += ["--v3-report", source]
             return command
 
         if stage_id == "preview":
@@ -1383,6 +1423,30 @@ class App:
                     command=lambda folder=path.parent: _open_path(folder),
                 ).pack(anchor="w", pady=(8, 2))
 
+        elif stage_id == "comprehensive_af":
+            self._label("Purpose", "Single A–F research proof; six separately reported phases, no automatic native promotion.")
+            self._label("Source", "Start at V17.3 spatial 49,152 with unchanged manifest and eight sealed final authorities.")
+            self._label("Audits A–C", "Normal/PBR/provenance; anti-aliased sampling comparison; authored mip where available.")
+            self._label("Training D–E", "Matched original-loss vs frequency-loss arms at 61,440, 73,728 and 86,016 updates.")
+            self._label("Architecture F", "Measure existing mid/detail residual contributions on development validation.")
+            self._row("Resume", "resume", "fresh", ("fresh", "auto"))
+            self._row("Patience (checkpoints)", "patience", "2", ("2", "3", "4"))
+            self._row("Minimum validation gain", "min_improvement", "0.002")
+            self._row("Device", "device", "cuda", ("cuda", "auto", "cpu"))
+            self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
+            self._check("Audit A–C only; skip training", "audit_only", False)
+            self._row("V17.3 report override (optional)", "v3_report", "")
+            ttk.Button(self.form, text="Run comprehensive A–F proof",
+                       command=self.run_selected).pack(anchor="w", pady=(8, 2))
+            latest = self._latest_v17_af_report()
+            if latest is not None:
+                path, report = latest
+                self._label("Latest A–F result",
+                            f"{report.get('decision', 'unknown')} | "
+                            f"final-test evaluated: {bool(report.get('finalTestEvaluated'))}")
+                ttk.Button(self.form, text="Open consolidated proof folder",
+                           command=lambda folder=path.parent: _open_path(folder)).pack(anchor="w", pady=2)
+
         elif stage_id == "preview":
             choices = self._preview_choices()
             self._row(
@@ -1504,6 +1568,14 @@ class App:
             statuses["generalize_v3"] = (
                 "ready" if latest_v3 is None else
                 "visual-review" if latest_v3[1].get("visualGateRequired") else
+                "rejected"
+            )
+        if self.active_stage != "comprehensive_af":
+            latest_af = self._latest_v17_af_report()
+            statuses["comprehensive_af"] = (
+                "ready" if latest_af is None else
+                "visual-review" if latest_af[1].get("visualGateRequired") else
+                "completed" if latest_af[1].get("decision") == "audit-only" else
                 "rejected"
             )
         if self.active_stage != "preview":
@@ -1876,6 +1948,14 @@ class App:
                                 "visual-review" if latest and latest[1].get("visualGateRequired")
                                 else "rejected",
                             )
+                        elif stage_id == "comprehensive_af" and code == 0:
+                            latest = self._latest_v17_af_report()
+                            self._set_status(
+                                stage_id,
+                                "visual-review" if latest and latest[1].get("visualGateRequired")
+                                else "completed" if latest and latest[1].get("decision") == "audit-only"
+                                else "rejected",
+                            )
                         elif stage_id == "generalize_v3" and code == 0:
                             latest = self._latest_v17_v3_report()
                             self._set_status(
@@ -1913,6 +1993,10 @@ class App:
                     elif stage_id == "generalize_v2" and code == 0:
                         self.progress_text.set(
                             "V17 V2 proof complete; inspect best validation checkpoint and sealed test status"
+                        )
+                    elif stage_id == "comprehensive_af" and code == 0:
+                        self.progress_text.set(
+                            "V17.4 A–F proof complete; inspect consolidated report and individual phases"
                         )
                     elif stage_id == "generalize_v3" and code == 0:
                         self.progress_text.set(
