@@ -29,6 +29,21 @@ def _dds_header(path: Path, *, width: int=1024, height: int=1024) -> None:
 
 
 class SourceReadinessTests(unittest.TestCase):
+    def test_repository_identity_is_canonical_for_decoder_patching(self):
+        # A top-level "authored_texture_dataset" import creates a second
+        # class object; mocks of the package-qualified class then miss.
+        self.assertIs(
+            proof.AuthoredTextureDatasetRepository,
+            AuthoredTextureDatasetRepository,
+        )
+        self.assertIs(
+            proof.TextureSource,
+            __import__(
+                "tools.nsamdr.neural.authored_texture_dataset",
+                fromlist=["TextureSource"],
+            ).TextureSource,
+        )
+
     def test_hashed_dds_files_are_detected_from_bytes_not_filename(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/"d4f5072345"
@@ -171,7 +186,11 @@ class SourceReadinessTests(unittest.TestCase):
             self.assertEqual(report["validationPixelsOpened"],0)
             self.assertEqual(report["sealedFinalPixelsOpened"],0)
             self.assertEqual(report["normalOrientation"],"UNVERIFIED")
-            self.assertEqual(report["status"],"WARN")
+            self.assertEqual(
+                report["status"], "WARN",
+                f"Unexpected A-phase source failures: {report.get('hardFailures')}",
+            )
+            self.assertEqual(report["hardFailures"], [])
 
     def test_normal_evidence_can_be_json_serialized_without_numpy_scalar(self):
         # The proof must not crash after a long DDS audit due to numpy.bool_.
@@ -201,6 +220,7 @@ class SourceReadinessTests(unittest.TestCase):
                     with patch.object(proof,"_rgba_native_if_supported",
                                       return_value=(None,"unavailable")):
                         report=proof._audit_a(root,manifest,parts)
+            self.assertEqual(report["hardFailures"], [])
             self.assertTrue(report["perAuthority"][0]["maps"]["normal"]["alphaVarying"])
             json.dumps(report)  # Raises if NumPy scalars accidentally leak.
 
