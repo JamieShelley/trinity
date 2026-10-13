@@ -4,7 +4,7 @@
 
 [![Visual target](./EXAMPLE.png)](./EXAMPLE.png)
 
-## Current architecture status — V16 rejected, V17.2 experimental (V2 validation rejected)
+## Current architecture status — V16 rejected; V17.4 transfer unqualified; V17.5 diversity proof implemented
 
 The README visual target is now an **architecture gate**, not a late production
 check. A candidate that improves aggregate metrics but still looks like a
@@ -196,7 +196,7 @@ rate 0.0002, gradient clipping at norm 1.0, and deterministic D4 crop
 augmentations. Evaluation metrics and checkpoint selection are separate from
 the per-update optimization loss.
 
-#### V17.3 spatial-diversity experiment — implementation ready, not yet executed
+#### V17.3 spatial-diversity experiment — executed; independent transfer unqualified
 
 Stage **5 — V17.3 Spatial Generalization** is an isolated training-data
 experiment. It **reuses the V17.2 architecture, 512→128 clean 4× training
@@ -256,8 +256,7 @@ Once run, compare the `fixed` and `spatial` selected-checkpoint
 validation curves and A/B/C sheets. **Passing training alone is
 insufficient:** independent-authority validation and the sealed final
 test must pass their existing gates, followed by visual review. This
-V17.3 experiment is **not yet trained or qualified** merely because
-its implementation is committed.
+V17.3 experiment was executed through 49,152 spatial updates. Its mean independent-development recovery was approximately 27.64% global and 29.45% edge, insufficient to qualify; the eight independent final authorities remained sealed. Instructions above are historical and retained for reproducibility.
 
 #### V17.5 Stage 7 — verified EVE source readiness (read-only A–C)
 
@@ -284,7 +283,34 @@ Proof folder: `artifacts/nsamdr/diagnostics/v17_source_readiness/proof_*/`, cont
 
 **Next step, not part of Stage 7:** Only after source evidence is reviewed should a fresh, matched 6,144 / 12,288-update V17.5 A/B/C training comparison be defined. Do not reuse the V17.4 optimizer state if physical channel semantics change.
 
+#### V17.5 Stage 8 — frozen native-authority diversity A12/B64 proof
+
+**Implementation committed; Windows source validation, actual training and model qualification pending.** Stage 8 leaves the V17.2 architecture, original loss, normal decoding, D4, native sampler and degradation unchanged. It is an isolated research namespace.
+
+A12 consists of exactly the original twelve V17.3 training authorities in their frozen order. B64 is the same twelve followed by exactly 52 eligible training authorities from the existing authored-prior manifest, not the unrestricted Stage 7 index census. Each new ship authority must have real native >=1024 BC4 albedo and BC5 normal DDS, matching headers and declared dimensions, an existing genuine authored 512 crop, minimum training-only deterministic-baseline target residual 0.01 and immutable content SHA256 evidence. All V2 protected families and **all** original V16 validation families are excluded. Logical resource, local path or paired content duplicates cannot qualify. The same four independent-development crops and eight sealed final-test IDs remain untouched by selection. Insufficient usable train authorities blocks the experiment rather than reducing 64.
+
+Frozen selection seed is always 17301. The cohort stores 12 control crop IDs, 64 expanded crop IDs, four unchanged development IDs, eight sealed final IDs, and source hashes. A second-seed 17302 proof must explicitly reuse the existing frozen_selection.json with --selection; selection is not regenerated or reranked. Both arms use fresh identically initialized model weights and optimizer, never V17.3/V17.4 Adam state.
+
+**Locked model/training:** input 128 -> target 512, clean INTER_AREA 4x degradation, 50/50 uniform/detail native region sampling, deterministic D4, 96/64/48 encoder/mid/detail channels, four blocks per stage, unchanged eight-channel input and L1/gradient/residual loss, Adam lr 0.0002 and clip norm 1.0. Both arms always finish 6,144, 12,288 and 24,576 updates without early stopping. By 24,576 the 12-arm has 2,048 exposures per authority, while the 64-arm has 384; this is equal training budget, not equal authority exposure.
+
+At each stage, calculate the original per-crop candidate gates for all 12 or 64 frozen training probes and all four unchanged independent-development authority crops. Model selection uses the existing _validation_score and qualified-first _promote_checkpoint logic. Produce four selected-development A/B/C sheets per arm, every stage's metrics and optimizer/model/RNG checkpoints. Resume only if the full contract, source hashes, arm, selection, model and seed are unchanged; final-test pixels are not decoded anywhere in Stage 8.
+
+Research-only outcomes: VALIDATION_QUALIFIED_RESEARCH_ONLY, DIVERSITY_BENEFIT_SIGNAL, NO_DEMONSTRATED_BENEFIT or BLOCKED. A diversity benefit signal requires >=0.03 worst-development-edge improvement and >=0.02 mean edge improvement over A12, all four B64 development lattice values <=.15 and no development global regression worse than .01. This is triage evidence, not qualification. Existing candidate gates (global >=.45, edge >=.60, gradient >=.35, lattice <=.15 per probe) and independent-development gates (global >=.30, edge >=.35, gradient >=.25, 1px >=.05, lattice <=.15 per crop) remain unchanged.
+
+Run on Windows from D:\REPOS\trinity:
+
+~~~bat
+scripts\build\nsamdr.bat validate
+scripts\build\nsamdr.bat v17-5-diversity-proof --selection-only
+scripts\build\nsamdr.bat v17-5-diversity-proof --resume fresh
+~~~
+
+GUI Stage 8 exposes the same controls. Interrupted staged training resumes with --resume auto. For seed 17302 create a new proof with --seed 17302 --selection PATH_TO_original_frozen_selection.json. Outputs are under artifacts/nsamdr/diagnostics/v17_5_diversity/proof_*/, including source/selection audits, frozen_selection.json, run_manifest.json, A12/B64 staged checkpoints, per-crop metrics and development previews, report.json/report.md, and failure.json for unexpected errors. No BenefitSelector training, production promotion, sealed test opening or native 4096 proof is permitted in this stage.
+
+
 #### V17.4 Stage 6 — unified A–F validation and training proof
+
+**Execution update (13 October 2026):** V17.4 continued to 86,016 updates. The original-loss arm reached independent-development mean global 28.46% and edge 30.44%, but only one of four development authorities met all gates. The frequency-loss arm did not materially improve results, and the eight final authorities remained sealed. Procedure below is archival.
 
 The **V17.4 Comprehensive A–F Proof** is one research-only workflow with six separately reported phases. It restores the **49,152-update V17.3 spatial model and Adam optimizer** independently for the two training arms. The V17.3 report/checkpoint remain unchanged.
 
