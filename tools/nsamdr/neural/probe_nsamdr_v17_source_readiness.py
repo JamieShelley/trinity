@@ -213,7 +213,7 @@ def _audit_a(repo: Path, manifest: dict[str, Any],
                             "channelHypotheses": _normal_hypotheses(rgba),
                             "normalOrientationVerified": False,
                             "semanticStatus": "UNVERIFIED",
-                            "alphaVarying": rgba[..., 3].std() > .75,
+                            "alphaVarying": bool(rgba[..., 3].std() > .75),
                         })
                     png.unlink(missing_ok=True)
                 except (OSError, ValueError, TypeError, RuntimeError, KeyError) as exc:
