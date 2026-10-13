@@ -157,6 +157,17 @@ def verify_checkpoint_state(path: Path, arm: str, contract: dict) -> dict:
         tuple(state_groups.get("betas",()))!=(.9,.999) or
         state_groups.get("foreach") is not False):
         raise RuntimeError(f"Stage 8 {arm} optimizer parameters changed")
+    adam_steps=[]
+    for record in optimizer["state"].values():
+        value=record.get("step") if isinstance(record,dict) else None
+        if isinstance(value,torch.Tensor):
+            value=value.item() if value.numel()==1 else None
+        if not isinstance(value,(int,float)):
+            raise RuntimeError(f"Stage 8 {arm} Adam step counter missing")
+        adam_steps.append(int(value))
+    if not adam_steps or any(step!=24576 for step in adam_steps):
+        raise RuntimeError(f"Stage 8 {arm} Adam state has unexpected update counters: "
+                           f"{min(adam_steps,default=-1)}..{max(adam_steps,default=-1)}")
     cpu_rng=state.get("torchRngState")
     cuda_rng=state.get("cudaRngState")
     if (not isinstance(cpu_rng,torch.Tensor) or cpu_rng.numel()==0 or
@@ -168,6 +179,8 @@ def verify_checkpoint_state(path: Path, arm: str, contract: dict) -> dict:
         "bestUpdate":state["bestUpdate"],
         "modelTensorCount":len(model),
         "optimizerStateCount":len(optimizer["state"]),
+        "adamStepCountMin":min(adam_steps),
+        "adamStepCountMax":max(adam_steps),
         "cpuRngBytes":int(cpu_rng.numel()),
         "cudaRngStates":len(cuda_rng),
     }
