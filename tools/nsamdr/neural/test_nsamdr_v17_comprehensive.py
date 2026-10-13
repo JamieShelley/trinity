@@ -241,28 +241,42 @@ class AFProofTests(unittest.TestCase):
             self.assertTrue(states[0].is_contiguous())
 
     def test_completed_d_stage_resumption_does_not_retrain(self):
-        # At the terminal D checkpoint, recovery should finish selection and
-        # preview only. E must still be able to start at V17.3 update 49,152.
+        # Simulate recovery after the real D checkpoint reaches 86,016:
+        # report generation must not perform another gradient update.
         with tempfile.TemporaryDirectory() as tmp:
-            d = Path(tmp) / "D_continuation"
-            stage = d / "stage_086016/checkpoint.pt"
-            stage.parent.mkdir(parents=True)
+            root = Path(tmp)
+            stage = root / "D_continuation/stage_086016/checkpoint.pt"
             model = TinyModel(2, 2)
-            opt = torch.optim.Adam(model.parameters(), lr=0.0002)
-            contract = {"schema": proof.SCHEMA}
-            history = [{"update": 61440}, {"update": 73728}, {"update": 86016}]
-            proof._save_stage(
-                stage, model, opt, contract, "D_continuation", 86016,
-                history, 86016, 1.332111, 0, False,
-            )
-            state = proof._load_stage(
-                stage, TinyModel(2, 2),
-                torch.optim.Adam(TinyModel(2, 2).parameters(), lr=0.0002),
-                contract, "D_continuation", torch.device("cpu"),
-            )
-            self.assertEqual(state["update"], proof.STAGES[-1])
-            self.assertEqual(list(range(state["update"] + 1, proof.STAGES[-1] + 1)), [])
-            self.assertEqual(state["bestUpdate"], 86016)
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.0002)
+            contract = {"schema": proof.SCHEMA, "patience": 2,
+                        "minImprovement": 0.002}
+            record = {"update": 86016, "trained": {"allPass": False},
+                      "validation": {"allPass": False},
+                      "validationScore": 1.332111, "bestUpdate": 86016}
+            proof._save_stage(stage, model, optimizer, contract,
+                              "D_continuation", 86016, [record],
+                              86016, 1.332111, 0, False)
+            source = {"v3BestScore": 1.0, "checkpoint": "/unused/original.pt",
+                      "splits": {"validation": []}}
+
+            def load_initial(*_args, **_kwargs):
+                initial_model = TinyModel(2, 2)
+                initial_optimizer = torch.optim.Adam(
+                    initial_model.parameters(), lr=0.0002)
+                return initial_model, initial_optimizer
+
+            with patch.object(proof, "_load_v3_origin", side_effect=load_initial):
+                with patch.object(proof, "_train_update",
+                                  side_effect=AssertionError("retrained completed D")):
+                    with patch.object(proof, "_sheets", return_value={}):
+                        output = proof._train_arm(
+                            "D_continuation", root, contract, source,
+                            None, None, ["authority"], [], [],
+                            torch.device("cpu"), "auto")
+            self.assertEqual(output["stopUpdate"], 86016)
+            self.assertEqual(output["bestValidationUpdate"], 86016)
+            self.assertAlmostEqual(output["bestValidationScore"], 1.332111)
+            self.assertTrue((root / "D_continuation/arm_report.json").is_file())
 
     def test_matched_d_e_comparison_uses_only_common_update_checkpoints(self):
         def row(update, global_value, edge, detail):
