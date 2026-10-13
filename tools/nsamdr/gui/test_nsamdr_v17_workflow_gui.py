@@ -28,7 +28,8 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
         self.assertIn("comprehensive_af", [stage.id for stage in STAGES])
         self.assertIn("source_readiness", [stage.id for stage in STAGES])
         self.assertIn("diversity_proof", [stage.id for stage in STAGES])
-        self.assertEqual(next(stage.number for stage in STAGES if stage.id=="preview"),"9")
+        self.assertIn("matched_continuation", [stage.id for stage in STAGES])
+        self.assertEqual(next(stage.number for stage in STAGES if stage.id=="preview"),"10")
         self.assertEqual(STAGES[-1].id, "preview")
 
     def test_completed_checkpoint_detection_does_not_require_tk(self) -> None:
@@ -196,6 +197,46 @@ class NSAMDRV17WorkflowGuiTests(unittest.TestCase):
                 self.assertEqual(app._latest_v17_diversity_report()[0],report.resolve())
                 report.write_text('{"schema":"wrong"}')
                 self.assertIsNone(app._latest_v17_diversity_report())
+
+    def test_stage9_gui_defaults_to_read_only_provenance(self) -> None:
+        from unittest.mock import MagicMock
+        app=App.__new__(App)
+        app.vars={"audit_only":MagicMock()}
+        app.vars["audit_only"].get.return_value=True
+        cmd=app._command_for_stage("matched_continuation")
+        self.assertIn("v17-5-matched-continuation",cmd)
+        self.assertIn("--audit-only",cmd)
+        self.assertIn("--device",cmd)
+        self.assertIn("cuda",cmd)
+        self.assertNotIn("--selection",cmd)
+
+    def test_stage9_gui_training_command_and_explicit_parent(self) -> None:
+        from unittest.mock import MagicMock
+        app=App.__new__(App)
+        app.vars={"stage8_report":MagicMock(),"selection_only_report":MagicMock()}
+        app.vars["stage8_report"].get.return_value=r"D:\\proof\\stage8.json"
+        app.vars["selection_only_report"].get.return_value=r"D:\\proof\\preview.json"
+        cmd=app._command_for_stage("matched_continuation")
+        self.assertIn("--stage8-report",cmd)
+        self.assertIn("--selection-only-report",cmd)
+        self.assertNotIn("--audit-only",cmd)
+        self.assertIn("fresh",cmd)
+
+    def test_stage9_report_discovery_is_schema_strict(self) -> None:
+        from tools.nsamdr.gui import nsamdr_v17_workflow_gui as gui
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            path=root/"proof_01/report.json"
+            path.parent.mkdir()
+            path.write_text(json.dumps({
+                "schema":"NSAMDR_V17_5_MATCHED_CONTINUATION_PROOF_V1",
+                "researchOnly":True,"finalTestEvaluated":False,
+                "decision":"EXPOSURE_BENEFIT_SIGNAL"}))
+            app=App.__new__(App)
+            with patch.object(gui,"V17_CONTINUATION_ROOT",root):
+                self.assertEqual(app._latest_v17_continuation_report()[0],path.resolve())
+                path.write_text('{"schema":"unknown"}')
+                self.assertIsNone(app._latest_v17_continuation_report())
 
     def test_format_duration(self) -> None:
         self.assertEqual(_format_duration(65), "1m 05s")
