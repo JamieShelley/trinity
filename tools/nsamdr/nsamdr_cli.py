@@ -45,6 +45,7 @@ REQUIRED_LAYOUT = (
     "tools/nsamdr/neural/probe_nsamdr_v17_generalization_v2.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_spatial_generalization.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_comprehensive.py",
+    "tools/nsamdr/neural/probe_nsamdr_v17_source_readiness.py",
     "tools/nsamdr/neural/v17/spatial_sampling.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_4096_visual.py",
     "tools/nsamdr/neural/test_nsamdr_v17_sibling_proof.py",
@@ -70,6 +71,7 @@ CURRENT_TESTS = (
     "tools.nsamdr.neural.test_nsamdr_v17_generalization_v2",
     "tools.nsamdr.neural.test_nsamdr_v17_spatial_generalization",
     "tools.nsamdr.neural.test_nsamdr_v17_comprehensive",
+    "tools.nsamdr.neural.test_nsamdr_v17_source_readiness",
     "tools.nsamdr.neural.test_nsamdr_v17_4096_visual",
     "tools.nsamdr.neural.test_nsamdr_v16_structure",
     "tools.nsamdr.neural.test_nsamdr_v16_boundary_profiles",
@@ -514,6 +516,26 @@ class NSAMDRCommandLineApplication:
              *forwarded], env=env,
         )
 
+    def _command_v17_source_readiness(self, args: argparse.Namespace) -> int:
+        source_code = self._source_freshness_preflight()
+        if source_code:
+            return source_code
+        python = self._python("cuda")  # Installed dependencies; no CUDA training/preflight.
+        env = os.environ.copy()
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        command = [
+            python, "-u",
+            NEURAL_ROOT / "probe_nsamdr_v17_source_readiness.py",
+            "--repo-root", REPO_ROOT,
+            "--shared-cache", args.shared_cache,
+            "--device", args.device,
+        ]
+        if args.v3_report:
+            command += ["--v3-report", args.v3_report]
+        if args.skip_conditioning:
+            command += ["--skip-conditioning"]
+        return self._run(command, env=env)
+
     def _command_context_probe(self, args: argparse.Namespace) -> int:
         source_code = self._source_freshness_preflight()
         if source_code:
@@ -808,6 +830,13 @@ class NSAMDRCommandLineApplication:
         comprehensive.add_argument("--v3-report", default="")
         comprehensive.add_argument("--audit-only", action="store_true")
         comprehensive.set_defaults(handler=self._command_v17_comprehensive)
+
+        readiness = commands.add_parser("v17-source-readiness")
+        readiness.add_argument("--shared-cache", default=r"C:\CCP\EVE")
+        readiness.add_argument("--v3-report", default="")
+        readiness.add_argument("--device", choices=("cpu", "auto", "cuda"), default="cpu")
+        readiness.add_argument("--skip-conditioning", action="store_true")
+        readiness.set_defaults(handler=self._command_v17_source_readiness)
 
         visual_4096 = commands.add_parser("v17-4096-visual-proof")
         visual_4096.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cuda")
