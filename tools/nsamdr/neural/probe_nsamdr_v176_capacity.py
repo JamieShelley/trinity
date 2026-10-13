@@ -317,6 +317,8 @@ def _decision(arms:dict, phase:str)->dict:
             last=plain["history"][-1]
             entry={"plainFixedEdge":last["fixed"]["metrics"]["edge_recovery"],
                    "plainAlternateEdge":last["alternateMeanEdge"],
+                   "plainFixedGlobal":last["fixed"]["metrics"]["global_recovery"],
+                   "plainFixedLattice":last["fixed"]["metrics"]["lattice_cell_excess"],
                    "plainLattice":last["alternateMaxLattice"],
                    "plainTrainRegionsQualify":plain["qualification"]=="TRAIN_REGIONS_PASS"}
             if rich:
@@ -324,6 +326,8 @@ def _decision(arms:dict, phase:str)->dict:
                 entry.update({
                     "richFixedEdge":later["fixed"]["metrics"]["edge_recovery"],
                     "richAlternateEdge":later["alternateMeanEdge"],
+                    "richFixedGlobal":later["fixed"]["metrics"]["global_recovery"],
+                    "richFixedLattice":later["fixed"]["metrics"]["lattice_cell_excess"],
                     "richLattice":later["alternateMaxLattice"],
                     "richMinusPlainFixedEdge":later["fixed"]["metrics"]["edge_recovery"]
                         -entry["plainFixedEdge"],
@@ -340,7 +344,10 @@ def _decision(arms:dict, phase:str)->dict:
         status=("RICH_HR_FEATURE_SIGNAL_TRAIN_ONLY" if
                 all(comparisons[str(i)].get("richMinusPlainFixedEdge",0) >= .02 and
                     comparisons[str(i)].get("richMinusPlainAlternateEdge",0) >= .02 and
-                    comparisons[str(i)]["richLattice"] <= .15
+                    comparisons[str(i)]["richLattice"] <= .15 and
+                    comparisons[str(i)]["richFixedLattice"] <= .15 and
+                    comparisons[str(i)]["richFixedGlobal"] >=
+                        comparisons[str(i)]["plainFixedGlobal"]-.01
                     for i in HARD_TRAINING_INDICES)
                 else "NO_PROVEN_HR_FEATURE_BENEFIT")
     return {"decision":status,"comparisons":comparisons}
