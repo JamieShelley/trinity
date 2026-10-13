@@ -259,6 +259,37 @@ test must pass their existing gates, followed by visual review. This
 V17.3 experiment is **not yet trained or qualified** merely because
 its implementation is committed.
 
+#### V17.4 Stage 6 — unified A–F validation and training proof
+
+The **V17.4 Comprehensive A–F Proof** is one research-only workflow with six separately reported phases. It restores the **49,152-update V17.3 spatial model and Adam optimizer** independently for the two training arms. The V17.3 report/checkpoint remain unchanged.
+
+| Phase | Measurement | Output |
+| --- | --- | --- |
+| A · Physical sources | Authority/source-path duplication, native normal channel fallback, material coverage; training sources only | PASS / WARN / FAIL + per-authority audit |
+| B · Sampling | Legacy strided versus anti-aliased importance maps, scored on the same 24 candidate regions | Per-source changes and score differences |
+| C · Degradation | Area versus linear/cubic synthetic filtering; actual DDS mip only if decodable/aligned | Measured mismatch or UNAVAILABLE |
+| D · Spatial continuation | Original V17.3 spatial sampling and loss, starting from the original checkpoint + optimizer | Bounded training/checkpoints/previews |
+| E · Frequency loss | Same exact starting checkpoint, optimizer, sampling and steps with additional 3px/7px high-pass loss | Matched validation comparison against D |
+| F · Architecture diagnostic | Mid-only, detail-only, encoder-feature-zeroed and deterministic-only inference ablations | Development-validation recovery/lattice metrics |
+
+Both D/E use cumulative checkpoints **61,440, 73,728, 86,016** with patience 2 and minimum validation gain 0.002. The existing model architecture, baseline, authority partitions and qualification thresholds are unchanged. The E loss alone adds high-pass weights 0.10 (3px) and 0.05 (7px).
+
+**Sealing:** A–C inspect native pixels only from the 12 training authorities; they use only metadata for the four development and eight final-test authorities. D/E evaluate the same four independent-development authorities at each bounded checkpoint. The final test is opened at most once, only if a chosen D/E checkpoint passes **both** the original training and independent-development validation gates. A one-shot marker is written immediately before first final-test pixel access. Phase F is an inference ablation of the existing trained model, **not** proof that a new architecture works. Native integration remains disabled pending visual signoff.
+
+The B sampling fix is a diagnostic comparison, not silently applied during D/E training. C must return **UNAVAILABLE** when DDS mip data are not directly accessible; synthetic filtering differences are not proof of real mip mismatch.
+
+**GUI:** select **Stage 6 — V17.4 Comprehensive A–F Proof**, leave **Audit A–C only** unchecked, set **Resume = fresh**, and select **Run comprehensive A–F proof**.
+
+**CLI:**
+
+```bat
+scripts\build\nsamdr.bat validate
+scripts\build\nsamdr.bat v17-comprehensive-af --resume fresh
+```
+
+Optional audit-only preflight: `scripts\build\nsamdr.bat v17-comprehensive-af --audit-only --resume fresh`.
+Interrupted runs: same command with `--resume auto`; completed run proofs cannot be resumed. Results go under `artifacts/nsamdr/diagnostics/v17_comprehensive_proof/proof_*/`, including `ABC_audits.json`, arm checkpoints, validation sheets, `report.json` and `report.md`. Each phase is independently tagged PASS, WARN, FAIL, UNAVAILABLE, or SKIPPED.
+
 #### 1024 → 4096 visual-only probe
 
 The 12,288-update checkpoint also completed tiled inference from a **native
