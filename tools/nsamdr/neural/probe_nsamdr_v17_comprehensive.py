@@ -557,10 +557,20 @@ def _ablate(model, batch: dict[str, torch.Tensor], config: V16Config,
     model.eval()
     with torch.no_grad(), _autocast(device, precision):
         output = model(batch["lr_albedo"],batch["lr_normal"],batch["lr_material"])
+        lr_maps = torch.cat((
+            batch["lr_albedo"].float(), batch["lr_normal"].float(),
+            batch["lr_material"].float(),
+        ), dim=1)
+        latent = model.encoder(lr_maps)
+        without_latent = model.decoder(torch.zeros_like(latent), lr_maps)
         branches = {
             "full": output["decoder_mid_residual_hr"] + output["decoder_detail_residual"],
             "mid_only": output["decoder_mid_residual_hr"],
             "detail_only": output["decoder_detail_residual"],
+            "encoder_zeroed": (
+                without_latent["mid_residual_hr"] +
+                without_latent["detail_residual"]
+            ),
             "no_learned_residual": torch.zeros_like(output["decoder_detail_residual"]),
         }
         results = {}
@@ -587,7 +597,7 @@ def _audit_f(arm_results, source, contract, config, validation, device,
         _load_stage(Path(winner["selectedCheckpoint"]),model,optimizer,
                     contract,winner["arm"],device)
     samples = [_ablate(model,batch,config,device,precision) for batch in validation]
-    keys = ("full","mid_only","detail_only","no_learned_residual")
+    keys = ("full","mid_only","detail_only","encoder_zeroed","no_learned_residual")
     means = {}
     for branch in keys:
         means[branch] = {
@@ -601,6 +611,8 @@ def _audit_f(arm_results, source, contract, config, validation, device,
         "branchAblationMeans": means,
         "perDevelopmentCrop": samples,
         "architectureChanged": False, "architectureUpgradeProven": False,
+        "encoderTheoreticalLRReceptiveFieldPixels": 97,
+        "encoderReceptiveFieldNote": "97 LR pixels for encoder stem + 8 two-conv dilation blocks + tail; decoder adds contextual extent",
         "warning": "Removing a trained branch is an inference ablation, not a trained alternative architecture",
     }
 
