@@ -374,6 +374,31 @@ Outputs are under artifacts/nsamdr/diagnostics/v17_5_matched_continuation/proof_
 
 If Stage 9 does not give substantial worst-crop development edge improvement with lattice at or below 15%, further repetitions of the same training schedule are not the default next step. The next separately gated experiment should test explicit HR structure supervision versus an unchanged matched decoder, or a balanced training curriculum if B64 remains underfit.
 
+#### V17.6 Stage 10A — frozen V17.2 plus fine-detail specialist (architecture checkpoint)
+
+**Architecture modules and 19 targeted CPU regression tests committed; Windows tests and GPU training have NOT yet run.** This is a new, isolated architecture-only checkpoint, not another Stage 8/9 training continuation. Original V17.2 and the V17.5 proof checkpoints remain immutable. The eight sealed final-test authorities stay closed; the four development authorities must not be used as optimizer inputs or for source selection.
+
+New modules under tools/nsamdr/neural/v176/:
+
+- fine_detail.py — NSAMDRV176Detail requires an authentic V17.2 NSAMDRV17 instance, freezes every original parameter and forces its evaluation mode, then uses a zero-initialized grayscale detail specialist. Four phase-neutral residual blocks use dilation 1/2/4/1, channel width 32 for the planned proof. Exactly ten HR evidence channels are constructed from B/C0 albedo and normal maps, V17.2's 2x/4x decoder residuals, and resized LR albedo/normal analytic gradients. No new independent full encoder, absolute UV, 4x phase coordinates, PixelShuffle or transpose convolution.
+- physical_composition.py — gaussian_highpass removes broad components from the specialist's scalar output (Gaussian sigma 1.25 HR pixels, radius 4); compose_albedo_detail adds the scalar to all three existing *raw* albedo residual channels before the ORIGINAL channel cap/tanh and final clamp. Normal XY, material maps, physical constraints and original baseline B are unchanged. The specialist head starts at exactly zero, so C1 equals the frozen C0 at initialization.
+- wavelet_supervision.py — training-only two-level, non-decimating Haar detail bands (LH/HL/HH at dilation 1 and 2). Stage 10A losses are normalized authored high-band reconstruction, signed edge error, RGB reconstruction L1, protected-region alteration and fine-correction magnitude. Initial frozen coefficients: 1.0 / 0.25 / 0.15 / 0.10 / 0.02. The authored HR target is available ONLY to the training loss and evaluation. The specialist never receives target pixels during inference.
+
+**Explicit staged scope:** Stage 10A architecture is implemented first and testable without project assets. The Stage 9 A12 49,152-update research checkpoint loader, optimizer/runner, bounded checkpoint schedule and A/B/C evidence emitter must be implemented and checked as a separate checkpoint BEFORE GPU training. Stage 10B normal XY specialization and Stage 11 quadtree routing are not implemented or implicitly enabled. Avoid introducing multiple unknown experimental variables at once.
+
+The next bounded implementation must prove exact frozen-backbone checkpoint provenance, training-only gradient updates and no data leakage. Then begin A12-specialist training on the original twelve training authorities; held-out development evaluation is unchanged, and the original per-crop 60% training edge, 35% independent-development edge, 15% lattice cap and all other qualification gates remain mandatory. The quadtree is an inference allocation optimization that is introduced only after dense specialist reconstruction provides evidence of genuine improvements.
+
+To run CPU regression checks on Windows from D:\REPOS\trinity:
+
+~~~bat
+git switch NSAMDR
+git fetch origin NSAMDR
+git merge --ff-only FETCH_HEAD
+scripts\build\nsamdr.bat validate
+~~~
+
+The validation command now discovers tools.nsamdr.neural.test_nsamdr_v176_detail alongside all existing regressions. No new V17.6 GPU CLI command or GUI training button is provided by this architecture-only checkpoint.
+
 #### 1024 → 4096 visual-only probe
 
 The 12,288-update checkpoint also completed tiled inference from a **native
