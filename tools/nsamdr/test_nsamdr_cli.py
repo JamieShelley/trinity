@@ -71,6 +71,39 @@ class NSAMDRCLITests(unittest.TestCase):
         self.assertEqual(args.decoder_blocks, 4)
         self.assertEqual(args.resume, "auto")
 
+    def test_v17_5_selection_only_defaults_and_no_gpu_preflight(self) -> None:
+        from unittest.mock import patch
+        from tools.nsamdr.nsamdr_cli import NSAMDRCommandLineApplication
+        app=NSAMDRCommandLineApplication()
+        args=app.build_parser().parse_args(["v17-5-diversity-proof","--selection-only"])
+        self.assertEqual(args.seed,17301)
+        self.assertEqual(args.resume,"fresh")
+        self.assertTrue(args.selection_only)
+        with patch.object(app,"_source_freshness_preflight",return_value=0), \
+             patch.object(app,"_python",return_value="python"), \
+             patch.object(app,"_cuda_preflight",side_effect=AssertionError("must not require CUDA")), \
+             patch.object(app,"_run",return_value=0) as run:
+            self.assertEqual(app._command_v17_5_diversity(args),0)
+        self.assertIn("--selection-only",run.call_args.args[0])
+
+    def test_v17_5_training_preflights_cuda_and_forwards_seed(self) -> None:
+        from unittest.mock import patch
+        from tools.nsamdr.nsamdr_cli import NSAMDRCommandLineApplication
+        app=NSAMDRCommandLineApplication()
+        args=app.build_parser().parse_args([
+            "v17-5-diversity-proof","--resume","auto","--seed","17302",
+            "--selection","frozen.json"])
+        with patch.object(app,"_source_freshness_preflight",return_value=0), \
+             patch.object(app,"_python",return_value="python"), \
+             patch.object(app,"_cuda_preflight",return_value=0) as preflight, \
+             patch.object(app,"_run",return_value=0) as run:
+            self.assertEqual(app._command_v17_5_diversity(args),0)
+        preflight.assert_called_once()
+        command=run.call_args.args[0]
+        self.assertIn("17302",command)
+        self.assertIn("frozen.json",command)
+        self.assertIn("auto",command)
+
     def test_context_probe_accepts_bounded_arguments(self) -> None:
         parser = NSAMDRCommandLineApplication().build_parser()
         args = parser.parse_args(
