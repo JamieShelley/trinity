@@ -410,6 +410,42 @@ def _tile_ambiguity(sampler: NativeAuthoritySampler, *, max_tiles: int = 24) -> 
     }
 
 
+def _alignment_evidence(albedo: np.ndarray, normal: np.ndarray) -> dict[str, Any]:
+    """Compare spatial boundaries, not component orientation or normal semantics."""
+    side=256
+    a=cv2.resize(albedo.astype(np.float32)/255,(side,side),
+                 interpolation=cv2.INTER_AREA)
+    n=cv2.resize(normal.astype(np.float32)/127.5-1,(side,side),
+                 interpolation=cv2.INTER_AREA)
+    light=cv2.cvtColor(a,cv2.COLOR_RGB2GRAY)
+    def edge(value:np.ndarray)->np.ndarray:
+        dx=cv2.Sobel(value,cv2.CV_32F,1,0,ksize=3)
+        dy=cv2.Sobel(value,cv2.CV_32F,0,1,ksize=3)
+        return cv2.magnitude(dx,dy)
+    albedo_edges=edge(light)
+    normal_edges=edge(n[...,0])+edge(n[...,1])
+    if albedo_edges.std()<1.e-5 or normal_edges.std()<1.e-5:
+        return {"status":"UNDETERMINED","reason":"Insufficient source edge variation"}
+    # Crop with 4px boundary margin to avoid wrap and keep matching support.
+    ae=albedo_edges[4:-4,4:-4]
+    ae=(ae-ae.mean())/(ae.std()+1.e-6)
+    scores={}
+    for dy in range(-4,5):
+        for dx in range(-4,5):
+            ne=normal_edges[4+dy:side-4+dy,4+dx:side-4+dx]
+            ne=(ne-ne.mean())/(ne.std()+1.e-6)
+            scores[(dx,dy)]=float(np.mean(ae*ne))
+    best=max(scores,key=scores.get)
+    return {
+        "status":"PASS",
+        "peakOffsetAt256":[best[0],best[1]],
+        "zeroOffsetCorrelation":scores[(0,0)],
+        "peakCorrelation":scores[best],
+        "peakImprovement":scores[best]-scores[(0,0)],
+        "warning":"Albedo and normal edge maps need not coincide, so an offset is evidence to inspect, not proof of misregistration",
+    }
+
+
 def _audit_c(repo: Path, source: dict[str, Any],
              manifest: dict[str,Any], parts: dict[str,list[dict[str,Any]]],
              *, device: str, skip_conditioning: bool) -> dict[str,Any]:
@@ -428,6 +464,10 @@ def _audit_c(repo: Path, source: dict[str, Any],
             sampler.append({"authorityId":authority,"legacyOrigin":list(legacy),
                             "antiAliasedOrigin":list(fixed),"selectionChanged":legacy!=fixed})
         ambiguity=_tile_ambiguity(with_native)
+        alignments={
+            authority:_alignment_evidence(fam.albedo,fam.normal)
+            for authority,fam in with_native.families.items()
+        }
     finally:
         with_native.close()
     result={
@@ -436,6 +476,7 @@ def _audit_c(repo: Path, source: dict[str, Any],
                     "changedAuthorities":sum(x["selectionChanged"] for x in sampler),
                     "proposedSamplerAppliedToTraining":False},
         "reconstructionAmbiguity":ambiguity,
+        "sourceAlignment":alignments,
         "trainingFitDiagnostics":{},
     }
     root=repo/"artifacts/nsamdr/diagnostics/v17_comprehensive_proof"
