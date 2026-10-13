@@ -294,6 +294,17 @@ def _census_rows(rows: list[Any], resfiles: Path,
                 hashlib.sha256((generation+"|"+stem).encode()).hexdigest()[:16]
                 for stem,*_ in eligible
             ],
+            "eligiblePairExamples": [
+                {
+                    "stem":stem,
+                    "albedoLogical":albedo["logical"],
+                    "normalLogical":normal["logical"],
+                    "albedoResolution":[albedo["width"],albedo["height"]],
+                    "normalResolution":[normal["width"],normal["height"]],
+                }
+                for stem,albedo,normal in eligible[:64]
+            ],
+            "eligiblePairExamplesTruncated":len(eligible)>64,
             "formatSemanticsVerified":False,
             "meaning": "Local/index/header availability only, not training eligibility or PBR supervision",
         }
@@ -465,6 +476,9 @@ def _audit_c(repo: Path, source: dict[str, Any],
         except (OSError,ValueError,RuntimeError,KeyError,TypeError) as exc:
             result["conditioning"]={"status":"UNAVAILABLE",
                                     "reason":f"{type(exc).__name__}: {exc}"}
+    if result["conditioning"]["status"] == "UNAVAILABLE":
+        result["status"] = "WARN"
+        result["reason"] = "Frozen-model conditioning unavailable; sampling and ambiguity diagnostics completed"
     return result
 
 
