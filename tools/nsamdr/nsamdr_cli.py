@@ -44,6 +44,7 @@ REQUIRED_LAYOUT = (
     "tools/nsamdr/neural/probe_nsamdr_v17_generalization.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_generalization_v2.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_spatial_generalization.py",
+    "tools/nsamdr/neural/probe_nsamdr_v17_comprehensive.py",
     "tools/nsamdr/neural/v17/spatial_sampling.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_4096_visual.py",
     "tools/nsamdr/neural/test_nsamdr_v17_sibling_proof.py",
@@ -68,6 +69,7 @@ CURRENT_TESTS = (
     "tools.nsamdr.neural.test_nsamdr_v17_generalization_proof",
     "tools.nsamdr.neural.test_nsamdr_v17_generalization_v2",
     "tools.nsamdr.neural.test_nsamdr_v17_spatial_generalization",
+    "tools.nsamdr.neural.test_nsamdr_v17_comprehensive",
     "tools.nsamdr.neural.test_nsamdr_v17_4096_visual",
     "tools.nsamdr.neural.test_nsamdr_v16_structure",
     "tools.nsamdr.neural.test_nsamdr_v16_boundary_profiles",
@@ -483,6 +485,35 @@ class NSAMDRCommandLineApplication:
             "--repo-root", REPO_ROOT, *forwarded,
         ], env=env)
 
+    def _command_v17_comprehensive(self, args: argparse.Namespace) -> int:
+        source_code = self._source_freshness_preflight()
+        if source_code:
+            return source_code
+        python = self._python("cuda" if not args.audit_only else "cpu")
+        env = os.environ.copy()
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        self._configure_cuda_allocator_env(env)
+        if not args.audit_only and args.device != "cpu":
+            code = self._cuda_preflight(python, env)
+            if code:
+                return code
+        forwarded = [
+            "--repo-root", str(REPO_ROOT),
+            "--device", args.device,
+            "--amp-precision", args.amp_precision,
+            "--resume", args.resume,
+            "--patience", str(args.patience),
+            "--min-improvement", str(args.min_improvement),
+        ]
+        if args.v3_report:
+            forwarded += ["--v3-report", args.v3_report]
+        if args.audit_only:
+            forwarded += ["--audit-only"]
+        return self._run(
+            [python, "-u", NEURAL_ROOT / "probe_nsamdr_v17_comprehensive.py",
+             *forwarded], env=env,
+        )
+
     def _command_context_probe(self, args: argparse.Namespace) -> int:
         source_code = self._source_freshness_preflight()
         if source_code:
@@ -767,6 +798,16 @@ class NSAMDRCommandLineApplication:
         spatial.add_argument("--patience", type=int, default=2)
         spatial.add_argument("--min-improvement", type=float, default=0.002)
         spatial.set_defaults(handler=self._command_v17_spatial_generalization)
+
+        comprehensive = commands.add_parser("v17-comprehensive-af")
+        comprehensive.add_argument("--device", choices=("auto","cuda","cpu"), default="cuda")
+        comprehensive.add_argument("--amp-precision", choices=("auto","bf16","fp16"), default="auto")
+        comprehensive.add_argument("--resume", choices=("fresh","auto"), default="fresh")
+        comprehensive.add_argument("--patience", type=int, default=2)
+        comprehensive.add_argument("--min-improvement", type=float, default=0.002)
+        comprehensive.add_argument("--v3-report", default="")
+        comprehensive.add_argument("--audit-only", action="store_true")
+        comprehensive.set_defaults(handler=self._command_v17_comprehensive)
 
         visual_4096 = commands.add_parser("v17-4096-visual-proof")
         visual_4096.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cuda")
