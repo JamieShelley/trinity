@@ -284,6 +284,18 @@ class MatchedContinuationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"model or Adam"):
                 contract.verify_checkpoint_state(path,"A12",report["runContract"])
 
+    def test_inspection_detects_incorrect_adam_update_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/"proof_01"
+            root.mkdir()
+            report_path,report,_=self._stage8_test_files(root)
+            path=root/"A12/stage_024576/checkpoint.pt"
+            state=torch.load(path,map_location="cpu",weights_only=True)
+            state["optimizerState"]["state"][0]["step"]=torch.tensor(2048)
+            torch.save(state,path)
+            with self.assertRaisesRegex(RuntimeError,"update counters"):
+                contract.verify_checkpoint_state(path,"A12",report["runContract"])
+
     def test_inspection_detects_missing_cuda_rng(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)/"proof_01"
