@@ -195,7 +195,7 @@ def _restore(path:Path,model:NSAMDRV176Detail,opt,contract:dict,
         state.get("schema")!=CHECKPOINT_SCHEMA or
         state.get("contract")!=contract or
         state.get("architecture")!=model.architecture_contract() or
-        state.get("update") not in STAGES[1:] or
+        state.get("update") not in STAGES or
         [x.get("update") for x in state.get("history",[])]!=
         [x for x in STAGES if x<=state["update"]]):
         raise RuntimeError("Stage 10A specialist checkpoint/resume identity changed")
@@ -260,13 +260,12 @@ def run(args:argparse.Namespace)->tuple[int,Path]:
         device=_device("cpu" if args.audit_only else "cuda")
         backbone,_unused=_make_model(config,17301,device)
         selection,audit=verify_parent(parent_path,source,manifest,parts,backbone)
-        model=NSAMDRV176Detail(backbone,detail_channels=32).to(device)
+        # Fresh specialist initialization, independent of the frozen parent's
+        # historical model-init RNG or training optimizer.
         torch.manual_seed(DETAIL_SEED)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(DETAIL_SEED)
-        # Deterministic specialist init independent of previously loaded backbone.
-        model.specialist.reset_parameters() if hasattr(model.specialist,"reset_parameters") else None
-        # Specialist construction is seeded in its own helper below.
+        model=NSAMDRV176Detail(backbone,detail_channels=32).to(device)
         contract={
             "schema":SCHEMA,"parentStage9ReportSha256":audit["stage9ReportSha256"],
             "parentStage9ManifestSha256":audit["stage9ManifestSha256"],
@@ -334,6 +333,8 @@ def run(args:argparse.Namespace)->tuple[int,Path]:
                 qualified=history[0]["qualified"]
                 history[0]["newBest"]=True
                 _atomic_json(folder/"baseline_metrics.json",history[0])
+                _save(folder/"stage_000000"/"checkpoint.pt",
+                      model,opt,contract,0,history,best,best_score,qualified)
             began=time.monotonic()
             for update in range(start+1,STAGES[-1]+1):
                 idx=(update-1)%len(authority_ids)
@@ -375,7 +376,7 @@ def run(args:argparse.Namespace)->tuple[int,Path]:
             report["finalUpdate"]=STAGES[-1]
             report["specialistUpdates"]=STAGES[-1]
             report["frozenBackboneAfterSha256"]=_tensor_sha(model.backbone)
-            if best>0 and best!=STAGES[-1]:
+            if best != STAGES[-1]:
                 _restore(folder/f"stage_{best:06d}"/"checkpoint.pt",model,opt,contract,device)
             report["validationPreviews"]=_sheets(
                 folder/f"selected_{best:06d}",model,development,
