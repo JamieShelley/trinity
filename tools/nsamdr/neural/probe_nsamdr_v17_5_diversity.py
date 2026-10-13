@@ -310,7 +310,8 @@ def _compare(results:dict)->list[dict]:
 
 def _decision(results:dict)->tuple[str,bool]:
     a,b=(results[x] for x in ARMS)
-    if b["selectedTrained"]["allPass"] and b["selectedValidation"]["allPass"]:
+    if any(row["selectedTrained"]["allPass"] and row["selectedValidation"]["allPass"]
+           for row in (a,b)):
         return "VALIDATION_QUALIFIED_RESEARCH_ONLY",False
     av,bv=a["selectedValidation"],b["selectedValidation"]
     ae,be=_metric(av,"edge_recovery"),_metric(bv,"edge_recovery")
