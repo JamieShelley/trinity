@@ -29,7 +29,8 @@ from probe_nsamdr_v17_generalization_v2 import (
     _evaluate_set, _promote_checkpoint, _sheets, _validation_score,
 )
 from probe_nsamdr_v17_sibling_architecture import _batch_for_record
-from probe_nsamdr_v17_5_diversity import _atomic_json, _make_model, _tensor_sha
+from probe_nsamdr_v17_5_diversity import _atomic_json, _tensor_sha
+from tools.nsamdr.neural.v17.model import NSAMDRV17
 from tools.nsamdr.neural.v17.diversity_corpus import (
     selected_rows, sha256_file, sha256_json,
 )
@@ -258,7 +259,11 @@ def run(args:argparse.Namespace)->tuple[int,Path]:
         manifest,parts=_records(source)
         config=_batch_config(source)
         device=_device("cpu" if args.audit_only else "cuda")
-        backbone,_unused=_make_model(config,17301,device)
+        # Use the canonical V17.2 Python class: historical script-mode
+        # helpers import the same source through a second module name.
+        # Checkpoint state_dict keys are identical; no optimizer is reused.
+        backbone=NSAMDRV17(config,encoder_channels=96,mid_channels=64,
+                           detail_channels=48,decoder_blocks=4).to(device)
         selection,audit=verify_parent(parent_path,source,manifest,parts,backbone)
         # Fresh specialist initialization, independent of the frozen parent's
         # historical model-init RNG or training optimizer.
