@@ -43,6 +43,7 @@ V17_V3_ROOT = DIAGNOSTIC_ROOT / "v17_spatial_generalization"
 V17_AF_ROOT = DIAGNOSTIC_ROOT / "v17_comprehensive_proof"
 V17_SOURCE_ROOT = DIAGNOSTIC_ROOT / "v17_source_readiness"
 V17_DIVERSITY_ROOT = DIAGNOSTIC_ROOT / "v17_5_diversity"
+V17_CONTINUATION_ROOT = DIAGNOSTIC_ROOT / "v17_5_matched_continuation"
 MAIN_TRAINING_ROOT = REPO_ROOT / "artifacts/nsamdr/main_training"
 APP_TITLE = "NSAMDR V17 Workflow"
 STATE_SCHEMA = "nsamdr-v17-operator-workflow-v1"
@@ -56,7 +57,7 @@ EPOCH_RE = re.compile(r"Epoch\s+(\d+)\s*/\s*(\d+)\s+phase=([^\s]+)", re.I)
 BATCH_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d+)\s+total=", re.I)
 PROGRESS_RE = re.compile(r"total=(\d+)/(\d+)")
 FULL_BROAD_STEP_RE = re.compile(r"\[full-broad\]\s+step\s+(\d+)\s*/\s*(\d+)", re.I)
-V17_UPDATE_RE = re.compile(r"\[v17-(?:sibling|generalization|generalization-v2|spatial|af)\]\s+(?:arm=\w+\s+)?update\s+(\d+)\s*/\s*(\d+)", re.I)
+V17_UPDATE_RE = re.compile(r"\[v17-(?:sibling|generalization|generalization-v2|spatial|af|continuation)\]\s+(?:arm=\w+\s+)?update\s+(\d+)\s*/\s*(\d+)", re.I)
 STEP_MS_RE = re.compile(r"\bstep=([0-9]+(?:\.[0-9]+)?)ms\b", re.I)
 
 
@@ -124,8 +125,14 @@ STAGES = (
         "Matched 12 versus 64 training authorities, frozen independent development, sealed final untouched.",
     ),
     Stage(
-        "preview",
+        "matched_continuation",
         "9",
+        "V17.5 Matched Continuation A12/B64",
+        "Continue both frozen Stage 8 models to 49,152 updates with unchanged gates and sealed final.",
+    ),
+    Stage(
+        "preview",
+        "10",
         "Preview / visual gate",
         "Open the latest V17 unseen-sibling A/B/C sheet or historical preview artifacts.",
     ),
@@ -349,6 +356,23 @@ class App:
             return None
         _time, path, report = max(reports, key=lambda item: item[0])
         return path.resolve(), report
+
+    def _latest_v17_continuation_report(self) -> tuple[Path, dict[str, Any]] | None:
+        if not V17_CONTINUATION_ROOT.is_dir():
+            return None
+        valid: list[tuple[float, Path, dict[str, Any]]] = []
+        for path in V17_CONTINUATION_ROOT.glob("proof_*/report.json"):
+            report = _read_json(path)
+            if report is None or report.get("schema") != "NSAMDR_V17_5_MATCHED_CONTINUATION_PROOF_V1":
+                continue
+            try:
+                valid.append((path.stat().st_mtime,path.resolve(),report))
+            except OSError:
+                continue
+        if not valid:
+            return None
+        _when,path,report=max(valid,key=lambda item:item[0])
+        return path,report
 
     def _latest_v17_diversity_report(self) -> tuple[Path, dict[str, Any]] | None:
         if not V17_DIVERSITY_ROOT.is_dir():
@@ -840,6 +864,23 @@ class App:
             source = self._value("v3_report", "").strip()
             if source:
                 command += ["--v3-report", source]
+            return command
+
+        if stage_id == "matched_continuation":
+            command = self._cli_argv(
+                "v17-5-matched-continuation",
+                "--device", "cuda",
+                "--amp-precision", self._value("amp", "auto"),
+                "--resume", self._value("resume", "fresh"),
+            )
+            if self._value("audit_only", "False").lower() in ("true", "1"):
+                command.append("--audit-only")
+            for key,flag in (("stage8_report","--stage8-report"),
+                             ("selection_only_report","--selection-only-report"),
+                             ("v3_report","--v3-report")):
+                candidate=self._value(key,"").strip()
+                if candidate:
+                    command += [flag,candidate]
             return command
 
         if stage_id == "diversity_proof":
@@ -1526,6 +1567,27 @@ class App:
                 ttk.Button(self.form, text="Open consolidated proof folder",
                            command=lambda folder=path.parent: _open_path(folder)).pack(anchor="w", pady=2)
 
+        elif stage_id == "matched_continuation":
+            self._label("Purpose", "V17.5 Stage 9: continue both original Stage 8 A12/B64 models, optimizer and RNG to 49,152.")
+            self._label("Protected", "Frozen source roster, original four development crops and eight sealed final-test authorities.")
+            self._label("Checkpoints", "Continue 24,576 -> 36,864 -> 49,152; compare both arms at equal updates.")
+            self._label("Provenance", "Check Stage 8 source/checkpoint hashes; report CPU preview roster differences explicitly.")
+            self._label("Additional metrics", "B64 common twelve versus new fifty-two, residual cosine, phase energy and lattice excess.")
+            self._row("AMP precision (must match Stage 8)", "amp", "auto", ("auto", "bf16", "fp16"))
+            self._row("Resume mode", "resume", "fresh", ("fresh", "auto"))
+            self._row("Stage 8 completed report (optional)", "stage8_report", "")
+            self._row("Selection-only report (optional)", "selection_only_report", "")
+            self._row("V17.3 source report (optional)", "v3_report", "")
+            self._check("Audit provenance only (no GPU training)", "audit_only", True)
+            ttk.Button(self.form, text="Run Stage 9 matched continuation",
+                       command=self.run_selected).pack(anchor="w",pady=(8,2))
+            latest=self._latest_v17_continuation_report()
+            if latest is not None:
+                path,report=latest
+                self._label("Latest Stage 9",report.get("decision","unknown"))
+                ttk.Button(self.form,text="Open Stage 9 proof folder",
+                           command=lambda folder=path.parent: _open_path(folder)).pack(anchor="w",pady=2)
+
         elif stage_id == "diversity_proof":
             self._label("Purpose", "Matched A12/B64 V17.5 authority-diversity research with unchanged V17.2 architecture.")
             self._label("Data", "A12 is the original 12 native training authorities. B64 adds 52 qualified training authorities.")
@@ -1692,6 +1754,13 @@ class App:
                 "ready" if latest_v3 is None else
                 "visual-review" if latest_v3[1].get("visualGateRequired") else
                 "rejected"
+            )
+        if self.active_stage != "matched_continuation":
+            latest_continuation=self._latest_v17_continuation_report()
+            statuses["matched_continuation"]=(
+                "ready" if latest_continuation is None else
+                "failed" if latest_continuation[1].get("decision")=="BLOCKED" else
+                "completed"
             )
         if self.active_stage != "diversity_proof":
             latest_diversity = self._latest_v17_diversity_report()
@@ -2084,6 +2153,13 @@ class App:
                                 stage_id,
                                 "visual-review" if latest and latest[1].get("visualGateRequired")
                                 else "rejected",
+                            )
+                        elif stage_id == "matched_continuation" and code == 0:
+                            latest=self._latest_v17_continuation_report()
+                            self._set_status(
+                                stage_id,
+                                "completed" if latest and latest[1].get("researchOnly")
+                                else "failed",
                             )
                         elif stage_id == "diversity_proof" and code == 0:
                             latest = self._latest_v17_diversity_report()
