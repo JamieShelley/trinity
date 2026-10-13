@@ -111,6 +111,27 @@ class V176CapacityTests(unittest.TestCase):
         self.assertTrue(all(p.grad is None for p in plain.backbone.parameters()))
         self.assertTrue(all(p.grad is None for p in plain.specialist.parameters()))
 
+    def test_diagnostics_never_change_specialist_or_backbone_weights(self):
+        plain,_=create_matched_variants(_backbone())
+        initial={name:value.detach().clone()
+                 for name,value in plain.state_dict().items()}
+        diagnostic_batch(plain,_batch(plain))
+        self.assertTrue(all(torch.equal(value,plain.state_dict()[name])
+                            for name,value in initial.items()))
+
+    def test_training_step_updates_specialist_not_backbone(self):
+        plain,_=create_matched_variants(_backbone())
+        optimizer=torch.optim.Adam(plain.trainable_parameters(),lr=proof.LEARNING_RATE)
+        before={name:value.detach().clone()
+                for name,value in plain.backbone.state_dict().items()}
+        head=plain.specialist.head.weight.detach().clone()
+        metrics=proof._train_step(plain,optimizer,_batch(plain),
+                                  torch.device("cpu"),"auto",collect=True)
+        self.assertIn("totalL2",metrics["gradient"])
+        self.assertFalse(torch.equal(head,plain.specialist.head.weight))
+        self.assertTrue(all(torch.equal(value,plain.backbone.state_dict()[name])
+                            for name,value in before.items()))
+
     def test_tensor_statistic_threshold_is_one_lsb(self):
         result=tensor_statistics(torch.tensor([[[[0.0,1.0/255,2/255]]]]))
         self.assertAlmostEqual(result["aboveOneLsbFraction"],2/3)
@@ -161,7 +182,9 @@ class V176CapacityTests(unittest.TestCase):
         def arm(index,mode,edge,lattice):
             return {"arm":proof._arm_name(index,mode),
                     "qualification":"TRAIN_REGIONS_UNQUALIFIED",
-                    "history":[{"fixed":{"metrics":{"edge_recovery":edge},
+                    "history":[{"fixed":{"metrics":{"edge_recovery":edge,
+                                                      "global_recovery":.35,
+                                                      "lattice_cell_excess":lattice},
                                           "gateChecks":{"edge":False,"lattice":lattice<=.15}},
                                 "alternateMeanEdge":edge,
                                 "alternateMaxLattice":lattice}]}
