@@ -645,6 +645,29 @@ def _final_once(path, winner, source, contract, config, parts, device, precision
     return _summarize(items,sibling=True),images
 
 
+def _matched_comparison(results: dict[str, Any]) -> list[dict[str, Any]]:
+    """Unbiased same-update D/E paired development comparison, not best-vs-best."""
+    if not all(k in results for k in ("D_continuation", "E_frequency_loss")):
+        return []
+    d = {int(row["update"]): row for row in results["D_continuation"]["history"]}
+    e = {int(row["update"]): row for row in results["E_frequency_loss"]["history"]}
+    paired = []
+    for update in sorted(d.keys() & e.keys()):
+        a, b = d[update], e[update]
+        ma, mb = a["validation"]["mean"], b["validation"]["mean"]
+        row = {"update": update,
+               "D_validationScore": a["validationScore"],
+               "E_validationScore": b["validationScore"],
+               "deltaValidationScore": b["validationScore"]-a["validationScore"]}
+        for k in ("global_recovery","edge_recovery","gradient_recovery",
+                  "detail_recovery_1px","lattice_cell_excess"):
+            row["D_"+k] = ma[k]
+            row["E_"+k] = mb[k]
+            row["delta_"+k] = mb[k]-ma[k]
+        paired.append(row)
+    return paired
+
+
 def _write_markdown(path: Path, report: dict[str, Any]) -> None:
     phases=report["phases"]
     lines=[
@@ -672,6 +695,22 @@ def _write_markdown(path: Path, report: dict[str, Any]) -> None:
             f"{100*m['detail_recovery_1px']:.2f}%",
             str(bool(item["bestQualified"])),
         ])+" |")
+    if report.get("matchedComparison"):
+        lines += [
+            "", "## Same-update D versus E development comparison", "",
+            "| Update | D edge | E edge | E − D edge (pp) | D 1px | E 1px | Score E − D |",
+            "|---|---:|---:|---:|---:|---:|---:|",
+        ]
+        for entry in report["matchedComparison"]:
+            lines.append("| "+" | ".join([
+                str(entry["update"]),
+                f"{100*entry['D_edge_recovery']:.2f}%",
+                f"{100*entry['E_edge_recovery']:.2f}%",
+                f"{100*entry['delta_edge_recovery']:+.2f}",
+                f"{100*entry['D_detail_recovery_1px']:.2f}%",
+                f"{100*entry['E_detail_recovery_1px']:.2f}%",
+                f"{entry['deltaValidationScore']:+.5f}",
+            ])+" |")
     lines+=["","Final-test evaluated: **"+str(report["finalTestEvaluated"])+"**",
             "Sealed authorities: "+str(len(report["finalTestCropIds"])),
             "",
@@ -808,6 +847,7 @@ def run(args: argparse.Namespace) -> tuple[int,Path]:
             "qualificationGatesModified":False,"decision":decision,
             "sourceV3Report":source["v3Report"],"sourceCheckpointSha256":source["checkpointSha256"],
             "phases":phases,"armResults":result_arms,
+            "matchedComparison":_matched_comparison(result_arms),
             "selectedQualifiedArm":winner["arm"] if winner else None,
             "trainingCropIds":source["splits"]["training"],
             "validationCropIds":source["splits"]["validation"],
