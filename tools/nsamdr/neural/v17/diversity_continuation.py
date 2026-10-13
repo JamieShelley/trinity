@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import torch
+
 from .diversity_corpus import sha256_file, sha256_json, verify_frozen_selection
 
 SCHEMA = "NSAMDR_V17_5_MATCHED_CONTINUATION_PROVENANCE_V1"
@@ -116,6 +118,61 @@ def compare_selection_preview(
     }
 
 
+def verify_checkpoint_state(path: Path, arm: str, contract: dict) -> dict:
+    """Read authenticated Stage 8 research checkpoint on CPU; never run a model."""
+    try:
+        # Only tensors and Python primitives are expected from Stage 8.
+        state = torch.load(path, map_location="cpu", weights_only=True)
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        raise RuntimeError(f"Stage 8 {arm} checkpoint cannot be inspected safely: {exc}") from exc
+    if (not isinstance(state,dict) or
+        state.get("schema") != "NSAMDR_V17_5_DIVERSITY_CHECKPOINT_V1" or
+        state.get("contract") != contract or
+        state.get("arm") != arm or
+        state.get("update") != 24576 or
+        [r.get("update") for r in state.get("history") or []] !=
+        [6144, 12288, 24576] or
+        state.get("bestUpdate") not in (6144,12288,24576) or
+        not isinstance(state.get("bestScore"),(float,int)) or
+        not isinstance(state.get("bestQualified"),bool)):
+        raise RuntimeError(f"Stage 8 {arm} checkpoint training identity or history mismatch")
+    architecture=state.get("architecture") or {}
+    if (architecture.get("revision") != "V17.2-proof" or
+        architecture.get("scale") != 4 or
+        any(architecture.get(name)!=value for name,value in (
+            ("encoderChannels",96),("decoderMidChannels",64),
+            ("decoderDetailChannels",48),("decoderBlocksPerStage",4)))):
+        raise RuntimeError(f"Stage 8 {arm} checkpoint architecture mismatch")
+    model=state.get("modelState")
+    optimizer=state.get("optimizerState")
+    if (not isinstance(model,dict) or not model or
+        not all(isinstance(t,torch.Tensor) for t in model.values()) or
+        not isinstance(optimizer,dict) or
+        not isinstance(optimizer.get("state"),dict) or not optimizer["state"] or
+        not isinstance(optimizer.get("param_groups"),list) or
+        len(optimizer["param_groups"])!=1):
+        raise RuntimeError(f"Stage 8 {arm} missing full model or Adam optimizer state")
+    state_groups=optimizer["param_groups"][0]
+    if (float(state_groups.get("lr",-1))!=.0002 or
+        tuple(state_groups.get("betas",()))!=(.9,.999) or
+        state_groups.get("foreach") is not False):
+        raise RuntimeError(f"Stage 8 {arm} optimizer parameters changed")
+    cpu_rng=state.get("torchRngState")
+    cuda_rng=state.get("cudaRngState")
+    if (not isinstance(cpu_rng,torch.Tensor) or cpu_rng.numel()==0 or
+        not isinstance(cuda_rng,list) or not cuda_rng or
+        not all(isinstance(t,torch.Tensor) and t.numel()>0 for t in cuda_rng)):
+        raise RuntimeError(f"Stage 8 {arm} missing exact CPU/CUDA RNG states")
+    return {
+        "schemaValidated":True,"arm":arm,"update":24576,
+        "bestUpdate":state["bestUpdate"],
+        "modelTensorCount":len(model),
+        "optimizerStateCount":len(optimizer["state"]),
+        "cpuRngBytes":int(cpu_rng.numel()),
+        "cudaRngStates":len(cuda_rng),
+    }
+
+
 def verify_stage8(
     report_path: Path, source: dict, manifest: dict, parts: dict,
     *, preview_path: str = ""
@@ -147,6 +204,7 @@ def verify_stage8(
         raise RuntimeError("Stage 8 run contract or training selection fingerprint mismatch")
     checkpoints = {}
     sha_map = {}
+    checked = {}
     for arm in ARMS:
         row = report["armResults"][arm]
         path = root / arm / "stage_024576" / "checkpoint.pt"
@@ -160,6 +218,7 @@ def verify_stage8(
                 ]
             ] or not path.is_file()):
             raise RuntimeError(f"Stage 8 {arm} staged proof and roster invalid")
+        checked[arm] = verify_checkpoint_state(path,arm,stage8_contract)
         checkpoints[arm] = str(path.resolve())
         sha_map[arm] = sha256_file(path)
     audit = {
@@ -171,6 +230,7 @@ def verify_stage8(
         "trainedSelectionFileSha256":sha256_file(selection_path),
         "stage8CheckpointPaths":checkpoints,
         "stage8CheckpointSha256":sha_map,
+        "stage8CheckpointStateAudit":checked,
         "previewComparison":compare_selection_preview(
             selection, report_path, specified=preview_path),
         "trainingAuthorities":[
