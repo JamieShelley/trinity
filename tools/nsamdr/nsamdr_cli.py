@@ -570,8 +570,9 @@ class NSAMDRCommandLineApplication:
         return self._run(command, env=env)
 
     def _command_v17_5_matched_continuation(self, args: argparse.Namespace) -> int:
-        if self._source_freshness_preflight():
-            return 1
+        freshness = self._source_freshness_preflight()
+        if freshness:
+            return freshness
         python = self._python("cuda")
         env = os.environ.copy()
         env.setdefault("PYTHONUNBUFFERED", "1")
