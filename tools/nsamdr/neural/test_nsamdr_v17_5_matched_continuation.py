@@ -188,6 +188,67 @@ class MatchedContinuationTests(unittest.TestCase):
             self.assertEqual(result["status"],"MISMATCH_ROSTER_OR_SOURCE")
             self.assertIn("expandedIds",result["differingIdentityFields"])
 
+    def _stage8_test_files(self, root: Path):
+        selection=selection_fixture()
+        parent={
+            "selectionSha256":sha256_json(selection),
+            "trainingSeed":17301,"stages":[6144,12288,24576],
+            "device":"cuda","ampPrecision":"auto",
+            "sealedFinalEnabled":False,
+        }
+        report={"schema":contract.STAGE8_SCHEMA,"selectionOnly":False,
+                "finalTestEvaluated":False,"finalTestEvaluationCount":0,
+                "productionPromotionAllowed":False,
+                "trainingUpdates":49152,
+                "frozenSelectionSha256":sha256_json(selection),
+                "runContract":parent,"armResults":{}}
+        for arm,n in (("A12",12),("B64",64)):
+            checkpoint=root/arm/"stage_024576/checkpoint.pt"
+            checkpoint.parent.mkdir(parents=True)
+            checkpoint.write_bytes(b"checkpoint-"+arm.encode())
+            report["armResults"][arm]={
+                "arm":arm,"optimizerUpdates":24576,
+                "runContractSha256":sha256_json(parent),
+                "trainingAuthorities":[f"family{i}" for i in range(n)],
+                "history":[{"update":u} for u in (6144,12288,24576)]}
+        (root/"frozen_selection.json").write_text(json.dumps(selection))
+        (root/"run_manifest.json").write_text(json.dumps(parent))
+        path=root/"report.json"
+        path.write_text(json.dumps(report))
+        return path,report,selection
+
+    def test_verify_stage8_authenticates_both_staged_arm_checkpoints(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)/"proof_01"
+            root.mkdir()
+            path,report,selection=self._stage8_test_files(root)
+            with patch.object(contract,"verify_frozen_selection",return_value=None) as verify:
+                got,manifest,audit=contract.verify_stage8(
+                    path,{}, {},{},preview_path="")
+            verify.assert_called_once()
+            self.assertEqual(got,selection)
+            self.assertEqual(manifest["trainingSeed"],17301)
+            self.assertEqual(audit["trainedSelectionSha256"],sha256_json(selection))
+            self.assertEqual(set(audit["stage8CheckpointSha256"]),{"A12","B64"})
+            self.assertEqual(audit["finalTestPixelsOpened"],0)
+
+    def test_verify_stage8_rejects_source_or_arm_fingerprint_drift(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)/"proof_01"
+            root.mkdir()
+            path,report,selection=self._stage8_test_files(root)
+            report["armResults"]["B64"]["runContractSha256"]="tampered"
+            path.write_text(json.dumps(report))
+            with patch.object(contract,"verify_frozen_selection",return_value=None):
+                with self.assertRaisesRegex(RuntimeError,"B64"):
+                    contract.verify_stage8(path,{},{},{})
+            report["armResults"]["B64"]["runContractSha256"]=sha256_json(report["runContract"])
+            report["frozenSelectionSha256"]="tampered"
+            path.write_text(json.dumps(report))
+            with patch.object(contract,"verify_frozen_selection",return_value=None):
+                with self.assertRaisesRegex(RuntimeError,"fingerprint"):
+                    contract.verify_stage8(path,{},{},{})
+
     def test_missing_explicit_preview_fails(self):
         with self.assertRaisesRegex(RuntimeError,"missing"):
             contract.compare_selection_preview(selection_fixture(),
