@@ -259,6 +259,31 @@ test must pass their existing gates, followed by visual review. This
 V17.3 experiment is **not yet trained or qualified** merely because
 its implementation is committed.
 
+#### V17.5 Stage 7 — verified EVE source readiness (read-only A–C)
+
+**Stage 7 is diagnostics only: it performs zero optimizer updates**, preserves every V17.3 and V17.4 proof/checkpoint, preserves the frozen authority partitions, does not rebuild the authored corpus, and never opens the eight V17.3 final-test authority pixels. It does **not** automatically correct or reinterpret normal-map encoding.
+
+| Phase | Work performed | Evidence |
+| --- | --- | --- |
+| A — DDS channel integrity | Decode original hashed SharedCache DDS by bytes/header, compare RGBA with a separate Pillow decode when available, record R/G/B/A distributions and the possible XY component pairings; compare native DDS 4× mip where exposed | Per-source channel statistics, header count/format, `converterVsPillowMAE`, `sourceMipEvidence`, orientation `UNVERIFIED` |
+| B — Indexed generation census | Index-scan `_d/_n/_pgs` legacy and `_AR/_NO/_PMDG` modern map sets separately, counting local complete ≥1024 albedo+normal pairs and direct material resources | Indexed/local counts, independent candidate identifiers and header data; generation-specific semantics remain `UNVERIFIED` |
+| C — Reconstruction feasibility | Original versus anti-aliased importance scoring on the same candidates, training-only low-resolution pattern ambiguity, historical fixed-probe fit, and optional frozen-model normal neutralization on the **four development crops only** | Per-authority sampling changes, LR/HR counterexamples, and albedo recovery deltas without training |
+
+Stage 7 **does not** change `authored_texture_dataset.py` legacy normal interpretation. A channel pair's low out-of-unit-disk fraction is not sufficient to infer normal X/Y orientation. Original pixels must be inspected against format-specific EVE documentation/known UV orientation before implementing an input-format migration. Neither direct material resource presence nor `_PMDG` availability proves usable aligned PBR target semantics.
+
+Run from `D:\REPOS\trinity`:
+
+```bat
+scripts\build\nsamdr.bat validate
+scripts\build\nsamdr.bat v17-source-readiness
+```
+
+The same functionality is available in **Stage 7 — V17.5 Verified Source Readiness (A–C)** in the GUI. For a fast index/decoder/sampling-only run, add `--skip-conditioning` (the default performs read-only inference using the 49,152-update V17.3 checkpoint). Set `--shared-cache` if the EVE SharedCache is not at `C:\CCP\EVE`. By default inference runs on CPU, although `--device cuda` is available if already installed. This is **not a training command**.
+
+Proof folder: `artifacts/nsamdr/diagnostics/v17_source_readiness/proof_*/`, containing `A_ddsIntegrity.json`, `B_generationCensus.json`, `C_reconstructionFeasibility.json`, `report.json`, and `report.md`. A diagnostic marked `UNAVAILABLE` or `UNVERIFIED` must not be reported as a verified correction. Failed mandatory source decodes are explicit failures; previous proofs are not modified.
+
+**Next step, not part of Stage 7:** Only after source evidence is reviewed should a fresh, matched 6,144 / 12,288-update V17.5 A/B/C training comparison be defined. Do not reuse the V17.4 optimizer state if physical channel semantics change.
+
 #### V17.4 Stage 6 — unified A–F validation and training proof
 
 The **V17.4 Comprehensive A–F Proof** is one research-only workflow with six separately reported phases. It restores the **49,152-update V17.3 spatial model and Adam optimizer** independently for the two training arms. The V17.3 report/checkpoint remain unchanged.
