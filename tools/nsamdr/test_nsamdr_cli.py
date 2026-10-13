@@ -171,6 +171,48 @@ class NSAMDRCLITests(unittest.TestCase):
         self.assertIn("auto",command)
         self.assertNotIn("--audit-only",command)
 
+    def test_v176_capacity_default_is_diagnostics_and_explicit_phases(self) -> None:
+        app=NSAMDRCommandLineApplication()
+        args=app.build_parser().parse_args(["v176-capacity-proof"])
+        self.assertEqual(args.phase,"diagnose")
+        self.assertFalse(args.audit_only)
+        rich=app.build_parser().parse_args([
+            "v176-capacity-proof","--phase","compare-features",
+            "--stage10a-report","detail.json"])
+        self.assertEqual(rich.phase,"compare-features")
+        self.assertEqual(rich.stage10a_report,"detail.json")
+
+    def test_v176_capacity_audit_bypasses_cuda_preflight(self) -> None:
+        from unittest.mock import patch
+        app=NSAMDRCommandLineApplication()
+        args=app.build_parser().parse_args([
+            "v176-capacity-proof","--audit-only","--stage10a-report","stage10a.json"])
+        with patch.object(app,"_source_freshness_preflight",return_value=0), \
+             patch.object(app,"_python",return_value="python"), \
+             patch.object(app,"_cuda_preflight",side_effect=AssertionError("must not require GPU")), \
+             patch.object(app,"_run",return_value=0) as dispatch:
+            self.assertEqual(app._command_v176_capacity(args),0)
+        command=dispatch.call_args.args[0]
+        self.assertIn("--audit-only",command)
+        self.assertIn("stage10a.json",command)
+        self.assertIn("diagnose",command)
+
+    def test_v176_capacity_train_preflight_and_exact_phase_dispatch(self) -> None:
+        from unittest.mock import patch
+        app=NSAMDRCommandLineApplication()
+        args=app.build_parser().parse_args([
+            "v176-capacity-proof","--phase","compare-features","--resume","auto"])
+        with patch.object(app,"_source_freshness_preflight",return_value=0), \
+             patch.object(app,"_python",return_value="python"), \
+             patch.object(app,"_cuda_preflight",return_value=0) as preflight, \
+             patch.object(app,"_run",return_value=0) as dispatch:
+            self.assertEqual(app._command_v176_capacity(args),0)
+        preflight.assert_called_once()
+        command=dispatch.call_args.args[0]
+        self.assertIn("compare-features",command)
+        self.assertIn("auto",command)
+        self.assertNotIn("--audit-only",command)
+
     def test_context_probe_accepts_bounded_arguments(self) -> None:
         parser = NSAMDRCommandLineApplication().build_parser()
         args = parser.parse_args(
