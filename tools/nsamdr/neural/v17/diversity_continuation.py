@@ -223,8 +223,8 @@ def diagnostic_summary(evaluation: dict) -> dict:
 
 def decide(matched: list[dict], final_results: dict) -> str:
     current = matched[-1]
-    if any(result["selectedTrained"]["allPass"] and
-           result["selectedValidation"]["allPass"]
+    if any(result["atFinalUpdate"]["trained"]["allPass"] and
+           result["atFinalUpdate"]["validation"]["allPass"]
            for result in final_results.values()):
         return "VALIDATION_QUALIFIED_RESEARCH_ONLY"
     if (current["B64WorstEdge"] - current["A12WorstEdge"] >= .03 and
@@ -235,8 +235,8 @@ def decide(matched: list[dict], final_results: dict) -> str:
     if (current["B64MeanEdge"] > matched[0]["B64MeanEdge"] and
         current["B64MaxLattice"] > .15):
         return "RECOVERY_LATTICE_CONFLICT"
-    common = final_results["B64"]["selectedTrainedGroups"]["commonA12"]["mean"]["edge_recovery"]
-    control = final_results["A12"]["selectedTrainedGroups"]["commonA12"]["mean"]["edge_recovery"]
+    common = final_results["B64"]["atFinalUpdate"]["trainProbeGroups"]["commonA12"]["mean"]["edge_recovery"]
+    control = final_results["A12"]["atFinalUpdate"]["trainProbeGroups"]["commonA12"]["mean"]["edge_recovery"]
     if control-common > .05:
         return "PERSISTENT_COMMON_AUTHORITY_UNDERFIT"
     return "NO_COMPELLING_CONTINUATION_BENEFIT"
