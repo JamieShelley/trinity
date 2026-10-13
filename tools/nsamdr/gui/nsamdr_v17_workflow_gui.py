@@ -41,6 +41,7 @@ V17_GENERALIZATION_ROOT = DIAGNOSTIC_ROOT / "v17_generalization"
 V17_V2_ROOT = DIAGNOSTIC_ROOT / "v17_generalization_v2"
 V17_V3_ROOT = DIAGNOSTIC_ROOT / "v17_spatial_generalization"
 V17_AF_ROOT = DIAGNOSTIC_ROOT / "v17_comprehensive_proof"
+V17_SOURCE_ROOT = DIAGNOSTIC_ROOT / "v17_source_readiness"
 MAIN_TRAINING_ROOT = REPO_ROOT / "artifacts/nsamdr/main_training"
 APP_TITLE = "NSAMDR V17 Workflow"
 STATE_SCHEMA = "nsamdr-v17-operator-workflow-v1"
@@ -110,8 +111,14 @@ STAGES = (
         "Unified physical-source, sampling, degradation, matched continuation, loss ablation, and architecture diagnostics.",
     ),
     Stage(
-        "preview",
+        "source_readiness",
         "7",
+        "V17.5 Verified Source Readiness (A–C)",
+        "Read-only DDS channels, generation census, sampling and frozen conditioning.",
+    ),
+    Stage(
+        "preview",
+        "8",
         "Preview / visual gate",
         "Open the latest V17 unseen-sibling A/B/C sheet or historical preview artifacts.",
     ),
@@ -334,6 +341,23 @@ class App:
         if not reports:
             return None
         _time, path, report = max(reports, key=lambda item: item[0])
+        return path.resolve(), report
+
+    def _latest_v17_source_report(self) -> tuple[Path, dict[str, Any]] | None:
+        if not V17_SOURCE_ROOT.is_dir():
+            return None
+        candidates: list[tuple[float, Path, dict[str, Any]]] = []
+        for path in V17_SOURCE_ROOT.glob("proof_*/report.json"):
+            report = _read_json(path)
+            if report is None or report.get("schema") != "NSAMDR_V17_5_SOURCE_READINESS_V1":
+                continue
+            try:
+                candidates.append((path.stat().st_mtime, path, report))
+            except OSError:
+                continue
+        if not candidates:
+            return None
+        _stamp, path, report = max(candidates, key=lambda entry: entry[0])
         return path.resolve(), report
 
     def _latest_v17_af_report(self) -> tuple[Path, dict[str, Any]] | None:
@@ -789,6 +813,19 @@ class App:
             )
             if self._value("audit_only", "False").lower() in ("true", "1"):
                 command.append("--audit-only")
+            source = self._value("v3_report", "").strip()
+            if source:
+                command += ["--v3-report", source]
+            return command
+
+        if stage_id == "source_readiness":
+            command = self._cli_argv(
+                "v17-source-readiness",
+                "--shared-cache", self._value("cache", r"C:\CCP\EVE"),
+                "--device", self._value("device", "cpu"),
+            )
+            if self._value("skip_conditioning", "False").lower() in ("true", "1"):
+                command.append("--skip-conditioning")
             source = self._value("v3_report", "").strip()
             if source:
                 command += ["--v3-report", source]
@@ -1447,6 +1484,26 @@ class App:
                 ttk.Button(self.form, text="Open consolidated proof folder",
                            command=lambda folder=path.parent: _open_path(folder)).pack(anchor="w", pady=2)
 
+        elif stage_id == "source_readiness":
+            self._label("Purpose", "V17.5 A–C read-only DDS source, texture census, sampling and conditioning diagnostics.")
+            self._label("No training", "No model updates, original checkpoint changes, or final-test pixel access.")
+            self._label("A", "DDS RGBA and alpha preservation, decoder comparison and normal orientation uncertainty.")
+            self._label("B", "Separate legacy _d/_n/_pgs and modern _AR/_NO/_PMDG indexed resource census.")
+            self._label("C", "Training-source sampling and LR ambiguity; optional frozen normal-input ablation on development.")
+            self._row("Shared cache", "cache", r"C:\CCP\EVE")
+            self._row("Inference device", "device", "cpu", ("cpu", "auto", "cuda"))
+            self._check("Skip conditioning inference", "skip_conditioning", False)
+            self._row("V17.3 report override (optional)", "v3_report", "")
+            ttk.Button(self.form, text="Run V17.5 source readiness A–C",
+                       command=self.run_selected).pack(anchor="w", pady=(8, 2))
+            latest = self._latest_v17_source_report()
+            if latest is not None:
+                path, report = latest
+                states = {k:v.get("status","?") for k,v in report.get("phases",{}).items()}
+                self._label("Latest Stage 7", f"{report.get('decision','unknown')} | {states}")
+                ttk.Button(self.form, text="Open source readiness proof folder",
+                           command=lambda directory=path.parent: _open_path(directory)).pack(anchor="w", pady=2)
+
         elif stage_id == "preview":
             choices = self._preview_choices()
             self._row(
@@ -1569,6 +1626,13 @@ class App:
                 "ready" if latest_v3 is None else
                 "visual-review" if latest_v3[1].get("visualGateRequired") else
                 "rejected"
+            )
+        if self.active_stage != "source_readiness":
+            latest_source = self._latest_v17_source_report()
+            statuses["source_readiness"] = (
+                "ready" if latest_source is None else
+                "failed" if latest_source[1].get("decision") == "BLOCKED-source-integrity"
+                else "completed"
             )
         if self.active_stage != "comprehensive_af":
             latest_af = self._latest_v17_af_report()
@@ -1947,6 +2011,13 @@ class App:
                                 stage_id,
                                 "visual-review" if latest and latest[1].get("visualGateRequired")
                                 else "rejected",
+                            )
+                        elif stage_id == "source_readiness" and code == 0:
+                            latest = self._latest_v17_source_report()
+                            self._set_status(
+                                stage_id,
+                                "failed" if latest and latest[1].get("decision") == "BLOCKED-source-integrity"
+                                else "completed",
                             )
                         elif stage_id == "comprehensive_af" and code == 0:
                             latest = self._latest_v17_af_report()
