@@ -403,9 +403,11 @@ def run(args):
         backbone=_make_backbone(config,Path(stage9audit["stage9A12Checkpoint"]),device)
         if _tensor_sha(backbone)!=stage9audit["stage9BackboneTensorSha256"]:
             raise RuntimeError("Stage9 frozen backbone tensor SHA mismatch")
-        with NativeAuthoritySampler(repo,manifest,
-                                    [rows[i] for i in HARD_TRAINING_INDICES],
-                                    hr_size=512,seed=17301) as sampler:
+        sampler=NativeAuthoritySampler(
+            repo,manifest,[rows[i] for i in HARD_TRAINING_INDICES],
+            hr_size=512,seed=17301,
+        )
+        try:
             if args.phase=="diagnose":
                 results={}
                 for update in (0,3072,6144):
@@ -439,6 +441,8 @@ def run(args):
                         armresults[result["arm"]]=result
                 report["armResults"]=armresults
                 report.update(_decision(armresults,args.phase))
+        finally:
+            sampler.close()
         _atomic_json(folder/"report.json",report)
         print(f"[v176-capacity] {report['decision']} report={folder/'report.json'}",flush=True)
         return 0,folder/"report.json"
