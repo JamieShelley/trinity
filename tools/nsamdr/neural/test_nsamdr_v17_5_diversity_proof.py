@@ -151,6 +151,11 @@ class DiversityRunnerTests(unittest.TestCase):
         b=_arm("B64",edges=(.2,.25,.35))
         self.assertEqual(d._decision({"A12":a,"B64":b})[0],"DIVERSITY_BENEFIT_SIGNAL")
 
+    def test_original_control_can_qualify_without_opening_sealed_set(self):
+        arms={"A12":_arm("A12",qualified=True),
+              "B64":_arm("B64",qualified=False)}
+        self.assertEqual(d._decision(arms)[0],"VALIDATION_QUALIFIED_RESEARCH_ONLY")
+
     def test_outcome_no_benefit_not_qualified(self):
         arms={"A12":_arm("A12"),"B64":_arm("B64")}
         self.assertEqual(d._decision(arms)[0],"NO_DEMONSTRATED_BENEFIT")
