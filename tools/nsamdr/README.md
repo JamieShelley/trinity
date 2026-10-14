@@ -6,6 +6,18 @@ NSAMDR reconstructs **4× higher-resolution authored physical textures** from al
 
 The **V17.6 architecture** consists of the existing V17.2 structural network plus an additional high-frequency detail specialist. Adaptive quadtree routing and normal-detail specialization are separate planned extensions.
 
+### System architecture
+
+[![NSAMDR V17.6 system architecture: frozen structure, scalar albedo refinement, physical composition and training-only supervision](./NSAMDR_FULL_SYSTEM_ARCHITECTURE.png)](./NSAMDR_FULL_SYSTEM_ARCHITECTURE.png)
+
+The diagram separates the LR-only inference path from authored-HR training supervision. It includes the experimental 58-channel feature input and shows planned extensions outside the current dense specialist.
+
+### Visual target
+
+[![NSAMDR V17.6 visual target: illustrative baseline and intended authored-albedo detail recovery](./EXAMPLE.png)](./EXAMPLE.png)
+
+This conceptual illustration defines the intended recovery of authored albedo edges and fine detail while preserving geometry, shading, physical caps and authored boundaries. It is a visual target; measured proof reports and the original quality gates establish model performance. Normal XY and material remain the original V17.2 outputs.
+
 ### Overall data flow
 
 ```text
@@ -111,11 +123,15 @@ Architecture: a 3×3 convolutional stem, **32-channel** feature width, four resi
 
 No authored target is passed to this network during inference. All backbone tensors are detached from the specialist's gradient graph.
 
+The controlled **HR-feature ablation** adds 48 frozen 4× decoder feature channels to the ten-channel evidence, giving a 58-channel specialist input. It retains the same scalar output, residual-block layout and physical composition. The additional stem-channel weights are initially zero.
+
 ### Phase-neutral physical composition
 
 **Implementation:** `tools/nsamdr/neural/v176/physical_composition.py`
 
 The specialist output is spatially high-pass filtered, with Gaussian `σ = 1.25` HR pixels and filter radius `4`. Filtering operates at full HR resolution without downsampling or repeating 4× subpixel-phase fields.
+
+The fixed Gaussian and Haar convolutions use FP32 with autocast and cuDNN TF32 disabled. Finite-magnitude and nonfinite guards stop an unstable research run and preserve first-failure tensor evidence. The physical projection continues to use the original residual caps.
 
 ```text
 D       = Specialist(LR maps, B, C₀, V17.2 residual bands)
@@ -179,8 +195,10 @@ Potential routing features are albedo/normal gradients, regional structural comp
 | `neural/v17/model.py` | Existing eight-channel structural encoder, 2×/4× decoder and physical projection |
 | `neural/v14/baseline.py` | Deterministic baseline B and normal projection |
 | `neural/v176/fine_detail.py` | Frozen-backbone wrapper and high-frequency residual specialist |
+| `neural/v176/detail_capacity.py` | Experimental 58-channel frozen-HR-feature input and detail diagnostics |
 | `neural/v176/physical_composition.py` | Gaussian high-pass, bounded scalar-albedo composition |
 | `neural/v176/wavelet_supervision.py` | Two-level undecimated directional-band training supervision |
+| `neural/v176/stability.py` | Finite-magnitude guards, specialist-only optimizer updates and failure evidence |
 | `neural/v14/qualification.py` | Existing recovery, preservation and 4× phase/lattice metrics |
 
 The original V17.2 implementation and previous trained evidence remain separate from V17.6. The sealed final-test authorities are not training inputs.
