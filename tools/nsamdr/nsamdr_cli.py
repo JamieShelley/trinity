@@ -56,6 +56,7 @@ REQUIRED_LAYOUT = (
     "tools/nsamdr/neural/v176/physical_composition.py",
     "tools/nsamdr/neural/v176/wavelet_supervision.py",
     "tools/nsamdr/neural/v176/stability.py",
+    "tools/nsamdr/neural/v176/attainable_recovery.py",
     "tools/nsamdr/neural/v17/diversity_corpus.py",
     "tools/nsamdr/neural/v17/spatial_sampling.py",
     "tools/nsamdr/neural/probe_nsamdr_v17_4096_visual.py",
@@ -90,6 +91,7 @@ CURRENT_TESTS = (
     "tools.nsamdr.neural.test_nsamdr_v176_training",
     "tools.nsamdr.neural.test_nsamdr_v176_capacity",
     "tools.nsamdr.neural.test_nsamdr_v176_stability",
+    "tools.nsamdr.neural.test_nsamdr_v176_attainable",
     "tools.nsamdr.neural.test_nsamdr_v17_4096_visual",
     "tools.nsamdr.neural.test_nsamdr_v16_structure",
     "tools.nsamdr.neural.test_nsamdr_v16_boundary_profiles",
@@ -657,6 +659,8 @@ class NSAMDRCommandLineApplication:
             command.append("--audit-only")
         if args.stage10a_report:
             command += ["--stage10a-report",args.stage10a_report]
+        if args.comparison_report:
+            command += ["--comparison-report",args.comparison_report]
         if args.v3_report:
             command += ["--v3-report",args.v3_report]
         return self._run(command,env=env)
@@ -992,8 +996,10 @@ class NSAMDRCommandLineApplication:
         detail.set_defaults(handler=self._command_v176_detail)
 
         capacity=commands.add_parser("v176-capacity-proof")
-        capacity.add_argument("--phase",choices=("diagnose","stability","capacity","compare-features"),default="diagnose")
+        capacity.add_argument("--phase",choices=("diagnose","stability","capacity","compare-features","attainable"),default="diagnose")
         capacity.add_argument("--stage10a-report",default="")
+        capacity.add_argument("--comparison-report",default="",
+                              help="completed feature comparison for --phase attainable (latest matching proof by default)")
         capacity.add_argument("--v3-report",default="")
         capacity.add_argument("--device",choices=("cuda","cpu"),default="cuda")
         capacity.add_argument("--amp-precision",choices=("auto","bf16","fp16"),default="auto")

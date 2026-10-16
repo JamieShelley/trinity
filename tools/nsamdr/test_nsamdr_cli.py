@@ -213,6 +213,21 @@ class NSAMDRCLITests(unittest.TestCase):
         self.assertIn("auto",command)
         self.assertNotIn("--audit-only",command)
 
+    def test_v176_attainable_phase_forwards_the_completed_comparison(self) -> None:
+        from unittest.mock import patch
+        app=NSAMDRCommandLineApplication()
+        args=app.build_parser().parse_args([
+            "v176-capacity-proof","--phase","attainable",
+            "--comparison-report","matched.json","--device","cpu"])
+        with patch.object(app,"_source_freshness_preflight",return_value=0), \
+             patch.object(app,"_python",return_value="python"), \
+             patch.object(app,"_cuda_preflight",side_effect=AssertionError("CPU probe must not require CUDA")), \
+             patch.object(app,"_run",return_value=0) as dispatch:
+            self.assertEqual(app._command_v176_capacity(args),0)
+        command=dispatch.call_args.args[0]
+        self.assertEqual(command[command.index("--phase")+1],"attainable")
+        self.assertEqual(command[command.index("--comparison-report")+1],"matched.json")
+
     def test_context_probe_accepts_bounded_arguments(self) -> None:
         parser = NSAMDRCommandLineApplication().build_parser()
         args = parser.parse_args(

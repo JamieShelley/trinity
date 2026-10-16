@@ -10,6 +10,7 @@ Phases:
   stability:         short authority-1 trial through the known failure interval
   capacity:          2 isolated 10-channel specialist fits (one per authority)
   compare-features:  2 matched pairs, 10 vs 58 frozen-HR-feature channels
+  attainable:        target-assisted scalar fits on those training regions
 """
 from __future__ import annotations
 import argparse
@@ -32,7 +33,7 @@ for folder in (REPO_ROOT,HERE):
 from probe_nsamdr_v16_full_broad import _autocast, _device, _to_device
 from probe_nsamdr_v17_comprehensive import _origin, _records, _batch_config
 from probe_nsamdr_v17_generalization import _augment_batch
-from probe_nsamdr_v17_sibling_architecture import _evaluate
+from probe_nsamdr_v17_sibling_architecture import _evaluate, _gate_snapshot, sample_metrics
 from probe_nsamdr_v176_detail import (
     _atomic_json, _parent_report, _read, _tensor_sha, verify_parent,
     SCHEMA as STAGE10A_SCHEMA, CHECKPOINT_SCHEMA as STAGE10A_CHECKPOINT,
@@ -50,7 +51,13 @@ from tools.nsamdr.neural.v176.detail_capacity import (
 )
 from tools.nsamdr.neural.v176.stability import (
     STABILITY_POLICY, NumericalStabilityError, guarded_train_step, save_failure,
+    tensor_statistics,
 )
+from tools.nsamdr.neural.v176.attainable_recovery import (
+    ATTAINABLE_POLICY, scalar_candidate, rgb_projection_relaxation,
+    fit_scalar_field, band_relative_l1,
+)
+from tools.nsamdr.neural.v176.wavelet_supervision import detail_supervision_loss
 
 SCHEMA="NSAMDR_V176_STAGE10A1_CAPACITY_ISOLATION_V1"
 CHECKPOINT_SCHEMA="NSAMDR_V176_STAGE10A1_CAPACITY_CHECKPOINT_V1"
@@ -60,7 +67,7 @@ STABILITY_STAGES=(0,256,512,1024,1536,1792,2048,2560,2816,3072)
 ALT_EXPOSURES=(20000,20001,20002,20003)
 SEED=17611
 LEARNING_RATE=.0002
-PHASES=("diagnose","stability","capacity","compare-features")
+PHASES=("diagnose","stability","capacity","compare-features","attainable")
 
 
 def _folder(repo:Path,resume:str,phase:str)->Path:
@@ -142,6 +149,185 @@ def verify_stage10a_report(path:Path,backbone_audit:dict)->tuple[dict,dict]:
                      "stage10aReportSha256":sha256_file(path),
                      "stage10aCheckpointSha256":checkpoint_hashes,
                      "stage10aRunManifestSha256":sha256_file(path.parent/"run_manifest.json")}
+
+
+def _verify_comparison(path:Path, lineage:dict)->tuple[dict,dict]:
+    """Authenticate completed matched fits and their final weights before pixels."""
+    report=_read(path)
+    contract=_read(path.parent/"run_manifest.json")
+    keys=("parentStage9CheckpointSha256","parentBackboneTensorSha256",
+          "parentStage10AReportSha256","parentStage10AStagesSha256",
+          "sourceManifestSha256","selectionSha256","trainingAuthorities",
+          "seed","alternateExposures","learningRate","loss","numericalStability")
+    if (report.get("schema")!=SCHEMA or report.get("phase")!="compare-features" or
+        contract.get("phase")!="compare-features" or
+        report.get("runContract")!=contract or
+        contract.get("stages")!=list(STAGES) or contract.get("frozenBackbone") is not True or
+        contract.get("developmentPixelsOpened")!=0 or contract.get("finalTestPixelsOpened")!=0 or
+        contract.get("finalTestEnabled") is not False or
+        report.get("decision") not in ("NO_PROVEN_HR_FEATURE_BENEFIT","RICH_HR_FEATURE_SIGNAL_TRAIN_ONLY") or
+        report.get("researchOnly") is not True or report.get("developmentPixelsOpened")!=0 or
+        report.get("finalTestEvaluated") is not False or report.get("finalTestEvaluationCount")!=0 or
+        report.get("productionPromotionAllowed") is not False or
+        report.get("qualificationGatesModified") is not False or
+        any(contract.get(k)!=lineage[k] for k in keys)):
+        raise RuntimeError("completed feature comparison or source lineage differs")
+    expected={_arm_name(i,m) for i in HARD_TRAINING_INDICES for m in MODES}
+    if set(report.get("armResults",{}))!=expected:
+        raise RuntimeError("completed comparison requires all four matched arms")
+    hashes={}
+    for i in HARD_TRAINING_INDICES:
+        for mode in MODES:
+            arm=_arm_name(i,mode)
+            result=report["armResults"][arm]
+            history=result.get("history",[])
+            ckpt=path.parent/arm/f"stage_{STAGES[-1]:06d}"/"checkpoint.pt"
+            state=torch.load(ckpt,map_location="cpu",weights_only=True)
+            if (result.get("arm")!=arm or result.get("mode")!=mode or
+                result.get("authorityIndex")!=i or
+                result.get("authorityId")!=lineage["trainingAuthorities"][str(i)]["authorityId"] or
+                result.get("startUpdate")!=0 or result.get("stopUpdate")!=STAGES[-1] or
+                result.get("runContractSha256")!=sha256_json(contract) or
+                [row.get("update") for row in history]!=list(STAGES) or
+                any(row.get("backboneSha256")!=lineage["parentBackboneTensorSha256"] for row in history[1:]) or
+                state.get("schema")!=CHECKPOINT_SCHEMA or state.get("contract")!=contract or
+                state.get("arm")!=arm or state.get("update")!=STAGES[-1] or
+                state.get("history")!=history or not isinstance(state.get("detailState"),dict)):
+                raise RuntimeError(f"completed feature comparison checkpoint differs: {arm}")
+            hashes[arm]=sha256_file(ckpt)
+    return report,{"comparisonReport":str(path.resolve()),
+                   "comparisonReportSha256":sha256_file(path),
+                   "comparisonCheckpointSha256":hashes}
+
+
+def _comparison_source(repo:Path,explicit:str,lineage:dict)->tuple[Path,dict,dict]:
+    candidates=([Path(explicit).resolve()] if explicit else
+                sorted((repo/ROOT).glob("proof_*/report.json"),
+                       key=lambda p:p.stat().st_mtime,reverse=True))
+    for path in candidates:
+        try:
+            report,audit=_verify_comparison(path,lineage)
+            return path,report,audit
+        except (OSError,ValueError,KeyError,RuntimeError):
+            if explicit:
+                raise
+    raise RuntimeError("completed matching compare-features proof with all four final checkpoints unavailable")
+
+
+def _measure_attainable(outputs:dict,batch:dict,config,*,with_loss=True)->dict:
+    with torch.no_grad():
+        result={"metrics":sample_metrics(outputs,batch,final=False)}
+        result["gateChecks"]=_gate_snapshot(result,config)
+        if with_loss:
+            result.update({
+                "lossTerms":{k:float(v) for k,v in detail_supervision_loss(outputs,batch).items()},
+                "bandRelativeL1":band_relative_l1(outputs,batch),
+                "rawDetail":tensor_statistics(outputs["fine_detail_raw"]),
+                "highpassDetail":tensor_statistics(outputs["fine_detail_highpass"]),
+            })
+    return result
+
+
+def _attainable_evidence(region:dict)->str:
+    # Only the independent-channel relaxation is an upper bound, and only
+    # for the two fixed target-weighted pixel-error recovery metrics.
+    bound=region["rgbProjectionRelaxation"]["gateChecks"]
+    if not bound["edge"] or not bound["global"]:
+        return "PROJECTION_RANGE_LIMIT_ON_EDGE_OR_GLOBAL"
+    if all(region["fits"]["stage10a"]["measurement"]["gateChecks"].values()):
+        return "FEASIBLE_SAME_LOSS_FIT_NETWORK_LEARNING_UNRESOLVED"
+    if all(region["fits"]["edge"]["measurement"]["gateChecks"].values()):
+        return "FEASIBLE_EDGE_FIT_OBJECTIVE_OR_OPTIMIZATION_UNRESOLVED"
+    return "UNRESOLVED_FINITE_BUDGET_FITS_DO_NOT_PROVE_A_CEILING"
+
+
+def _run_attainable(folder,backbone,comparison_path,comparison,contract,
+                    sampler,rows,config,device)->dict:
+    """Read model checkpoints; optimize disposable training-pixel fields only."""
+    results={}
+    cap=config.albedo_residual_cap
+    for i in HARD_TRAINING_INDICES:
+        authority=_id(rows[i])
+        fixed,alternates,origins=_samples(sampler,authority,device)
+        trained={}
+        for mode,model in zip(MODES,create_matched_variants(backbone,seed=SEED+i)):
+            arm=_arm_name(i,mode)
+            if comparison["armResults"][arm]["alternateProbeOrigins"]!=origins:
+                raise RuntimeError("attainable and comparison spatial probe origins differ")
+            ckpt=comparison_path.parent/arm/f"stage_{STAGES[-1]:06d}"/"checkpoint.pt"
+            if sha256_file(ckpt)!=contract["comparisonCheckpointSha256"][arm]:
+                raise RuntimeError("comparison checkpoint changed after provenance audit")
+            state=torch.load(ckpt,map_location="cpu",weights_only=True)
+            if state.get("architecture")!=model.architecture_contract():
+                raise RuntimeError("comparison specialist architecture differs")
+            model.specialist.load_state_dict(state["detailState"],strict=True)
+            trained[mode]=model.to(device).eval()
+        regions=[]
+        probes=[("fixed",fixed,{"samplingPolicy":"fixed","exposure":0})]+[
+            (f"alternate_{n:02d}",batch,{**meta,"exposure":exposure})
+            for n,(batch,meta,exposure) in enumerate(zip(alternates,origins,ALT_EXPOSURES))]
+        for probe,batch,origin in probes:
+            path=folder/f"authority_{i:02d}"/f"{probe}.json"
+            identity={"runContractSha256":sha256_json(contract),"authorityIndex":i,
+                      "authorityId":authority,"cropId":contract["trainingAuthorities"][str(i)]["cropId"],
+                      "probe":probe,"sourceRegion":origin}
+            if path.is_file():
+                cached=_read(path)
+                if any(cached.get(k)!=v for k,v in identity.items()):
+                    raise RuntimeError("attainable region resume identity differs")
+                regions.append(cached)
+                continue
+            with torch.no_grad(),torch.autocast(device_type=device.type,enabled=False), torch.backends.cudnn.flags(
+                enabled=torch.backends.cudnn.enabled,benchmark=torch.backends.cudnn.benchmark,
+                deterministic=torch.backends.cudnn.deterministic,allow_tf32=False,
+            ):
+                original=backbone(batch["lr_albedo"],batch["lr_normal"],batch["lr_material"])
+                zero=torch.zeros_like(original["baseline_albedo"][:,:1])
+                control=scalar_candidate(original,zero,cap)
+                if not torch.equal(control["candidate_albedo"],original["candidate_albedo"]):
+                    raise RuntimeError("zero-field control changed the frozen candidate")
+                region={**identity,"targetAssisted":True,"deployable":False,
+                        "frozenCandidate":_measure_attainable(control,batch,config),
+                        "trained":{},"fits":{}}
+                relaxed={**original,"candidate_albedo":rgb_projection_relaxation(
+                    original,batch["target_albedo"],cap)}
+                region["rgbProjectionRelaxation"]=_measure_attainable(relaxed,batch,config,with_loss=False)
+                for mode,model in trained.items():
+                    outputs=model(batch["lr_albedo"],batch["lr_normal"],batch["lr_material"])
+                    region["trained"][mode]=_measure_attainable(outputs,batch,config)
+            edge_seed=None
+            for objective in ATTAINABLE_POLICY["objectives"]:
+                def progress(row):
+                    print(f"[v176-attainable] authority={i} probe={probe} objective={objective} "
+                          f"update={row['update']}/{ATTAINABLE_POLICY['stages'][-1]} "
+                          f"best={row['bestObjective']:.6f}",flush=True)
+                try:
+                    outputs,fit=fit_scalar_field(original,batch,cap,objective,
+                                                initial_raw=edge_seed,progress=progress)
+                except NumericalStabilityError as exc:
+                    exc.context.update({**identity,"objective":objective})
+                    path.parent.mkdir(parents=True,exist_ok=True)
+                    torch.save({"context":exc.context,"diagnostic":exc.diagnostic,
+                                "tensors":exc.tensors},path.with_suffix(".failure.pt"))
+                    raise
+                fit["measurement"]=_measure_attainable(outputs,batch,config)
+                fit["normalUnchanged"]=bool(torch.equal(outputs["candidate_normal"],original["candidate_normal"]))
+                fit["materialUnchanged"]=bool(torch.equal(outputs["candidate_material"],original["candidate_material"]))
+                if not fit["normalUnchanged"] or not fit["materialUnchanged"]:
+                    raise RuntimeError("attainable fit altered normal or material")
+                region["fits"][objective]=fit
+                if objective=="edge":
+                    edge_seed=outputs["fine_detail_raw"].detach()
+            region["evidence"]=_attainable_evidence(region)
+            _atomic_json(path,region)
+            regions.append(region)
+        results[str(i)]={"authorityId":authority,"regions":regions}
+        del trained
+    if _tensor_sha(backbone)!=contract["parentBackboneTensorSha256"]:
+        raise RuntimeError("attainable probe changed the frozen backbone")
+    return {"decision":"ATTAINABLE_RECOVERY_DIAGNOSTICS_TRAIN_ONLY",
+            "attainableRecovery":results,"networkWeightsUpdated":False,
+            "globalOptimalityProven":False}
 
 
 def _samples(sampler:NativeAuthoritySampler,authority:str,device:torch.device):
@@ -396,6 +582,8 @@ def _decision(arms:dict, phase:str)->dict:
 
 def run(args):
     repo=args.repo_root.resolve()
+    if getattr(args,"comparison_report","") and args.phase!="attainable":
+        raise ValueError("--comparison-report is only used by --phase attainable")
     folder=_folder(repo,args.resume,args.phase)
     try:
         detail_path=_parent_stage10a(repo,args.stage10a_report)
@@ -432,13 +620,21 @@ def run(args):
                   "numericalStability":dict(STABILITY_POLICY),
                   "device":args.device,"finalTestEnabled":False,
                   "developmentPixelsOpened":0,"finalTestPixelsOpened":0}
+        comparison_audit={}
+        if args.phase=="attainable":
+            comparison_path,comparison,comparison_audit=_comparison_source(
+                repo,getattr(args,"comparison_report",""),contract)
+            contract.update({"attainablePolicy":dict(ATTAINABLE_POLICY),"stages":[],
+                             "specialistUpdates":0,
+                             "comparisonReportSha256":comparison_audit["comparisonReportSha256"],
+                             "comparisonCheckpointSha256":comparison_audit["comparisonCheckpointSha256"]})
         manifest_path=folder/"run_manifest.json"
         if args.resume=="auto":
             if _read(manifest_path)!=contract:
                 raise RuntimeError("Stage10A.1 resume manifest/source selection changed")
         else:
             _atomic_json(manifest_path,contract)
-            _atomic_json(folder/"provenance.json",{**stage9audit,**detail_audit})
+            _atomic_json(folder/"provenance.json",{**stage9audit,**detail_audit,**comparison_audit})
         report={"schema":SCHEMA,"phase":args.phase,"decision":"RUNNING",
                 "researchOnly":True,"productionPromotionAllowed":False,
                 "qualificationGatesModified":False,
@@ -459,7 +655,10 @@ def run(args):
             hr_size=512,seed=17301,
         )
         try:
-            if args.phase=="diagnose":
+            if args.phase=="attainable":
+                report.update(_run_attainable(folder,backbone,comparison_path,comparison,
+                                             contract,sampler,rows,config,device))
+            elif args.phase=="diagnose":
                 results={}
                 for update in (0,3072,6144):
                     torch.manual_seed(DETAIL_SEED)
@@ -509,7 +708,9 @@ def run(args):
                           "numericalDiagnostic":exc.diagnostic,
                           "failingContext":exc.context})
         _atomic_json(folder/"failure.json",error)
-        if not any(folder.glob("*/stage_*/checkpoint.pt")):
+        if not any(folder.glob("*/stage_*/checkpoint.pt")) and (
+            args.phase!="attainable" or isinstance(exc,NumericalStabilityError)
+        ):
             _atomic_json(folder/"report.json",error)
         raise
 
@@ -518,6 +719,8 @@ def parser():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--repo-root",type=Path,default=Path.cwd())
     p.add_argument("--stage10a-report",default="")
+    p.add_argument("--comparison-report",default="",
+                   help="completed compare-features report for --phase attainable; defaults to latest matching proof")
     p.add_argument("--v3-report",default="")
     p.add_argument("--phase",choices=PHASES,default="diagnose")
     p.add_argument("--resume",choices=("fresh","auto"),default="fresh")
