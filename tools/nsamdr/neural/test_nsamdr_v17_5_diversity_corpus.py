@@ -88,6 +88,71 @@ class DiversityCorpusTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"V2 proof"):
             d.freeze_authorities(Path("."),{}, {},{},{"schema":"wrong"})
 
+    def _source_identity(self, root):
+        path=root/"normal.dds"
+        path.write_bytes(b"original-authored-normal")
+        logical="res:/model/ship/a/b/normal.dds"
+        frozen={"path":str(path.resolve()),"logical":logical,"sha256":d.sha256_file(path)}
+        return {"path":str(path),"logical":logical},frozen
+
+    def _identity_failure(self, source, frozen):
+        with self.assertRaisesRegex(RuntimeError,"source path/role changed: crop_000/normal") as caught:
+            d._verify_source_identity("crop_000","normal",source,frozen)
+        return json.loads(str(caught.exception).split("\n",1)[1])
+
+    def test_source_identity_accepts_original_path_and_canonical_logical(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source,frozen=self._source_identity(Path(tmp))
+            source["logical"]=source["logical"].upper().replace("/","\\")
+            with patch.object(d,"sha256_file",side_effect=AssertionError("identity check must not hash or decode pixels")):
+                d._verify_source_identity("crop_000","normal",source,frozen)
+
+    def test_source_identity_reports_missing_file_without_claiming_changed_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source,frozen=self._source_identity(Path(tmp))
+            Path(source["path"]).unlink()
+            actual=self._identity_failure(source,frozen)
+            self.assertEqual(actual["failedChecks"],["frozen_file_missing"])
+            self.assertEqual(actual["frozenPath"],frozen["path"])
+            self.assertEqual(actual["currentResolvedPath"],frozen["path"])
+            self.assertFalse(actual["frozenFileExists"])
+            self.assertFalse(actual["currentFileExists"])
+            self.assertFalse(actual["sourceBytesVerified"])
+            self.assertEqual(actual["expectedSha256"],frozen["sha256"])
+
+    def test_source_identity_reports_changed_logical_resource(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source,frozen=self._source_identity(Path(tmp))
+            source["logical"]="res:/model/ship/other/normal.dds"
+            actual=self._identity_failure(source,frozen)
+            self.assertEqual(actual["failedChecks"],["logical_resource_mismatch"])
+            self.assertEqual(actual["currentLogical"],source["logical"])
+            self.assertTrue(actual["frozenFileExists"])
+
+    def test_source_identity_keeps_relocated_identical_bytes_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            source,frozen=self._source_identity(root)
+            relocated=root/"relocated.dds"
+            relocated.write_bytes(Path(source["path"]).read_bytes())
+            source["path"]=str(relocated)
+            actual=self._identity_failure(source,frozen)
+            self.assertEqual(actual["failedChecks"],["resolved_path_mismatch"])
+            self.assertTrue(actual["frozenFileExists"])
+            self.assertTrue(actual["currentFileExists"])
+            self.assertEqual(d.sha256_file(relocated),frozen["sha256"])
+
+    def test_source_identity_lists_all_failed_conditions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source,frozen=self._source_identity(Path(tmp))
+            Path(source["path"]).unlink()
+            source.update({"logical":"different-resource","path":str(Path(tmp)/"other.dds")})
+            actual=self._identity_failure(source,frozen)
+            self.assertEqual(actual["failedChecks"],["logical_resource_mismatch",
+                                                     "resolved_path_mismatch","frozen_file_missing"])
+            self.assertEqual(actual["cropId"],"crop_000")
+            self.assertEqual(actual["role"],"normal")
+
     def test_selection_requires_frozen_partition_sizes(self):
         v2={"schema":"NSAMDR_V17_GENERALIZATION_V2_PROOF_V1"}
         with self.assertRaisesRegex(RuntimeError,"partition"):

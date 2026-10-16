@@ -81,6 +81,37 @@ def _pair(family: dict, reader: AuthoredTextureDatasetRepository) -> dict:
     return {"albedo":albedo,"normal":normal,
             "stratum":ship_stratum(albedo["logical"])}
 
+
+def _verify_source_identity(crop: str, role: str, source: dict, frozen: dict) -> None:
+    """Check the original identity rules and identify the failing condition.
+
+    A missing cache file, a changed logical resource and a changed resolved
+    path require different repairs. Do not combine them into a claim that
+    the authored bytes changed: byte verification follows this check.
+    """
+    logical=canonical_logical(source.get("logical") or "")
+    path=str(Path(str(source.get("path") or "")).resolve())
+    frozen_exists=Path(frozen["path"]).is_file()
+    failures=[]
+    if logical!=frozen["logical"]:
+        failures.append("logical_resource_mismatch")
+    if path!=frozen["path"]:
+        failures.append("resolved_path_mismatch")
+    if not frozen_exists:
+        failures.append("frozen_file_missing")
+    if failures:
+        diagnostic={
+            "cropId":crop,"role":role,"failedChecks":failures,
+            "frozenLogical":frozen["logical"],"currentLogical":logical,
+            "frozenPath":frozen["path"],"currentResolvedPath":path,
+            "frozenFileExists":frozen_exists,"currentFileExists":Path(path).is_file(),
+            "expectedSha256":frozen.get("sha256"),
+            "sourceBytesVerified":False,
+        }
+        raise RuntimeError(f"source path/role changed: {crop}/{role}\n"+
+                           json.dumps(diagnostic,indent=2,sort_keys=True))
+
+
 def _collision(candidate: dict, existing: list[dict]) -> bool:
     a,n=candidate["albedo"],candidate["normal"]
     for old in existing:
@@ -272,10 +303,7 @@ def verify_frozen_selection(selection: dict, source: dict, manifest: dict,
         for role in ("albedo","normal"):
             src=family.get(role) or {}
             stored=entry[role]
-            if (canonical_logical(src.get("logical") or "")!=stored["logical"] or
-                str(Path(str(src.get("path") or "")).resolve())!=stored["path"] or
-                not Path(stored["path"]).is_file()):
-                raise RuntimeError(f"source path/role changed: {name}/{role}")
+            _verify_source_identity(name,role,src,stored)
             if verify_bytes and sha256_file(Path(stored["path"]))!=stored["sha256"]:
                 raise RuntimeError(f"source SHA changed: {name}/{role}")
             verified=_source(src,role,reader)
