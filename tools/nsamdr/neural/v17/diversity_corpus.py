@@ -1,9 +1,11 @@
 """V17.5 whole-authority BC4/BC5 source verification and frozen 12/64 selection."""
 from __future__ import annotations
 from collections import Counter, defaultdict
+import gzip
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 import tempfile
 from typing import Any, Callable
@@ -156,8 +158,16 @@ def _restore_missing_frozen_source(crop: str, role: str, source: dict, frozen: d
     try:
         request=urllib.request.Request(url,headers={"User-Agent":"NSAMDR-frozen-source-recovery/1"})
         with urllib.request.urlopen(request,timeout=120) as response, temp.open("wb") as output:
-            for chunk in iter(lambda: response.read(1024*1024),b""):
-                output.write(chunk)
+            encoding=str(getattr(response,"headers",{}).get("Content-Encoding") or "").strip().casefold()
+            if encoding=="gzip":
+                with gzip.GzipFile(fileobj=response,mode="rb") as decoded:
+                    shutil.copyfileobj(decoded,output,length=1024*1024)
+            elif encoding in ("","identity"):
+                shutil.copyfileobj(response,output,length=1024*1024)
+            else:
+                raise RuntimeError(
+                    f"unsupported source content encoding: {crop}/{role}: {encoding}"
+                )
         actual=sha256_file(temp)
         if actual.casefold()!=expected:
             raise RuntimeError(
