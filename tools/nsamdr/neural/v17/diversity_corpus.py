@@ -3,8 +3,11 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 import hashlib
 import json
+import os
 from pathlib import Path
+import tempfile
 from typing import Any, Callable
+import urllib.request
 from ..authored_texture_dataset import AuthoredTextureDatasetRepository
 from .spatial_sampling import _id, _crop_id, _family_ids
 
@@ -13,6 +16,7 @@ CONTROL_N, EXPANDED_N, ADDITIONAL_N = 12, 64, 52
 SELECTION_SEED = 17301
 MIN_NATIVE_SIDE = 1024
 MIN_TARGET_RESIDUAL = .01
+RESOURCE_CDN_BASE = "https://resources.eveonline.com"
 ALBEDO_DDS_FORMATS = frozenset(("ATI1", "DXGI_80"))
 NORMAL_DDS_FORMATS = frozenset(("ATI2", "DXGI_83"))
 
@@ -110,6 +114,78 @@ def _verify_source_identity(crop: str, role: str, source: dict, frozen: dict) ->
         }
         raise RuntimeError(f"source path/role changed: {crop}/{role}\n"+
                            json.dumps(diagnostic,indent=2,sort_keys=True))
+
+
+
+# Purpose: Derive the content-addressed EVE CDN suffix from a frozen ResFiles path.
+# Called by: _restore_missing_frozen_source.
+# Calls: Path.parts.
+def _cdn_resource_suffix(path: Path) -> str:
+    parts=list(path.parts)
+    for index,part in enumerate(parts):
+        if str(part).casefold()=="resfiles":
+            tail=[str(value) for value in parts[index+1:]]
+            if len(tail)>=2 and all(value not in ("",".","..") for value in tail):
+                return "/".join(tail)
+            return ""
+    return ""
+
+
+# Purpose: Rehydrate one evicted EVE cache object without changing frozen source identity.
+# Called by: verify_frozen_selection.
+# Calls: _cdn_resource_suffix, canonical_logical, sha256_file, urllib.request.urlopen.
+def _restore_missing_frozen_source(crop: str, role: str, source: dict, frozen: dict) -> bool:
+    logical=canonical_logical(source.get("logical") or "")
+    current=Path(str(source.get("path") or ""))
+    target=Path(str(frozen.get("path") or ""))
+    if (logical!=frozen.get("logical") or
+        str(current.resolve())!=str(target.resolve()) or target.is_file()):
+        return False
+    suffix=_cdn_resource_suffix(target)
+    if not suffix:
+        return False
+    expected=str(frozen.get("sha256") or "").casefold()
+    if len(expected)!=64 or any(ch not in "0123456789abcdef" for ch in expected):
+        raise RuntimeError(f"invalid frozen source SHA: {crop}/{role}")
+    target.parent.mkdir(parents=True,exist_ok=True)
+    fd,temp_name=tempfile.mkstemp(prefix=f".{target.name}.",suffix=".part",
+                                  dir=str(target.parent))
+    os.close(fd)
+    temp=Path(temp_name)
+    url=f"{RESOURCE_CDN_BASE}/{suffix}"
+    try:
+        request=urllib.request.Request(url,headers={"User-Agent":"NSAMDR-frozen-source-recovery/1"})
+        with urllib.request.urlopen(request,timeout=120) as response, temp.open("wb") as output:
+            for chunk in iter(lambda: response.read(1024*1024),b""):
+                output.write(chunk)
+        actual=sha256_file(temp)
+        if actual.casefold()!=expected:
+            raise RuntimeError(
+                f"rehydrated source SHA mismatch: {crop}/{role}\n"
+                f"expected={expected}\nactual={actual}\nurl={url}"
+            )
+        if target.is_file():
+            existing=sha256_file(target)
+            if existing.casefold()!=expected:
+                raise RuntimeError(
+                    f"frozen cache path changed during recovery: {crop}/{role}\n"
+                    f"expected={expected}\nactual={existing}\npath={target}"
+                )
+            return True
+        os.replace(temp,target)
+        return True
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(
+            f"failed to restore frozen EVE source: {crop}/{role}\n"
+            f"url={url}\npath={target}\n{type(exc).__name__}: {exc}"
+        ) from exc
+    finally:
+        try:
+            temp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _collision(candidate: dict, existing: list[dict]) -> bool:
@@ -303,6 +379,8 @@ def verify_frozen_selection(selection: dict, source: dict, manifest: dict,
         for role in ("albedo","normal"):
             src=family.get(role) or {}
             stored=entry[role]
+            if not Path(stored["path"]).is_file():
+                _restore_missing_frozen_source(name,role,src,stored)
             _verify_source_identity(name,role,src,stored)
             if verify_bytes and sha256_file(Path(stored["path"]))!=stored["sha256"]:
                 raise RuntimeError(f"source SHA changed: {name}/{role}")
