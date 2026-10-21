@@ -2,6 +2,7 @@
 from __future__ import annotations
 import copy
 import hashlib
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -119,6 +120,50 @@ class DiversityCorpusTests(unittest.TestCase):
             self.assertFalse(actual["currentFileExists"])
             self.assertFalse(actual["sourceBytesVerified"])
             self.assertEqual(actual["expectedSha256"],frozen["sha256"])
+
+    def test_missing_frozen_source_is_restored_from_content_addressed_cdn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/"SharedCache"/"ResFiles"
+            target=root/"ab"/"abcdef012345"
+            payload=b"frozen-authored-source"
+            logical="res:/model/ship/a/b/normal.dds"
+            source={"path":str(target),"logical":logical}
+            frozen={"path":str(target.resolve()),"logical":logical,
+                    "sha256":hashlib.sha256(payload).hexdigest()}
+            with patch.object(d.urllib.request,"urlopen",
+                              return_value=io.BytesIO(payload)) as download:
+                self.assertTrue(d._restore_missing_frozen_source(
+                    "crop_000","normal",source,frozen))
+            self.assertEqual(target.read_bytes(),payload)
+            request=download.call_args.args[0]
+            self.assertEqual(request.full_url,
+                             d.RESOURCE_CDN_BASE+"/ab/abcdef012345")
+
+    def test_missing_frozen_source_rejects_wrong_cdn_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target=Path(tmp)/"ResFiles"/"cd"/"contenthash"
+            logical="res:/model/ship/a/b/normal.dds"
+            source={"path":str(target),"logical":logical}
+            frozen={"path":str(target.resolve()),"logical":logical,
+                    "sha256":hashlib.sha256(b"expected").hexdigest()}
+            with patch.object(d.urllib.request,"urlopen",
+                              return_value=io.BytesIO(b"wrong")):
+                with self.assertRaisesRegex(RuntimeError,"SHA mismatch"):
+                    d._restore_missing_frozen_source("crop_000","normal",source,frozen)
+            self.assertFalse(target.exists())
+
+    def test_missing_frozen_source_does_not_rehydrate_changed_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target=Path(tmp)/"ResFiles"/"ef"/"contenthash"
+            frozen={"path":str(target.resolve()),
+                    "logical":"res:/model/ship/a/b/normal.dds",
+                    "sha256":hashlib.sha256(b"expected").hexdigest()}
+            source={"path":str(target),
+                    "logical":"res:/model/ship/other/normal.dds"}
+            with patch.object(d.urllib.request,"urlopen",
+                              side_effect=AssertionError("identity mismatch must not download")):
+                self.assertFalse(d._restore_missing_frozen_source(
+                    "crop_000","normal",source,frozen))
 
     def test_source_identity_reports_changed_logical_resource(self):
         with tempfile.TemporaryDirectory() as tmp:
