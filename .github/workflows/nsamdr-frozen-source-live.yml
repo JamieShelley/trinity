@@ -23,9 +23,11 @@ jobs:
         run: |
           python - <<'PY'
           import ast
+          import gzip
           import hashlib
           import json
           import os
+          import shutil
           from pathlib import Path
           import tempfile
           import urllib.request
@@ -43,7 +45,8 @@ jobs:
                     if isinstance(node, ast.FunctionDef) and node.name in names],
               type_ignores=[],
           )
-          ns = {'Path': Path, 'hashlib': hashlib, 'json': json, 'os': os,
+          ns = {'Path': Path, 'gzip': gzip, 'hashlib': hashlib,
+                'json': json, 'os': os, 'shutil': shutil,
                 'tempfile': tempfile, 'urllib': urllib,
                 'RESOURCE_CDN_BASE': 'https://resources.eveonline.com'}
           exec(compile(isolated, str(source_file), 'exec'), ns)
