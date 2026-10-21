@@ -49,6 +49,26 @@ jobs:
           exec(compile(isolated, str(source_file), 'exec'), ns)
           assert names <= set(ns)
 
+          original_hash = ns['sha256_file']
+          def describe_and_hash(path):
+              with Path(path).open('rb') as downloaded:
+                  first_bytes = downloaded.read(64)
+              print('CDN_OBJECT_BYTES', Path(path).stat().st_size,
+                    'FIRST_BYTES_HEX', first_bytes.hex(),
+                    'DDS_MAGIC', first_bytes.startswith(b'DDS '), flush=True)
+              return original_hash(path)
+          ns['sha256_file'] = describe_and_hash
+          original_open = urllib.request.urlopen
+          def log_response(request, *args, **kwargs):
+              response = original_open(request, *args, **kwargs)
+              print('CDN_HTTP_STATUS', response.status,
+                    'CONTENT_TYPE', response.headers.get('Content-Type'),
+                    'CONTENT_LENGTH', response.headers.get('Content-Length'),
+                    'CONTENT_ENCODING', response.headers.get('Content-Encoding'),
+                    'ETAG', response.headers.get('ETag'), flush=True)
+              return response
+          urllib.request.urlopen = log_response
+
           filename = 'b6c773ceade834a4_bdce35169b79edb50bcc15ccb9fc1e5b'
           expected_sha = '7ab87e53789b8958cfe0883470152b75c3e243bc8e7aca6fa9a3f8f96da848fe'
           logical = 'res:/dx9/model/ship/amarr/battlecruiser/abc3/abc3_t1_n.dds'
