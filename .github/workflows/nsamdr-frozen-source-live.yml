@@ -1,0 +1,71 @@
+name: NSAMDR frozen EVE cache object verification
+
+on:
+  push:
+    branches: [NSAMDR]
+    paths: [.github/workflows/nsamdr-frozen-source-live.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-frozen-cache-recovery:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Restore and authenticate historical EVE DDS using checked-in recovery code
+        shell: bash
+        run: |
+          python - <<'PY'
+          import ast
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import tempfile
+          import urllib.request
+
+          # Load only the recovery / identity functions from the committed source.
+          # This removes heavyweight training imports, not any recovery logic.
+          source_file = Path('tools/nsamdr/neural/v17/diversity_corpus.py')
+          source_ast = ast.parse(source_file.read_text(encoding='utf-8'))
+          names = {
+              'canonical_logical', 'sha256_file', '_cdn_resource_suffix',
+              '_restore_missing_frozen_source', '_verify_source_identity',
+          }
+          isolated = ast.Module(
+              body=[node for node in source_ast.body
+                    if isinstance(node, ast.FunctionDef) and node.name in names],
+              type_ignores=[],
+          )
+          ns = {'Path': Path, 'hashlib': hashlib, 'json': json, 'os': os,
+                'tempfile': tempfile, 'urllib': urllib,
+                'RESOURCE_CDN_BASE': 'https://resources.eveonline.com'}
+          exec(compile(isolated, str(source_file), 'exec'), ns)
+          assert names <= set(ns)
+
+          filename = 'b6c773ceade834a4_bdce35169b79edb50bcc15ccb9fc1e5b'
+          expected_sha = '7ab87e53789b8958cfe0883470152b75c3e243bc8e7aca6fa9a3f8f96da848fe'
+          logical = 'res:/dx9/model/ship/amarr/battlecruiser/abc3/abc3_t1_n.dds'
+          with tempfile.TemporaryDirectory() as temp_root:
+              target = Path(temp_root) / 'ResFiles' / 'b6' / filename
+              source = {'path': str(target), 'logical': logical}
+              frozen = {'path': str(target.resolve()), 'logical': logical,
+                        'sha256': expected_sha}
+              assert not target.exists()
+              assert ns['_restore_missing_frozen_source'](
+                  'bfdcb407e07707a3_000', 'normal', source, frozen)
+              ns['_verify_source_identity'](
+                  'bfdcb407e07707a3_000', 'normal', source, frozen)
+              actual_sha = ns['sha256_file'](target)
+              assert actual_sha == expected_sha, (actual_sha, expected_sha)
+              with target.open('rb') as file:
+                  assert file.read(4) == b'DDS ', 'Recovered file is not a DDS'
+              print('LIVE_FROZEN_EVE_SOURCE_VERIFIED', target.stat().st_size,
+                    actual_sha, flush=True)
+          PY
