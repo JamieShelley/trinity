@@ -1,6 +1,7 @@
 """CPU-only V17.5 frozen diversity cohort provenance and selection tests."""
 from __future__ import annotations
 import copy
+import gzip
 import hashlib
 import io
 import json
@@ -138,6 +139,36 @@ class DiversityCorpusTests(unittest.TestCase):
             request=download.call_args.args[0]
             self.assertEqual(request.full_url,
                              d.RESOURCE_CDN_BASE+"/ab/abcdef012345")
+
+    def test_missing_frozen_source_decodes_cdn_gzip_before_verifying_sha(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target=Path(tmp)/"ResFiles"/"b6"/"original-object"
+            payload=b"DDS "+bytes(range(256))*24
+            compressed=io.BytesIO(gzip.compress(payload))
+            compressed.headers={"Content-Encoding":"gzip"}
+            logical="res:/model/ship/a/b/normal.dds"
+            source={"path":str(target),"logical":logical}
+            frozen={"path":str(target.resolve()),"logical":logical,
+                    "sha256":hashlib.sha256(payload).hexdigest()}
+            with patch.object(d.urllib.request,"urlopen",return_value=compressed):
+                self.assertTrue(d._restore_missing_frozen_source(
+                    "crop_000","normal",source,frozen))
+            self.assertEqual(target.read_bytes(),payload)
+            d._verify_source_identity("crop_000","normal",source,frozen)
+
+    def test_missing_frozen_source_rejects_unsupported_content_encoding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target=Path(tmp)/"ResFiles"/"b6"/"original-object"
+            logical="res:/model/ship/a/b/normal.dds"
+            source={"path":str(target),"logical":logical}
+            frozen={"path":str(target.resolve()),"logical":logical,
+                    "sha256":hashlib.sha256(b"payload").hexdigest()}
+            response=io.BytesIO(b"payload")
+            response.headers={"Content-Encoding":"br"}
+            with patch.object(d.urllib.request,"urlopen",return_value=response):
+                with self.assertRaisesRegex(RuntimeError,"unsupported source content encoding"):
+                    d._restore_missing_frozen_source("crop_000","normal",source,frozen)
+            self.assertFalse(target.exists())
 
     def test_missing_frozen_source_rejects_wrong_cdn_bytes(self):
         with tempfile.TemporaryDirectory() as tmp:
