@@ -129,7 +129,8 @@ scripts\build\nsamdr.bat v176-raven-channel-audit --crop-size 128 --max-textures
 
 This prepares the Raven's authentic texture material manifest, identifies
 high-contrast **native source-coordinate** ROIs, and writes labelled PNG
-comparisons for albedo, normal XY, material, glow and roughness. Each sheet
+comparisons for albedo, normal XY, material, glow, roughness and the
+unchanged paint, dirt and ambient-occlusion masks. Each sheet
 shows **nearest 4×**, **bilinear 4×** and their absolute difference. The report
 records the source texture dimensions, ROI coordinates and per-channel
 interpolation difference. For a known defect you can target a specific
