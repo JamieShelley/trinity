@@ -24,7 +24,8 @@ class V176RavenPreviewTests(unittest.TestCase):
         from tools.nsamdr.neural.v176 import raven_renderer
         with self.assertRaisesRegex(RuntimeError, "authenticated model"):
             with tempfile.TemporaryDirectory() as tmp:
-                empty = Path(tmp) / "missing.pt"
+                empty = Path(tmp) / "empty.pt"
+                empty.write_bytes(b"test")
                 source = raven_renderer.PreviewSource("V176", 0, "research", empty)
                 raven_renderer._generate_candidate(
                     repo_root=Path(tmp), source=source, target_size=1024,
