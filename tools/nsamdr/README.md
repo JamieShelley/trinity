@@ -116,6 +116,34 @@ goal requires a separate, explicitly registered native-source → enhanced-4×
 training objective with spatial/edge continuity and artifact controls.
 Do not alter the old frozen manifests, archived checkpoints or sealed test.
 
+## Diagnose jagged Raven markings before changing training
+
+In the full V17.6 GUI choose **Raven 3D visual preview**, then click
+**Audit native texture channels (no training)** and **Open latest channel audit**.
+
+Or run:
+
+```bat
+scripts\build\nsamdr.bat v176-raven-channel-audit --crop-size 128 --max-textures 6
+```
+
+This prepares the Raven's authentic texture material manifest, identifies
+high-contrast **native source-coordinate** ROIs, and writes labelled PNG
+comparisons for albedo, normal XY, material, glow and roughness. Each sheet
+shows **nearest 4×**, **bilinear 4×** and their absolute difference. The report
+records the source texture dimensions, ROI coordinates and per-channel
+interpolation difference. For a known defect you can target a specific
+native-coordinate ROI with `--crop-x X --crop-y Y`.
+
+Output:
+`artifacts/nsamdr/diagnostics/v176_raven_channel_audit/audit_*/report.json`
+
+This is a **visualization crop, not a network input crop**. The model and
+standard full-native Raven renderer are unchanged. Bilinear filtering is an
+ablation, **not** an automatic fix for categorical paint/material masks.
+The audit identifies which semantics cause block edges so a subsequent
+spatial/semantic-aware reconstruction can be designed safely.
+
 ## Native 4× enhancement research (not yet implemented)
 
 The long-term quality requirement is **better than the original authored
