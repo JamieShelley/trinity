@@ -38,10 +38,11 @@ class V176ChannelAuditTests(unittest.TestCase):
             material[:,24:,:3] = 255
             self.assertTrue(cv2.imwrite(str(root/"a.png"), albedo))
             self.assertTrue(cv2.imwrite(str(root/"m.png"), material))
+            self.assertTrue(cv2.imwrite(str(root/"p.png"), material))
             manifest = root / "materials.tsv"
             manifest.write_text(
-                "albedo\tmaterial\tmaterial_channel\n"
-                "a.png\tm.png\t0\n",
+                "albedo\tmaterial\tmaterial_channel\tpaint_mask\tpaint_mask_channel\n"
+                "a.png\tm.png\t0\tp.png\t1\n",
                 encoding="utf-8",
             )
             result = audit.run(manifest, root/"audit", crop_size=32, max_textures=1,
@@ -54,6 +55,7 @@ class V176ChannelAuditTests(unittest.TestCase):
             self.assertEqual(result["textures"][0]["roiOriginNative"], [16,16])
             self.assertTrue((root/"audit/report.json").is_file())
             self.assertIn("material", [x["semantic"] for x in result["textures"][0]["channels"]])
+            self.assertIn("paint_mask", [x["semantic"] for x in result["textures"][0]["channels"]])
 
     def test_rejects_outside_roi_without_modifying_sources(self):
         with tempfile.TemporaryDirectory() as root:
