@@ -293,76 +293,83 @@ def _tiled_maps(
     lr_material: torch.Tensor,
     *,
     device: torch.device,
-) -> dict[str, torch.Tensor]:
+    scratch: Path,
+) -> dict[str, np.memmap]:
+    """Tile V17.6 inference with full native input and disk-backed HR stitching.
+
+    The old implementation allocated all HR accumulation maps on GPU/host RAM.
+    A native 4096 source requires 16384 HR output; disk-mapped float32 planes
+    preserve the exact Hann blend without huge monolithic allocations.
+    """
     h, w = lr_albedo.shape[-2:]
     tile = int(config.production_tile_lr)
     overlap = int(config.production_overlap_lr)
-    ys = _positions(h, tile, overlap)
-    xs = _positions(w, tile, overlap)
+    if tile < 1 or overlap < 0 or overlap * 2 >= tile:
+        raise ValueError("invalid native V17.6 tile/overlap contract")
     scale = int(config.scale)
+    if scale != 4:
+        raise ValueError("native V17.6 reconstruction requires 4x")
     out_h, out_w = h * scale, w * scale
-    keys = (
-        "baseline_albedo",
-        "baseline_normal",
-        "baseline_material",
-        "candidate_albedo",
-        "candidate_normal",
-        "candidate_material",
-    )
     channels = {
-        "baseline_albedo": 3,
-        "baseline_normal": 2,
-        "baseline_material": 3,
-        "candidate_albedo": 3,
-        "candidate_normal": 2,
-        "candidate_material": 3,
+        "baseline_albedo": 3, "baseline_normal": 2,
+        "baseline_material": 3, "candidate_albedo": 3,
+        "candidate_normal": 2, "candidate_material": 3,
     }
-    accum = {
-        key: torch.zeros(
-            (1, channels[key], out_h, out_w),
-            device="cpu",
-            dtype=torch.float32,
-        )
-        for key in keys
-    }
-    # Never accumulate a 4× native output on the GPU: for a 4096 source this
-    # can exceed VRAM by tens of GB. Each neural tile runs on CUDA, but the
-    # stitched maps live in host memory. Preserve full native evidence.
-    weight = torch.zeros((1, 1, out_h, out_w), device="cpu", dtype=torch.float32)
-
+    scratch.mkdir(parents=True, exist_ok=True)
+    accum: dict[str, np.memmap] = {}
+    for key, count in channels.items():
+        plane = np.memmap(scratch / f"{key}.f32", dtype="float32", mode="w+",
+                          shape=(out_h, out_w, count))
+        plane[:] = 0.0
+        accum[key] = plane
+    weight = np.memmap(scratch / "weights.f32", dtype="float32", mode="w+",
+                       shape=(out_h, out_w))
+    weight[:] = 0.0
     use_amp = device.type == "cuda"
     amp_dtype = torch.bfloat16 if use_amp and torch.cuda.is_bf16_supported() else torch.float16
+    ys = _positions(h, tile, overlap)
+    xs = _positions(w, tile, overlap)
     for y in ys:
         for x in xs:
             a = lr_albedo[..., y : y + tile, x : x + tile]
             n = lr_normal[..., y : y + tile, x : x + tile]
             m = lr_material[..., y : y + tile, x : x + tile]
-            with torch.autocast(
-                device_type="cuda",
-                dtype=amp_dtype,
-                enabled=use_amp,
-            ):
+            with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
                 outputs = model(a, n, m)
             ph, pw = outputs["candidate_albedo"].shape[-2:]
-            win = _window(ph, pw, device).cpu()
             oy, ox = y * scale, x * scale
-            for key in keys:
-                tile_value = outputs[key].detach().float().cpu()
-                accum[key][..., oy : oy + ph, ox : ox + pw] += tile_value * win
-            weight[..., oy : oy + ph, ox : ox + pw] += win
+            win = _window(ph, pw, torch.device("cpu"))[0, 0].numpy()
+            for key in channels:
+                tile_data = outputs[key][0].detach().float().cpu().permute(1, 2, 0).numpy()
+                if tile_data.shape != (ph, pw, channels[key]):
+                    raise RuntimeError(f"V17.6 map shape changed: {key}, {tile_data.shape}")
+                region = accum[key][oy:oy + ph, ox:ox + pw]
+                region += tile_data * win[:, :, None]
+            weight[oy:oy + ph, ox:ox + pw] += win
+            del outputs
+    # Normalize in bounded scanline blocks to avoid materializing entire HR maps.
+    for start in range(0, out_h, 256):
+        stop = min(out_h, start + 256)
+        divisor = np.maximum(np.asarray(weight[start:stop]), 1.0e-6)
+        for key in channels:
+            region = accum[key][start:stop]
+            region /= divisor[:, :, None]
+            if key in ("baseline_normal", "candidate_normal"):
+                lengths = np.sqrt(np.maximum(np.sum(region * region, axis=2,
+                                                      keepdims=True), 1.0e-8))
+                region /= np.maximum(1.0, lengths / 0.999)
+    weight.flush()
+    weight._mmap.close()
+    del weight
+    for value in accum.values():
+        value.flush()
+    return accum
 
-    result = {key: value / weight.clamp_min(1.0e-6) for key, value in accum.items()}
-    for key in ("baseline_normal", "candidate_normal"):
-        value = result[key]
-        length = torch.sqrt(value.square().sum(dim=1, keepdim=True).clamp_min(1.0e-8))
-        result[key] = value / torch.maximum(
-            torch.ones_like(length),
-            length / 0.999,
-        )
-    return result
-
-
-def _tensor_image(value: torch.Tensor) -> np.ndarray:
+def _tensor_image(value: torch.Tensor | np.ndarray) -> np.ndarray:
+    if isinstance(value, np.ndarray):
+        if value.ndim != 3:
+            raise ValueError("native preview tile map must be H×W×C")
+        return value
     return (
         value.detach()
         .float()
@@ -371,7 +378,6 @@ def _tensor_image(value: torch.Tensor) -> np.ndarray:
         .numpy()
         .astype(np.float32)
     )
-
 
 def _ensure_canvas(
     canvases: dict[Path, np.ndarray],
