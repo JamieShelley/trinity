@@ -15,7 +15,7 @@ class V176CLITests(unittest.TestCase):
                     self.parser._subparsers._group_actions[0].choices}
         self.assertEqual(accepted, {
             "gui", "setup", "v176-detail-proof", "v176-capacity-proof",
-            "v176-raven-preview", "test",
+            "v176-raven-preview", "v176-raven-channel-audit", "test",
         })
 
     def test_v176_capacity_passes_phase_resume_and_preserves_audit(self):
@@ -60,6 +60,23 @@ class V176CLITests(unittest.TestCase):
         self.assertIn("hr_features58", values)
         self.assertIn("10", values)
         self.assertNotIn("--target-size", values)
+
+    def test_channel_audit_does_not_preflight_gpu_or_launch_training(self):
+        args = self.parser.parse_args([
+            "v176-raven-channel-audit", "--crop-size", "128",
+            "--max-textures", "4", "--crop-x", "0", "--crop-y", "16",
+        ])
+        with patch.object(self.app, "_source_freshness_preflight", return_value=0), \
+             patch.object(self.app, "_python", return_value=Path("python")), \
+             patch.object(self.app, "_cuda_preflight",
+                               side_effect=AssertionError("channel audit must not run GPU preflight")), \
+             patch.object(self.app, "_run", return_value=0) as run:
+            self.assertEqual(self.app._command_raven_channel_audit(args), 0)
+        line = [str(v) for v in run.call_args.args[0]]
+        self.assertIn("audit_nsamdr_v176_raven_channels.py", " ".join(line))
+        self.assertIn("128", line)
+        self.assertIn("16", line)
+        self.assertNotIn("v176-capacity-proof", line)
 
     def test_legacy_preview_no_longer_callable(self):
         with self.assertRaises(SystemExit):
