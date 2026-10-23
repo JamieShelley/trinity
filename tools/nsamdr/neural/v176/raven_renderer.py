@@ -522,6 +522,19 @@ def _generate_candidate(
 
     baseline_canvases: dict[Path, np.ndarray] = {}
     candidate_canvases: dict[Path, np.ndarray] = {}
+    baseline_replacements: dict[Path, Path] = {}
+    candidate_replacements: dict[Path, Path] = {}
+    # Shared physical textures may appear under multiple material rows; only
+    # flush a canvas after its last reference has been processed.
+    remaining: dict[Path, int] = {}
+    for current_albedo, current_context in contexts.items():
+        sources = {
+            value for value in (current_albedo, current_context.normal,
+                current_context.material, current_context.glow,
+                current_context.roughness) if value is not None
+        }
+        for texture in sources:
+            remaining[texture] = remaining.get(texture, 0) + 1
     source_dimensions: list[dict[str, int | str]] = []
     for index, (albedo, context) in enumerate(
         sorted(contexts.items(), key=lambda item: str(item[0]).casefold()),
@@ -590,21 +603,28 @@ def _generate_candidate(
             flush=True,
         )
         del lr_a, lr_n, lr_m
+        # Save and release completed physical texture canvases immediately.
+        # Do not retain every 4× ship texture in memory for the whole Raven.
+        used = {
+            value for value in (albedo, context.normal, context.material,
+                                context.glow, context.roughness)
+            if value is not None
+        }
+        for texture in used:
+            remaining[texture] -= 1
+            if remaining[texture] == 0:
+                baseline_replacements.update(_write_canvases(
+                    output_root, "baseline_4x", "baseline_4x",
+                    {texture: baseline_canvases.pop(texture)},
+                ))
+                candidate_replacements.update(_write_canvases(
+                    output_root, "candidate_c", "candidate_c",
+                    {texture: candidate_canvases.pop(texture)},
+                ))
         if device.type == "cuda":
             torch.cuda.empty_cache()
-
-    baseline_replacements = _write_canvases(
-        output_root,
-        "baseline_4x",
-        "baseline_4x",
-        baseline_canvases,
-    )
-    candidate_replacements = _write_canvases(
-        output_root,
-        "candidate_c",
-        "candidate_c",
-        candidate_canvases,
-    )
+    if baseline_canvases or candidate_canvases or any(remaining.values()):
+        raise RuntimeError("native V17.6 preview left unfinished shared texture canvases")
 
     baseline_materials = output_root / "baseline.materials.tsv"
     candidate_materials = output_root / "candidate.materials.tsv"
