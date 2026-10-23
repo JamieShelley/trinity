@@ -36,6 +36,55 @@ class V176OperatorGuiTests(unittest.TestCase):
             (folder / "report.json").write_text("{bad")
             self.assertIsNone(latest_report(Path(tmp)))
 
+    def test_full_operator_stage_tree_restored(self):
+        import inspect
+        from tools.nsamdr.gui.nsamdr_v176_workflow_gui import App, STAGES
+        self.assertEqual([s.id for s in STAGES], [
+            "setup", "train", "compare", "attainable",
+            "preview", "evidence", "tests", "quadtree",
+        ])
+        source = inspect.getsource(App._build)
+        for item in ("ttk.Treeview", "ttk.Panedwindow", "controls_canvas",
+                     "Command preview", "progress_value", "Stop current process",
+                     "Detect artifacts", "preview_combo", "Runtime log"):
+            self.assertIn(item, source)
+
+    def test_current_stage_commands_are_wired_without_tk_instance(self):
+        from tools.nsamdr.gui.nsamdr_v176_workflow_gui import App
+        class Var:
+            def __init__(self, value):
+                self.value = value
+            def get(self):
+                return self.value
+        app = App.__new__(App)
+        app.vars = {
+            "phase": Var("compare-features"), "resume": Var("fresh"),
+            "amp": Var("auto"), "device": Var("cuda"), "audit": Var(False),
+            "authority": Var("10"), "mode": Var("output10"),
+            "target": Var("1024"), "cache": Var(r"C:\CCP\EVE"),
+        }
+        actual = app._command_for_stage("compare")
+        self.assertIn("v176-capacity-proof", actual)
+        self.assertIn("compare-features", actual)
+        self.assertNotIn("attainable", actual)
+        actual = app._command_for_stage("preview")
+        self.assertIn("v176-raven-preview", actual)
+        self.assertIn("output10", actual)
+        self.assertIsNone(app._command_for_stage("quadtree"))
+
+    def test_footer_source_matches_renderer_folder(self):
+        from tools.nsamdr.gui.nsamdr_v176_workflow_gui import (
+            PREVIEW_CHOICES, preview_label, App,
+        )
+        self.assertEqual(set(PREVIEW_CHOICES), {
+            "TRAIN10_OUTPUT10", "TRAIN10_HR_FEATURES58",
+            "TRAIN01_OUTPUT10", "TRAIN01_HR_FEATURES58",
+        })
+        for value in PREVIEW_CHOICES:
+            authority = int(value[5:7])
+            mode = value.split("_", 1)[1].lower()
+            self.assertTrue(preview_label(authority, mode).endswith(value))
+
 
 if __name__ == "__main__":
     unittest.main()
