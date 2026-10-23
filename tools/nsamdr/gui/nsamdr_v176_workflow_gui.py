@@ -84,12 +84,10 @@ def training_command(phase: str, resume: str, audit: bool, amp: str) -> list[str
             "--amp-precision", amp] + (["--audit-only"] if audit else [])
 
 
-def raven_command(cache: str, size: int, authority: int, mode: str) -> list[str]:
+def raven_command(cache: str, authority: int, mode: str) -> list[str]:
     if authority not in (1, 10) or mode not in ("output10", "hr_features58"):
         raise ValueError("invalid authenticated V17.6 training arm")
-    if not 512 <= size <= 2048:
-        raise ValueError("native Raven preview size must be 512..2048")
-    return ["v176-raven-preview", "--shared-cache", cache, "--target-size", str(size),
+    return ["v176-raven-preview", "--shared-cache", cache,
             "--authority-index", str(authority), "--mode", mode]
 
 
@@ -467,7 +465,7 @@ class App:
             self._label("Ship", "Caldari Raven — real EVE textures / DX11 native viewer")
             self._row("Training authority", "authority", "10", ("10", "1"))
             self._row("Specialist", "mode", "output10", ("output10", "hr_features58"))
-            self._row("Target image size", "target", "1024", ("512", "1024", "2048"))
+            self._label("Output scale", "Native full-resolution source × 4 (no downsampling)")
             self._row("EVE ResFiles cache", "cache", r"C:\CCP\EVE")
             self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
             self._row("Comparison report", "comparison_report", "")
@@ -543,7 +541,6 @@ class App:
                     args.extend((flag, self._value(key).strip()))
         elif stage_id == "preview":
             args = raven_command(self._value("cache", r"C:\CCP\EVE"),
-                                 int(self._value("target", "1024")),
                                  int(self._value("authority", "10")),
                                  self._value("mode", "output10"))
             args.extend(("--device", self._value("device", "cuda")))
