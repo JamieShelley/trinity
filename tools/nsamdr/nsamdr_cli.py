@@ -162,6 +162,23 @@ class NSAMDRCommandLineApplication:
             argv += ["--comparison-report", args.comparison_report]
         return self._run(argv)
 
+    def _command_raven_channel_audit(self, args: argparse.Namespace) -> int:
+        rc = self._source_freshness_preflight()
+        if rc:
+            return rc
+        python = self._python("cuda")
+        argv = [python, "-u",
+                NEURAL_ROOT / "audit_nsamdr_v176_raven_channels.py",
+                "--repo-root", REPO_ROOT,
+                "--shared-cache", args.shared_cache,
+                "--crop-size", str(args.crop_size),
+                "--max-textures", str(args.max_textures)]
+        if args.crop_x is not None or args.crop_y is not None:
+            if args.crop_x is None or args.crop_y is None:
+                raise ValueError("both --crop-x and --crop-y are required")
+            argv += ["--crop-x", str(args.crop_x), "--crop-y", str(args.crop_y)]
+        return self._run(argv)
+
     def _command_tests(self, args: argparse.Namespace) -> int:
         python = self._python("cuda")
         cases = [
@@ -172,6 +189,7 @@ class NSAMDRCommandLineApplication:
             "tools.nsamdr.neural.test_nsamdr_v176_stability",
             "tools.nsamdr.neural.test_nsamdr_v176_attainable",
             "tools.nsamdr.neural.test_nsamdr_v176_raven_preview",
+            "tools.nsamdr.neural.test_nsamdr_v176_channel_audit",
             "tools.nsamdr.gui.test_nsamdr_v176_workflow_gui",
         ]
         return self._run([python, "-m", "unittest", "-v", *cases])
@@ -209,6 +227,13 @@ class NSAMDRCommandLineApplication:
         raven.add_argument("--mode", choices=("output10", "hr_features58"), default="output10")
         raven.add_argument("--comparison-report", default="")
         raven.set_defaults(handler=self._command_raven)
+        audit = commands.add_parser("v176-raven-channel-audit")
+        audit.add_argument("--shared-cache", default=r"C:\CCP\EVE")
+        audit.add_argument("--crop-size", type=int, default=128)
+        audit.add_argument("--max-textures", type=int, default=6)
+        audit.add_argument("--crop-x", type=int)
+        audit.add_argument("--crop-y", type=int)
+        audit.set_defaults(handler=self._command_raven_channel_audit)
         tests = commands.add_parser("test")
         tests.set_defaults(handler=self._command_tests)
         return parser
