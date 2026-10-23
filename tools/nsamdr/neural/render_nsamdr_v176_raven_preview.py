@@ -116,7 +116,6 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--repo-root", type=Path, default=ROOT)
     p.add_argument("--shared-cache", default=r"C:\CCP\EVE")
-    p.add_argument("--target-size", type=int, default=1024)
     p.add_argument("--device", choices=("cuda", "cpu", "auto"), default="cuda")
     p.add_argument("--ship-query", default=native.DEFAULT_RAVEN)
     p.add_argument("--authority-index", type=int, choices=(1,10), default=10)
@@ -127,8 +126,6 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    if not 512 <= args.target_size <= 2048:
-        raise ValueError("render target size must be 512..2048")
     repo = args.repo_root.resolve()
     device = native._device(args.device)
     report_path, contract, provenance, checkpoint = _resolve_comparison(
@@ -140,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     if int(config.scale) != 4:
         raise RuntimeError("V17.6 Raven preview requires exact 4x scale")
     print(f"[v176-raven] model={args.mode} authority={args.authority_index} "
-          f"checkpoint={checkpoint} (UNQUALIFIED)", flush=True)
+          f"checkpoint={checkpoint} (UNQUALIFIED; NATIVE 4X INFERENCE)", flush=True)
 
     (obj_path, albedo, normal, pgs, environment, environments,
      materials, asset_manifest, catalog, cache_root) = eve.prepare_asset(
@@ -154,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
         checkpoint=checkpoint,
     )
     report = native._generate_candidate(
-        repo_root=repo, source=source, target_size=args.target_size,
+        repo_root=repo, source=source,
         device=device, obj_path=obj_path, materials=materials,
         model_override=(model, config, payload), preview_schema=SCHEMA,
     )
