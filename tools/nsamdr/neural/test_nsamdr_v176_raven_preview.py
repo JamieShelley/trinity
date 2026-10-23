@@ -28,11 +28,45 @@ class V176RavenPreviewTests(unittest.TestCase):
                 empty.write_bytes(b"test")
                 source = raven_renderer.PreviewSource("V176", 0, "research", empty)
                 raven_renderer._generate_candidate(
-                    repo_root=Path(tmp), source=source, target_size=1024,
+                    repo_root=Path(tmp), source=source,
                     device=raven.torch.device("cpu"), obj_path=Path(tmp) / "x.obj",
                     materials=Path(tmp) / "materials.tsv",
                     model_override=None,
                 )
+
+    def test_exact_native_source_geometry_never_downsamples(self):
+        import numpy as np
+        from tools.nsamdr.neural.v176.raven_renderer import _output_size
+        self.assertEqual(_output_size(np.zeros((512, 1024, 4), np.uint8), 4),
+                         (4096, 2048))
+        self.assertEqual(_output_size(np.zeros((2048, 2048, 4), np.uint8), 4),
+                         (8192, 8192))
+        with self.assertRaisesRegex(RuntimeError, "16384"):
+            _output_size(np.zeros((4097, 1, 4), np.uint8), 4)
+
+    def test_no_preview_reduction_permitted(self):
+        import numpy as np
+        import torch
+        from tools.nsamdr.neural.v176.raven_renderer import _model_inputs, TextureContext
+        # This check is before source processing: mismatched output/input geometry
+        # fails closed even with a loaded source file.
+        with tempfile.TemporaryDirectory() as d:
+            import cv2
+            path = Path(d) / "source.png"
+            original = np.zeros((8, 8, 4), dtype=np.uint8)
+            original[:, :, :3] = 192
+            self.assertTrue(cv2.imwrite(str(path), original))
+            a, n, m = _model_inputs(path, TextureContext(),
+                                    out_width=32, out_height=32,
+                                    scale=4, device=torch.device("cpu"))
+            self.assertEqual(tuple(a.shape), (1, 3, 8, 8))
+            self.assertEqual(tuple(n.shape), (1, 2, 8, 8))
+            self.assertEqual(tuple(m.shape), (1, 3, 8, 8))
+            self.assertAlmostEqual(float(a.mean()), 192.0 / 255, places=6)
+            with self.assertRaisesRegex(RuntimeError, "would resize original source"):
+                _model_inputs(path, TextureContext(),
+                              out_width=16, out_height=16,
+                              scale=4, device=torch.device("cpu"))
 
 
 if __name__ == "__main__":
