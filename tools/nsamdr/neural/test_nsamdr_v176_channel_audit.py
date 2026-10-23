@@ -39,9 +39,11 @@ class V176ChannelAuditTests(unittest.TestCase):
             self.assertTrue(cv2.imwrite(str(root/"a.png"), albedo))
             self.assertTrue(cv2.imwrite(str(root/"m.png"), material))
             manifest = root / "materials.tsv"
-            manifest.write_text("albedo\\tmaterial\\tmaterial_channel\\n"
-                                "a.png\\tm.png\\t0\\n".replace("\\t","\t").replace("\\n","\n"),
-                                encoding="utf-8")
+            manifest.write_text(
+                "albedo\tmaterial\tmaterial_channel\n"
+                "a.png\tm.png\t0\n",
+                encoding="utf-8",
+            )
             result = audit.run(manifest, root/"audit", crop_size=32, max_textures=1,
                                origin=(16,16))
             self.assertEqual(result["schema"], audit.SCHEMA)
