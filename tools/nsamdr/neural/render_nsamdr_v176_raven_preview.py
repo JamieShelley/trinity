@@ -24,7 +24,7 @@ for import_path in (ROOT, HERE, HERE.parent):
         sys.path.insert(0, str(import_path))
 
 import eve_asset_test as eve  # type: ignore
-import render_nsamdr_v16_training_preview as native
+from tools.nsamdr.neural.v176 import raven_renderer as native
 from probe_nsamdr_v17_comprehensive import _batch_config, _origin
 from probe_nsamdr_v176_capacity import (
     ROOT as COMPARISON_ROOT, STAGES as COMPARISON_STAGES,
@@ -34,9 +34,7 @@ from tools.nsamdr.neural.v17.diversity_corpus import sha256_file
 from tools.nsamdr.neural.v176.detail_capacity import create_matched_variants
 
 SCHEMA = "NSAMDR_V176_RAVEN_RESEARCH_PREVIEW_V1"
-SOURCE_NAME = "V176_RAVEN_TRAIN10_OUTPUT10"
-AUTHORITY_INDEX = 10
-MODE = "output10"
+SOURCE_NAME = "V176_RAVEN"
 STAGE = COMPARISON_STAGES[-1]
 
 
@@ -47,14 +45,14 @@ def _json(path: Path) -> dict[str, Any]:
     return result
 
 
-def _resolve_comparison(repo: Path) -> tuple[Path, dict[str, Any], dict[str, Any], Path]:
+def _resolve_comparison(repo: Path, authority_index: int, mode: str, explicit: str = "") -> tuple[Path, dict[str, Any], dict[str, Any], Path]:
     """Choose the newest *authenticated* completed training-only comparison."""
     root = repo / COMPARISON_ROOT
     found_errors: list[str] = []
-    for report_path in sorted(
-        root.glob("proof_*/report.json"), key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    ):
+    candidates = ([Path(explicit).resolve()] if explicit else
+                  sorted(root.glob("proof_*/report.json"),
+                         key=lambda p: p.stat().st_mtime, reverse=True))
+    for report_path in candidates:
         try:
             contract = _json(report_path.parent / "run_manifest.json")
             _report, audit = _verify_comparison(report_path, contract)
@@ -64,9 +62,9 @@ def _resolve_comparison(repo: Path) -> tuple[Path, dict[str, Any], dict[str, Any
                 raise RuntimeError("Stage9 frozen checkpoint missing")
             if sha256_file(backbone_path) != contract["parentStage9CheckpointSha256"]:
                 raise RuntimeError("Stage9 frozen checkpoint SHA mismatch")
-            if int(contract["trainingAuthorities"][str(AUTHORITY_INDEX)]["authorityId"], 16) == 0:
+            if int(contract["trainingAuthorities"][str(authority_index)]["authorityId"], 16) == 0:
                 raise RuntimeError("training authority identity missing")
-            arm = _arm_name(AUTHORITY_INDEX, MODE)
+            arm = _arm_name(authority_index, mode)
             checkpoint = report_path.parent / arm / f"stage_{STAGE:06d}" / "checkpoint.pt"
             if sha256_file(checkpoint) != audit["comparisonCheckpointSha256"][arm]:
                 raise RuntimeError("selected specialist checkpoint SHA mismatch")
@@ -83,6 +81,7 @@ def _resolve_comparison(repo: Path) -> tuple[Path, dict[str, Any], dict[str, Any
 def _load_preview_model(
     repo: Path, report_path: Path, contract: dict[str, Any],
     provenance: dict[str, Any], checkpoint: Path, device: torch.device,
+    authority_index: int, mode: str,
 ) -> tuple[torch.nn.Module, Any, dict[str, Any]]:
     source = _origin(repo, "")
     if sha256_file(Path(source["manifest"])) != contract["sourceManifestSha256"]:
@@ -91,11 +90,11 @@ def _load_preview_model(
     backbone = _make_backbone(config, Path(provenance["stage9A12Checkpoint"]), device)
     if _tensor_sha(backbone) != contract["parentBackboneTensorSha256"]:
         raise RuntimeError("frozen backbone tensor SHA changed")
-    plain, _rich = create_matched_variants(backbone, seed=int(contract["seed"]) + AUTHORITY_INDEX)
-    model = plain.to(device).eval()
+    plain, rich = create_matched_variants(backbone, seed=int(contract["seed"]) + authority_index)
+    model = (plain if mode == "output10" else rich).to(device).eval()
     state = torch.load(checkpoint, map_location="cpu", weights_only=True)
     if (state.get("contract") != contract
-        or state.get("arm") != _arm_name(AUTHORITY_INDEX, MODE)
+        or state.get("arm") != _arm_name(authority_index, mode)
         or state.get("update") != STAGE
         or state.get("architecture") != model.architecture_contract()):
         raise RuntimeError("V17.6 checkpoint architecture or contract mismatch")
@@ -106,8 +105,8 @@ def _load_preview_model(
         "schema": state["schema"],
         "sourceComparisonReport": str(report_path.resolve()),
         "sourceComparisonSha256": sha256_file(report_path),
-        "sourceMode": MODE,
-        "authorityIndex": AUTHORITY_INDEX,
+        "sourceMode": mode,
+        "authorityIndex": authority_index,
         "researchOnly": True,
         "qualified": False,
     }
@@ -120,6 +119,9 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--target-size", type=int, default=1024)
     p.add_argument("--device", choices=("cuda", "cpu", "auto"), default="cuda")
     p.add_argument("--ship-query", default=native.DEFAULT_RAVEN)
+    p.add_argument("--authority-index", type=int, choices=(1,10), default=10)
+    p.add_argument("--mode", choices=("output10","hr_features58"), default="output10")
+    p.add_argument("--comparison-report", default="")
     return p
 
 
@@ -129,13 +131,15 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError("render target size must be 512..2048")
     repo = args.repo_root.resolve()
     device = native._device(args.device)
-    report_path, contract, provenance, checkpoint = _resolve_comparison(repo)
+    report_path, contract, provenance, checkpoint = _resolve_comparison(
+        repo, args.authority_index, args.mode, args.comparison_report)
     model, config, payload = _load_preview_model(
         repo, report_path, contract, provenance, checkpoint, device,
+        args.authority_index, args.mode,
     )
     if int(config.scale) != 4:
         raise RuntimeError("V17.6 Raven preview requires exact 4x scale")
-    print(f"[v176-raven] model={MODE} authority={AUTHORITY_INDEX} "
+    print(f"[v176-raven] model={args.mode} authority={args.authority_index} "
           f"checkpoint={checkpoint} (UNQUALIFIED)", flush=True)
 
     (obj_path, albedo, normal, pgs, environment, environments,
@@ -144,8 +148,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     if materials is None or not materials.is_file():
         raise RuntimeError("Raven physical material manifest unavailable")
+    label = f"{SOURCE_NAME}_TRAIN{args.authority_index:02d}_{args.mode.upper()}"
     source = native.PreviewSource(
-        label=SOURCE_NAME, ordinal=STAGE, phase="v176-trained-comparison-research",
+        label=label, ordinal=STAGE, phase="v176-trained-comparison-research",
         checkpoint=checkpoint,
     )
     report = native._generate_candidate(
@@ -160,19 +165,19 @@ def main(argv: list[str] | None = None) -> int:
         "researchOnly": True, "productionPromotionAllowed": False,
         "frozenBackboneSha256": contract["parentBackboneTensorSha256"],
         "comparisonReport": str(report_path.resolve()),
-        "modelMode": MODE, "trainingAuthorityIndex": AUTHORITY_INDEX,
+        "modelMode": args.mode, "trainingAuthorityIndex": args.authority_index,
         "quadtreeRouting": False,
     })
     Path(report["reportPath"]).write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8",
     )
-    live_dir = repo / "artifacts/nsamdr/render_preview" / SOURCE_NAME
+    live_dir = repo / "artifacts/nsamdr/render_preview" / label
     pointer_path = live_dir / "current_candidate.txt"
     native._atomic_text(pointer_path, native._pointer_text(report))
     print(f"[v176-raven] PUBLISHED {report['reportPath']}", flush=True)
 
     os.environ.update({
-        "NSAMDR_PREVIEW_EXPERIMENT": SOURCE_NAME,
+        "NSAMDR_PREVIEW_EXPERIMENT": label,
         "NSAMDR_PREVIEW_AUTHORITY": "training-intermediate",
         "NSAMDR_LIVE_CANDIDATE_POINTER": str(pointer_path.resolve()),
         "NSAMDR_PREVIEW_REUSE_EXISTING_VIEWER": "1",
