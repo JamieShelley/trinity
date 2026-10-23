@@ -68,6 +68,46 @@ class V176RavenPreviewTests(unittest.TestCase):
                               out_width=16, out_height=16,
                               scale=4, device=torch.device("cpu"))
 
+    def test_native_tiling_disk_buffers_preserve_constants_without_gaps(self):
+        import types
+        import numpy as np
+        import torch
+        from tools.nsamdr.neural.v176.raven_renderer import _tiled_maps
+
+        class Dummy(torch.nn.Module):
+            def forward(self, a, n, m):
+                h, w = a.shape[-2:]
+                def tensor(channels, value):
+                    return torch.full((1, channels, 4*h, 4*w), value,
+                                      device=a.device, dtype=torch.float32)
+                return {
+                    "baseline_albedo": tensor(3, .25),
+                    "baseline_normal": tensor(2, .0),
+                    "baseline_material": tensor(3, .5),
+                    "candidate_albedo": tensor(3, .75),
+                    "candidate_normal": tensor(2, .0),
+                    "candidate_material": tensor(3, .5),
+                }
+        config = types.SimpleNamespace(
+            production_tile_lr=6, production_overlap_lr=2, scale=4)
+        with tempfile.TemporaryDirectory() as root:
+            maps = _tiled_maps(
+                Dummy(), config,
+                torch.ones((1, 3, 11, 13)),
+                torch.zeros((1, 2, 11, 13)),
+                torch.zeros((1, 3, 11, 13)),
+                device=torch.device("cpu"), scratch=Path(root),
+            )
+            try:
+                self.assertEqual(maps["candidate_albedo"].shape, (44, 52, 3))
+                self.assertTrue(np.allclose(maps["candidate_albedo"], .75, atol=1e-5))
+                self.assertTrue(np.allclose(maps["baseline_albedo"], .25, atol=1e-5))
+                self.assertTrue(np.isfinite(maps["candidate_normal"]).all())
+                self.assertTrue((Path(root)/"candidate_albedo.f32").is_file())
+            finally:
+                for plane in maps.values():
+                    plane._mmap.close()
+
 
 if __name__ == "__main__":
     unittest.main()
