@@ -407,31 +407,40 @@ def _apply_maps(
     height: int,
     canvases: dict[Path, np.ndarray],
 ) -> None:
+    """Write model maps into rendered channels in bounded HR scanline strips."""
+    if albedo_map.shape != (height, width, 3):
+        raise RuntimeError("V17.6 albedo shape differs from exact native 4× output")
+    if normal_map.shape != (height, width, 2):
+        raise RuntimeError("V17.6 normal shape differs from exact native 4× output")
+    if material_map.shape != (height, width, 3):
+        raise RuntimeError("V17.6 material shape differs from exact native 4× output")
     albedo_canvas = _ensure_canvas(canvases, albedo, width, height)
-    rgb = np.uint8(np.rint(np.clip(albedo_map, 0.0, 1.0) * 255.0))
-    albedo_canvas[:, :, :3] = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-
-    if context.normal is not None:
-        canvas = _ensure_canvas(canvases, context.normal, width, height)
-        canvas[:, :, _bgra_channel(context.normal_x_channel)] = np.uint8(
-            np.rint(np.clip((normal_map[:, :, 0] + 1.0) * 127.5, 0.0, 255.0))
-        )
-        canvas[:, :, _bgra_channel(context.normal_y_channel)] = np.uint8(
-            np.rint(np.clip((normal_map[:, :, 1] + 1.0) * 127.5, 0.0, 255.0))
-        )
-
-    for source, channel, plane in (
-        (context.material, context.material_channel, material_map[:, :, 0]),
-        (context.glow, context.glow_channel, material_map[:, :, 1]),
-        (context.roughness, context.roughness_channel, material_map[:, :, 2]),
-    ):
-        if source is None:
-            continue
-        canvas = _ensure_canvas(canvases, source, width, height)
-        canvas[:, :, _bgra_channel(channel)] = np.uint8(
-            np.rint(np.clip(plane, 0.0, 1.0) * 255.0)
-        )
-
+    normal_canvas = (_ensure_canvas(canvases, context.normal, width, height)
+                     if context.normal is not None else None)
+    material_canvases = [
+        (path, channel, plane, _ensure_canvas(canvases, path, width, height))
+        for path, channel, plane in (
+            (context.material, context.material_channel, 0),
+            (context.glow, context.glow_channel, 1),
+            (context.roughness, context.roughness_channel, 2),
+        ) if path is not None
+    ]
+    for start in range(0, height, 256):
+        stop = min(height, start + 256)
+        rgb = np.uint8(np.rint(np.clip(albedo_map[start:stop], 0.0, 1.0) * 255.0))
+        albedo_canvas[start:stop, :, :3] = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        if normal_canvas is not None:
+            for plane, channel in ((0, context.normal_x_channel),
+                                   (1, context.normal_y_channel)):
+                normal_canvas[start:stop, :, _bgra_channel(channel)] = np.uint8(
+                    np.rint(np.clip((normal_map[start:stop, :, plane] + 1.0) *
+                                    127.5, 0.0, 255.0))
+                )
+        for _, channel, plane, canvas in material_canvases:
+            canvas[start:stop, :, _bgra_channel(channel)] = np.uint8(
+                np.rint(np.clip(material_map[start:stop, :, plane],
+                                0.0, 1.0) * 255.0)
+            )
 
 def _write_canvases(
     output_root: Path,
