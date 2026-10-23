@@ -541,40 +541,46 @@ def _generate_candidate(
             scale=int(config.scale),
             device=device,
         )
-        maps = _tiled_maps(
-            model,
-            config,
-            lr_a,
-            lr_n,
-            lr_m,
-            device=device,
-        )
-        _apply_maps(
-            albedo=albedo,
-            context=context,
-            albedo_map=_tensor_image(maps["baseline_albedo"]),
-            normal_map=_tensor_image(maps["baseline_normal"]),
-            material_map=_tensor_image(maps["baseline_material"]),
-            width=width,
-            height=height,
-            canvases=baseline_canvases,
-        )
-        _apply_maps(
-            albedo=albedo,
-            context=context,
-            albedo_map=_tensor_image(maps["candidate_albedo"]),
-            normal_map=_tensor_image(maps["candidate_normal"]),
-            material_map=_tensor_image(maps["candidate_material"]),
-            width=width,
-            height=height,
-            canvases=candidate_canvases,
-        )
+        with tempfile.TemporaryDirectory(prefix="v176_native_tiles_", dir=output_root) as scratch:
+            maps = _tiled_maps(
+                model,
+                config,
+                lr_a,
+                lr_n,
+                lr_m,
+                device=device,
+                scratch=Path(scratch),
+            )
+            _apply_maps(
+                albedo=albedo,
+                context=context,
+                albedo_map=_tensor_image(maps["baseline_albedo"]),
+                normal_map=_tensor_image(maps["baseline_normal"]),
+                material_map=_tensor_image(maps["baseline_material"]),
+                width=width,
+                height=height,
+                canvases=baseline_canvases,
+            )
+            _apply_maps(
+                albedo=albedo,
+                context=context,
+                albedo_map=_tensor_image(maps["candidate_albedo"]),
+                normal_map=_tensor_image(maps["candidate_normal"]),
+                material_map=_tensor_image(maps["candidate_material"]),
+                width=width,
+                height=height,
+                canvases=candidate_canvases,
+            )
+            for plane in maps.values():
+                plane.flush()
+                plane._mmap.close()
+            del maps
         print(
             f"[render-preview] {source.label} {index}/{len(contexts)} "
             f"{albedo.name}: LR {lr_a.shape[-1]} -> HR {width}x{height}",
             flush=True,
         )
-        del maps, lr_a, lr_n, lr_m
+        del lr_a, lr_n, lr_m
         if device.type == "cuda":
             torch.cuda.empty_cache()
 
