@@ -98,8 +98,11 @@ Raven inference reads **every native source albedo pixel** (no global preview
 downsampling) and reconstructs at **4× native dimensions**. A 2048×2048
 albedo is therefore passed to the network as 2048×2048 evidence and requires
 8192×8192 candidate output. Execution uses overlapping 128-LR tiles. GPU
-inference is tile-wise; full-resolution output accumulation is held in host RAM.
-If a native source would require an output exceeding the DX11 16384-pixel
+inference is tile-wise; full-resolution output accumulation is stored in
+temporary **disk-backed float32 buffers**, and material textures are flushed
+after their last use. Large native sources require substantial **free disk
+space** for these temporary maps, with output images potentially reaching
+16384×16384. If a native source would require an output exceeding the DX11 16384-pixel
 texture limit, the renderer **fails explicitly** instead of silently
 discarding input detail.
 
@@ -112,3 +115,22 @@ straighten the target's aliased edges. Achieving that stated NSAMDR visual
 goal requires a separate, explicitly registered native-source → enhanced-4×
 training objective with spatial/edge continuity and artifact controls.
 Do not alter the old frozen manifests, archived checkpoints or sealed test.
+
+## Native 4× enhancement research (not yet implemented)
+
+The long-term quality requirement is **better than the original authored
+texture**, not only reproducing that texture from a degraded 128×128 input.
+Examples include smoothing stair-stepped panel lines without shifting UV
+boundaries, preserving mechanical geometry, reconstructing high-frequency
+texture consistently across tiles, and refining supported normal detail.
+
+The current V17.6 `compare-features` phase is a **historical reconstruction
+proof**, not this enhancement training objective. Existing reports and sealed
+holdouts must remain unchanged. The new enhancement training must sample
+native-resolution regions, expose every available input physical channel,
+then learn a 4× refined output against verified high-quality/anti-aliased
+references or explicitly confidence-gated geometry-based supervision.
+Without a credible better-than-native reference, optimizing against the
+unaltered original would reproduce its original aliasing. The revised
+objective must measure edge regularity, topology preservation, texture
+content retention, boundary seams, normals, and false-detail rate.
