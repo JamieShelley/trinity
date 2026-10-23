@@ -507,12 +507,20 @@ def _generate_candidate(
 
     baseline_canvases: dict[Path, np.ndarray] = {}
     candidate_canvases: dict[Path, np.ndarray] = {}
+    source_dimensions: list[dict[str, int | str]] = []
     for index, (albedo, context) in enumerate(
         sorted(contexts.items(), key=lambda item: str(item[0]).casefold()),
         start=1,
     ):
         original = _read_bgra(albedo)
         width, height = _output_size(original, int(config.scale))
+        source_dimensions.append({
+            "source": str(albedo.resolve()),
+            "nativeWidth": int(original.shape[1]),
+            "nativeHeight": int(original.shape[0]),
+            "outputWidth": int(width),
+            "outputHeight": int(height),
+        })
         print(
             f"[v176-raven] native source={original.shape[1]}x{original.shape[0]} "
             f"evidence={original.shape[1]}x{original.shape[0]} "
@@ -615,14 +623,7 @@ def _generate_candidate(
         "candidateObj": str(candidate_obj.resolve()),
         "candidateMaterials": str(candidate_materials.resolve()),
         "resolutionPolicy": "native_source_exact_4x",
-        "nativeSourceDimensions": [
-            {"source": str(albedo.resolve()),
-             "nativeWidth": int(_read_bgra(albedo).shape[1]),
-             "nativeHeight": int(_read_bgra(albedo).shape[0]),
-             "outputWidth": int(_read_bgra(albedo).shape[1]) * 4,
-             "outputHeight": int(_read_bgra(albedo).shape[0]) * 4}
-            for albedo in sorted(contexts)
-        ],
+        "nativeSourceDimensions": source_dimensions,
     }
     report_path = output_root / "candidate_manifest.json"
     report["reportPath"] = str(report_path.resolve())
