@@ -382,6 +382,13 @@ class App:
         saved = self.state.setdefault("forms", {}).setdefault(stage, {})
         for key, variable in self.vars.items():
             saved[key] = variable.get()
+        if stage == "preview" and "authority" in self.vars and "mode" in self.vars:
+            try:
+                candidate = f"TRAIN{int(self.vars['authority'].get()):02d}_{str(self.vars['mode'].get()).upper()}"
+                if candidate in PREVIEW_CHOICES:
+                    self.preview_target.set(candidate)
+            except (ValueError, TypeError):
+                pass
         self._save_state()
         self._update_command_preview()
 
@@ -487,11 +494,22 @@ class App:
             self._label("Status", "Not implemented in the checked-in V17.6 dense architecture")
             self._label("Gate", "Prove dense fit, full-density equivalence and seam handling first")
             self._label("Execution", "No quadtree training action exists; never mislabel dense preview")
+        if selected == "preview":
+            try:
+                candidate = f"TRAIN{int(self._value('authority', '10')):02d}_{self._value('mode', 'output10').upper()}"
+                if candidate in PREVIEW_CHOICES:
+                    self.preview_target.set(candidate)
+            except (ValueError, TypeError):
+                pass
         self._update_command_preview()
 
     def _value(self, key: str, default: str = "") -> str:
         var = self.vars.get(key)
         return str(var.get()) if var is not None else default
+
+    def _checked(self, key: str) -> bool:
+        variable = self.vars.get(key)
+        return bool(variable.get()) if variable is not None else False
 
     def _stage_lock_reason(self, stage: str) -> str | None:
         return "Quadtree routing not yet implemented" if stage == "quadtree" else None
@@ -500,12 +518,12 @@ class App:
         command = [sys.executable, "-u", str(CLI)]
         if stage_id == "setup":
             args = ["setup", self._value("kind", "cuda")]
-            if bool(self.vars.get("force", tk.BooleanVar()).get()):
+            if self._checked("force"):
                 args.append("--force")
         elif stage_id == "train":
             args = ["v176-detail-proof", "--resume", self._value("resume", "fresh"),
                     "--amp-precision", self._value("amp", "auto")]
-            if bool(self.vars.get("audit", tk.BooleanVar()).get()):
+            if self._checked("audit"):
                 args.append("--audit-only")
             for key, flag in (("stage9_report", "--stage9-report"),
                               ("v3_report", "--v3-report")):
@@ -515,7 +533,7 @@ class App:
             phase = ("attainable" if stage_id == "attainable"
                      else self._value("phase", "compare-features"))
             args = training_command(phase, self._value("resume", "fresh"),
-                                    bool(self.vars.get("audit", tk.BooleanVar()).get()),
+                                    self._checked("audit"),
                                     self._value("amp", "auto"))
             args += ["--device", self._value("device", "cuda")]
             for key, flag in (("stage10a_report", "--stage10a-report"),
