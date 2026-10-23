@@ -86,6 +86,38 @@ class V176OperatorGuiTests(unittest.TestCase):
             mode = value.split("_", 1)[1].lower()
             self.assertTrue(preview_label(authority, mode).endswith(value))
 
+    def test_native_raven_geometry_executed_without_torch(self):
+        """CI checks exact 4x geometry even without GPU/PyTorch installed."""
+        import ast
+        from types import SimpleNamespace
+        source = (Path(__file__).resolve().parents[1] /
+                  "neural/v176/raven_renderer.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        funcs = {node.name: node for node in tree.body
+                 if isinstance(node, ast.FunctionDef)}
+        output = funcs["_output_size"]
+        isolated = ast.Module(body=[
+            ast.ImportFrom(module="__future__",
+                           names=[ast.alias(name="annotations")], level=0),
+            output], type_ignores=[])
+        isolated = ast.fix_missing_locations(isolated)
+        scope = {}
+        exec(compile(isolated, "<native-geometry>", "exec"), scope)
+        img = SimpleNamespace(ndim=3, shape=(1024, 2048, 4))
+        self.assertEqual(scope["_output_size"](img, 4), (8192, 4096))
+        img.shape = (4096, 4096, 4)
+        self.assertEqual(scope["_output_size"](img, 4), (16384, 16384))
+        img.shape = (4097, 4096, 4)
+        with self.assertRaisesRegex(RuntimeError, "DX11"):
+            scope["_output_size"](img, 4)
+        # The source evidence path must never globally resize the native albedo.
+        model_inputs = ast.get_source_segment(source, funcs["_model_inputs"])
+        self.assertNotIn("cv2.resize(", model_inputs)
+        self.assertIn("would resize original source", model_inputs)
+        # Rendering many native maps must not allocate all of them on the GPU.
+        tiled = ast.get_source_segment(source, funcs["_tiled_maps"])
+        self.assertIn("np.memmap(", tiled)
+
 
 if __name__ == "__main__":
     unittest.main()
