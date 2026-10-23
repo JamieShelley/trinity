@@ -45,3 +45,19 @@ jobs:
         shell: pwsh
         run: |
           python -c "from pathlib import Path; p=Path('tools/nsamdr/neural/v176/raven_renderer.py').read_text(); assert 'def _load_model(' not in p and 'NSAMDR_V16_' not in p; print('V176_RENDERER_NO_LEGACY_MODEL_LOADER')"
+
+  channel-audit-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install channel audit CPU dependencies
+        run: |
+          python -m pip install --disable-pip-version-check numpy opencv-python-headless
+          python -m pip install --disable-pip-version-check torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Exercise real native-channel audit on synthetic textures
+        run: |
+          python -m unittest -v tools.nsamdr.neural.test_nsamdr_v176_channel_audit
