@@ -632,9 +632,14 @@ def _generate_candidate(
     device: torch.device,
     obj_path: Path,
     materials: Path,
+    model_override: tuple[torch.nn.Module, V16Config, dict[str, Any]] | None = None,
+    preview_schema: str = "NSAMDR_V16_RENDER_PREVIEW_CANDIDATE_V1",
 ) -> dict[str, Any]:
     checkpoint_sha = _sha256(source.checkpoint)
-    model, config, payload = _load_model(source.checkpoint, device)
+    model, config, payload = (
+        _load_model(source.checkpoint, device)
+        if model_override is None else model_override
+    )
     model.eval()
 
     fields, rows, comments = _read_tsv(materials)
@@ -738,7 +743,7 @@ def _generate_candidate(
     shutil.copy2(obj_path, candidate_obj)
 
     report = {
-        "schema": "NSAMDR_V16_RENDER_PREVIEW_CANDIDATE_V1",
+        "schema": preview_schema,
         "authority": "training-intermediate",
         "qualified": False,
         "source": source.label,
