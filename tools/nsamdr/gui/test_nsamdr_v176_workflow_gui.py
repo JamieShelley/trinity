@@ -47,7 +47,8 @@ class V176OperatorGuiTests(unittest.TestCase):
         source = inspect.getsource(App._build)
         for item in ("ttk.Treeview", "ttk.Panedwindow", "controls_canvas",
                      "Command preview", "progress_value", "Stop current process",
-                     "Detect artifacts", "preview_combo", "Runtime log"):
+                     "Detect artifacts", "preview_combo", "Runtime log",
+                     "Audit native texture channels", "Open latest channel audit"):
             self.assertIn(item, source)
 
     def test_current_stage_commands_are_wired_without_tk_instance(self):
@@ -72,6 +73,7 @@ class V176OperatorGuiTests(unittest.TestCase):
         self.assertIn("v176-raven-preview", actual)
         self.assertIn("output10", actual)
         self.assertIsNone(app._command_for_stage("quadtree"))
+        self.assertNotIn("channel-audit", " ".join(actual))
 
     def test_footer_source_matches_renderer_folder(self):
         from tools.nsamdr.gui.nsamdr_v176_workflow_gui import (
