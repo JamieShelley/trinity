@@ -475,6 +475,8 @@ class App:
                        command=self.preview_selected).pack(anchor="w", pady=5)
             ttk.Button(self.form, text="Audit native texture channels (no training)",
                        command=self.audit_native_channels).pack(anchor="w", pady=5)
+            ttk.Button(self.form, text="Open latest channel audit",
+                       command=self.open_native_channel_audit).pack(anchor="w", pady=5)
             self._label("Channel audit",
                         "Exports nearest vs bilinear crops of native albedo, normals, "
                         "material, glow and roughness. It does not alter the model.")
@@ -694,6 +696,15 @@ class App:
                    "v176-raven-channel-audit", "--shared-cache",
                    self._value("cache", r"C:\CCP\EVE")]
         self._start_process("preview", command)
+
+    def open_native_channel_audit(self) -> None:
+        base = DIAGNOSTIC_ROOT / "v176_raven_channel_audit"
+        reports = sorted(base.glob("audit_*/report.json"),
+                         key=lambda item: item.stat().st_mtime, reverse=True)
+        if not reports:
+            messagebox.showinfo("NSAMDR", "No Raven channel audit exists yet.")
+            return
+        _open_path(reports[0].parent)
 
     def open_latest_report(self) -> None:
         report = latest_report(CAPACITY_ROOT) or latest_report(DETAIL_ROOT)
