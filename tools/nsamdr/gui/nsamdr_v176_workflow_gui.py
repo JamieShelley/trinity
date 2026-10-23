@@ -1,41 +1,80 @@
 #!/usr/bin/env python3
-"""Canonical NSAMDR V17.6 operator GUI: train, verify and render Raven.
+"""Canonical NSAMDR V17.6 operator GUI.
 
-Only the active V17.6 dense-specialist research workflow is exposed. Historical
-proof implementations are retained as authenticated runtime dependencies, not
-as selectable legacy training engines. Quadtree is not yet implemented.
+Restores the rich stage-tree workflow UI: stage forms, runtime log,
+live progress, stop, source/report detection, and native Raven previews.
+Only V17.6 experiments are executable. Historical proofs remain read-only
+sources for authenticated frozen weights; never exposed as train commands.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
 import queue
+import re
 import subprocess
 import sys
 import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
+from typing import Any
 
-ROOT = Path(__file__).resolve().parents[3]
-CLI = ROOT / "tools/nsamdr/nsamdr_cli.py"
-CAPACITY_ROOT = ROOT / "artifacts/nsamdr/diagnostics/v176_stage10a1_capacity"
-DETAIL_ROOT = ROOT / "artifacts/nsamdr/diagnostics/v176_stage10a_detail"
-PREVIEW_ROOT = ROOT / "artifacts/nsamdr/render_preview"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+CLI = REPO_ROOT / "tools/nsamdr/nsamdr_cli.py"
+GUI_STATE_ROOT = REPO_ROOT / "artifacts/nsamdr/gui"
+STATE_PATH = GUI_STATE_ROOT / "v176_operator_workflow_state.json"
+DIAGNOSTIC_ROOT = REPO_ROOT / "artifacts/nsamdr/diagnostics"
+CAPACITY_ROOT = DIAGNOSTIC_ROOT / "v176_stage10a1_capacity"
+DETAIL_ROOT = DIAGNOSTIC_ROOT / "v176_stage10a_detail"
+PREVIEW_ROOT = REPO_ROOT / "artifacts/nsamdr/render_preview"
+APP_TITLE = "NSAMDR V17.6 — Training and Raven Preview"
+STATE_SCHEMA = "nsamdr-v176-operator-workflow-v2"
 PHASES = ("diagnose", "stability", "capacity", "compare-features", "attainable")
+PREVIEW_CHOICES = (
+    "TRAIN10_OUTPUT10", "TRAIN10_HR_FEATURES58",
+    "TRAIN01_OUTPUT10", "TRAIN01_HR_FEATURES58",
+)
+UPDATE_RE = re.compile(r"\[v176-(?:capacity|detail)\](?:\s+update)?\s*(?:train_\d+_\w+\s+)?(\d+)/(\d+)")
+ATTAINABLE_RE = re.compile(r"\[v176-attainable\]\s+authority=(\d+)\s+probe=(\w+)\s+objective=(\w+)\s+update=(\d+)/(\d+)")
+
+@dataclass(frozen=True)
+class Stage:
+    id: str
+    number: str
+    label: str
+    description: str
+
+STAGES = (
+    Stage("setup", "P0", "Environment / CUDA", "Manage Python environment and verify CUDA capability."),
+    Stage("train", "10A", "Dense specialist training", "Train V17.6 detail specialist with frozen Stage 9 backbone."),
+    Stage("compare", "10A.1", "Capacity and features", "Diagnose, run stability, train capacity, or compare 10/58-channel specialists."),
+    Stage("attainable", "10A.2", "Attainability diagnostic", "Target-assisted training-only pixel fit. Does not update neural weights."),
+    Stage("preview", "VIS", "Raven 3D visual preview", "Render the real EVE Raven with authenticated trained V17.6 specialist weights."),
+    Stage("evidence", "REP", "Reports / provenance", "Inspect completed V17.6 proof and native render artifacts."),
+    Stage("tests", "T", "Regression tests", "Run the current supported V17.6 verification suite."),
+    Stage("quadtree", "Q", "Adaptive quadtree", "Planned extension; not implemented in this branch. Dense model first."),
+)
+BY_ID = {s.id: s for s in STAGES}
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def latest_report(folder: Path, phase: str = "") -> Path | None:
     options = []
     for path in folder.glob("proof_*/report.json"):
-        try:
-            obj = json.loads(path.read_text(encoding="utf-8"))
-            if not phase or obj.get("phase") == phase:
-                options.append(path)
-        except (OSError, ValueError):
+        data = _read_json(path)
+        if data is None or (phase and data.get("phase") != phase):
             continue
-    return max(options, key=lambda p: p.stat().st_mtime) if options else None
+        options.append(path)
+    return max(options, key=lambda path: path.stat().st_mtime) if options else None
 
 
 def training_command(phase: str, resume: str, audit: bool, amp: str) -> list[str]:
@@ -54,166 +93,672 @@ def raven_command(cache: str, size: int, authority: int, mode: str) -> list[str]
             "--authority-index", str(authority), "--mode", mode]
 
 
-class Operator:
-    def __init__(self, root: tk.Tk):
+def preview_label(authority: int, mode: str) -> str:
+    if authority not in (1, 10) or mode not in ("output10", "hr_features58"):
+        raise ValueError("invalid V17.6 preview selection")
+    return f"V176_RAVEN_TRAIN{authority:02d}_{mode.upper()}"
+
+
+def _open_path(path: Path) -> None:
+    try:
+        target = path.resolve()
+        if not target.exists():
+            raise FileNotFoundError(target)
+        if sys.platform == "win32":
+            os.startfile(str(target))
+        else:
+            subprocess.Popen(["xdg-open", str(target)])
+    except (OSError, ValueError) as exc:
+        messagebox.showerror("NSAMDR", str(exc))
+
+
+class App:
+    def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        root.title("NSAMDR V17.6 — Training and Raven Preview")
-        root.geometry("1080x750")
-        root.minsize(880, 570)
-        self.phase = tk.StringVar(value="compare-features")
-        self.resume = tk.StringVar(value="fresh")
-        self.audit = tk.BooleanVar(value=False)
-        self.precision = tk.StringVar(value="auto")
-        self.cache = tk.StringVar(value=r"C:\CCP\EVE")
-        self.size = tk.StringVar(value="1024")
-        self.authority = tk.StringVar(value="10")
-        self.mode = tk.StringVar(value="output10")
-        self.status = tk.StringVar(value="Ready — V17.6 dense specialist, research only")
-        self.command = tk.StringVar()
-        self.messages: queue.Queue[tuple[str, object]] = queue.Queue()
+        self.root.title(APP_TITLE)
+        self.root.geometry("1320x820")
+        self.root.minsize(980, 680)
         self.process: subprocess.Popen[str] | None = None
-        self.controls: list[ttk.Button] = []
+        self.process_thread: threading.Thread | None = None
+        self.process_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+        self.active_stage: str | None = None
+        self.state = self._load_state()
+        self.vars: dict[str, tk.Variable] = {}
+        self.description = tk.StringVar()
+        self.command_preview = tk.StringVar()
+        self.progress_text = tk.StringVar(value="Ready")
+        self.progress_value = tk.DoubleVar(value=0.0)
+        self.scope_text = tk.StringVar(value="V17.6 · reading existing evidence")
+        self.recipe_text = tk.StringVar(value=(
+            "Current: dense V17.6 scalar-albedo detail specialist. "
+            "Frozen Stage 9 backbone; original physical caps and training-only supervision."
+        ))
+        self.preview_target = tk.StringVar(value="TRAIN10_OUTPUT10")
+        self._build()
+        self.detect(silent=True)
+        self.root.after(100, self._poll)
 
-        frame = ttk.Frame(root, padding=14)
-        frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="NSAMDR V17.6", font=("Segoe UI", 19, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Active architecture only · frozen V17.2 backbone · train-only specialist · quadtree not implemented").pack(anchor="w", pady=(2, 10))
-        notebook = ttk.Notebook(frame)
-        notebook.pack(fill="x")
+    def _load_state(self) -> dict[str, Any]:
+        default = {"schema": STATE_SCHEMA, "current": "preview",
+                   "status": {s.id: "pending" for s in STAGES},
+                   "forms": {}}
+        loaded = _read_json(STATE_PATH)
+        if loaded is not None and loaded.get("schema") == STATE_SCHEMA:
+            default.update(loaded)
+        for key, value in list(default["status"].items()):
+            if value in ("running", "stopping"):
+                default["status"][key] = "interrupted"
+        return default
 
-        train = ttk.Frame(notebook, padding=12)
-        preview = ttk.Frame(notebook, padding=12)
-        notebook.add(train, text="V17.6 training")
-        notebook.add(preview, text="Raven visual preview")
+    def _save_state(self) -> None:
+        GUI_STATE_ROOT.mkdir(parents=True, exist_ok=True)
+        STATE_PATH.write_text(json.dumps(self.state, indent=2, sort_keys=True) + "\n",
+                              encoding="utf-8")
 
-        self._field(train, 0, "Phase", self.phase, PHASES)
-        self._field(train, 1, "Resume", self.resume, ("fresh", "auto"))
-        self._field(train, 2, "AMP", self.precision, ("auto", "bf16", "fp16"))
-        ttk.Checkbutton(train, text="Audit only (no training)", variable=self.audit,
-                        command=self._refresh_command).grid(row=3, column=0, columnspan=2, sticky="w", pady=5)
-        ttk.Label(train, text="Train the actual V17.6 specialist with 'compare-features'. 'attainable' does NOT update weights.").grid(
-            row=4, column=0, columnspan=4, sticky="w", pady=5)
-        self._run_button(train, "Run selected phase", self.start_training, 5, 0)
-        self._run_button(train, "Open latest report", self.open_report, 5, 1)
+    def _build(self) -> None:
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(3, weight=1)
 
-        self._field(preview, 0, "Authority", self.authority, ("10", "1"))
-        self._field(preview, 1, "Specialist", self.mode, ("output10", "hr_features58"))
-        self._field(preview, 2, "Target (px)", self.size, ("512", "1024", "2048"))
-        ttk.Label(preview, text="EVE ResFiles root").grid(row=3, column=0, sticky="w", pady=5)
-        ttk.Entry(preview, textvariable=self.cache, width=55).grid(row=3, column=1, sticky="ew")
-        ttk.Label(preview, text="Uses the latest authenticated V17.6 comparison checkpoint, NOT V16 or a target-assisted fit.").grid(
-            row=4, column=0, columnspan=4, sticky="w", pady=5)
-        self._run_button(preview, "Render Raven (DX11)", self.start_preview, 5, 0)
-        self._run_button(preview, "Open preview output", self.open_preview, 5, 1)
-        preview.columnconfigure(1, weight=1)
+        top = ttk.Frame(self.root, padding=(10, 8))
+        top.grid(row=0, column=0, sticky="ew")
+        top.columnconfigure(0, weight=1)
+        ttk.Label(top, text=APP_TITLE, font=("Segoe UI", 17, "bold")).grid(
+            row=0, column=0, sticky="w"
+        )
+        ttk.Label(top, text=str(REPO_ROOT)).grid(row=0, column=1, sticky="e")
 
-        ttk.Label(frame, textvariable=self.status).pack(anchor="w", pady=(12, 3))
-        ttk.Label(frame, textvariable=self.command, wraplength=1000, foreground="#64748b").pack(anchor="w")
-        output = ttk.Frame(frame)
-        output.pack(fill="both", expand=True, pady=(8, 0))
-        self.log = tk.Text(output, wrap="word", font=("Consolas", 9))
-        bar = ttk.Scrollbar(output, command=self.log.yview)
-        self.log.configure(yscrollcommand=bar.set)
-        bar.pack(side="right", fill="y")
-        self.log.pack(side="left", fill="both", expand=True)
-        self._refresh_command()
-        for state in (self.phase, self.resume, self.precision, self.audit, self.mode, self.size, self.authority):
-            state.trace_add("write", lambda *_: self._refresh_command())
-        self.root.after(125, self._poll)
+        scope = ttk.Frame(self.root, padding=(10, 0, 10, 4))
+        scope.grid(row=1, column=0, sticky="ew")
+        scope.columnconfigure(0, weight=1)
+        ttk.Label(scope, textvariable=self.scope_text, font=("Segoe UI", 10, "bold")).grid(
+            row=0, column=0, sticky="w"
+        )
+        ttk.Button(
+            scope,
+            text="Open diagnostics",
+            command=self._open_diagnostics,
+        ).grid(row=0, column=1, padx=(6, 0))
+        ttk.Button(
+            scope,
+            text="Open diagnostics folder",
+            command=lambda: _open_path(DIAGNOSTIC_ROOT),
+        ).grid(row=0, column=2, padx=(6, 0))
 
-    def _field(self, parent, row, label, var, options):
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=5)
-        ttk.Combobox(parent, textvariable=var, values=options, width=24, state="readonly").grid(
-            row=row, column=1, sticky="w", pady=5)
+        ttk.Label(
+            self.root,
+            textvariable=self.recipe_text,
+            padding=(10, 0, 10, 8),
+            foreground="#555555",
+        ).grid(row=2, column=0, sticky="ew")
 
-    def _run_button(self, parent, label, callback, row, column):
-        b = ttk.Button(parent, text=label, command=callback)
-        b.grid(row=row, column=column, sticky="w", padx=(0, 8), pady=(7, 3))
-        if label.startswith(("Run", "Render")):
-            self.controls.append(b)
+        body = ttk.Panedwindow(self.root, orient="horizontal")
+        body.grid(row=3, column=0, sticky="nsew", padx=8, pady=(0, 8))
 
-    def _refresh_command(self):
-        try:
-            self.command.set("CLI: scripts\\build\\nsamdr.bat " +
-                             " ".join(training_command(self.phase.get(), self.resume.get(),
-                                                       self.audit.get(), self.precision.get())))
-        except ValueError:
-            self.command.set("Invalid phase configuration")
+        left = ttk.Frame(body)
+        right = ttk.Frame(body)
+        body.add(left, weight=2)
+        body.add(right, weight=5)
 
-    def _start(self, args: list[str], activity: str):
-        if self.process is not None and self.process.poll() is None:
-            messagebox.showwarning("NSAMDR", "An operator process is already running.")
+        self.tree = ttk.Treeview(
+            left,
+            columns=("number", "stage", "status"),
+            show="headings",
+            selectmode="browse",
+        )
+        self.tree.heading("number", text="#")
+        self.tree.heading("stage", text="Stage")
+        self.tree.heading("status", text="Status")
+        self.tree.column("number", width=50, anchor="w")
+        self.tree.column("stage", width=270, anchor="w")
+        self.tree.column("status", width=105, anchor="w")
+        scroll = ttk.Scrollbar(left, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scroll.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self.tree.bind("<<TreeviewSelect>>", lambda _event: self._selected())
+
+        for stage in STAGES:
+            self.tree.insert(
+                "",
+                "end",
+                iid=stage.id,
+                values=(
+                    stage.number,
+                    stage.label,
+                    self.state.get("status", {}).get(stage.id, "pending"),
+                ),
+            )
+
+        right.columnconfigure(0, weight=1)
+        right.rowconfigure(2, weight=1)
+
+        ttk.Label(
+            right,
+            textvariable=self.description,
+            font=("Segoe UI", 12, "bold"),
+            wraplength=850,
+        ).grid(row=0, column=0, sticky="ew", pady=(4, 6))
+
+        controls = ttk.LabelFrame(right, text="Stage controls", padding=6)
+        controls.grid(row=1, column=0, sticky="ew")
+        controls.columnconfigure(0, weight=1)
+        controls.rowconfigure(0, weight=1)
+
+        # Keep the runtime/status area visible even for stages with many controls.
+        # The old direct frame let Raven Quick's long form consume the entire
+        # right pane and push the progress bar/log below the visible window.
+        self.controls_canvas = tk.Canvas(
+            controls,
+            height=300,
+            highlightthickness=0,
+            borderwidth=0,
+        )
+        controls_scroll = ttk.Scrollbar(
+            controls,
+            orient="vertical",
+            command=self.controls_canvas.yview,
+        )
+        self.controls_canvas.configure(yscrollcommand=controls_scroll.set)
+        self.controls_canvas.grid(row=0, column=0, sticky="ew")
+        controls_scroll.grid(row=0, column=1, sticky="ns")
+
+        self.form = ttk.Frame(self.controls_canvas)
+        self.controls_window = self.controls_canvas.create_window(
+            (0, 0),
+            window=self.form,
+            anchor="nw",
+        )
+        self.form.bind(
+            "<Configure>",
+            lambda _event: self.controls_canvas.configure(
+                scrollregion=self.controls_canvas.bbox("all")
+            ),
+        )
+        self.controls_canvas.bind(
+            "<Configure>",
+            lambda event: self.controls_canvas.itemconfigure(
+                self.controls_window,
+                width=event.width,
+            ),
+        )
+
+        runtime = ttk.LabelFrame(right, text="Runtime", padding=10)
+        runtime.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
+        runtime.columnconfigure(0, weight=1)
+        runtime.rowconfigure(6, weight=1)
+
+        ttk.Label(runtime, text="Command preview").grid(row=0, column=0, sticky="w")
+        ttk.Entry(
+            runtime,
+            textvariable=self.command_preview,
+            state="readonly",
+        ).grid(row=1, column=0, sticky="ew", pady=(2, 6))
+
+        self.progress = ttk.Progressbar(
+            runtime,
+            maximum=100,
+            variable=self.progress_value,
+        )
+        self.progress.grid(row=2, column=0, sticky="ew")
+        ttk.Label(runtime, textvariable=self.progress_text).grid(
+            row=3, column=0, sticky="w", pady=(3, 5)
+        )
+        ttk.Separator(runtime, orient="horizontal").grid(
+            row=4, column=0, sticky="ew", pady=(1, 5)
+        )
+        ttk.Label(runtime, text="Runtime log", font=("Segoe UI", 9, "bold")).grid(
+            row=5, column=0, sticky="w"
+        )
+
+        log_frame = ttk.Frame(runtime)
+        log_frame.grid(row=6, column=0, sticky="nsew", pady=(3, 0))
+        log_frame.columnconfigure(0, weight=1)
+        log_frame.rowconfigure(0, weight=1)
+        self.output = tk.Text(log_frame, wrap="none", height=8)
+        yscroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.output.yview)
+        xscroll = ttk.Scrollbar(log_frame, orient="horizontal", command=self.output.xview)
+        self.output.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+        self.output.grid(row=0, column=0, sticky="nsew")
+        yscroll.grid(row=0, column=1, sticky="ns")
+        xscroll.grid(row=1, column=0, sticky="ew")
+
+        footer = ttk.Frame(self.root, padding=(8, 0, 8, 8))
+        footer.grid(row=4, column=0, sticky="ew")
+        self.run_button = ttk.Button(footer, text="Run selected", command=self.run_selected)
+        self.run_button.pack(side="left")
+        ttk.Button(footer, text="Stop current process", command=self.stop).pack(
+            side="left", padx=(5, 0)
+        )
+        ttk.Label(footer, text="Status:").pack(side="left", padx=(14, 4))
+        ttk.Progressbar(
+            footer,
+            maximum=100,
+            variable=self.progress_value,
+            length=170,
+        ).pack(side="left", padx=(0, 6))
+        ttk.Label(
+            footer,
+            textvariable=self.progress_text,
+        ).pack(side="left")
+        ttk.Button(footer, text="Detect artifacts", command=lambda: self.detect()).pack(
+            side="right"
+        )
+        ttk.Label(footer, text="Preview:").pack(side="left", padx=(14, 4))
+        self.preview_combo = ttk.Combobox(
+            footer,
+            textvariable=self.preview_target,
+            width=14,
+            state="readonly",
+            postcommand=self._refresh_preview_choices,
+        )
+        self.preview_combo.pack(side="left")
+        ttk.Button(
+            footer,
+            text="Open preview files",
+            command=self.preview_selected,
+        ).pack(side="left", padx=(5, 0))
+        ttk.Button(
+            footer,
+            text="Render Raven (DX11)",
+            command=self.render_selected_preview,
+        ).pack(side="left", padx=(5, 0))
+
+        current = str(self.state.get("current") or "train")
+        if current not in BY_ID:
+            current = "train"
+        self.tree.selection_set(current)
+        self._selected()
+
+    def _clear_form(self) -> None:
+        for child in self.form.winfo_children():
+            child.destroy()
+        self.vars = {}
+
+    def _form_default(self, key: str, default: str) -> str:
+        return str((self.state.get("forms", {}).get(self.state.get("current"), {}) or {}).get(key, default))
+
+    def _form_changed(self) -> None:
+        stage = self.state.get("current", "preview")
+        saved = self.state.setdefault("forms", {}).setdefault(stage, {})
+        for key, variable in self.vars.items():
+            saved[key] = variable.get()
+        self._save_state()
+        self._update_command_preview()
+
+    def _row(self, label: str, key: str, default: str, choices=None, *, editable=False) -> None:
+        row = ttk.Frame(self.form)
+        row.pack(fill="x", pady=3)
+        ttk.Label(row, text=label, width=26).pack(side="left")
+        variable = tk.StringVar(value=self._form_default(key, default))
+        self.vars[key] = variable
+        if choices is None:
+            widget = ttk.Entry(row, textvariable=variable)
+        else:
+            widget = ttk.Combobox(
+                row, textvariable=variable, values=tuple(choices),
+                state="normal" if editable else "readonly",
+            )
+        widget.pack(side="left", fill="x", expand=True)
+        variable.trace_add("write", lambda *_: self._form_changed())
+
+    def _check(self, label: str, key: str, default: bool = False) -> None:
+        variable = tk.BooleanVar(value=bool((self.state.get("forms", {}).get(
+            self.state.get("current"), {}) or {}).get(key, default)))
+        self.vars[key] = variable
+        ttk.Checkbutton(self.form, text=label, variable=variable,
+                        command=self._form_changed).pack(anchor="w", pady=3)
+
+    def _label(self, label: str, value: str) -> None:
+        row = ttk.Frame(self.form)
+        row.pack(fill="x", pady=3)
+        ttk.Label(row, text=label, width=26).pack(side="left")
+        ttk.Label(row, text=value, wraplength=690).pack(side="left", fill="x", expand=True)
+
+    def _selected(self) -> None:
+        choices = self.tree.selection()
+        if not choices:
             return
-        argv = [sys.executable, "-u", str(CLI), *args]
-        self.log.insert("end", "\n> " + subprocess.list2cmdline(argv) + "\n")
-        self.log.see("end")
+        selected = str(choices[0])
+        if selected not in BY_ID:
+            return
+        self.state["current"] = selected
+        self._save_state()
+        self._clear_form()
+        stage = BY_ID[selected]
+        self.description.set(f"{stage.number}. {stage.label} — {stage.description}")
+        if selected == "setup":
+            self._label("Environment", "Managed CUDA Python for training / Raven.")
+            self._row("Setup target", "kind", "cuda", ("cuda", "cpu"))
+            self._check("Recreate environment", "force", False)
+            self._label("Current architecture", "V17.6 only. Older scripts are not operator commands.")
+        elif selected == "train":
+            self._label("Source", "Authenticated frozen A12 Stage 9 backbone and original Stage10A loss")
+            self._row("Checkpoint mode", "resume", "fresh", ("fresh", "auto"))
+            self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
+            self._check("Audit only", "audit", False)
+            self._row("Stage 9 report", "stage9_report", "")
+            self._row("V3 source report", "v3_report", "")
+        elif selected == "compare":
+            self._label("Training authorities", "Frozen A12 indices 1 and 10 (no final-test access)")
+            self._row("Phase", "phase", "compare-features", PHASES[:-1])
+            self._row("Checkpoint mode", "resume", "fresh", ("fresh", "auto"))
+            self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
+            self._row("Device", "device", "cuda", ("cuda", "cpu"))
+            self._check("Audit only (no updates)", "audit", False)
+            self._row("Stage10A report", "stage10a_report", "")
+            self._row("V3 source report", "v3_report", "")
+        elif selected == "attainable":
+            self._label("Purpose", "Target-assisted free-pixel feasibility diagnostic; no neural updates")
+            self._row("Checkpoint mode", "resume", "fresh", ("fresh", "auto"))
+            self._row("AMP precision", "amp", "auto", ("auto", "bf16", "fp16"))
+            self._row("Device", "device", "cuda", ("cuda", "cpu"))
+            self._check("Audit only", "audit", False)
+            self._row("Stage10A report", "stage10a_report", "")
+            self._row("Comparison report", "comparison_report", "")
+            self._row("V3 source report", "v3_report", "")
+        elif selected == "preview":
+            self._label("Ship", "Caldari Raven — real EVE textures / DX11 native viewer")
+            self._row("Training authority", "authority", "10", ("10", "1"))
+            self._row("Specialist", "mode", "output10", ("output10", "hr_features58"))
+            self._row("Target image size", "target", "1024", ("512", "1024", "2048"))
+            self._row("EVE ResFiles cache", "cache", r"C:\CCP\EVE")
+            self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
+            self._row("Comparison report", "comparison_report", "")
+            self._label("Source", "Newest completed authenticated comparison, or the exact report above")
+            self._label("Qualification", "Research-only preview. Not a trained full-Raven guarantee.")
+            ttk.Button(self.form, text="Open current preview files",
+                       command=self.preview_selected).pack(anchor="w", pady=5)
+        elif selected == "evidence":
+            self._label("V17.6 report", str(latest_report(CAPACITY_ROOT) or "No completed capacity report"))
+            self._label("Original detail", str(latest_report(DETAIL_ROOT) or "No completed detail report"))
+            self._label("Frozen Stage 9", "Retained solely as immutable model/provenance source")
+            ttk.Button(self.form, text="Open V17.6 report",
+                       command=self.open_latest_report).pack(anchor="w", pady=3)
+            ttk.Button(self.form, text="Open diagnostics folder",
+                       command=self._open_diagnostics).pack(anchor="w", pady=3)
+            ttk.Button(self.form, text="Open Raven preview folder",
+                       command=lambda: _open_path(PREVIEW_ROOT)).pack(anchor="w", pady=3)
+            ttk.Button(self.form, text="Recheck artifacts",
+                       command=self.detect).pack(anchor="w", pady=3)
+        elif selected == "tests":
+            self._label("Suite", "Active V17.6 CLI/GUI, specialist, stability, feasibility, and renderer tests")
+            self._label("Command", "scripts\\build\\nsamdr.bat test")
+        elif selected == "quadtree":
+            self._label("Status", "Not implemented in the checked-in V17.6 dense architecture")
+            self._label("Gate", "Prove dense fit, full-density equivalence and seam handling first")
+            self._label("Execution", "No quadtree training action exists; never mislabel dense preview")
+        self._update_command_preview()
+
+    def _value(self, key: str, default: str = "") -> str:
+        var = self.vars.get(key)
+        return str(var.get()) if var is not None else default
+
+    def _stage_lock_reason(self, stage: str) -> str | None:
+        return "Quadtree routing not yet implemented" if stage == "quadtree" else None
+
+    def _command_for_stage(self, stage_id: str) -> list[str] | None:
+        command = [sys.executable, "-u", str(CLI)]
+        if stage_id == "setup":
+            args = ["setup", self._value("kind", "cuda")]
+            if bool(self.vars.get("force", tk.BooleanVar()).get()):
+                args.append("--force")
+        elif stage_id == "train":
+            args = ["v176-detail-proof", "--resume", self._value("resume", "fresh"),
+                    "--amp-precision", self._value("amp", "auto")]
+            if bool(self.vars.get("audit", tk.BooleanVar()).get()):
+                args.append("--audit-only")
+            for key, flag in (("stage9_report", "--stage9-report"),
+                              ("v3_report", "--v3-report")):
+                if self._value(key).strip():
+                    args.extend((flag, self._value(key).strip()))
+        elif stage_id in ("compare", "attainable"):
+            phase = ("attainable" if stage_id == "attainable"
+                     else self._value("phase", "compare-features"))
+            args = training_command(phase, self._value("resume", "fresh"),
+                                    bool(self.vars.get("audit", tk.BooleanVar()).get()),
+                                    self._value("amp", "auto"))
+            args += ["--device", self._value("device", "cuda")]
+            for key, flag in (("stage10a_report", "--stage10a-report"),
+                              ("comparison_report", "--comparison-report"),
+                              ("v3_report", "--v3-report")):
+                if self._value(key).strip():
+                    args.extend((flag, self._value(key).strip()))
+        elif stage_id == "preview":
+            args = raven_command(self._value("cache", r"C:\CCP\EVE"),
+                                 int(self._value("target", "1024")),
+                                 int(self._value("authority", "10")),
+                                 self._value("mode", "output10"))
+            args.extend(("--device", self._value("device", "cuda")))
+            if self._value("comparison_report").strip():
+                args.extend(("--comparison-report", self._value("comparison_report").strip()))
+        elif stage_id == "tests":
+            args = ["test"]
+        else:
+            return None
+        return command + args
+
+    def _update_command_preview(self) -> None:
+        selected = self.tree.selection()
+        stage = str(selected[0]) if selected else ""
         try:
-            self.process = subprocess.Popen(argv, cwd=ROOT, stdout=subprocess.PIPE,
-                                            stderr=subprocess.STDOUT, text=True,
-                                            bufsize=1, errors="replace")
+            command = self._command_for_stage(stage)
+            self.command_preview.set(
+                subprocess.list2cmdline(command) if command else "[read-only stage]"
+            )
+        except (ValueError, TypeError) as exc:
+            self.command_preview.set(f"[invalid options] {exc}")
+        self._update_run_state()
+
+    def _update_run_state(self) -> None:
+        selected = self.tree.selection()
+        stage = str(selected[0]) if selected else ""
+        busy = self.process is not None and self.process.poll() is None
+        try:
+            command = self._command_for_stage(stage)
+        except (ValueError, TypeError):
+            command = None
+        self.run_button.configure(
+            state=("disabled" if busy or command is None else "normal")
+        )
+
+    def _refresh_preview_choices(self) -> None:
+        self.preview_combo.configure(values=PREVIEW_CHOICES)
+        if self.preview_target.get() not in PREVIEW_CHOICES:
+            self.preview_target.set(PREVIEW_CHOICES[0])
+
+    def _open_diagnostics(self) -> None:
+        if not DIAGNOSTIC_ROOT.exists():
+            messagebox.showinfo("NSAMDR", "No diagnostic artifacts found.")
+            return
+        _open_path(DIAGNOSTIC_ROOT)
+
+    def _refresh_scope(self) -> None:
+        report = latest_report(CAPACITY_ROOT, "compare-features")
+        decision = (_read_json(report) or {}).get("decision", "no report") if report else "no report"
+        self.scope_text.set(f"Current architecture: V17.6 | Latest comparison: {decision} | Production: unqualified")
+
+    def detect(self, silent: bool = False) -> None:
+        lookup = {
+            "train": latest_report(DETAIL_ROOT),
+            "compare": latest_report(CAPACITY_ROOT, "compare-features"),
+            "attainable": latest_report(CAPACITY_ROOT, "attainable"),
+        }
+        self._refresh_scope()
+        for stage in STAGES:
+            if stage.id in lookup:
+                row = lookup[stage.id]
+                self.state["status"][stage.id] = (
+                    "completed" if row and (_read_json(row) or {}).get("decision") not in
+                    ("RUNNING", "PARENT_PROVENANCE_VERIFIED_ONLY") else
+                    "audit only" if row else "pending"
+                )
+            elif stage.id == "preview":
+                self.state["status"][stage.id] = (
+                    "rendered" if any(PREVIEW_ROOT.glob("V176_RAVEN_*/current_candidate.txt"))
+                    else "pending"
+                )
+            elif stage.id == "quadtree":
+                self.state["status"][stage.id] = "not implemented"
+            else:
+                self.state["status"].setdefault(stage.id, "pending")
+            if self.tree.exists(stage.id):
+                self.tree.set(stage.id, "status", self.state["status"][stage.id])
+        self._save_state()
+        if not silent:
+            self.progress_text.set("Artifact detection completed")
+            self._selected()
+
+    def _set_status(self, stage: str, value: str) -> None:
+        self.state["status"][stage] = value
+        if self.tree.exists(stage):
+            self.tree.set(stage, "status", value)
+        self._save_state()
+
+    def run_selected(self) -> None:
+        selected = self.tree.selection()
+        stage = str(selected[0]) if selected else ""
+        if not stage or self._stage_lock_reason(stage):
+            return
+        if stage == "evidence":
+            self.open_latest_report()
+            return
+        try:
+            command = self._command_for_stage(stage)
+        except (ValueError, TypeError) as exc:
+            messagebox.showerror("NSAMDR options", str(exc))
+            return
+        if command is None:
+            return
+        self._start_process(stage, command)
+
+    def _preview_id(self) -> tuple[int, str]:
+        choice = self.preview_target.get()
+        if choice not in PREVIEW_CHOICES:
+            raise ValueError("unsupported V17.6 preview")
+        authority = int(choice[5:7])
+        mode = choice.split("_", 1)[1].lower()
+        return authority, mode
+
+    def preview_selected(self) -> None:
+        try:
+            authority, mode = self._preview_id()
+            path = PREVIEW_ROOT / preview_label(authority, mode)
+            if not path.is_dir():
+                messagebox.showinfo("NSAMDR", "No native V17.6 preview exists for this training arm.")
+                return
+            _open_path(path)
+        except (ValueError, OSError) as exc:
+            messagebox.showerror("NSAMDR", str(exc))
+
+    def render_selected_preview(self) -> None:
+        if not (self.process is None or self.process.poll() is not None):
+            messagebox.showinfo("NSAMDR", "A process is already running.")
+            return
+        try:
+            authority, mode = self._preview_id()
+            self.tree.selection_set("preview")
+            self._selected()
+            self.vars["authority"].set(str(authority))
+            self.vars["mode"].set(mode)
+            command = self._command_for_stage("preview")
+            if command is not None:
+                self._start_process("preview", command)
+        except (ValueError, TypeError) as exc:
+            messagebox.showerror("NSAMDR preview", str(exc))
+
+    def open_latest_report(self) -> None:
+        report = latest_report(CAPACITY_ROOT) or latest_report(DETAIL_ROOT)
+        if report is None:
+            messagebox.showinfo("NSAMDR", "No V17.6 report has been completed.")
+        else:
+            _open_path(report)
+
+    def _start_process(self, stage: str, command: list[str]) -> None:
+        if self.process is not None and self.process.poll() is None:
+            messagebox.showwarning("NSAMDR", "A workflow process is already running.")
+            return
+        self.output.insert("end", "\n> " + subprocess.list2cmdline(command) + "\n")
+        self.output.see("end")
+        self.progress_value.set(0.0)
+        self.progress_text.set(f"{BY_ID[stage].label}: starting")
+        try:
+            process = subprocess.Popen(
+                command, cwd=REPO_ROOT,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1, errors="replace",
+            )
         except OSError as exc:
             messagebox.showerror("NSAMDR", str(exc))
             return
-        for b in self.controls:
-            b.configure(state="disabled")
-        self.status.set(activity + " — running")
-        process = self.process
-        def reader():
+        self.process = process
+        self.active_stage = stage
+        self._set_status(stage, "running")
+        self._update_run_state()
+
+        def reader() -> None:
             assert process.stdout is not None
             for line in process.stdout:
-                self.messages.put(("line", line))
-            self.messages.put(("done", (activity, process.wait())))
-        threading.Thread(target=reader, daemon=True).start()
+                self.process_queue.put(("line", line))
+            self.process_queue.put(("done", (stage, process.wait())))
 
-    def start_training(self):
-        self._start(training_command(self.phase.get(), self.resume.get(),
-                                     self.audit.get(), self.precision.get()), "V17.6 " + self.phase.get())
+        self.process_thread = threading.Thread(target=reader, daemon=True)
+        self.process_thread.start()
 
-    def start_preview(self):
-        try:
-            argv = raven_command(self.cache.get(), int(self.size.get()),
-                                 int(self.authority.get()), self.mode.get())
-            self._start(argv, "Raven DX11 preview")
-        except ValueError as exc:
-            messagebox.showerror("NSAMDR", str(exc))
+    def stop(self) -> None:
+        if self.process is None or self.process.poll() is not None:
+            return
+        process = self.process
+        if messagebox.askyesno("Stop NSAMDR", "Terminate the active command and its subprocesses?"):
+            self._set_status(self.active_stage or "train", "stopping")
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                               capture_output=True, check=False)
+            else:
+                process.terminate()
 
-    def open_report(self):
-        path = latest_report(CAPACITY_ROOT, self.phase.get())
-        if path is None:
-            path = latest_report(DETAIL_ROOT)
-        if path is None:
-            messagebox.showinfo("NSAMDR", "No completed V17.6 report found.")
-        else:
-            os.startfile(str(path))
+    def _update_progress_from_line(self, line: str) -> None:
+        found = UPDATE_RE.search(line)
+        if found:
+            done, total = int(found.group(1)), int(found.group(2))
+            if total > 0:
+                self.progress_value.set(100.0 * done / total)
+                self.progress_text.set(f"Update {done}/{total}")
+            return
+        extra = ATTAINABLE_RE.search(line)
+        if extra:
+            authority, probe, objective, done, total = extra.groups()
+            if int(total) > 0:
+                self.progress_value.set(100.0 * int(done) / int(total))
+            self.progress_text.set(
+                f"Authority {authority} {probe} {objective}: {done}/{total}"
+            )
 
-    def open_preview(self):
-        label = f"V176_RAVEN_TRAIN{int(self.authority.get()):02d}_{self.mode.get().upper()}"
-        folder = PREVIEW_ROOT / label
-        if not folder.is_dir():
-            messagebox.showinfo("NSAMDR", "No V17.6 Raven render output yet.")
-        else:
-            os.startfile(str(folder))
-
-    def _poll(self):
+    def _poll(self) -> None:
         try:
             while True:
-                kind, value = self.messages.get_nowait()
+                kind, data = self.process_queue.get_nowait()
                 if kind == "line":
-                    self.log.insert("end", str(value))
-                    self.log.see("end")
+                    line = str(data)
+                    self.output.insert("end", line)
+                    self.output.see("end")
+                    self._update_progress_from_line(line)
                 elif kind == "done":
-                    activity, code = value
-                    self.status.set(f"{activity}: {'completed' if code == 0 else 'failed'} (exit {code})")
-                    for b in self.controls:
-                        b.configure(state="normal")
+                    stage, code = data
+                    self._set_status(stage, "completed" if code == 0 else f"failed ({code})")
+                    self.progress_text.set(f"{BY_ID[stage].label}: exit {code}")
+                    if code == 0:
+                        self.progress_value.set(100.0)
+                    self.process = None
+                    self.active_stage = None
+                    self._update_run_state()
         except queue.Empty:
             pass
-        self.root.after(125, self._poll)
+        self.root.after(100, self._poll)
 
 
 def main() -> None:
     root = tk.Tk()
-    Operator(root)
+    App(root)
     root.mainloop()
 
 
