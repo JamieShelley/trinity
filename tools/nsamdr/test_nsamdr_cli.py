@@ -48,7 +48,7 @@ class V176CLITests(unittest.TestCase):
     def test_raven_requires_verified_source_and_accepts_mode(self):
         args = self.parser.parse_args([
             "v176-raven-preview", "--authority-index", "10",
-            "--mode", "hr_features58", "--target-size", "1024",
+            "--mode", "hr_features58",
         ])
         with patch.object(self.app, "_source_freshness_preflight", return_value=0), \
              patch.object(self.app, "_python", return_value=Path("python")), \
@@ -59,6 +59,7 @@ class V176CLITests(unittest.TestCase):
         self.assertIn("render_nsamdr_v176_raven_preview.py", " ".join(values))
         self.assertIn("hr_features58", values)
         self.assertIn("10", values)
+        self.assertNotIn("--target-size", values)
 
     def test_legacy_preview_no_longer_callable(self):
         with self.assertRaises(SystemExit):
