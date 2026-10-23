@@ -1,992 +1,189 @@
 #!/usr/bin/env python3
-"""Canonical command surface for the active NSAMDR workflow."""
-from __future__ import annotations
+"""Single NSAMDR V17.6 operator command surface.
 
+Historical proof modules remain internal provenance dependencies. No legacy
+training engine, preview source or GUI is selectable from this CLI.
+"""
+from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 from typing import Sequence
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TOOLS_ROOT = REPO_ROOT / "tools/nsamdr"
-NEURAL_ROOT = TOOLS_ROOT / "neural"
-BUILD_ROOT = REPO_ROOT / "scripts/build"
+NEURAL_ROOT = REPO_ROOT / "tools/nsamdr/neural"
 CUDA_PYTHON = REPO_ROOT / "artifacts/nsamdr/python-env/Scripts/python.exe"
 CPU_PYTHON = REPO_ROOT / "artifacts/nsamdr/python-env-cpu/Scripts/python.exe"
 
-REQUIRED_LAYOUT = (
-    "scripts/build/nsamdr.bat",
-    "scripts/build/setup_nsamdr_cuda.bat",
-    "scripts/build/setup_nsamdr_cpu.bat",
-    "scripts/build/run_nsamdr_obj_preview_dx11.bat",
-    "scripts/build/nsamdr/NSAMDROBJProjectInclude.cmake",
-    "tools/nsamdr/gui/nsamdr_v17_workflow_gui.py",
-    "tools/nsamdr/gui/nsamdr_v16_workflow_gui.py",
-    "tools/nsamdr/gui/nsamdr_v16_structure_workflow_gui.py",
-    "tools/nsamdr/neural/v14/baseline.py",
-    "tools/nsamdr/neural/v14/config.py",
-    "tools/nsamdr/neural/v14/model.py",
-    "tools/nsamdr/neural/v14/dataset.py",
-    "tools/nsamdr/neural/v14/losses.py",
-    "tools/nsamdr/neural/v14/qualification.py",
-    "tools/nsamdr/neural/v14/checkpoint.py",
-    "tools/nsamdr/neural/v14/inference.py",
-    "tools/nsamdr/neural/v14/trainer.py",
-    "tools/nsamdr/neural/v14/workflow.py",
-    "tools/nsamdr/neural/train_nsamdr_v16_main.py",
-    "tools/nsamdr/neural/probe_nsamdr_v16_pyramid_context.py",
-    "tools/nsamdr/neural/v16/pyramid_context.py",
-    "tools/nsamdr/neural/probe_nsamdr_v17_sibling_architecture.py",
-    "tools/nsamdr/neural/probe_nsamdr_v17_generalization.py",
-    "tools/nsamdr/neural/probe_nsamdr_v17_generalization_v2.py",
-    "tools/nsamdr/neural/probe_nsamdr_v17_spatial_generalization.py",
-    "tools/nsamdr/neural/probe_nsamdr_v17_comprehensive.py",
-    "tools/nsamdr/neural/probe_nsamdr_v17_source_readiness.py",
-    "tools/nsamdr/neural/probe_nsamdr_v17_5_diversity.py",
-    "tools/nsamdr/neural/probe_nsamdr_v17_5_matched_continuation.py",
-    "tools/nsamdr/neural/v17/diversity_continuation.py",
-    "tools/nsamdr/neural/probe_nsamdr_v176_detail.py",
-    "tools/nsamdr/neural/probe_nsamdr_v176_capacity.py",
-    "tools/nsamdr/neural/v176/detail_capacity.py",
-    "tools/nsamdr/neural/v176/fine_detail.py",
-    "tools/nsamdr/neural/v176/physical_composition.py",
-    "tools/nsamdr/neural/v176/wavelet_supervision.py",
-    "tools/nsamdr/neural/v176/stability.py",
-    "tools/nsamdr/neural/v176/attainable_recovery.py",
-    "tools/nsamdr/neural/v17/diversity_corpus.py",
-    "tools/nsamdr/neural/v17/spatial_sampling.py",
-    "tools/nsamdr/neural/probe_nsamdr_v17_4096_visual.py",
-    "tools/nsamdr/neural/test_nsamdr_v17_sibling_proof.py",
-    "tools/nsamdr/neural/v17/model.py",
-    "tools/nsamdr/neural/render_nsamdr_v16_training_preview.py",
-    "tools/nsamdr/neural/v14/preview.py",
-    "tools/nsamdr/neural/v14/safe_live_resume_monitored_fourfamily_multiregion_diagnostic.py",
-    "tools/nsamdr/neural/v16/structure.py",
-    "tools/nsamdr/neural/v16/profiles.py",
-    "tools/nsamdr/neural/v16/stage2_data.py",
-    "tools/nsamdr/neural/audit_nsamdr_v16_structure_support.py",
-    "tools/nsamdr/neural/audit_nsamdr_v16_boundary_profiles.py",
-    "tools/nsamdr/neural/scan_eve_authored_corpus.py",
-    "tools/nsamdr/eve_asset_test.py",
-    "trinityal/tests/nsamdr/NSAMDRShipPreview.cpp",
-    "trinityal/tests/nsamdr/NSAMDRPreview.hlsl",
-)
-
-CURRENT_TESTS = (
-    "tools.nsamdr.neural.test_nsamdr_v17_model",
-    "tools.nsamdr.neural.test_nsamdr_v17_sibling_proof",
-    "tools.nsamdr.neural.test_nsamdr_v17_generalization_proof",
-    "tools.nsamdr.neural.test_nsamdr_v17_generalization_v2",
-    "tools.nsamdr.neural.test_nsamdr_v17_spatial_generalization",
-    "tools.nsamdr.neural.test_nsamdr_v17_comprehensive",
-    "tools.nsamdr.neural.test_nsamdr_v17_source_readiness",
-    "tools.nsamdr.neural.test_nsamdr_v17_5_diversity_corpus",
-    "tools.nsamdr.neural.test_nsamdr_v17_5_diversity_proof",
-    "tools.nsamdr.neural.test_nsamdr_v17_5_matched_continuation",
-    "tools.nsamdr.neural.test_nsamdr_v176_detail",
-    "tools.nsamdr.neural.test_nsamdr_v176_training",
-    "tools.nsamdr.neural.test_nsamdr_v176_capacity",
-    "tools.nsamdr.neural.test_nsamdr_v176_stability",
-    "tools.nsamdr.neural.test_nsamdr_v176_attainable",
-    "tools.nsamdr.neural.test_nsamdr_v17_4096_visual",
-    "tools.nsamdr.neural.test_nsamdr_v16_structure",
-    "tools.nsamdr.neural.test_nsamdr_v16_boundary_profiles",
-    "tools.nsamdr.neural.test_nsamdr_v16_dataset_split",
-    "tools.nsamdr.neural.test_nsamdr_v16_multifamily_balance",
-    "tools.nsamdr.neural.test_nsamdr_v16_broad_prior_sampling",
-    "tools.nsamdr.neural.test_nsamdr_eve_corpus_census",
-    "tools.nsamdr.neural.test_nsamdr_v16_main_training",
-    "tools.nsamdr.neural.test_nsamdr_v16_render_preview",
-    "tools.nsamdr.gui.test_nsamdr_v17_workflow_gui",
-    "tools.nsamdr.test_nsamdr_cli",
-)
-
 
 class NSAMDRCommandLineApplication:
-    def _display(self, command: Sequence[object]) -> str:
-        return subprocess.list2cmdline([os.fspath(value) for value in command])
-
-    def _run(
-        self,
-        command: Sequence[object],
-        *,
-        env: dict[str, str] | None = None,
-    ) -> int:
-        values = [os.fspath(value) for value in command]
-        print("[nsamdr] RUN: " + self._display(values), flush=True)
-        return subprocess.run(
-            values,
-            cwd=REPO_ROOT,
-            env=env,
-            check=False,
-        ).returncode
-
-    def _cmd_quote(self, value: object) -> str:
-        text = os.fspath(value)
-        if '"' in text:
-            raise ValueError(f"BAT arguments cannot contain a double quote: {text!r}")
-        return f'"{text}"'
-
-    def _run_batch(
-        self,
-        script: Path,
-        arguments: Sequence[object] = (),
-        *,
-        env: dict[str, str] | None = None,
-    ) -> int:
-        command_text = "call " + " ".join(
-            self._cmd_quote(value) for value in (script, *arguments)
-        )
-        comspec = self._cmd_quote(os.environ.get("COMSPEC", "cmd.exe"))
-        command_line = f'{comspec} /d /s /c "{command_text}"'
-        print("[nsamdr] RUN: " + command_line, flush=True)
-        return subprocess.run(
-            command_line,
-            cwd=REPO_ROOT,
-            env=env,
-            check=False,
-        ).returncode
-
-    def _setup_script(self, kind: str) -> Path:
-        return BUILD_ROOT / f"setup_nsamdr_{kind}.bat"
-
     def _python(self, kind: str = "cuda", *, bootstrap: bool = True) -> Path:
-        override = os.environ.get("NSAMDR_PYTHON_EXE", "").strip()
-        if override:
-            candidate = Path(override).expanduser()
+        requested = os.environ.get("NSAMDR_PYTHON_EXE", "").strip()
+        if requested:
+            candidate = Path(requested).expanduser()
             if not candidate.is_absolute():
                 candidate = REPO_ROOT / candidate
-            candidate = candidate.resolve()
-            if candidate.is_file():
-                return candidate
-            raise RuntimeError(f"NSAMDR_PYTHON_EXE does not name a file: {candidate}")
-
+            if not candidate.is_file():
+                raise RuntimeError(f"NSAMDR_PYTHON_EXE not found: {candidate}")
+            return candidate.resolve()
         candidate = CUDA_PYTHON if kind == "cuda" else CPU_PYTHON
         if candidate.is_file():
             return candidate
         if not bootstrap:
             return Path(sys.executable)
-        code = self._run_batch(self._setup_script(kind))
-        if code:
-            raise SystemExit(code)
+        script = REPO_ROOT / f"scripts/build/setup_nsamdr_{kind}.bat"
+        if os.name != "nt":
+            raise RuntimeError("NSAMDR environment bootstrap requires Windows; set NSAMDR_PYTHON_EXE")
+        result = subprocess.run(["cmd.exe", "/d", "/s", "/c", f'"{script}"'], cwd=REPO_ROOT,
+                                check=False)
+        if result.returncode:
+            raise RuntimeError(f"CUDA environment setup failed: {result.returncode}")
         if not candidate.is_file():
-            raise RuntimeError(f"setup completed without creating {candidate}")
+            raise RuntimeError(f"NSAMDR setup did not create {candidate}")
         return candidate
 
-    def _python_script(
-        self,
-        relative: str,
-        arguments: Sequence[str],
-        *,
-        kind: str = "cuda",
-        env: dict[str, str] | None = None,
-    ) -> int:
-        return self._run(
-            [self._python(kind), "-u", REPO_ROOT / relative, *arguments],
-            env=env,
-        )
+    @staticmethod
+    def _run(command: Sequence[object]) -> int:
+        argv = [os.fspath(v) for v in command]
+        print("[nsamdr] RUN: " + subprocess.list2cmdline(argv), flush=True)
+        return subprocess.run(argv, cwd=REPO_ROOT, check=False).returncode
 
-    def _repo_args(self, arguments: Sequence[str]) -> list[str]:
-        return ["--repo-root", os.fspath(REPO_ROOT), *arguments]
-
-    def _configure_cuda_allocator_env(self, env: dict[str, str]) -> None:
-        # The broad V16 diagnostics are stable on Windows without allocator
-        # overrides. Force the Raven workflow back to PyTorch's default Windows
-        # allocator path: the tuned allocator path has produced a native abort
-        # immediately after the first training tile on the RTX 50-series setup.
-        if os.name == "nt":
-            env.pop("PYTORCH_CUDA_ALLOC_CONF", None)
-            return
-        if "PYTORCH_CUDA_ALLOC_CONF" not in env:
-            env["PYTORCH_CUDA_ALLOC_CONF"] = (
-                "expandable_segments:True,garbage_collection_threshold:0.80"
-            )
-
-    def _git_output(self, *arguments: str) -> tuple[int, str]:
-        env = os.environ.copy()
-        env["GIT_TERMINAL_PROMPT"] = "0"
-        try:
-            completed = subprocess.run(
-                ["git", "-C", os.fspath(REPO_ROOT), *arguments],
-                check=False,
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=10.0,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return 127, ""
-        return int(completed.returncode), completed.stdout.strip()
+    @staticmethod
+    def _git(*args: str) -> tuple[int, str]:
+        completed = subprocess.run(["git", *args], cwd=REPO_ROOT,
+                                   capture_output=True, text=True, check=False)
+        return completed.returncode, completed.stdout.strip()
 
     def _source_freshness_preflight(self) -> int:
         if not (REPO_ROOT / ".git").exists():
-            print(
-                "[nsamdr] WARNING: Git metadata unavailable; source freshness cannot be verified.",
-                flush=True,
-            )
+            print("[nsamdr] WARNING: Git metadata unavailable; source freshness unverified.", flush=True)
             return 0
-        head_code, head = self._git_output("rev-parse", "HEAD")
-        branch_code, branch = self._git_output("rev-parse", "--abbrev-ref", "HEAD")
-        status_code, status = self._git_output(
-            "status", "--porcelain=v1", "--untracked-files=no"
-        )
-        if head_code or branch_code or status_code:
-            print(
-                "[nsamdr] WARNING: unable to read complete Git source provenance.",
-                flush=True,
-            )
-            return 0
-        if status.strip():
-            print(
-                "ERROR: NSAMDR tracked source files are modified. Commit or stash them before training.",
-                file=sys.stderr,
-            )
+        status_code, status = self._git("status", "--porcelain=v1", "--untracked-files=no")
+        sha_code, head = self._git("rev-parse", "HEAD")
+        branch_code, branch = self._git("branch", "--show-current")
+        if status_code or sha_code or branch_code:
+            print("ERROR: Git source provenance could not be read.", file=sys.stderr)
+            return 5
+        if status:
+            print("ERROR: tracked source files modified; commit or restore before V17.6 execution.",
+                  file=sys.stderr)
             print(status, file=sys.stderr)
             return 5
         if branch != "NSAMDR":
-            print(
-                f"[nsamdr] Source HEAD {head} on branch {branch}; origin/NSAMDR freshness check skipped.",
-                flush=True,
-            )
+            print(f"[nsamdr] WARNING: branch={branch}; origin/NSAMDR comparison skipped.", flush=True)
             return 0
-        remote_code, remote = self._git_output(
-            "ls-remote", "origin", "refs/heads/NSAMDR"
-        )
-        if remote_code or not remote:
-            print(
-                f"[nsamdr] WARNING: unable to query origin/NSAMDR; continuing with local HEAD {head}.",
-                flush=True,
-            )
+        rc, remote = self._git("ls-remote", "origin", "refs/heads/NSAMDR")
+        if rc or not remote:
+            print("[nsamdr] WARNING: remote HEAD unavailable; local provenance only.", flush=True)
             return 0
-        remote_head = remote.split()[0].strip()
-        if remote_head != head:
-            print(
-                "ERROR: local NSAMDR checkout is stale; refusing to start training.",
-                file=sys.stderr,
-            )
-            print(f"  local HEAD    : {head}", file=sys.stderr)
-            print(f"  origin/NSAMDR : {remote_head}", file=sys.stderr)
-            print("  action        : git fetch origin", file=sys.stderr)
-            print("                  git merge --ff-only origin/NSAMDR", file=sys.stderr)
+        upstream = remote.split()[0].strip()
+        if head != upstream:
+            print(f"ERROR: stale checkout {head}; origin/NSAMDR={upstream}", file=sys.stderr)
+            print("Action: git fetch origin refs/heads/NSAMDR:refs/remotes/origin/NSAMDR",
+                  file=sys.stderr)
+            print("        git merge --ff-only refs/remotes/origin/NSAMDR", file=sys.stderr)
             return 5
         print(f"[nsamdr] Source revision verified: NSAMDR {head}", flush=True)
         return 0
 
-    def _cuda_preflight(self, python: Path, env: dict[str, str]) -> int:
-        return self._run(
-            [
-                python,
-                "-u",
-                NEURAL_ROOT / "verify_cuda.py",
-                "--require-arch",
-                "sm_120",
-                "--quick",
-            ],
-            env=env,
-        )
+    def _cuda_preflight(self, python: Path) -> int:
+        return self._run([python, "-u", NEURAL_ROOT / "verify_cuda.py",
+                          "--require-arch", "sm_120", "--quick"])
 
-    def validate_layout(self) -> int:
-        missing = [
-            relative
-            for relative in REQUIRED_LAYOUT
-            if not (REPO_ROOT / relative).is_file()
-        ]
-        if missing:
-            print("ERROR: Missing active NSAMDR source/layout requirement:", file=sys.stderr)
-            for relative in missing:
-                print(f"  {relative}", file=sys.stderr)
-            return 4
-        print("Active NSAMDR source layout verified.", flush=True)
-        return 0
-
-    def _command_gui(self, _args: argparse.Namespace) -> int:
-        return self._python_script(
-            "tools/nsamdr/gui/nsamdr_v17_workflow_gui.py",
-            [],
-            kind="cpu",
-        )
+    def _command_gui(self, _: argparse.Namespace) -> int:
+        python = self._python("cpu", bootstrap=False)
+        return self._run([python, "-u", REPO_ROOT / "tools/nsamdr/gui/nsamdr_v176_workflow_gui.py"])
 
     def _command_setup(self, args: argparse.Namespace) -> int:
-        return self._run_batch(
-            self._setup_script(args.kind),
-            ["--force"] if args.force else [],
-        )
-
-    def _command_raven_quick(self, args: argparse.Namespace) -> int:
-        source_code = self._source_freshness_preflight()
-        if source_code:
-            return source_code
-        python = self._python("cuda")
-        env = os.environ.copy()
-        env.setdefault("PYTHONUNBUFFERED", "1")
-        self._configure_cuda_allocator_env(env)
-        code = self._cuda_preflight(python, env)
-        if code:
-            return code
-
-        forwarded = [
-            "--shared-cache", args.shared_cache,
-            "--max-train-regions", str(args.max_train_regions),
-            "--max-validation-regions", str(args.max_validation_regions),
-            "--experiment", args.experiment,
-            "--control", args.control,
-            "--preview-target-size", str(args.preview_target_size),
-            "--preview-device", args.preview_device,
-            "--performance-profile", args.performance_profile,
-            "--workers", str(args.workers),
-            "--prefetch-factor", str(args.prefetch_factor),
-            "--amp-precision", args.amp_precision,
-        ]
-        if args.rebuild_dataset:
-            forwarded.append("--rebuild-dataset")
-        if args.live_preview_during_training:
-            forwarded += [
-                "--live-preview-during-training",
-                "--live-preview-target-size",
-                str(args.live_preview_target_size),
-            ]
-
-        return self._run(
-            [
-                python,
-                "-u",
-                NEURAL_ROOT / "v14/workflow.py",
-                "--training-mode",
-                "quick",
-                *self._repo_args(forwarded),
-            ],
-            env=env,
-        )
-
-    def _command_main_train(self, args: argparse.Namespace) -> int:
-        source_code = self._source_freshness_preflight()
-        if source_code:
-            return source_code
-        python = self._python("cuda")
-        env = os.environ.copy()
-        env.setdefault("PYTHONUNBUFFERED", "1")
-        self._configure_cuda_allocator_env(env)
-        code = self._cuda_preflight(python, env)
-        if code:
-            return code
-
-        forwarded = [
-            "--device", args.device,
-            "--amp-precision", args.amp_precision,
-            "--epochs", str(args.epochs),
-            "--preview-samples", str(args.preview_samples),
-            "--shared-cache", args.shared_cache,
-        ]
-        if args.d4_passes:
-            forwarded += ["--d4-passes", str(args.d4_passes)]
-        if args.rebuild_corpus:
-            forwarded.append("--rebuild-corpus")
-        if args.resume:
-            forwarded += ["--resume", args.resume]
-        elif args.initialize_from:
-            forwarded += ["--initialize-from", args.initialize_from]
-
-        return self._run(
-            [
-                python,
-                "-u",
-                NEURAL_ROOT / "train_nsamdr_v16_main.py",
-                "--repo-root",
-                REPO_ROOT,
-                *forwarded,
-            ],
-            env=env,
-        )
-
-    def _command_v17_sibling_proof(self, args: argparse.Namespace) -> int:
-        source_code = self._source_freshness_preflight()
-        if source_code:
-            return source_code
-        python = self._python("cuda")
-        env = os.environ.copy()
-        env.setdefault("PYTHONUNBUFFERED", "1")
-        self._configure_cuda_allocator_env(env)
-        code = self._cuda_preflight(python, env)
-        if code:
-            return code
-
-        forwarded = [
-            "--device", args.device,
-            "--amp-precision", args.amp_precision,
-            "--authority-id", args.authority_id,
-            "--hr-size", str(args.hr_size),
-            "--learning-rate", str(args.learning_rate),
-            "--minimum-target-residual", str(args.minimum_target_residual),
-            "--encoder-channels", str(args.encoder_channels),
-            "--mid-channels", str(args.mid_channels),
-            "--detail-channels", str(args.detail_channels),
-            "--decoder-blocks", str(args.decoder_blocks),
-            "--resume", str(args.resume),
-        ]
-        forwarded += ["--stages", *[str(value) for value in args.stages]]
-        if args.manifest:
-            forwarded += ["--manifest", args.manifest]
-        script = "probe_nsamdr_v17_sibling_architecture.py"
-        if args.command == "v17-generalization-proof":
-            forwarded += ["--authorities", str(args.authorities)]
-            script = "probe_nsamdr_v17_generalization.py"
-        elif args.command == "v17-generalization-v2":
-            forwarded += [
-                "--authorities", str(args.authorities),
-                "--patience", str(args.patience),
-                "--min-improvement", str(args.min_improvement),
-            ]
-            script = "probe_nsamdr_v17_generalization_v2.py"
-        return self._run(
-            [
-                python,
-                "-u",
-                NEURAL_ROOT / script,
-                "--repo-root",
-                REPO_ROOT,
-                *forwarded,
-            ],
-            env=env,
-        )
-
-    def _command_v17_4096_visual(self, args: argparse.Namespace) -> int:
-        source_code = self._source_freshness_preflight()
-        if source_code:
-            return source_code
-        python = self._python("cuda")
-        env = os.environ.copy()
-        env.setdefault("PYTHONUNBUFFERED", "1")
-        self._configure_cuda_allocator_env(env)
-        if args.device != "cpu":
-            code = self._cuda_preflight(python, env)
-            if code:
-                return code
-        return self._run(
-            [
-                python, "-u", NEURAL_ROOT / "probe_nsamdr_v17_4096_visual.py",
-                "--repo-root", REPO_ROOT,
-                "--device", args.device,
-                "--amp-precision", args.amp_precision,
-                "--authority-id", args.authority_id,
-                "--tile-lr", str(args.tile_lr),
-                "--halo-lr", str(args.halo_lr),
-            ],
-            env=env,
-        )
-
-    def _command_v17_spatial_generalization(self, args: argparse.Namespace) -> int:
-        source_code = self._source_freshness_preflight()
-        if source_code:
-            return source_code
-        python = self._python("cuda")
-        env = os.environ.copy()
-        env.setdefault("PYTHONUNBUFFERED", "1")
-        self._configure_cuda_allocator_env(env)
-        if args.device != "cpu":
-            code = self._cuda_preflight(python, env)
-            if code:
-                return code
-        forwarded = [
-            "--device", args.device, "--amp-precision", args.amp_precision,
-            "--arm", args.arm, "--authorities", str(args.authorities),
-            "--hr-size", "512", "--stages", *args.stages,
-            "--resume", args.resume, "--seed", str(args.seed),
-            "--learning-rate", "0.0002",
-            "--minimum-target-residual", str(args.minimum_target_residual),
-            "--patience", str(args.patience),
-            "--min-improvement", str(args.min_improvement),
-        ]
-        if args.manifest:
-            forwarded += ["--manifest", args.manifest]
-        return self._run([
-            python, "-u", NEURAL_ROOT / "probe_nsamdr_v17_spatial_generalization.py",
-            "--repo-root", REPO_ROOT, *forwarded,
-        ], env=env)
-
-    def _command_v17_comprehensive(self, args: argparse.Namespace) -> int:
-        source_code = self._source_freshness_preflight()
-        if source_code:
-            return source_code
-        python = self._python("cuda")  # audit-only reuses installed environment; skips GPU preflight
-        env = os.environ.copy()
-        env.setdefault("PYTHONUNBUFFERED", "1")
-        self._configure_cuda_allocator_env(env)
-        if not args.audit_only and args.device != "cpu":
-            code = self._cuda_preflight(python, env)
-            if code:
-                return code
-        forwarded = [
-            "--repo-root", str(REPO_ROOT),
-            "--device", args.device,
-            "--amp-precision", args.amp_precision,
-            "--resume", args.resume,
-            "--patience", str(args.patience),
-            "--min-improvement", str(args.min_improvement),
-        ]
-        if args.v3_report:
-            forwarded += ["--v3-report", args.v3_report]
-        if args.audit_only:
-            forwarded += ["--audit-only"]
-        return self._run(
-            [python, "-u", NEURAL_ROOT / "probe_nsamdr_v17_comprehensive.py",
-             *forwarded], env=env,
-        )
-
-    def _command_v17_source_readiness(self, args: argparse.Namespace) -> int:
-        source_code = self._source_freshness_preflight()
-        if source_code:
-            return source_code
-        python = self._python("cuda")  # Installed dependencies; no CUDA training/preflight.
-        env = os.environ.copy()
-        env.setdefault("PYTHONUNBUFFERED", "1")
-        command = [
-            python, "-u",
-            NEURAL_ROOT / "probe_nsamdr_v17_source_readiness.py",
-            "--repo-root", REPO_ROOT,
-            "--shared-cache", args.shared_cache,
-            "--device", args.device,
-        ]
-        if args.v3_report:
-            command += ["--v3-report", args.v3_report]
-        if args.skip_conditioning:
-            command += ["--skip-conditioning"]
-        return self._run(command, env=env)
-
-    def _command_v17_5_diversity(self, args: argparse.Namespace) -> int:
-        fresh = self._source_freshness_preflight()
-        if fresh:
-            return fresh
-        python = self._python("cuda")
-        env = os.environ.copy()
-        env.setdefault("PYTHONUNBUFFERED", "1")
-        self._configure_cuda_allocator_env(env)
-        if not args.selection_only and args.device != "cpu":
-            code = self._cuda_preflight(python, env)
-            if code:
-                return code
-        command = [
-            python, "-u", NEURAL_ROOT / "probe_nsamdr_v17_5_diversity.py",
-            "--repo-root", REPO_ROOT,
-            "--device", args.device, "--amp-precision", args.amp_precision,
-            "--resume", args.resume, "--seed", str(args.seed),
-        ]
-        if args.v3_report:
-            command += ["--v3-report", args.v3_report]
-        if args.selection:
-            command += ["--selection", args.selection]
-        if args.selection_only:
-            command += ["--selection-only"]
-        return self._run(command, env=env)
-
-    def _command_v17_5_matched_continuation(self, args: argparse.Namespace) -> int:
-        freshness = self._source_freshness_preflight()
-        if freshness:
-            return freshness
-        python = self._python("cuda")
-        env = os.environ.copy()
-        env.setdefault("PYTHONUNBUFFERED", "1")
-        self._configure_cuda_allocator_env(env)
-        if not args.audit_only:
-            code = self._cuda_preflight(python, env)
-            if code:
-                return code
-        command = [
-            python, "-u", NEURAL_ROOT / "probe_nsamdr_v17_5_matched_continuation.py",
-            "--repo-root", REPO_ROOT,
-            "--resume", args.resume,
-            "--device", args.device,
-            "--amp-precision", args.amp_precision,
-        ]
-        if args.audit_only:
-            command.append("--audit-only")
-        if args.stage8_report:
-            command += ["--stage8-report", args.stage8_report]
-        if args.v3_report:
-            command += ["--v3-report", args.v3_report]
-        if args.selection_only_report:
-            command += ["--selection-only-report", args.selection_only_report]
-        return self._run(command, env=env)
+        if os.name != "nt":
+            raise RuntimeError("Setup requires Windows")
+        script = REPO_ROOT / f"scripts/build/setup_nsamdr_{args.kind}.bat"
+        return self._run(["cmd.exe", "/d", "/s", "/c", f'"{script}"' + (" --force" if args.force else "")])
 
     def _command_v176_detail(self, args: argparse.Namespace) -> int:
-        freshness=self._source_freshness_preflight()
-        if freshness:
-            return freshness
-        python=self._python("cuda")
-        env=os.environ.copy()
-        env.setdefault("PYTHONUNBUFFERED","1")
-        self._configure_cuda_allocator_env(env)
+        rc = self._source_freshness_preflight()
+        if rc:
+            return rc
+        python = self._python("cuda")
         if not args.audit_only:
-            code=self._cuda_preflight(python,env)
-            if code:
-                return code
-        command=[
-            python,"-u",NEURAL_ROOT / "probe_nsamdr_v176_detail.py",
-            "--repo-root",REPO_ROOT,
-            "--resume",args.resume,
-            "--amp-precision",args.amp_precision,
-        ]
+            rc = self._cuda_preflight(python)
+            if rc:
+                return rc
+        argv = [python, "-u", NEURAL_ROOT / "probe_nsamdr_v176_detail.py",
+                "--repo-root", REPO_ROOT, "--resume", args.resume,
+                "--amp-precision", args.amp_precision]
         if args.audit_only:
-            command += ["--audit-only"]
+            argv += ["--audit-only"]
         if args.stage9_report:
-            command += ["--stage9-report",args.stage9_report]
+            argv += ["--stage9-report", args.stage9_report]
         if args.v3_report:
-            command += ["--v3-report",args.v3_report]
-        return self._run(command,env=env)
+            argv += ["--v3-report", args.v3_report]
+        return self._run(argv)
 
     def _command_v176_capacity(self, args: argparse.Namespace) -> int:
-        freshness=self._source_freshness_preflight()
-        if freshness:
-            return freshness
-        python=self._python("cuda")
-        env=os.environ.copy()
-        env.setdefault("PYTHONUNBUFFERED","1")
-        self._configure_cuda_allocator_env(env)
-        if not args.audit_only and args.device=="cuda":
-            status=self._cuda_preflight(python,env)
-            if status:
-                return status
-        command=[
-            python,"-u",NEURAL_ROOT / "probe_nsamdr_v176_capacity.py",
-            "--repo-root",REPO_ROOT,"--phase",args.phase,
-            "--resume",args.resume,"--device",args.device,
-            "--amp-precision",args.amp_precision,
-        ]
-        if args.audit_only:
-            command.append("--audit-only")
-        if args.stage10a_report:
-            command += ["--stage10a-report",args.stage10a_report]
-        if args.comparison_report:
-            command += ["--comparison-report",args.comparison_report]
-        if args.v3_report:
-            command += ["--v3-report",args.v3_report]
-        return self._run(command,env=env)
-
-    def _command_context_probe(self, args: argparse.Namespace) -> int:
-        source_code = self._source_freshness_preflight()
-        if source_code:
-            return source_code
+        rc = self._source_freshness_preflight()
+        if rc:
+            return rc
         python = self._python("cuda")
-        env = os.environ.copy()
-        env.setdefault("PYTHONUNBUFFERED", "1")
-        self._configure_cuda_allocator_env(env)
-        code = self._cuda_preflight(python, env)
-        if code:
-            return code
-        forwarded = [
-            "--device", args.device,
-            "--amp-precision", args.amp_precision,
-            "--steps", str(args.steps),
-            "--preview-samples", str(args.preview_samples),
+        if not args.audit_only and args.device == "cuda":
+            rc = self._cuda_preflight(python)
+            if rc:
+                return rc
+        argv = [python, "-u", NEURAL_ROOT / "probe_nsamdr_v176_capacity.py",
+                "--repo-root", REPO_ROOT, "--phase", args.phase,
+                "--resume", args.resume, "--device", args.device,
+                "--amp-precision", args.amp_precision]
+        if args.audit_only:
+            argv += ["--audit-only"]
+        for name, flag in (("stage10a_report", "--stage10a-report"),
+                           ("comparison_report", "--comparison-report"),
+                           ("v3_report", "--v3-report")):
+            value = getattr(args, name)
+            if value:
+                argv += [flag, value]
+        return self._run(argv)
+
+    def _command_raven(self, args: argparse.Namespace) -> int:
+        rc = self._source_freshness_preflight()
+        if rc:
+            return rc
+        python = self._python("cuda")
+        if args.device == "cuda":
+            rc = self._cuda_preflight(python)
+            if rc:
+                return rc
+        argv = [python, "-u", NEURAL_ROOT / "render_nsamdr_v176_raven_preview.py",
+                "--repo-root", REPO_ROOT, "--shared-cache", args.shared_cache,
+                "--target-size", str(args.target_size), "--device", args.device,
+                "--authority-index", str(args.authority_index), "--mode", args.mode]
+        if args.comparison_report:
+            argv += ["--comparison-report", args.comparison_report]
+        return self._run(argv)
+
+    def _command_tests(self, args: argparse.Namespace) -> int:
+        python = self._python("cuda")
+        cases = [
+            "tools.nsamdr.test_nsamdr_cli",
+            "tools.nsamdr.neural.test_nsamdr_v176_detail",
+            "tools.nsamdr.neural.test_nsamdr_v176_training",
+            "tools.nsamdr.neural.test_nsamdr_v176_capacity",
+            "tools.nsamdr.neural.test_nsamdr_v176_stability",
+            "tools.nsamdr.neural.test_nsamdr_v176_attainable",
+            "tools.nsamdr.neural.test_nsamdr_v176_raven_preview",
+            "tools.nsamdr.gui.test_nsamdr_v176_workflow_gui",
         ]
-        if args.checkpoint:
-            forwarded += ["--checkpoint", args.checkpoint]
-        return self._run(
-            [
-                python,
-                "-u",
-                NEURAL_ROOT / "probe_nsamdr_v16_pyramid_context.py",
-                "--repo-root",
-                REPO_ROOT,
-                *forwarded,
-            ],
-            env=env,
-        )
-
-    def _command_index_raven(self, args: argparse.Namespace) -> int:
-        forwarded = [
-            "--shared-cache", args.shared_cache,
-            "--train-crops", str(args.train_crops),
-            "--validation-crops", str(args.validation_crops),
-        ]
-        if args.rebuild:
-            forwarded.append("--rebuild")
-        return self._python_script(
-            "tools/nsamdr/neural/prepare_nsamdr_v16_raven_dataset.py",
-            self._repo_args(forwarded),
-        )
-
-    def _command_preview(self, args: argparse.Namespace) -> int:
-        forwarded = ["--experiment", args.subject]
-        if args.shared_cache is not None:
-            forwarded += ["--shared-cache", args.shared_cache]
-        if args.target_size is not None:
-            forwarded += ["--target-size", str(args.target_size)]
-        if args.device is not None:
-            forwarded += ["--device", args.device]
-        return self._python_script(
-            "tools/nsamdr/neural/v14/preview.py",
-            self._repo_args(forwarded),
-        )
-
-    def _command_render_preview(self, args: argparse.Namespace) -> int:
-        forwarded = [
-            "--source", args.subject,
-            "--shared-cache", args.shared_cache,
-            "--target-size", str(args.target_size),
-            "--device", args.device,
-        ]
-        if args.watch:
-            forwarded.append("--watch")
-        return self._python_script(
-            "tools/nsamdr/neural/render_nsamdr_v16_training_preview.py",
-            self._repo_args(forwarded),
-        )
-
-    def _command_validate(self, args: argparse.Namespace) -> int:
-        code = self.validate_layout()
-        if code or args.layout_only:
-            return code
-        # Validation imports the actual neural/preview stack, including OpenCV
-        # and CUDA-built PyTorch modules. Use the canonical managed CUDA
-        # environment rather than the lightweight CPU/bootstrap environment so
-        # validation exercises the same Python dependency set as Raven/Main.
-        return self._run(
-            [self._python("cuda"), "-m", "unittest", *CURRENT_TESTS]
-        )
-
-    def _safe_target(self, relative: str) -> Path:
-        root = REPO_ROOT.resolve()
-        target = (REPO_ROOT / relative).resolve()
-        target.relative_to(root)
-        if target == root:
-            raise ValueError("refusing to clean repository root")
-        return target
-
-    def _command_cleanup(self, args: argparse.Namespace) -> int:
-        targets = []
-        if args.training_data:
-            targets.append(("artifacts/nsamdr/training_v9_preview_raven", "training data"))
-        if args.experiments:
-            targets.append(("artifacts/nsamdr/experiments", "experiments"))
-        if args.diagnostics:
-            targets.append(("artifacts/nsamdr/diagnostics", "diagnostics"))
-        for relative, label in targets:
-            target = self._safe_target(relative)
-            if not target.exists():
-                continue
-            print(
-                f"[nsamdr] {'would remove' if args.dry_run else 'removed'}: {label}: {target}",
-                flush=True,
-            )
-            if not args.dry_run:
-                shutil.rmtree(target) if target.is_dir() else target.unlink()
-        return 0
-
-    def _command_integrate(self, args: argparse.Namespace) -> int:
-        forwarded = ["--repo-root", os.fspath(REPO_ROOT)]
-        if args.check:
-            forwarded.append("--check")
-        return self._python_script(
-            "tools/nsamdr/integration/apply_trinity_nsamdr_settings.py",
-            forwarded,
-            kind="cpu",
-        )
-
-    def _command_native(self, args: argparse.Namespace) -> int:
-        launcher = BUILD_ROOT / "run_nsamdr_obj_preview_dx11.bat"
-        env = os.environ.copy()
-        if args.native_name == "build":
-            env["NSAMDR_BUILD_ONLY"] = "1"
-            return self._run_batch(launcher, [], env=env)
-        if args.native_name == "obj":
-            return self._run_batch(launcher, args.arguments, env=env)
-        return self._python_script(
-            "tools/nsamdr/eve_asset_test.py",
-            [
-                "prepare-run",
-                "--repo-root", os.fspath(REPO_ROOT),
-                "--shared-cache", args.shared_cache,
-                "--query", args.query,
-                "--launcher", os.fspath(launcher),
-                *args.arguments,
-            ],
-            kind="cpu",
-            env=env,
-        )
+        return self._run([python, "-m", "unittest", "-v", *cases])
 
     def build_parser(self) -> argparse.ArgumentParser:
-        parser = argparse.ArgumentParser(
-            prog="nsamdr",
-            description="NSAMDR development and production utilities",
-        )
+        parser = argparse.ArgumentParser(description=__doc__)
         commands = parser.add_subparsers(dest="command", required=True)
-
-        gui = commands.add_parser("gui")
-        gui.set_defaults(handler=self._command_gui)
-
+        commands.add_parser("gui").set_defaults(handler=self._command_gui)
         setup = commands.add_parser("setup")
         setup.add_argument("kind", choices=("cuda", "cpu"))
         setup.add_argument("--force", action="store_true")
         setup.set_defaults(handler=self._command_setup)
-
-        quick = commands.add_parser("raven-quick")
-        quick.add_argument("--shared-cache", default=r"C:\CCP\EVE")
-        quick.add_argument("--max-train-regions", type=int, default=16)
-        quick.add_argument("--max-validation-regions", type=int, default=4)
-        quick.add_argument("--experiment", default="new")
-        quick.add_argument("--control", default="auto")
-        quick.add_argument("--preview-target-size", type=int, default=4096)
-        quick.add_argument(
-            "--preview-device",
-            choices=("cuda", "cpu", "auto"),
-            default="cuda",
-        )
-        quick.add_argument("--performance-profile", default="fast")
-        quick.add_argument("--workers", type=int, default=(0 if os.name == "nt" else 4))
-        quick.add_argument("--prefetch-factor", type=int, default=2)
-        quick.add_argument(
-            "--amp-precision",
-            choices=("auto", "bf16", "fp16"),
-            default="auto",
-        )
-        quick.add_argument("--rebuild-dataset", action="store_true")
-        quick.add_argument("--live-preview-during-training", action="store_true")
-        quick.add_argument("--live-preview-target-size", type=int, default=1024)
-        quick.set_defaults(handler=self._command_raven_quick)
-
-        main_train = commands.add_parser("main-train")
-        main_train.add_argument(
-            "--device",
-            choices=("auto", "cpu", "cuda"),
-            default="cuda",
-        )
-        main_train.add_argument(
-            "--amp-precision",
-            choices=("auto", "bf16", "fp16"),
-            default="auto",
-        )
-        main_train.add_argument("--epochs", type=int, default=1)
-        main_train.add_argument("--d4-passes", type=int, default=0)
-        main_train.add_argument("--preview-samples", type=int, default=4)
-        main_train.add_argument("--shared-cache", default=r"C:\CCP\EVE")
-        main_train.add_argument("--rebuild-corpus", action="store_true")
-        main_train.add_argument("--resume", default="")
-        main_train.add_argument("--initialize-from", default="")
-        main_train.set_defaults(handler=self._command_main_train)
-
-        v17_sibling = commands.add_parser("v17-sibling-proof")
-        v17_sibling.add_argument(
-            "--device",
-            choices=("auto", "cpu", "cuda"),
-            default="cuda",
-        )
-        v17_sibling.add_argument(
-            "--amp-precision",
-            choices=("auto", "bf16", "fp16"),
-            default="auto",
-        )
-        v17_sibling.add_argument("--authority-id", default="13006d2b807f89ac")
-        v17_sibling.add_argument("--manifest", default="")
-        v17_sibling.add_argument("--hr-size", type=int, default=512)
-        v17_sibling.add_argument(
-            "--stages",
-            nargs="+",
-            default=["896,1024,1280,1536"],
-        )
-        v17_sibling.add_argument("--learning-rate", type=float, default=2.0e-4)
-        v17_sibling.add_argument("--minimum-target-residual", type=float, default=0.01)
-        v17_sibling.add_argument(
-            "--resume",
-            default="auto",
-            help="fresh, auto, latest, or a V17.2 checkpoint path",
-        )
-        v17_sibling.add_argument("--encoder-channels", type=int, default=96)
-        v17_sibling.add_argument("--mid-channels", type=int, default=64)
-        v17_sibling.add_argument("--detail-channels", type=int, default=48)
-        v17_sibling.add_argument("--decoder-blocks", type=int, default=4)
-        v17_sibling.set_defaults(handler=self._command_v17_sibling_proof)
-
-        generalization = commands.add_parser("v17-generalization-proof")
-        generalization.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cuda")
-        generalization.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
-        generalization.add_argument("--authority-id", default="13006d2b807f89ac")
-        generalization.add_argument("--authorities", type=int, default=4)
-        generalization.add_argument("--manifest", default="")
-        generalization.add_argument("--hr-size", type=int, default=512)
-        generalization.add_argument("--stages", nargs="+", default=["2048,4096,6144,8192"])
-        generalization.add_argument("--learning-rate", type=float, default=2.0e-4)
-        generalization.add_argument("--minimum-target-residual", type=float, default=0.01)
-        generalization.add_argument("--resume", default="auto")
-        generalization.add_argument("--encoder-channels", type=int, default=96)
-        generalization.add_argument("--mid-channels", type=int, default=64)
-        generalization.add_argument("--detail-channels", type=int, default=48)
-        generalization.add_argument("--decoder-blocks", type=int, default=4)
-        generalization.set_defaults(handler=self._command_v17_sibling_proof)
-
-        generalization_v2 = commands.add_parser("v17-generalization-v2")
-        generalization_v2.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cuda")
-        generalization_v2.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
-        generalization_v2.add_argument("--authority-id", default="13006d2b807f89ac")
-        generalization_v2.add_argument("--authorities", type=int, default=12)
-        generalization_v2.add_argument("--manifest", default="")
-        generalization_v2.add_argument("--hr-size", type=int, default=512)
-        generalization_v2.add_argument("--stages", nargs="+", default=["6144,12288,18432,24576,30720"])
-        generalization_v2.add_argument("--learning-rate", type=float, default=2.0e-4)
-        generalization_v2.add_argument("--minimum-target-residual", type=float, default=0.01)
-        generalization_v2.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
-        generalization_v2.add_argument("--patience", type=int, default=2)
-        generalization_v2.add_argument("--min-improvement", type=float, default=0.002)
-        generalization_v2.add_argument("--encoder-channels", type=int, default=96)
-        generalization_v2.add_argument("--mid-channels", type=int, default=64)
-        generalization_v2.add_argument("--detail-channels", type=int, default=48)
-        generalization_v2.add_argument("--decoder-blocks", type=int, default=4)
-        generalization_v2.set_defaults(handler=self._command_v17_sibling_proof)
-
-        spatial = commands.add_parser("v17-spatial-generalization")
-        spatial.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cuda")
-        spatial.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
-        spatial.add_argument("--arm", choices=("both", "fixed", "spatial"), default="both")
-        spatial.add_argument("--authorities", type=int, default=12)
-        spatial.add_argument("--manifest", default="")
-        spatial.add_argument("--stages", nargs="+", default=["12288,24576,36864,49152"])
-        spatial.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
-        spatial.add_argument("--seed", type=int, default=17301)
-        spatial.add_argument("--minimum-target-residual", type=float, default=0.01)
-        spatial.add_argument("--patience", type=int, default=2)
-        spatial.add_argument("--min-improvement", type=float, default=0.002)
-        spatial.set_defaults(handler=self._command_v17_spatial_generalization)
-
-        comprehensive = commands.add_parser("v17-comprehensive-af")
-        comprehensive.add_argument("--device", choices=("auto","cuda","cpu"), default="cuda")
-        comprehensive.add_argument("--amp-precision", choices=("auto","bf16","fp16"), default="auto")
-        comprehensive.add_argument("--resume", choices=("fresh","auto"), default="fresh")
-        comprehensive.add_argument("--patience", type=int, default=2)
-        comprehensive.add_argument("--min-improvement", type=float, default=0.002)
-        comprehensive.add_argument("--v3-report", default="")
-        comprehensive.add_argument("--audit-only", action="store_true")
-        comprehensive.set_defaults(handler=self._command_v17_comprehensive)
-
-        readiness = commands.add_parser("v17-source-readiness")
-        readiness.add_argument("--shared-cache", default=r"C:\CCP\EVE")
-        readiness.add_argument("--v3-report", default="")
-        readiness.add_argument("--device", choices=("cpu", "auto", "cuda"), default="cpu")
-        readiness.add_argument("--skip-conditioning", action="store_true")
-        readiness.set_defaults(handler=self._command_v17_source_readiness)
-
-        diversity = commands.add_parser("v17-5-diversity-proof")
-        diversity.add_argument("--v3-report", default="")
-        diversity.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cuda")
-        diversity.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
-        diversity.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
-        diversity.add_argument("--seed", type=int, choices=(17301, 17302), default=17301)
-        diversity.add_argument("--selection-only", action="store_true")
-        diversity.add_argument("--selection", default="")
-        diversity.set_defaults(handler=self._command_v17_5_diversity)
-
-        continuation = commands.add_parser("v17-5-matched-continuation")
-        continuation.add_argument("--stage8-report", default="")
-        continuation.add_argument("--v3-report", default="")
-        continuation.add_argument("--selection-only-report", default="")
-        continuation.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
-        continuation.add_argument("--device", choices=("cuda",), default="cuda")
-        continuation.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
-        continuation.add_argument("--audit-only", action="store_true")
-        continuation.set_defaults(handler=self._command_v17_5_matched_continuation)
-
         detail = commands.add_parser("v176-detail-proof")
         detail.add_argument("--stage9-report", default="")
         detail.add_argument("--v3-report", default="")
@@ -994,119 +191,40 @@ class NSAMDRCommandLineApplication:
         detail.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
         detail.add_argument("--audit-only", action="store_true")
         detail.set_defaults(handler=self._command_v176_detail)
-
-        capacity=commands.add_parser("v176-capacity-proof")
-        capacity.add_argument("--phase",choices=("diagnose","stability","capacity","compare-features","attainable"),default="diagnose")
-        capacity.add_argument("--stage10a-report",default="")
-        capacity.add_argument("--comparison-report",default="",
-                              help="completed feature comparison for --phase attainable (latest matching proof by default)")
-        capacity.add_argument("--v3-report",default="")
-        capacity.add_argument("--device",choices=("cuda","cpu"),default="cuda")
-        capacity.add_argument("--amp-precision",choices=("auto","bf16","fp16"),default="auto")
-        capacity.add_argument("--resume",choices=("fresh","auto"),default="fresh")
-        capacity.add_argument("--audit-only",action="store_true")
+        capacity = commands.add_parser("v176-capacity-proof")
+        capacity.add_argument("--phase", choices=("diagnose", "stability", "capacity",
+                                                  "compare-features", "attainable"), default="diagnose")
+        capacity.add_argument("--stage10a-report", default="")
+        capacity.add_argument("--comparison-report", default="")
+        capacity.add_argument("--v3-report", default="")
+        capacity.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
+        capacity.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
+        capacity.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
+        capacity.add_argument("--audit-only", action="store_true")
         capacity.set_defaults(handler=self._command_v176_capacity)
-
-        visual_4096 = commands.add_parser("v17-4096-visual-proof")
-        visual_4096.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cuda")
-        visual_4096.add_argument("--amp-precision", choices=("auto", "bf16", "fp16"), default="auto")
-        visual_4096.add_argument("--authority-id", default="auto")
-        visual_4096.add_argument("--tile-lr", type=int, default=128)
-        visual_4096.add_argument("--halo-lr", type=int, default=64)
-        visual_4096.set_defaults(handler=self._command_v17_4096_visual)
-
-        context_probe = commands.add_parser("context-probe")
-        context_probe.add_argument(
-            "--device",
-            choices=("auto", "cpu", "cuda"),
-            default="cuda",
-        )
-        context_probe.add_argument(
-            "--amp-precision",
-            choices=("auto", "bf16", "fp16"),
-            default="auto",
-        )
-        context_probe.add_argument("--steps", type=int, default=596)
-        context_probe.add_argument("--preview-samples", type=int, default=4)
-        context_probe.add_argument("--checkpoint", default="")
-        context_probe.set_defaults(handler=self._command_context_probe)
-
-        index = commands.add_parser("index")
-        index_commands = index.add_subparsers(dest="index_name", required=True)
-        raven = index_commands.add_parser("raven")
+        raven = commands.add_parser("v176-raven-preview")
         raven.add_argument("--shared-cache", default=r"C:\CCP\EVE")
-        raven.add_argument("--train-crops", type=int, default=16)
-        raven.add_argument("--validation-crops", type=int, default=4)
-        raven.add_argument("--rebuild", action="store_true")
-        raven.set_defaults(handler=self._command_index_raven)
-
-        preview = commands.add_parser("preview")
-        preview.add_argument("subject")
-        preview.add_argument("--shared-cache")
-        preview.add_argument("--target-size", type=int)
-        preview.add_argument("--device", choices=("cuda", "cpu", "auto"))
-        preview.set_defaults(handler=self._command_preview)
-
-        render_preview = commands.add_parser("render-preview")
-        render_preview.add_argument("subject")
-        render_preview.add_argument("--shared-cache", default=r"C:\CCP\EVE")
-        render_preview.add_argument("--target-size", type=int, default=1024)
-        render_preview.add_argument(
-            "--device",
-            choices=("cuda", "cpu", "auto"),
-            default="cuda",
-        )
-        render_preview.add_argument("--watch", action="store_true")
-        render_preview.set_defaults(handler=self._command_render_preview)
-
-        validate = commands.add_parser("validate")
-        validate.add_argument("--layout-only", action="store_true")
-        validate.set_defaults(handler=self._command_validate)
-
-        cleanup = commands.add_parser("cleanup")
-        cleanup.add_argument("--training-data", action="store_true")
-        cleanup.add_argument("--experiments", action="store_true")
-        cleanup.add_argument("--diagnostics", action="store_true")
-        cleanup.add_argument("--dry-run", action="store_true")
-        cleanup.set_defaults(handler=self._command_cleanup)
-
-        integrate = commands.add_parser("integrate")
-        integrate.add_argument("--check", action="store_true")
-        integrate.set_defaults(handler=self._command_integrate)
-
-        native = commands.add_parser("native")
-        native_commands = native.add_subparsers(dest="native_name", required=True)
-        build = native_commands.add_parser("build")
-        build.set_defaults(handler=self._command_native)
-        obj = native_commands.add_parser("obj")
-        obj.add_argument("arguments", nargs=argparse.REMAINDER)
-        obj.set_defaults(handler=self._command_native)
-        eve = native_commands.add_parser("eve")
-        eve.add_argument("--shared-cache", default="")
-        eve.add_argument(
-            "--query",
-            default="res:/dx9/model/ship/caldari/battleship/cb1/cb1_t1.gr2",
-        )
-        eve.add_argument("arguments", nargs=argparse.REMAINDER)
-        eve.set_defaults(handler=self._command_native)
+        raven.add_argument("--target-size", type=int, default=1024)
+        raven.add_argument("--device", choices=("cuda", "cpu", "auto"), default="cuda")
+        raven.add_argument("--authority-index", type=int, choices=(1, 10), default=10)
+        raven.add_argument("--mode", choices=("output10", "hr_features58"), default="output10")
+        raven.add_argument("--comparison-report", default="")
+        raven.set_defaults(handler=self._command_raven)
+        tests = commands.add_parser("test")
+        tests.set_defaults(handler=self._command_tests)
         return parser
 
     def main(self, argv: Sequence[str] | None = None) -> int:
-        parser = self.build_parser()
-        args = parser.parse_args(argv)
+        args = self.build_parser().parse_args(argv)
         try:
             return int(args.handler(args))
         except KeyboardInterrupt:
             return 130
-        except SystemExit:
-            raise
         except Exception as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
 
 
 _app = NSAMDRCommandLineApplication()
-
-
 if __name__ == "__main__":
     raise SystemExit(_app.main())
