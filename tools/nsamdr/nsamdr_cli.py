@@ -156,7 +156,7 @@ class NSAMDRCommandLineApplication:
                 return rc
         argv = [python, "-u", NEURAL_ROOT / "render_nsamdr_v176_raven_preview.py",
                 "--repo-root", REPO_ROOT, "--shared-cache", args.shared_cache,
-                "--target-size", str(args.target_size), "--device", args.device,
+                "--device", args.device,
                 "--authority-index", str(args.authority_index), "--mode", args.mode]
         if args.comparison_report:
             argv += ["--comparison-report", args.comparison_report]
@@ -204,7 +204,6 @@ class NSAMDRCommandLineApplication:
         capacity.set_defaults(handler=self._command_v176_capacity)
         raven = commands.add_parser("v176-raven-preview")
         raven.add_argument("--shared-cache", default=r"C:\CCP\EVE")
-        raven.add_argument("--target-size", type=int, default=1024)
         raven.add_argument("--device", choices=("cuda", "cpu", "auto"), default="cuda")
         raven.add_argument("--authority-index", type=int, choices=(1, 10), default=10)
         raven.add_argument("--mode", choices=("output10", "hr_features58"), default="output10")
