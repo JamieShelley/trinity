@@ -47,9 +47,11 @@ class V176OperatorGuiTests(unittest.TestCase):
         source = inspect.getsource(App._build)
         for item in ("ttk.Treeview", "ttk.Panedwindow", "controls_canvas",
                      "Command preview", "progress_value", "Stop current process",
-                     "Detect artifacts", "preview_combo", "Runtime log",
-                     "Audit native texture channels", "Open latest channel audit"):
+                     "Detect artifacts", "preview_combo", "Runtime log"):
             self.assertIn(item, source)
+        selection_source = inspect.getsource(App._selected)
+        self.assertIn("Audit native texture channels", selection_source)
+        self.assertIn("Open latest channel audit", selection_source)
 
     def test_current_stage_commands_are_wired_without_tk_instance(self):
         from tools.nsamdr.gui.nsamdr_v176_workflow_gui import App
