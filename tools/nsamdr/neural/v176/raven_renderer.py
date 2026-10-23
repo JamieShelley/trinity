@@ -166,15 +166,25 @@ def _normalise_xy(value: np.ndarray) -> np.ndarray:
     return (value / np.maximum(1.0, length / 0.999)).astype(np.float32)
 
 
-def _output_size(image: np.ndarray, target_size: int, scale: int) -> tuple[int, int]:
+def _output_size(image: np.ndarray, scale: int) -> tuple[int, int]:
+    """Native full-resolution evidence always produces exactly scale× output.
+
+    A UI preview size may control the viewer viewport, never the model's input
+    pixels. In particular, do NOT globally shrink original EVE textures.
+    """
+    if image.ndim != 3 or image.shape[0] < 1 or image.shape[1] < 1:
+        raise ValueError("native EVE albedo image must have nonempty H×W×C shape")
+    if scale != 4:
+        raise ValueError("V17.6 supports exactly 4× native source reconstruction")
     height, width = image.shape[:2]
-    factor = float(target_size) / float(max(width, height))
-    out_width = max(scale, int(round(width * factor)))
-    out_height = max(scale, int(round(height * factor)))
-    # Swin windows and 4x reconstruction are happiest on scale-aligned dimensions.
-    quantum = max(int(scale) * 8, int(scale))
-    out_width = max(quantum, int(round(out_width / quantum)) * quantum)
-    out_height = max(quantum, int(round(out_height / quantum)) * quantum)
+    out_width, out_height = width * scale, height * scale
+    # DX11 D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION and renderer limit.
+    if max(out_width, out_height) > 16384:
+        raise RuntimeError(
+            f"native source {width}x{height} requires {out_width}x{out_height} "
+            "output beyond the DX11 16384-pixel texture limit; refusing to "
+            "downsample source evidence or silently reduce output scale"
+        )
     return out_width, out_height
 
 
@@ -191,11 +201,16 @@ def _model_inputs(
     lr_height = max(1, int(math.ceil(out_height / scale)))
 
     source = _read_bgra(albedo)
-    rgb = cv2.cvtColor(source[:, :, :3], cv2.COLOR_BGR2RGB)
-    albedo_lr = cv2.resize(
-        rgb,
-        (lr_width, lr_height),
-        interpolation=cv2.INTER_AREA,
+    if (lr_width, lr_height) != (source.shape[1], source.shape[0]):
+        raise RuntimeError(
+            f"V17.6 Raven inference would resize original source from "
+            f"{source.shape[1]}x{source.shape[0]} to {lr_width}x{lr_height}; "
+            "native evidence must not be discarded"
+        )
+    # Read native pixels verbatim; no global training-style degradation, and
+    # no INTER_AREA reduction as in the old preview path.
+    albedo_lr = cv2.cvtColor(
+        source[:, :, :3], cv2.COLOR_BGR2RGB,
     ).astype(np.float32) / 255.0
 
     nx = _resized_channel(
@@ -305,12 +320,15 @@ def _tiled_maps(
     accum = {
         key: torch.zeros(
             (1, channels[key], out_h, out_w),
-            device=device,
+            device="cpu",
             dtype=torch.float32,
         )
         for key in keys
     }
-    weight = torch.zeros((1, 1, out_h, out_w), device=device, dtype=torch.float32)
+    # Never accumulate a 4× native output on the GPU: for a 4096 source this
+    # can exceed VRAM by tens of GB. Each neural tile runs on CUDA, but the
+    # stitched maps live in host memory. Preserve full native evidence.
+    weight = torch.zeros((1, 1, out_h, out_w), device="cpu", dtype=torch.float32)
 
     use_amp = device.type == "cuda"
     amp_dtype = torch.bfloat16 if use_amp and torch.cuda.is_bf16_supported() else torch.float16
@@ -326,12 +344,11 @@ def _tiled_maps(
             ):
                 outputs = model(a, n, m)
             ph, pw = outputs["candidate_albedo"].shape[-2:]
-            win = _window(ph, pw, device)
+            win = _window(ph, pw, device).cpu()
             oy, ox = y * scale, x * scale
             for key in keys:
-                accum[key][..., oy : oy + ph, ox : ox + pw] += (
-                    outputs[key].float() * win
-                )
+                tile_value = outputs[key].detach().float().cpu()
+                accum[key][..., oy : oy + ph, ox : ox + pw] += tile_value * win
             weight[..., oy : oy + ph, ox : ox + pw] += win
 
     result = {key: value / weight.clamp_min(1.0e-6) for key, value in accum.items()}
@@ -465,7 +482,6 @@ def _generate_candidate(
     *,
     repo_root: Path,
     source: PreviewSource,
-    target_size: int,
     device: torch.device,
     obj_path: Path,
     materials: Path,
@@ -496,7 +512,13 @@ def _generate_candidate(
         start=1,
     ):
         original = _read_bgra(albedo)
-        width, height = _output_size(original, target_size, int(config.scale))
+        width, height = _output_size(original, int(config.scale))
+        print(
+            f"[v176-raven] native source={original.shape[1]}x{original.shape[0]} "
+            f"evidence={original.shape[1]}x{original.shape[0]} "
+            f"output={width}x{height} (4x; no preview downsample)",
+            flush=True,
+        )
         lr_a, lr_n, lr_m = _model_inputs(
             albedo,
             context,
@@ -592,7 +614,15 @@ def _generate_candidate(
         "baselineMaterials": str(baseline_materials.resolve()),
         "candidateObj": str(candidate_obj.resolve()),
         "candidateMaterials": str(candidate_materials.resolve()),
-        "targetSize": int(target_size),
+        "resolutionPolicy": "native_source_exact_4x",
+        "nativeSourceDimensions": [
+            {"source": str(albedo.resolve()),
+             "nativeWidth": int(_read_bgra(albedo).shape[1]),
+             "nativeHeight": int(_read_bgra(albedo).shape[0]),
+             "outputWidth": int(_read_bgra(albedo).shape[1]) * 4,
+             "outputHeight": int(_read_bgra(albedo).shape[0]) * 4}
+            for albedo in sorted(contexts)
+        ],
     }
     report_path = output_root / "candidate_manifest.json"
     report["reportPath"] = str(report_path.resolve())
