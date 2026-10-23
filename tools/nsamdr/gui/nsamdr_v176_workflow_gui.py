@@ -473,6 +473,11 @@ class App:
             self._label("Qualification", "Research-only preview. Not a trained full-Raven guarantee.")
             ttk.Button(self.form, text="Open current preview files",
                        command=self.preview_selected).pack(anchor="w", pady=5)
+            ttk.Button(self.form, text="Audit native texture channels (no training)",
+                       command=self.audit_native_channels).pack(anchor="w", pady=5)
+            self._label("Channel audit",
+                        "Exports nearest vs bilinear crops of native albedo, normals, "
+                        "material, glow and roughness. It does not alter the model.")
         elif selected == "evidence":
             self._label("V17.6 report", str(latest_report(CAPACITY_ROOT) or "No completed capacity report"))
             self._label("Original detail", str(latest_report(DETAIL_ROOT) or "No completed detail report"))
@@ -680,6 +685,15 @@ class App:
                 self._start_process("preview", command)
         except (ValueError, TypeError) as exc:
             messagebox.showerror("NSAMDR preview", str(exc))
+
+    def audit_native_channels(self) -> None:
+        if self.process is not None and self.process.poll() is None:
+            messagebox.showwarning("NSAMDR", "Another operator process is running.")
+            return
+        command = [sys.executable, "-u", str(CLI),
+                   "v176-raven-channel-audit", "--shared-cache",
+                   self._value("cache", r"C:\CCP\EVE")]
+        self._start_process("preview", command)
 
     def open_latest_report(self) -> None:
         report = latest_report(CAPACITY_ROOT) or latest_report(DETAIL_ROOT)
