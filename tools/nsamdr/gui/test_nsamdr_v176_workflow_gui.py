@@ -19,13 +19,14 @@ class V176OperatorGuiTests(unittest.TestCase):
         self.assertIn("attainable", training_command("attainable", "fresh", False, "auto"))
 
     def test_raven_selects_current_specialist(self):
-        cmd = raven_command(r"C:\\CCP\\EVE", 1024, 10, "output10")
+        cmd = raven_command(r"C:\\CCP\\EVE", 10, "output10")
         self.assertEqual(cmd[0], "v176-raven-preview")
         self.assertEqual(cmd[-3:], ["10", "--mode", "output10"])
+        self.assertNotIn("--target-size", cmd)
 
     def test_bad_selection_rejected(self):
         with self.assertRaises(ValueError):
-            raven_command(r"C:\\CCP\\EVE", 8192, 10, "output10")
+            raven_command(r"C:\\CCP\\EVE", 11, "output10")
         with self.assertRaises(ValueError):
             training_command("v16-main", "fresh", False, "auto")
 
@@ -61,7 +62,7 @@ class V176OperatorGuiTests(unittest.TestCase):
             "phase": Var("compare-features"), "resume": Var("fresh"),
             "amp": Var("auto"), "device": Var("cuda"), "audit": Var(False),
             "authority": Var("10"), "mode": Var("output10"),
-            "target": Var("1024"), "cache": Var(r"C:\CCP\EVE"),
+            "cache": Var(r"C:\CCP\EVE"),
         }
         actual = app._command_for_stage("compare")
         self.assertIn("v176-capacity-proof", actual)
