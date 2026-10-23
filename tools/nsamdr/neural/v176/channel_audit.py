@@ -18,7 +18,10 @@ import numpy as np
 from tools.nsamdr.neural.v176 import raven_renderer as native
 
 SCHEMA = "NSAMDR_V176_RAVEN_CHANNEL_AUDIT_V1"
-SEMANTICS = ("albedo", "normal_x", "normal_y", "material", "glow", "roughness")
+SEMANTICS = (
+    "albedo", "normal_x", "normal_y", "material", "glow",
+    "roughness", "paint_mask", "dirt", "ao",
+)
 
 
 def _native_roi(image: np.ndarray, origin: tuple[int, int], crop: int) -> np.ndarray:
@@ -135,6 +138,20 @@ def run(materials: Path, output_root: Path, *, crop_size: int = 128,
     contexts = native._collect_contexts(rows, materials.parent)
     if not contexts:
         raise RuntimeError("no native Raven albedo contexts")
+    # These three maps pass through the original preview unchanged. Include
+    # them so stair-stepping is not misattributed to a neural output channel.
+    preserved: dict[Path, dict[str, tuple[Path, int]]] = {}
+    for row in rows:
+        source = native._resolve_path(row.get("albedo", ""), materials.parent)
+        if source is None:
+            continue
+        entry = preserved.setdefault(source, {})
+        for semantic, default in (("paint_mask", 0), ("dirt", 0), ("ao", 0)):
+            path = native._resolve_path(row.get(semantic, ""), materials.parent)
+            if path is not None:
+                entry.setdefault(semantic, (
+                    path, native._channel(row, semantic + "_channel", default)
+                ))
     output_root.mkdir(parents=True, exist_ok=True)
     reports = []
     for albedo, context in list(sorted(contexts.items(), key=lambda entry: str(entry[0]).lower()))[:max_textures]:
@@ -160,9 +177,13 @@ def run(materials: Path, output_root: Path, *, crop_size: int = 128,
             "roughness": _crop_channel(context.roughness, context.roughness_channel,
                                       (h,w), point, crop_size, 128),
         }
+        for semantic, (path, channel) in preserved.get(albedo, {}).items():
+            channels[semantic] = _crop_channel(
+                path, channel, (h, w), point, crop_size, 0
+            )
         produced = []
         for semantic, channel in channels.items():
-            if semantic != "albedo" and getattr(context, {
+            if semantic not in ("albedo", "paint_mask", "dirt", "ao") and getattr(context, {
                 "normal_x":"normal", "normal_y":"normal",
                 "material":"material", "glow":"glow",
                 "roughness":"roughness"}[semantic]) is None:
