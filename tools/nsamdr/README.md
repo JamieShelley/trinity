@@ -25,7 +25,7 @@ In the left workflow stage tree, select **Raven 3D visual preview**:
 
 - Authority: `10` (or `1`)
 - Specialist: `output10` (or `hr_features58` for the ablation)
-- Target size: `1024`
+- Texture resolution: native input, exact 4× output (fixed)
 - EVE cache: `C:\\CCP\\EVE`
 - Click **Run selected** or use **Render Raven (DX11)** in the footer
 
@@ -40,7 +40,7 @@ The candidate is research-only and unqualified.
 Equivalent CLI command:
 
 ```bat
-scripts\build\nsamdr.bat v176-raven-preview --authority-index 10 --mode output10 --target-size 1024
+scripts\build\nsamdr.bat v176-raven-preview --authority-index 10 --mode output10
 ```
 
 ## Train a new specialist and refresh Raven
@@ -91,3 +91,24 @@ switching to adaptive routing.
 
 The original historic proof data and sealed partitions remain immutable. The
 next architecture gate is successful specialist learning, not a preview alone.
+
+## Full-native inference and quality objective
+
+Raven inference reads **every native source albedo pixel** (no global preview
+downsampling) and reconstructs at **4× native dimensions**. A 2048×2048
+albedo is therefore passed to the network as 2048×2048 evidence and requires
+8192×8192 candidate output. Execution uses overlapping 128-LR tiles. GPU
+inference is tile-wise; full-resolution output accumulation is held in host RAM.
+If a native source would require an output exceeding the DX11 16384-pixel
+texture limit, the renderer **fails explicitly** instead of silently
+discarding input detail.
+
+**Important: this corrects a preview regression, not neural learning.** The
+frozen Stage10A/10A.1 training diagnostics still take 512×512 native authored
+*patches* and synthesize aligned 128×128 degraded inputs for the registered
+4× paired supervision. That design is valid for testing reconstruction, but
+does not teach the specialist to surpass the native authored target or
+straighten the target's aliased edges. Achieving that stated NSAMDR visual
+goal requires a separate, explicitly registered native-source → enhanced-4×
+training objective with spatial/edge continuity and artifact controls.
+Do not alter the old frozen manifests, archived checkpoints or sealed test.
