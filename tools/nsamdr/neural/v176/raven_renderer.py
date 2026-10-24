@@ -549,8 +549,10 @@ def _generate_candidate(
     output_root.mkdir(parents=True, exist_ok=True)
 
     baseline_canvases: dict[Path, np.ndarray] = {}
+    backbone_canvases: dict[Path, np.ndarray] = {}
     candidate_canvases: dict[Path, np.ndarray] = {}
     baseline_replacements: dict[Path, Path] = {}
+    backbone_replacements: dict[Path, Path] = {}
     candidate_replacements: dict[Path, Path] = {}
     # Shared physical textures may appear under multiple material rows; only
     # flush a canvas after its last reference has been processed.
@@ -615,6 +617,16 @@ def _generate_candidate(
             _apply_maps(
                 albedo=albedo,
                 context=context,
+                albedo_map=_tensor_image(maps["backbone_albedo"]),
+                normal_map=_tensor_image(maps["backbone_normal"]),
+                material_map=_tensor_image(maps["backbone_material"]),
+                width=width,
+                height=height,
+                canvases=backbone_canvases,
+            )
+            _apply_maps(
+                albedo=albedo,
+                context=context,
                 albedo_map=_tensor_image(maps["candidate_albedo"]),
                 normal_map=_tensor_image(maps["candidate_normal"]),
                 material_map=_tensor_image(maps["candidate_material"]),
@@ -646,16 +658,21 @@ def _generate_candidate(
                     output_root, "baseline_4x", "baseline_4x",
                     {texture: baseline_canvases.pop(texture)},
                 ))
+                backbone_replacements.update(_write_canvases(
+                    output_root, "backbone_c0", "backbone_c0",
+                    {texture: backbone_canvases.pop(texture)},
+                ))
                 candidate_replacements.update(_write_canvases(
-                    output_root, "candidate_c", "candidate_c",
+                    output_root, "candidate_c1", "candidate_c1",
                     {texture: candidate_canvases.pop(texture)},
                 ))
         if device.type == "cuda":
             torch.cuda.empty_cache()
-    if baseline_canvases or candidate_canvases or any(remaining.values()):
+    if baseline_canvases or backbone_canvases or candidate_canvases or any(remaining.values()):
         raise RuntimeError("native V17.6 preview left unfinished shared texture canvases")
 
     baseline_materials = output_root / "baseline.materials.tsv"
+    backbone_materials = output_root / "backbone.materials.tsv"
     candidate_materials = output_root / "candidate.materials.tsv"
     _write_material_manifest(
         baseline_materials,
@@ -664,7 +681,16 @@ def _generate_candidate(
         comments,
         baseline_replacements,
         materials.parent,
-        "NSAMDR_DETERMINISTIC_4X_BASELINE",
+        "NSAMDR_V177_SEMANTIC_4X_BASELINE",
+    )
+    _write_material_manifest(
+        backbone_materials,
+        fields,
+        rows,
+        comments,
+        backbone_replacements,
+        materials.parent,
+        "NSAMDR_FROZEN_V172_BACKBONE_C0",
     )
     _write_material_manifest(
         candidate_materials,
@@ -673,7 +699,7 @@ def _generate_candidate(
         comments,
         candidate_replacements,
         materials.parent,
-        "NSAMDR_TRAINING_INTERMEDIATE_UNQUALIFIED_C",
+        "NSAMDR_V176_SPECIALIST_C1_UNQUALIFIED",
     )
     candidate_obj = output_root / obj_path.name
     shutil.copy2(obj_path, candidate_obj)
@@ -690,9 +716,19 @@ def _generate_candidate(
         "checkpointSchema": str(payload.get("schema") or ""),
         "baselineObj": str(candidate_obj.resolve()),
         "baselineMaterials": str(baseline_materials.resolve()),
+        "backboneObj": str(candidate_obj.resolve()),
+        "backboneMaterials": str(backbone_materials.resolve()),
         "candidateObj": str(candidate_obj.resolve()),
         "candidateMaterials": str(candidate_materials.resolve()),
         "resolutionPolicy": "native_source_exact_4x",
+        "baselinePolicy": "V17.7 conservative semantic baseline",
+        "baselinePolicyBySource": [
+            {"source": str(source.resolve()), "materialPolicy": context.material_policy}
+            for source, context in sorted(contexts.items(), key=lambda x: str(x[0]))
+        ],
+        "backboneVariant": "C0-authenticated-frozen-V17.2",
+        "candidateVariant": "C1-V17.6-trained-unqualified",
+        "fourWayComparison": True,
         "nativeSourceDimensions": source_dimensions,
     }
     report_path = output_root / "candidate_manifest.json"
@@ -714,10 +750,12 @@ def _pointer_text(report: Mapping[str, Any]) -> str:
             f"token={token}",
             f"epoch={report['ordinal']}",
             f"phase={report['phase']}",
-            f"stageVariant=C-candidate",
+            f"stageVariant=C1-trained",
             f"checkpointSha256={report['checkpointSha256']}",
             f"baselineObj={report['baselineObj']}",
             f"baselineMaterials={report['baselineMaterials']}",
+            f"backboneObj={report['backboneObj']}",
+            f"backboneMaterials={report['backboneMaterials']}",
             f"candidateObj={report['candidateObj']}",
             f"candidateMaterials={report['candidateMaterials']}",
             f"candidateManifest={report['reportPath']}",
