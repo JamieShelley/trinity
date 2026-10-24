@@ -18,6 +18,7 @@ import cv2
 import numpy as np
 import torch
 from tools.nsamdr.neural.v177.semantic_baseline import SemanticBaseline4x
+from tools.nsamdr.neural.v177.material_coverage import write_coverage, write_semantic_mips
 
 LIVE_POINTER_SCHEMA = "NSAMDR_LIVE_CANDIDATE_POINTER_V1"
 DEFAULT_RAVEN = "res:/dx9/model/ship/caldari/battleship/cb1/cb1_t1.gr2"
@@ -504,6 +505,7 @@ def _write_canvases(
     folder: str,
     suffix: str,
     canvases: Mapping[Path, np.ndarray],
+    semantics: Mapping[Path, tuple[str, int | None, tuple[int, int] | None]] | None = None,
 ) -> dict[Path, Path]:
     root = output_root / folder
     root.mkdir(parents=True, exist_ok=True)
@@ -513,6 +515,15 @@ def _write_canvases(
         destination = root / f"{source.stem}_{token}_{suffix}.png"
         if not cv2.imwrite(str(destination), canvas, [cv2.IMWRITE_PNG_COMPRESSION, 3]):
             raise RuntimeError(f"could not write render-preview texture: {destination}")
+        role, selector_channel, normal_channels = (
+            semantics.get(source, ("continuous", None, None))
+            if semantics is not None else ("continuous", None, None)
+        )
+        mip_count = write_semantic_mips(destination, mode=role,
+                                        selector_channel=selector_channel,
+                                        normal_channels=normal_channels)
+        print(f"[v177-physical] {destination.name} mipLevels={mip_count+1} "
+              f"semantics={role}", flush=True)
         replacements[source] = destination.resolve()
     return replacements
 
@@ -525,7 +536,10 @@ def _write_material_manifest(
     replacements: Mapping[Path, Path],
     source_dir: Path,
     label: str,
+    material_weights: list[str] | None = None,
 ) -> None:
+    if material_weights is not None and len(material_weights) != len(rows):
+        raise RuntimeError("material coverage count must match material manifest rows")
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8", newline="") as handle:
         handle.write("# NSAMDR_MATERIALS_V7\n")
@@ -535,14 +549,18 @@ def _write_material_manifest(
                 handle.write(comment + "\n")
         writer = csv.DictWriter(
             handle,
-            fieldnames=fields,
+            fieldnames=(fields + ["material_weights"]
+                        if material_weights is not None and "material_weights" not in fields
+                        else fields),
             delimiter="\t",
             lineterminator="\n",
             extrasaction="ignore",
         )
         writer.writeheader()
-        for row in rows:
+        for row_index, row in enumerate(rows):
             adjusted = dict(row)
+            if material_weights is not None:
+                adjusted["material_weights"] = material_weights[row_index]
             for semantic in PATH_COLUMNS:
                 source = _resolve_path(row.get(semantic, ""), source_dir)
                 if source in replacements:
