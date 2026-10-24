@@ -8,7 +8,7 @@ import torch
 
 from tools.nsamdr.neural.v177.enhancement_model import NativeEnhancer4x
 from tools.nsamdr.neural.v177.synthetic_geometry import make_batch
-from tools.nsamdr.neural.train_nsamdr_v177_enhancement import _loss, _score, source_digest
+from tools.nsamdr.neural.train_nsamdr_v177_enhancement import _loss, _score, _contour_error, source_digest
 
 
 class NativeEnhancerTests(unittest.TestCase):
@@ -69,6 +69,29 @@ class NativeEnhancerTests(unittest.TestCase):
         self.assertGreater(float(model.delta.weight.grad.abs().sum()),0)
         optimizer.step()
         self.assertFalse(torch.equal(initial,model.delta.weight.detach()))
+
+    def test_shared_spatial_upsampler_and_contour_quality_gate(self):
+        from tools.nsamdr.neural.v177.enhancement_model import SCHEMA
+        self.assertIn("V2_CONTOUR",SCHEMA)
+        model=NativeEnhancer4x()
+        self.assertFalse(any(isinstance(layer,torch.nn.PixelShuffle)
+                             for layer in model.modules()))
+        self.assertTrue(any(isinstance(layer,torch.nn.Upsample)
+                            for layer in model.modules()))
+        target=torch.zeros((1,1,32,32))
+        target[:,:,:,16:]=1.0
+        exact=_contour_error(target,target)
+        stepped=target.clone()
+        stepped[:,:,::2,:]=torch.roll(stepped[:,:,::2,:],3,dims=3)
+        self.assertEqual(float(exact),0.0)
+        self.assertGreater(float(_contour_error(stepped,target)),0.0)
+
+    def test_contour_metric_reported_separately_from_combined_recovery(self):
+        model=NativeEnhancer4x()
+        score=_score(model,torch.device("cpu"),seed=190,patch=16)
+        self.assertAlmostEqual(score["contourRecovery"],0.0,places=5)
+        self.assertGreater(score["contourBaseline"],0.0)
+        self.assertAlmostEqual(score["contourCandidate"],score["contourBaseline"],places=6)
 
     def test_validation_is_held_out_and_source_is_hashed(self):
         model=NativeEnhancer4x()
