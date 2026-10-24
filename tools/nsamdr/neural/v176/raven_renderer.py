@@ -792,8 +792,9 @@ def _pointer_text(report: Mapping[str, Any]) -> str:
             f"token={token}",
             f"epoch={report['ordinal']}",
             f"phase={report['phase']}",
-            f"stageVariant=C1-trained",
-            f"checkpointSha256={report['checkpointSha256']}",
+            ("stageVariant=C1-V17.7-synthetic-unqualified"
+             if report.get("enhancerCheckpointSha256") else "stageVariant=C1-trained"),
+            f"checkpointSha256={report.get('enhancerCheckpointSha256') or report['checkpointSha256']}",
             f"baselineObj={report['baselineObj']}",
             f"baselineMaterials={report['baselineMaterials']}",
             f"backboneObj={report['backboneObj']}",
