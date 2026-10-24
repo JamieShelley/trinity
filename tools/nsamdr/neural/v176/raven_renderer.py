@@ -17,6 +17,7 @@ from typing import Any, Mapping
 import cv2
 import numpy as np
 import torch
+from tools.nsamdr.neural.v177.semantic_baseline import SemanticBaseline4x
 
 LIVE_POINTER_SCHEMA = "NSAMDR_LIVE_CANDIDATE_POINTER_V1"
 DEFAULT_RAVEN = "res:/dx9/model/ship/caldari/battleship/cb1/cb1_t1.gr2"
@@ -305,6 +306,7 @@ def _tiled_maps(
     *,
     device: torch.device,
     scratch: Path,
+    material_policy: str = "unknown",
 ) -> dict[str, np.memmap]:
     """Tile V17.6 inference with full native input and disk-backed HR stitching.
 
@@ -322,10 +324,11 @@ def _tiled_maps(
         raise ValueError("native V17.6 reconstruction requires 4x")
     out_h, out_w = h * scale, w * scale
     channels = {
-        "baseline_albedo": 3, "baseline_normal": 2,
-        "baseline_material": 3, "candidate_albedo": 3,
-        "candidate_normal": 2, "candidate_material": 3,
+        "baseline_albedo": 3, "baseline_normal": 2, "baseline_material": 3,
+        "backbone_albedo": 3, "backbone_normal": 2, "backbone_material": 3,
+        "candidate_albedo": 3, "candidate_normal": 2, "candidate_material": 3,
     }
+    semantic_baseline = SemanticBaseline4x(scale=scale).to(device).eval()
     scratch.mkdir(parents=True, exist_ok=True)
     accum: dict[str, np.memmap] = {}
     for key, count in channels.items():
@@ -347,6 +350,20 @@ def _tiled_maps(
             m = lr_material[..., y : y + tile, x : x + tile]
             with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
                 outputs = model(a, n, m)
+            # The real C0 plane is supplied by the authenticated Stage10A
+            # composition; it is NOT inferred from B or a second checkpoint.
+            if "base_candidate_albedo" not in outputs:
+                raise RuntimeError("V17.6 specialist did not expose frozen C0")
+            with torch.autocast(device_type="cuda", enabled=False):
+                b_albedo, b_normal, b_material = semantic_baseline(
+                    a, n, m, material_policy=material_policy,
+                )
+            outputs["baseline_albedo"] = b_albedo
+            outputs["baseline_normal"] = b_normal
+            outputs["baseline_material"] = b_material
+            outputs["backbone_albedo"] = outputs["base_candidate_albedo"]
+            outputs["backbone_normal"] = outputs["candidate_normal"]
+            outputs["backbone_material"] = outputs["candidate_material"]
             ph, pw = outputs["candidate_albedo"].shape[-2:]
             oy, ox = y * scale, x * scale
             win = _window(ph, pw, torch.device("cpu"))[0, 0].numpy()
@@ -365,7 +382,7 @@ def _tiled_maps(
         for key in channels:
             region = accum[key][start:stop]
             region /= divisor[:, :, None]
-            if key in ("baseline_normal", "candidate_normal"):
+            if key in ("baseline_normal", "backbone_normal", "candidate_normal"):
                 lengths = np.sqrt(np.maximum(np.sum(region * region, axis=2,
                                                       keepdims=True), 1.0e-8))
                 region /= np.maximum(1.0, lengths / 0.999)
@@ -583,6 +600,7 @@ def _generate_candidate(
                 lr_m,
                 device=device,
                 scratch=Path(scratch),
+                material_policy=context.material_policy,
             )
             _apply_maps(
                 albedo=albedo,
