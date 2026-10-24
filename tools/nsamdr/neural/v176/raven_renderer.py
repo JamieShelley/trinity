@@ -165,12 +165,24 @@ def _resized_channel(
     width: int,
     height: int,
     default: float,
+    *,
+    categorical: bool = False,
 ) -> np.ndarray:
     if path is None:
         return np.full((height, width), float(default), dtype=np.float32)
     image = _read_bgra(path)
     value = image[:, :, _bgra_channel(channel)].astype(np.float32) / 255.0
-    return cv2.resize(value, (width, height), interpolation=cv2.INTER_AREA)
+    if value.shape == (height, width):
+        return value
+    if categorical:
+        # V5 selector IDs and unknown packed masks must not be blended into
+        # invalid slot values merely by aligning their source resolutions.
+        interpolation = cv2.INTER_NEAREST
+    elif width < value.shape[1] or height < value.shape[0]:
+        interpolation = cv2.INTER_AREA
+    else:
+        interpolation = cv2.INTER_LINEAR
+    return cv2.resize(value, (width, height), interpolation=interpolation)
 
 
 def _normalise_xy(value: np.ndarray) -> np.ndarray:
@@ -249,6 +261,7 @@ def _model_inputs(
                 lr_width,
                 lr_height,
                 0.0,
+                categorical=context.material_policy != "legacy_mask",
             ),
             _resized_channel(
                 context.glow,
@@ -419,7 +432,11 @@ def _ensure_canvas(
             raise RuntimeError(f"packed texture requested at incompatible sizes: {source}")
         return existing
     original = _read_bgra(source)
-    canvas = cv2.resize(original, (width, height), interpolation=cv2.INTER_LANCZOS4)
+    # Untouched packed channels may be categorical paint/material IDs. Never
+    # apply Lanczos to all four BGRA channels: it creates mixed material values,
+    # halos and false detail in source masks. Known continuous semantics are
+    # replaced by their own reconstructed planes in _apply_maps.
+    canvas = cv2.resize(original, (width, height), interpolation=cv2.INTER_NEAREST)
     canvases[source] = canvas
     return canvas
 
