@@ -18,7 +18,9 @@ import cv2
 import numpy as np
 import torch
 from tools.nsamdr.neural.v177.semantic_baseline import SemanticBaseline4x
-from tools.nsamdr.neural.v177.material_coverage import write_coverage, write_semantic_mips
+from tools.nsamdr.neural.v177.material_coverage import (
+    selector_has_discrete_slots, write_coverage, write_semantic_mips,
+)
 
 LIVE_POINTER_SCHEMA = "NSAMDR_LIVE_CANDIDATE_POINTER_V1"
 DEFAULT_RAVEN = "res:/dx9/model/ship/caldari/battleship/cb1/cb1_t1.gr2"
@@ -759,7 +761,8 @@ def _generate_candidate(
     # reconstructed pixel. The extra RGBA texture is unique per semantic
     # material/UV size and is never injected into authored A or historic C0.
     weighted: list[str] = []
-    coverage_cache: dict[tuple[Path, int, int, int], Path] = {}
+    coverage_cache: dict[tuple[Path, int, int, int], Path | None] = {}
+    rejected_coverage: list[str] = []
     for row in rows:
         family = str(row.get("shader_family", "")).lower()
         material_path = _resolve_path(row.get("material", ""), materials.parent)
@@ -771,20 +774,27 @@ def _generate_candidate(
         nh,nw = source.shape[:2]
         selector_channel = _channel(row, "material_channel", 0)
         key = (material_path, selector_channel, nw, nh)
-        destination = coverage_cache.get(key)
-        if destination is None:
-            token = hashlib.sha1(
-                f"{material_path}:{selector_channel}:{nw}x{nh}".encode("utf-8")
-            ).hexdigest()[:12]
-            destination = output_root / "material_coverage" / f"v5_{token}.png"
+        if key not in coverage_cache:
             native_values = _resized_channel(
                 material_path, selector_channel, nw, nh, 0.0, categorical=True
             )
-            write_coverage(np.uint8(np.rint(native_values * 255.0)), destination)
-            write_semantic_mips(destination, mode="coverage")
-            coverage_cache[key] = destination
-        weighted.append(str(destination.resolve()))
-    print(f"[v177-physical] V5 RGBA coverage maps={len(coverage_cache)}", flush=True)
+            native_labels = np.uint8(np.rint(native_values * 255.0))
+            if not selector_has_discrete_slots(native_labels):
+                coverage_cache[key] = None
+                rejected_coverage.append(str(material_path.resolve()))
+            else:
+                token = hashlib.sha1(
+                    f"{material_path}:{selector_channel}:{nw}x{nh}".encode("utf-8")
+                ).hexdigest()[:12]
+                destination = output_root / "material_coverage" / f"v5_{token}.png"
+                write_coverage(native_labels, destination)
+                write_semantic_mips(destination, mode="coverage")
+                coverage_cache[key] = destination
+        selected = coverage_cache[key]
+        weighted.append(str(selected.resolve()) if selected is not None else "")
+    print(f"[v177-physical] V5 RGBA coverage maps="
+          f"{sum(path is not None for path in coverage_cache.values())}, "
+          f"preserved authored scalar maps={len(rejected_coverage)}", flush=True)
 
     baseline_materials = output_root / "baseline.materials.tsv"
     backbone_materials = output_root / "backbone.materials.tsv"
@@ -840,7 +850,10 @@ def _generate_candidate(
         "resolutionPolicy": "native_source_exact_4x",
         "baselinePolicy": "V17.7 conservative semantic baseline + V5 subpixel coverage",
         "materialCoverageSchema": "NSAMDR_V177_SUBPIXEL_MATERIAL_COVERAGE_V1",
-        "materialCoverageTextureCount": len(coverage_cache),
+        "materialCoverageTextureCount": sum(
+            value is not None for value in coverage_cache.values()
+        ),
+        "materialCoveragePreservedScalar": rejected_coverage,
         "materialCoverageInAuthoredOrC0": False,
         "semanticMips": True,
         "baselinePolicyBySource": [
