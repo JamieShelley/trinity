@@ -1,10 +1,63 @@
-# NSAMDR — active V17.6 texture reconstruction
+# NSAMDR — V17.7 physical-baseline research, V17.6 neural evidence
 
 **Canonical operator interface: V17.6 only.** The Windows launcher, Python
 GUI, training commands, tests, and Raven research preview all target the same
 current dense specialist architecture. Historic proof implementations and
 shared physical-map utilities remain internally necessary for checkpoint
 provenance; they are not operator-selectable training engines.
+
+## V17.7 M1 + M2: four-way native Raven research comparison
+
+The current active **preview** exports four independent material manifests from
+one full-native, authenticated neural inference pass:
+
+- **A:** original authored ship textures (no neural reconstruction).
+- **B:** V17.7 conservative 4× semantic baseline. RGB bicubic, normal XY
+  bilinear + unit-length bound, legacy coverage masks bilinear, V5 categorical
+  material selectors nearest to preserve IDs, glow/roughness continuous. An
+  unknown shader policy fails safe to categorical. Untouched packed channels
+  use nearest instead of the former blanket Lanczos reconstruction.
+- **C0:** the actual frozen V17.2 candidate from
+  `base_candidate_albedo`, with original C0 normal/material outputs.
+- **C1:** the authenticated **trained V17.6** specialist output. This is
+  **not** a new trained V17.7 enhancement model and is still unqualified.
+
+All four have exactly 4× native albedo dimensions, independent texture files,
+the same ship mesh and draw ranges, one shared camera/light/shader/sampler, and
+a 2×2 comparison in the existing full-featured DX11 viewer. No downsampling
+of the full albedo source is performed. Where original auxiliary maps have
+different dimensions, their mapping to albedo-space remains an explicit
+interpolation (categorical nearest, continuous area-down/linear-up). Direct
+multiresolution neural feature input is future V17.7 work.
+
+Run from the existing GUI **Raven 3D A/B/C0/C1 preview**, or:
+
+```bat
+scripts\build\nsamdr.bat v176-raven-preview --authority-index 10 --mode output10
+```
+
+**Before judging visual quality, build the revised DX11 host.** The normal
+preview command automatically detects and rebuilds an out-of-date viewer.
+Build-only is available via:
+
+```bat
+set NSAMDR_BUILD_ONLY=1
+scripts\build\run_nsamdr_obj_preview_dx11.bat
+set NSAMDR_BUILD_ONLY=
+```
+
+Check `candidate_manifest.json`: it must contain `fourWayComparison: true`,
+`backboneMaterials`, `baselineMaterials`, `candidateMaterials`, and
+`baselinePolicyBySource`. If the native C++ build fails, do not interpret an
+old three-pane renderer as the current result.
+
+**This is M1/M2 groundwork, not quality qualification.** The categorical V5
+selector still has a fundamental one-scalar representation limit: it cannot
+express arbitrary mixed material identity/coverage. A true antialiased selector
+requires a dedicated coverage representation and shader semantics, planned for
+the next enhancement model. The immutable historical V17.6 proof loss and
+backbone are untouched. Follow-up M3/M4 will supply clean 4× target geometry
+and learn a bounded, multichannel refinement specialist.
 
 ## Launch
 
