@@ -1,10 +1,11 @@
 # NSAMDR — V17.7 physical-baseline research, V17.6 neural evidence
 
-**Canonical operator interface: V17.6 only.** The Windows launcher, Python
-GUI, training commands, tests, and Raven research preview all target the same
-current dense specialist architecture. Historic proof implementations and
-shared physical-map utilities remain internally necessary for checkpoint
-provenance; they are not operator-selectable training engines.
+**Canonical operator interface: one full-featured GUI.** Raven preview now
+uses the V17.7 semantic B baseline and four independently rendered A/B/C0/C1
+views. Neural C0/C1 are still the authenticated, unqualified V17.6 experiment;
+the active enhancement model has **not** been trained. Historic proof
+implementations and physical-map utilities remain internal immutable
+dependencies for checkpoint provenance, not alternative operator GUIs.
 
 ## V17.7 M1 + M2: four-way native Raven research comparison
 
@@ -67,7 +68,7 @@ From `D:\\REPOS\\trinity`:
 scripts\build\nsamdr.bat gui
 ```
 
-This opens the **NSAMDR V17.6 — Training and Raven Preview** GUI, with the
+This opens the **NSAMDR — V17.7 Baseline / V17.6 Neural Research** GUI, with the
 restored stage tree, scrollable controls, runtime log, progress, stop, command
 preview, artifact detection, evidence navigation and Raven actions. The old V16
 and V17 operator GUIs have been retired.
