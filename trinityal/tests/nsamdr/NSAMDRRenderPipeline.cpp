@@ -428,7 +428,7 @@ void RenderPipeline::RenderShip(
                 static_cast<float>(material.source.dirtChannel),
                 static_cast<float>(material.source.glowChannel));
             constants.debug = XMFLOAT4(
-                0.0f,
+                material.hasMaterialWeights ? 1.0f : 0.0f,
                 static_cast<float>(material.source.groupIndex + 1),
                 material.source.baselineComplete ? 1.0f : 0.0f,
                 static_cast<float>(static_cast<int>(material.source.shaderFamily)));
@@ -438,7 +438,7 @@ void RenderPipeline::RenderShip(
             // their own material manifests
             // through the same live shader with no hidden runtime correction pass.
             ID3D11ShaderResourceView* selectedAlbedoView = material.albedoView.Get();
-            ID3D11ShaderResourceView* textureViews[9] = {
+            ID3D11ShaderResourceView* textureViews[10] = {
                 selectedAlbedoView,
                 material.normalView.Get(),
                 material.pgsView.Get(),
@@ -448,8 +448,9 @@ void RenderPipeline::RenderShip(
                 material.aoView.Get(),
                 material.paintMaskView.Get(),
                 material.roughnessMapView.Get(),
+                material.materialWeightsView.Get(),
             };
-            context->PSSetShaderResources(0, 9, textureViews);
+            context->PSSetShaderResources(0, 10, textureViews);
 
             if (material.source.pass == MaterialPass::Opaque)
             {
@@ -480,15 +481,15 @@ void RenderPipeline::RenderShip(
         else if (asset.useBaselineGlobals)
         {
             UploadSceneConstants(context, constantBuffer, paneConstants);
-            ID3D11ShaderResourceView* textureViews[9] = {
+            ID3D11ShaderResourceView* textureViews[10] = {
                 resources.albedoView.Get(),
                 resources.normalView.Get(),
                 resources.pgsView.Get(),
                 nullptr,
                 environmentView,
-                nullptr, nullptr, nullptr, nullptr,
+                nullptr, nullptr, nullptr, nullptr, nullptr,
             };
-            context->PSSetShaderResources(0, 9, textureViews);
+            context->PSSetShaderResources(0, 10, textureViews);
             context->OMSetBlendState(resources.opaqueBlendState.Get(), blendFactor, 0xffffffffU);
             context->OMSetDepthStencilState(resources.depthWriteState.Get(), 0);
             context->DrawIndexed(asset.indexCount, 0, 0);
