@@ -40,6 +40,7 @@ Texture2D gDirtMap : register(t5);
 Texture2D gAoMap : register(t6);
 Texture2D gPaintMaskMap : register(t7);
 Texture2D gRoughnessMap : register(t8);
+Texture2D gMaterialWeights : register(t9); // Optional V17.7 RGBA coverage
 SamplerState gTextureSampler : register(s0);
 
 struct VSInput
@@ -181,8 +182,19 @@ float4 NormalizedMaterialWeights(float2 uv)
 {
     if (gAreaTextures.z <= 0.5) return float4(1.0, 0.0, 0.0, 0.0);
 
-    const float4 materialSample = gPgsMap.Sample(gTextureSampler, uv);
     const int shaderFamily = (int)round(gDebug.w);
+    // A genuine four-channel coverage texture can blend non-adjacent V5
+    // materials without inventing a scalar selector between their slot IDs.
+    // The authored A and historical C0 have gDebug.x=0 and remain unchanged.
+    if (gDebug.x > 0.5 && shaderFamily >= 2)
+    {
+        const float4 coverage = saturate(gMaterialWeights.Sample(gTextureSampler, uv));
+        const float totalCoverage = dot(coverage, float4(1,1,1,1));
+        return totalCoverage > 1.0e-5
+            ? coverage / totalCoverage
+            : float4(1,0,0,0);
+    }
+    const float4 materialSample = gPgsMap.Sample(gTextureSampler, uv);
     if (shaderFamily == 1)
     {
         // Legacy PGS uses R=sub-mask, B=mask and three material slots. Keep
