@@ -51,6 +51,7 @@ STAGES = (
     Stage("train", "10A", "Dense specialist training", "Train V17.6 detail specialist with frozen Stage 9 backbone."),
     Stage("compare", "10A.1", "Capacity and features", "Diagnose, run stability, train capacity, or compare 10/58-channel specialists."),
     Stage("attainable", "10A.2", "Attainability diagnostic", "Target-assisted training-only pixel fit. Does not update neural weights."),
+    Stage("enhance", "11", "V17.7 native enhancement", "Train a bounded RGB/normal/material correction over B using clean synthetic geometry."),
     Stage("preview", "VIS", "Raven 3D A/B/C0/C1 preview", "Compare authored A, semantic B, frozen C0, and trained V17.6 C1 on the Raven."),
     Stage("evidence", "REP", "Reports / provenance", "Inspect completed V17.6 proof and native render artifacts."),
     Stage("tests", "T", "Regression tests", "Run the current supported V17.6 verification suite."),
@@ -461,6 +462,16 @@ class App:
             self._row("Stage10A report", "stage10a_report", "")
             self._row("Comparison report", "comparison_report", "")
             self._row("V3 source report", "v3_report", "")
+        elif selected == "enhance":
+            self._label("Goal", "Clean 4x synthetic line/curve supervision only; never real EVE holdout data")
+            self._row("Updates", "steps", "300")
+            self._row("Batch size", "batch_size", "4")
+            self._row("Native patch width", "patch", "32")
+            self._row("Seed", "seed", "177")
+            self._row("Learning rate", "lr", "0.001")
+            self._row("Device", "device", "cuda", ("cuda", "cpu"))
+            self._row("Resume", "resume", "fresh", ("fresh", "auto"))
+            self._label("Gate", "Synthetic validation improvement required; no real-Raven qualification")
         elif selected == "preview":
             self._label("Ship", "Caldari Raven — real EVE textures / DX11 native viewer")
             self._row("Training authority", "authority", "10", ("10", "1"))
@@ -469,8 +480,10 @@ class App:
             self._row("EVE ResFiles cache", "cache", r"C:\CCP\EVE")
             self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
             self._row("Comparison report", "comparison_report", "")
-            self._label("Source", "Newest completed authenticated comparison, or the exact report above")
-            self._label("Qualification", "B = V17.7 conservative semantic reference. C0 = frozen V17.2. C1 = trained V17.6. No V17.7 enhancer checkpoint exists yet.")
+            self._row("C1 source", "candidate_source", "v176", ("v176", "v177"))
+            self._row("V17.7 checkpoint", "enhancer_checkpoint", "")
+            self._label("Source", "V17.7 option requires an explicitly gated candidate.pt from V17.7 training")
+            self._label("Qualification", "B = conservative semantic reference; C0 = frozen V17.2; C1 = selected V17.6 or synthetic-trained V17.7. Research only.")
             self._label("Comparison panes", "A / B / C0 / C1 in synchronized 2×2 native DX11 view.")
             ttk.Button(self.form, text="Open current preview files",
                        command=self.preview_selected).pack(anchor="w", pady=5)
@@ -547,6 +560,14 @@ class App:
                               ("v3_report", "--v3-report")):
                 if self._value(key).strip():
                     args.extend((flag, self._value(key).strip()))
+        elif stage_id == "enhance":
+            args = ["v177-enhancement-train", "--steps", self._value("steps", "300"),
+                    "--batch-size", self._value("batch_size", "4"),
+                    "--patch-size", self._value("patch", "32"),
+                    "--seed", self._value("seed", "177"),
+                    "--learning-rate", self._value("lr", "0.001"),
+                    "--device", self._value("device", "cuda"),
+                    "--resume", self._value("resume", "fresh")]
         elif stage_id == "preview":
             args = raven_command(self._value("cache", r"C:\CCP\EVE"),
                                  int(self._value("authority", "10")),
@@ -554,6 +575,11 @@ class App:
             args.extend(("--device", self._value("device", "cuda")))
             if self._value("comparison_report").strip():
                 args.extend(("--comparison-report", self._value("comparison_report").strip()))
+            if self._value("candidate_source", "v176") == "v177":
+                checkpoint = self._value("enhancer_checkpoint").strip()
+                if not checkpoint:
+                    raise ValueError("Select the validated V17.7 candidate.pt checkpoint")
+                args.extend(("--enhancer-checkpoint", checkpoint))
         elif stage_id == "tests":
             args = ["test"]
         else:
@@ -614,6 +640,12 @@ class App:
                     "completed" if row and (_read_json(row) or {}).get("decision") not in
                     ("RUNNING", "PARENT_PROVENANCE_VERIFIED_ONLY") else
                     "audit only" if row else "pending"
+                )
+            elif stage.id == "enhance":
+                synthetic = DIAGNOSTIC_ROOT / "v177_native_enhancement"
+                self.state["status"][stage.id] = (
+                    "report available" if any(synthetic.glob("seed_*/report.json"))
+                    else "pending"
                 )
             elif stage.id == "preview":
                 self.state["status"][stage.id] = (
