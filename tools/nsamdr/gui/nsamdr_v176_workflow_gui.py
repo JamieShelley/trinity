@@ -467,7 +467,7 @@ class App:
             self._row("Updates", "steps", "300")
             self._row("Batch size", "batch_size", "4")
             self._row("Native patch width", "patch", "32")
-            self._row("Seed", "seed", "177")
+            self._row("Seed", "seed", "178")
             self._row("Learning rate", "lr", "0.001")
             self._row("Device", "device", "cuda", ("cuda", "cpu"))
             self._row("Resume", "resume", "fresh", ("fresh", "auto"))
@@ -564,7 +564,7 @@ class App:
             args = ["v177-enhancement-train", "--steps", self._value("steps", "300"),
                     "--batch-size", self._value("batch_size", "4"),
                     "--patch-size", self._value("patch", "32"),
-                    "--seed", self._value("seed", "177"),
+                    "--seed", self._value("seed", "178"),
                     "--learning-rate", self._value("lr", "0.001"),
                     "--device", self._value("device", "cuda"),
                     "--resume", self._value("resume", "fresh")]
