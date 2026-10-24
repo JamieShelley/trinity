@@ -127,6 +127,64 @@ class V177MaterialCoverageTests(unittest.TestCase):
             self.assertIn("material_weights",text)
             self.assertIn("weights.png",text)
 
+    def test_real_preview_export_preserves_raven_identity_after_coverage(self):
+        """End-to-end synthetic V5 material export reaches actual report writer."""
+        from types import SimpleNamespace
+        import torch
+        from tools.nsamdr.neural.v176.raven_renderer import (
+            PreviewSource, _generate_candidate, _pointer_text,
+        )
+        class Dummy(torch.nn.Module):
+            def forward(self, a, n, m):
+                h, w = a.shape[-2:]
+                def plane(count, value):
+                    return torch.full((1, count, h*4, w*4), value)
+                return {
+                    "base_candidate_albedo": plane(3, .4),
+                    "candidate_albedo": plane(3, .6),
+                    "candidate_normal": plane(2, 0.),
+                    "candidate_material": plane(3, .5),
+                }
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            ship = root / "ship.obj"
+            ship.write_text("v 0 0 0\\n", encoding="utf-8")
+            checkpoint = root / "checkpoint.pt"
+            checkpoint.write_bytes(b"synthetic-model-identity")
+            albedo = root / "native_albedo.png"
+            pgs = root / "native_material.png"
+            rgb = np.full((8, 8, 4), 128, dtype=np.uint8)
+            mask = np.zeros((8, 8, 4), dtype=np.uint8)
+            mask[:,4:,0] = 255
+            self.assertTrue(cv2.imwrite(str(albedo), rgb))
+            self.assertTrue(cv2.imwrite(str(pgs), mask))
+            manifest = root / "ship.materials.tsv"
+            manifest.write_text(
+                "albedo\\tmaterial\\tmaterial_channel\\tshader_family\\n"
+                "native_albedo.png\\tnative_material.png\\t2\\tv5_packed\\n",
+                encoding="utf-8",
+            )
+            # Channel 2 is the BGRA red channel containing the V5 selector.
+            reference = PreviewSource("RAVEN", 6144, "test", checkpoint)
+            report = _generate_candidate(
+                repo_root=root, source=reference, device=torch.device("cpu"),
+                obj_path=ship, materials=manifest,
+                model_override=(Dummy(), SimpleNamespace(
+                    scale=4, production_tile_lr=8, production_overlap_lr=0
+                ), {"schema": "SYNTHETIC_ONLY"}),
+            )
+            self.assertEqual(report["source"], "RAVEN")
+            self.assertEqual(report["ordinal"], 6144)
+            self.assertEqual(report["materialCoverageTextureCount"], 1)
+            self.assertTrue(Path(report["reportPath"]).is_file())
+            self.assertIn("token=RAVEN-006144-", _pointer_text(report))
+            with Path(report["baselineMaterials"]).open(encoding="utf-8") as stream:
+                baseline = stream.read()
+            with Path(report["backboneMaterials"]).open(encoding="utf-8") as stream:
+                backbone = stream.read()
+            self.assertIn("material_weights", baseline)
+            self.assertNotIn("material_weights", backbone)
+
     def test_native_shader_uses_coverage_only_when_explicitly_bound(self):
         root=Path(__file__).resolve().parents[3]
         shader=(root/"trinityal/tests/nsamdr/NSAMDRPreview.hlsl").read_text()
