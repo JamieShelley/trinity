@@ -69,3 +69,20 @@ jobs:
       - name: Exercise real native-channel audit on synthetic textures
         run: |
           python -m unittest -v tools.nsamdr.neural.test_nsamdr_v176_channel_audit tools.nsamdr.neural.test_nsamdr_v177_baseline tools.nsamdr.neural.test_nsamdr_v177_enhancement tools.nsamdr.neural.test_nsamdr_v176_raven_preview
+      - name: Smoke run actual V17.7 training and checkpoint report emission
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from tools.nsamdr.neural.train_nsamdr_v177_enhancement import main
+          rc = main(["--device","cpu","--steps","2","--batch-size","1",
+                     "--patch-size","16","--seed","91230","--resume","fresh"])
+          assert rc in (0,2),rc
+          directory=Path("artifacts/nsamdr/diagnostics/v177_native_enhancement/seed_91230_patch_16_batch_1")
+          report=json.loads((directory/"report.json").read_text())
+          assert report["trainingOnly"] and not report["productionPromotionAllowed"]
+          assert (directory/"candidate.pt").is_file()
+          assert (directory/"resume.pt").is_file()
+          assert report["decision"] in ("SYNTHETIC_IMPROVEMENT_ONLY","SYNTHETIC_LEARNING_UNPROVEN")
+          print("V177_SYNTHETIC_CHECKPOINT_GATE_OK",report["decision"])
+          PY
