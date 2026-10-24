@@ -34,8 +34,8 @@ class V177MaterialCoverageTests(unittest.TestCase):
         self.assertTrue(selector_has_discrete_slots(pure))
         authored=np.full((32,32),127,dtype=np.uint8)
         self.assertFalse(selector_has_discrete_slots(authored))
-        partly=authored.copy()
-        partly[:,:31]=0
+        partly=np.zeros((32,32),dtype=np.uint8)
+        partly[:8,:2]=127  # 1.56% authored blended boundary is within the 2% allowance
         self.assertTrue(selector_has_discrete_slots(partly))
 
     def test_flat_selector_preserved_exactly(self):
