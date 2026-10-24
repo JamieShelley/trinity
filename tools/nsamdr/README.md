@@ -7,6 +7,62 @@ the active enhancement model has **not** been trained. Historic proof
 implementations and physical-map utilities remain internal immutable
 dependencies for checkpoint provenance, not alternative operator GUIs.
 
+## V17.7 corrective revision — continuous contours and semantic coverage
+
+The first 300-step synthetic-trained V17.7 preview **failed the real Raven
+visual test**: B/C1 exhibited enlarged pixel squares, with no reliable
+subpixel contour reconstruction. The synthetic loss alone was insufficient.
+The initial checkpoint (`NSAMDR_V177_NATIVE_ENHANCER_V1`) must not be reused.
+
+The corrective path:
+
+- Keeps the full native albedo input and exact 4× output, with bounded tiled
+  evaluation (not discarded input pixels).
+- For V5 physical materials, decodes native scalar selector IDs into distinct
+  four-class identity labels, estimates smooth subpixel coverage of those
+  boundaries, and writes a separate **RGBA material_weights texture** for B
+  and experimental C1. Its signed-distance reconstruction is bounded and
+  tile-overlapped; no additional material class is invented. Original A and
+  historical C0 **never** receive these coverage maps.
+- The native DX11 shader now accepts optional `material_weights` in the
+  candidate material manifest; when present, it uses normalized four-channel
+  coverage instead of interpolating a scalar ID (which cannot represent
+  arbitrary blends of nonadjacent material classes).
+- Writes explicit mip chains using linear-light averaging of RGB, normalized
+  four-way coverage, vector-aware normal XY and categorical selector identity.
+  The existing DX11 texture loader recognises `.mipN.png` automatically.
+- Replaces the PixelShuffle upsampler with bilinear resize + shared
+  convolution so output geometry is not divided into independently learned
+  4×4 pixel phases.
+- Adds analytic contour continuity to the training loss and a separate
+  **5% held-out contour improvement gate**, alongside overall recovery.
+  Candidate checkpoints now use schema `NSAMDR_V177_NATIVE_ENHANCER_V2_CONTOUR`.
+- Keeps all V17.6 frozen checkpoints, original textures, proof data and test
+  partitions unchanged.
+
+The new experiment must use a new seed and clean run directory (default
+`178`), not the original seed 177 checkpoint:
+
+```bat
+scripts\build\nsamdr.bat test
+scripts\build\nsamdr.bat v177-enhancement-train --steps 300 --batch-size 4 --patch-size 32 --seed 178 --device cuda --resume fresh
+```
+
+Only after the report says `SYNTHETIC_IMPROVEMENT_ONLY` **and**
+`after.contourRecovery >= 0.05` may its checkpoint be previewed:
+
+```bat
+scripts\build\nsamdr.bat v176-raven-preview --authority-index 10 --mode output10 --enhancer-checkpoint "artifacts\nsamdr\diagnostics\v177_native_enhancement\seed_178_patch_32_batch_4\candidate.pt"
+```
+
+The Raven must then be inspected at unchanged camera/light/sampler settings.
+**Passing synthetic gates is not proof of better-than-original EVE imagery.**
+The newly introduced material contour is a deterministic estimate: it cannot
+infer source geometry that has been irretrievably rasterised away. Additional
+authored/geometry-aligned supervision is still needed to qualify smooth
+albedo and normal contours on real assets. The new DX11 shader, binding and
+mip path also require an actual Windows native viewer build/visual test.
+
 ## V17.7 M1 + M2: four-way native Raven research comparison
 
 The current active **preview** exports four independent material manifests from
@@ -218,22 +274,23 @@ sealed native/final-test data and not evidence of real-Raven quality.
 From `D:\\REPOS\\trinity`:
 
 ```bat
-scripts\build\nsamdr.bat v177-enhancement-train --steps 300 --batch-size 4 --patch-size 32 --seed 177 --device cuda --resume fresh
+scripts\build\nsamdr.bat v177-enhancement-train --steps 300 --batch-size 4 --patch-size 32 --seed 178 --device cuda --resume fresh
 ```
 
 Or choose **V17.7 native enhancement** in the *existing full GUI*.
-The trainer writes a report and synthetic-only checkpoint under
-`artifacts/nsamdr/diagnostics/v177_native_enhancement/seed_177_patch_32_batch_4/`.
+The revised trainer writes a report and synthetic-only checkpoint under
+`artifacts/nsamdr/diagnostics/v177_native_enhancement/seed_178_patch_32_batch_4/`.
 It will exit **2** and report `SYNTHETIC_LEARNING_UNPROVEN` unless
-held-out synthetic geometry error beats B by at least 5%, with an actual
-reduction against the untrained network. Continue an interrupted or
+held-out synthetic geometry error beats B by at least 5% **and** held-out
+contour error improves by at least 5%, with an actual reduction against
+the untrained network. Continue an interrupted or
 insufficient run with `--resume auto --steps <higher total>`; do not
 reset or silently overwrite existing proof outputs.
 
 Only if the decision is `SYNTHETIC_IMPROVEMENT_ONLY`, use:
 
 ```bat
-scripts\build\nsamdr.bat v176-raven-preview --authority-index 10 --mode output10 --enhancer-checkpoint "artifacts\nsamdr\diagnostics\v177_native_enhancement\seed_177_patch_32_batch_4\candidate.pt"
+scripts\build\nsamdr.bat v176-raven-preview --authority-index 10 --mode output10 --enhancer-checkpoint "artifacts\nsamdr\diagnostics\v177_native_enhancement\seed_178_patch_32_batch_4\candidate.pt"
 ```
 
 Or select **Raven 3D A/B/C0/C1 preview**, C1 source `v177` and
