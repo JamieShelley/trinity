@@ -147,7 +147,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--steps",type=int,default=300)
     p.add_argument("--batch-size",type=int,default=4)
     p.add_argument("--patch-size",type=int,default=32)
-    p.add_argument("--seed",type=int,default=177)
+    p.add_argument("--seed",type=int,default=178)
     p.add_argument("--learning-rate",type=float,default=.001)
     p.add_argument("--resume",choices=("fresh","auto"),default="fresh")
     return p
