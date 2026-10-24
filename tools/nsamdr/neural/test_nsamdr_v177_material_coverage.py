@@ -66,6 +66,19 @@ class V177MaterialCoverageTests(unittest.TestCase):
             for level in range(1,levels+1):
                 self.assertTrue((Path(folder)/f"map.mip{level}.png").is_file())
 
+    def test_native_coverage_tiling_matches_whole_image_across_tile_seams(self):
+        ys,xs=np.indices((67,89))
+        native=np.where(xs>ys*.65+9,255,0).astype(np.uint8)
+        expected=weights_to_bgra(rgba_coverage(native))
+        with tempfile.TemporaryDirectory() as folder:
+            result=Path(folder)/"tiled.png"
+            write_coverage(native,result,tile_native=32)
+            got=cv2.imread(str(result),cv2.IMREAD_UNCHANGED)
+            self.assertEqual(got.shape,expected.shape)
+            difference=np.abs(got.astype(np.int16)-expected.astype(np.int16))
+            self.assertLessEqual(int(difference.max()),2)
+            self.assertTrue(np.all(got.astype(np.int16).sum(axis=2)==255))
+
     def test_categorical_mip_retains_identity_but_other_channels_are_filtered(self):
         img=np.zeros((8,8,4),dtype=np.uint8)
         img[:4,:4,0]=255
