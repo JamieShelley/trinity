@@ -35,6 +35,7 @@ class TextureContext:
     glow_channel: int = 1
     roughness: Path | None = None
     roughness_channel: int = 2
+    material_policy: str = "unknown"
 
 @dataclass(frozen=True)
 class PreviewSource:
@@ -110,6 +111,16 @@ def _collect_contexts(
         if albedo is None:
             continue
         context = contexts.setdefault(albedo, TextureContext())
+        shader = str(row.get("shader_family") or "unknown").lower()
+        policy = ("legacy_mask" if shader == "legacy_pgs"
+                  else "v5_selector" if shader.startswith("v5_") else "unknown")
+        if context.material_policy == "unknown":
+            context.material_policy = policy
+        elif policy not in ("unknown", context.material_policy):
+            raise RuntimeError(
+                f"conflicting Raven material semantics for shared albedo {albedo}: "
+                f"{context.material_policy} vs {policy}"
+            )
         normal = _resolve_path(row.get("normal", ""), base)
         material = _resolve_path(row.get("material", ""), base)
         glow = _resolve_path(row.get("glow", ""), base) or material
