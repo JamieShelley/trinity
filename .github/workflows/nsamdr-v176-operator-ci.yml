@@ -52,6 +52,20 @@ jobs:
         shell: pwsh
         run: |
           python -m unittest -v tools.nsamdr.test_nsamdr_cli tools.nsamdr.gui.test_nsamdr_v176_workflow_gui
+      - name: Compile native DX11 material coverage pixel shader with Windows SDK
+        shell: pwsh
+        run: |
+          $sdkBin = Join-Path "${env:ProgramFiles(x86)}" "Windows Kits\\10\\bin"
+          $compiler = Get-ChildItem -LiteralPath $sdkBin -Directory |
+            Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName "x64\\fxc.exe" } |
+            Where-Object { Test-Path -LiteralPath $_ } |
+            Select-Object -First 1
+          if (-not $compiler) { throw "x64 Windows SDK FXC unavailable; cannot verify native shader" }
+          $shader = "trinityal/tests/nsamdr/NSAMDRPreview.hlsl"
+          & $compiler /nologo /T ps_5_0 /E PSMain /Fo "${env:RUNNER_TEMP}\\nsamdr_psmain.cso" $shader
+          if ($LASTEXITCODE -ne 0) { throw "NSAMDR V17.7 PSMain shader compilation failed" }
+          Write-Output "NSAMDR_V177_SHADER_COMPILED"
       - name: Verify active Raven bridge has no legacy model loader
         shell: pwsh
         run: |
