@@ -778,6 +778,8 @@ def _generate_candidate(
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if _sha256(source.checkpoint) != checkpoint_sha:
         raise RuntimeError("render-preview checkpoint changed during candidate generation")
+    if enhancer_override is not None and _sha256(enhancer_override[2]) != enhancer_override[1]:
+        raise RuntimeError("V17.7 enhancer checkpoint changed during native preview export")
     return report
 
 
