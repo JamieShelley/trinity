@@ -132,7 +132,7 @@ def semantic_half(image: np.ndarray, *, mode: str,
             raise ValueError("packed normal and selector channels overlap")
         x=result[:,:,c0].astype(np.float32)/127.5-1
         y=result[:,:,c1].astype(np.float32)/127.5-1
-        denominator=np.maximum(1,np.hypot(x,y)/.999)
+        denominator=np.maximum(1,np.hypot(x,y)/.98)
         result[:,:,c0]=np.rint(np.clip((x/denominator+1)*127.5,0,255)).astype(np.uint8)
         result[:,:,c1]=np.rint(np.clip((y/denominator+1)*127.5,0,255)).astype(np.uint8)
         return result
@@ -146,7 +146,7 @@ def semantic_half(image: np.ndarray, *, mode: str,
         result=cv2.resize(image,size,interpolation=cv2.INTER_AREA)
         x=result[:,:,c0].astype(np.float32)/127.5-1
         y=result[:,:,c1].astype(np.float32)/127.5-1
-        length=np.maximum(1,np.hypot(x,y)/.999)
+        length=np.maximum(1,np.hypot(x,y)/.98)
         result[:,:,c0]=np.rint(np.clip((x/length+1)*127.5,0,255)).astype(np.uint8)
         result[:,:,c1]=np.rint(np.clip((y/length+1)*127.5,0,255)).astype(np.uint8)
         return result
