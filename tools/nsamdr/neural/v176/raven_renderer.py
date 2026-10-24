@@ -592,6 +592,32 @@ def _generate_candidate(
     if not contexts:
         raise RuntimeError("prepared EVE ship has no aligned albedo contexts")
 
+    # Reconstruct the semantic mips of exported candidate physical maps.
+    # Preserve selector identity separately from signed normal vectors when
+    # different semantics happen to share a packed source texture.
+    semantics: dict[Path, tuple[str, int | None, tuple[int, int] | None]] = {}
+    for image, ctx in contexts.items():
+        semantics[image] = ("albedo", None, None)
+        if ctx.normal is not None:
+            channels = (_bgra_channel(ctx.normal_x_channel),
+                        _bgra_channel(ctx.normal_y_channel))
+            old = semantics.get(ctx.normal)
+            if old is not None and old[0] == "categorical":
+                semantics[ctx.normal] = ("packed", old[1], channels)
+            elif old is None:
+                semantics[ctx.normal] = ("normal", None, channels)
+            elif old[0] != "normal" or old[2] != channels:
+                raise RuntimeError(f"conflicting normal-map packing for {ctx.normal}")
+        if ctx.material is not None and ctx.material_policy != "legacy_mask":
+            channel = _bgra_channel(ctx.material_channel)
+            old = semantics.get(ctx.material)
+            if old is None:
+                semantics[ctx.material] = ("categorical", channel, None)
+            elif old[0] == "normal":
+                semantics[ctx.material] = ("packed", channel, old[2])
+            elif old[0] not in ("categorical", "packed") or old[1] != channel:
+                raise RuntimeError(f"conflicting material-map packing for {ctx.material}")
+
     live_root = repo_root / "artifacts/nsamdr/render_preview" / source.label
     candidate_identity = (
         enhancer_override[1] if enhancer_override is not None else checkpoint_sha
@@ -711,19 +737,54 @@ def _generate_candidate(
                 baseline_replacements.update(_write_canvases(
                     output_root, "baseline_4x", "baseline_4x",
                     {texture: baseline_canvases.pop(texture)},
+                    semantics=semantics,
                 ))
                 backbone_replacements.update(_write_canvases(
                     output_root, "backbone_c0", "backbone_c0",
                     {texture: backbone_canvases.pop(texture)},
+                    semantics=semantics,
                 ))
                 candidate_replacements.update(_write_canvases(
                     output_root, "candidate_c1", "candidate_c1",
                     {texture: candidate_canvases.pop(texture)},
+                    semantics=semantics,
                 ))
         if device.type == "cuda":
             torch.cuda.empty_cache()
     if baseline_canvases or backbone_canvases or candidate_canvases or any(remaining.values()):
         raise RuntimeError("native V17.6 preview left unfinished shared texture canvases")
+
+    # V5 selectors are categorical at native resolution, but the enhanced
+    # candidate can render physically meaningful *fractional coverage* at each
+    # reconstructed pixel. The extra RGBA texture is unique per semantic
+    # material/UV size and is never injected into authored A or historic C0.
+    weighted: list[str] = []
+    coverage_cache: dict[tuple[Path, int, int, int], Path] = {}
+    for row in rows:
+        family = str(row.get("shader_family", "")).lower()
+        material_path = _resolve_path(row.get("material", ""), materials.parent)
+        albedo_path = _resolve_path(row.get("albedo", ""), materials.parent)
+        if not family.startswith("v5_") or material_path is None or albedo_path is None:
+            weighted.append("")
+            continue
+        source = _read_bgra(albedo_path)
+        nh,nw = source.shape[:2]
+        selector_channel = _channel(row, "material_channel", 0)
+        key = (material_path, selector_channel, nw, nh)
+        destination = coverage_cache.get(key)
+        if destination is None:
+            token = hashlib.sha1(
+                f"{material_path}:{selector_channel}:{nw}x{nh}".encode("utf-8")
+            ).hexdigest()[:12]
+            destination = output_root / "material_coverage" / f"v5_{token}.png"
+            native_values = _resized_channel(
+                material_path, selector_channel, nw, nh, 0.0, categorical=True
+            )
+            write_coverage(np.uint8(np.rint(native_values * 255.0)), destination)
+            write_semantic_mips(destination, mode="coverage")
+            coverage_cache[key] = destination
+        weighted.append(str(destination.resolve()))
+    print(f"[v177-physical] V5 RGBA coverage maps={len(coverage_cache)}", flush=True)
 
     baseline_materials = output_root / "baseline.materials.tsv"
     backbone_materials = output_root / "backbone.materials.tsv"
@@ -736,6 +797,7 @@ def _generate_candidate(
         baseline_replacements,
         materials.parent,
         "NSAMDR_V177_SEMANTIC_4X_BASELINE",
+        material_weights=weighted,
     )
     _write_material_manifest(
         backbone_materials,
@@ -754,6 +816,7 @@ def _generate_candidate(
         candidate_replacements,
         materials.parent,
         "NSAMDR_V176_SPECIALIST_C1_UNQUALIFIED",
+        material_weights=weighted,
     )
     candidate_obj = output_root / obj_path.name
     shutil.copy2(obj_path, candidate_obj)
@@ -775,7 +838,11 @@ def _generate_candidate(
         "candidateObj": str(candidate_obj.resolve()),
         "candidateMaterials": str(candidate_materials.resolve()),
         "resolutionPolicy": "native_source_exact_4x",
-        "baselinePolicy": "V17.7 conservative semantic baseline",
+        "baselinePolicy": "V17.7 conservative semantic baseline + V5 subpixel coverage",
+        "materialCoverageSchema": "NSAMDR_V177_SUBPIXEL_MATERIAL_COVERAGE_V1",
+        "materialCoverageTextureCount": len(coverage_cache),
+        "materialCoverageInAuthoredOrC0": False,
+        "semanticMips": True,
         "baselinePolicyBySource": [
             {"source": str(source.resolve()), "materialPolicy": context.material_policy}
             for source, context in sorted(contexts.items(), key=lambda x: str(x[0]))
