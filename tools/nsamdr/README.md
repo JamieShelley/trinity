@@ -199,7 +199,55 @@ ablation, **not** an automatic fix for categorical paint/material masks.
 The audit identifies which semantics cause block edges so a subsequent
 spatial/semantic-aware reconstruction can be designed safely.
 
-## Native 4× enhancement research (not yet implemented)
+## V17.7 M3/M4: first learned enhancement over B (synthetic only)
+
+The new `NativeEnhancer4x` is **separate from the frozen V17.6 proof**.
+It consumes native-resolution albedo RGB, normal XY and three semantic
+channels, predicts bounded 4× RGB/normal/material residuals over the semantic
+B baseline, and initialises to **zero correction**. It can fall back to B
+exactly (subject to normal floating-point precision). V5 categorical
+material selector identity is preserved and cannot be corrected by this
+initial architecture. Continuous legacy masks, glow and roughness may receive
+bounded corrections; normals are renormalised.
+
+Training uses clean **analytic 4× geometric references** (diagonal grooves,
+circles, rounded panel outlines and curved lines) paired with simulated
+native rasterisation. This is training-only synthetic geometry, not EVE's
+sealed native/final-test data and not evidence of real-Raven quality.
+
+From `D:\\REPOS\\trinity`:
+
+```bat
+scripts\build\nsamdr.bat v177-enhancement-train --steps 300 --batch-size 4 --patch-size 32 --seed 177 --device cuda --resume fresh
+```
+
+Or choose **V17.7 native enhancement** in the *existing full GUI*.
+The trainer writes a report and synthetic-only checkpoint under
+`artifacts/nsamdr/diagnostics/v177_native_enhancement/seed_177_patch_32_batch_4/`.
+It will exit **2** and report `SYNTHETIC_LEARNING_UNPROVEN` unless
+held-out synthetic geometry error beats B by at least 5%, with an actual
+reduction against the untrained network. Continue an interrupted or
+insufficient run with `--resume auto --steps <higher total>`; do not
+reset or silently overwrite existing proof outputs.
+
+Only if the decision is `SYNTHETIC_IMPROVEMENT_ONLY`, use:
+
+```bat
+scripts\build\nsamdr.bat v176-raven-preview --authority-index 10 --mode output10 --enhancer-checkpoint "artifacts\nsamdr\diagnostics\v177_native_enhancement\seed_177_patch_32_batch_4\candidate.pt"
+```
+
+Or select **Raven 3D A/B/C0/C1 preview**, C1 source `v177` and
+enter the absolute candidate.pt path. It checks the report decision,
+checkpoint hash, model schema and current source-code SHA, refusing to
+load an unvalidated or stale candidate.
+
+The viewer's C1 must be labelled **V17.7 SYNTHETIC TRAINED —
+UNQUALIFIED**. C0 is still the real frozen historical model. A and B
+are unchanged. A synthetic pass is only a prerequisite for actual EVE
+native-domain training and visual validation; it is **not** proof that C1
+surpasses the authored A. Quadtree remains unimplemented.
+
+## Further V17.7 native-domain enhancement work
 
 The long-term quality requirement is **better than the original authored
 texture**, not only reproducing that texture from a degraded 128×128 input.
