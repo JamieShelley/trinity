@@ -29,7 +29,7 @@ DIAGNOSTIC_ROOT = REPO_ROOT / "artifacts/nsamdr/diagnostics"
 CAPACITY_ROOT = DIAGNOSTIC_ROOT / "v176_stage10a1_capacity"
 DETAIL_ROOT = DIAGNOSTIC_ROOT / "v176_stage10a_detail"
 PREVIEW_ROOT = REPO_ROOT / "artifacts/nsamdr/render_preview"
-APP_TITLE = "NSAMDR V17.6 — Training and Raven Preview"
+APP_TITLE = "NSAMDR — V17.7 Baseline / V17.6 Neural Research"
 STATE_SCHEMA = "nsamdr-v176-operator-workflow-v2"
 PHASES = ("diagnose", "stability", "capacity", "compare-features", "attainable")
 PREVIEW_CHOICES = (
@@ -51,7 +51,7 @@ STAGES = (
     Stage("train", "10A", "Dense specialist training", "Train V17.6 detail specialist with frozen Stage 9 backbone."),
     Stage("compare", "10A.1", "Capacity and features", "Diagnose, run stability, train capacity, or compare 10/58-channel specialists."),
     Stage("attainable", "10A.2", "Attainability diagnostic", "Target-assisted training-only pixel fit. Does not update neural weights."),
-    Stage("preview", "VIS", "Raven 3D visual preview", "Render the real EVE Raven with authenticated trained V17.6 specialist weights."),
+    Stage("preview", "VIS", "Raven 3D A/B/C0/C1 preview", "Compare authored A, semantic B, frozen C0, and trained V17.6 C1 on the Raven."),
     Stage("evidence", "REP", "Reports / provenance", "Inspect completed V17.6 proof and native render artifacts."),
     Stage("tests", "T", "Regression tests", "Run the current supported V17.6 verification suite."),
     Stage("quadtree", "Q", "Adaptive quadtree", "Planned extension; not implemented in this branch. Dense model first."),
@@ -126,7 +126,7 @@ class App:
         self.command_preview = tk.StringVar()
         self.progress_text = tk.StringVar(value="Ready")
         self.progress_value = tk.DoubleVar(value=0.0)
-        self.scope_text = tk.StringVar(value="V17.6 · reading existing evidence")
+        self.scope_text = tk.StringVar(value="V17.7 baseline · V17.6 neural checkpoints · reading evidence")
         self.recipe_text = tk.StringVar(value=(
             "Current: dense V17.6 scalar-albedo detail specialist. "
             "Frozen Stage 9 backbone; original physical caps and training-only supervision."
@@ -470,7 +470,8 @@ class App:
             self._row("Device", "device", "cuda", ("cuda", "cpu", "auto"))
             self._row("Comparison report", "comparison_report", "")
             self._label("Source", "Newest completed authenticated comparison, or the exact report above")
-            self._label("Qualification", "Research-only preview. Not a trained full-Raven guarantee.")
+            self._label("Qualification", "B = V17.7 conservative semantic reference. C0 = frozen V17.2. C1 = trained V17.6. No V17.7 enhancer checkpoint exists yet.")
+            self._label("Comparison panes", "A / B / C0 / C1 in synchronized 2×2 native DX11 view.")
             ttk.Button(self.form, text="Open current preview files",
                        command=self.preview_selected).pack(anchor="w", pady=5)
             ttk.Button(self.form, text="Audit native texture channels (no training)",
@@ -597,7 +598,7 @@ class App:
     def _refresh_scope(self) -> None:
         report = latest_report(CAPACITY_ROOT, "compare-features")
         decision = (_read_json(report) or {}).get("decision", "no report") if report else "no report"
-        self.scope_text.set(f"Current architecture: V17.6 | Latest comparison: {decision} | Production: unqualified")
+        self.scope_text.set(f"Preview: V17.7 semantic B + frozen C0 + trained V17.6 C1 | Latest comparison: {decision} | Production: unqualified")
 
     def detect(self, silent: bool = False) -> None:
         lookup = {
