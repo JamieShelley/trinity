@@ -81,6 +81,7 @@ class V176RavenPreviewTests(unittest.TestCase):
                     return torch.full((1, channels, 4*h, 4*w), value,
                                       device=a.device, dtype=torch.float32)
                 return {
+                    "base_candidate_albedo": tensor(3, .45),
                     "baseline_albedo": tensor(3, .25),
                     "baseline_normal": tensor(2, .0),
                     "baseline_material": tensor(3, .5),
@@ -101,7 +102,8 @@ class V176RavenPreviewTests(unittest.TestCase):
             try:
                 self.assertEqual(maps["candidate_albedo"].shape, (44, 52, 3))
                 self.assertTrue(np.allclose(maps["candidate_albedo"], .75, atol=1e-5))
-                self.assertTrue(np.allclose(maps["baseline_albedo"], .25, atol=1e-5))
+                self.assertTrue(np.allclose(maps["baseline_albedo"], 1.0, atol=1e-5))
+                self.assertTrue(np.allclose(maps["backbone_albedo"], .45, atol=1e-5))
                 self.assertTrue(np.isfinite(maps["candidate_normal"]).all())
                 self.assertTrue((Path(root)/"candidate_albedo.f32").is_file())
             finally:
