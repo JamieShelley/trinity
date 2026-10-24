@@ -59,6 +59,39 @@ class V177SemanticBaselineTests(unittest.TestCase):
         self.assertLessEqual(float(out.square().sum(1).max()), .999**2 + 1e-5)
         self.assertEqual(tuple(out.shape), (1,2,32,32))
 
+    def test_native_packed_channels_preserve_exact_values(self):
+        import cv2
+        from tools.nsamdr.neural.v176.raven_renderer import (
+            _ensure_canvas, _resized_channel,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "packed.png"
+            source = np.array([
+                [[0, 0, 0, 0], [255, 255, 255, 255]],
+                [[255, 255, 255, 255], [0, 0, 0, 0]],
+            ], dtype=np.uint8)
+            self.assertTrue(cv2.imwrite(str(path), source))
+            canvas = _ensure_canvas({}, path, 8, 8)
+            self.assertEqual(set(np.unique(canvas[:, :, 0]).tolist()), {0, 255})
+            categorical = _resized_channel(path, 0, 8, 8, 0.0, categorical=True)
+            self.assertEqual(set(np.unique(categorical).tolist()), {0.0, 1.0})
+            continuous = _resized_channel(path, 0, 8, 8, 0.0, categorical=False)
+            self.assertTrue(((continuous > 0.0) & (continuous < 1.0)).any())
+
+    def test_cross_semantic_shader_family_conflict_rejected(self):
+        import cv2
+        from tools.nsamdr.neural.v176.raven_renderer import _collect_contexts
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            a = root / "albedo.png"
+            self.assertTrue(cv2.imwrite(str(a), np.zeros((4,4,4),dtype=np.uint8)))
+            rows = [
+                {"albedo":"albedo.png", "shader_family":"legacy_pgs"},
+                {"albedo":"albedo.png", "shader_family":"v5_packed"},
+            ]
+            with self.assertRaisesRegex(RuntimeError, "conflicting Raven material semantics"):
+                _collect_contexts(rows, root)
+
     def test_c0_and_c1_export_as_different_independent_planes(self):
         class Dummy(torch.nn.Module):
             def forward(self,a,n,m):
