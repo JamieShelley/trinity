@@ -15,7 +15,7 @@ class V176CLITests(unittest.TestCase):
                     self.parser._subparsers._group_actions[0].choices}
         self.assertEqual(accepted, {
             "gui", "setup", "v176-detail-proof", "v176-capacity-proof",
-            "v176-raven-preview", "v176-raven-channel-audit", "test",
+            "v176-raven-preview", "v176-raven-channel-audit", "v177-enhancement-train", "test",
         })
 
     def test_v176_capacity_passes_phase_resume_and_preserves_audit(self):
@@ -77,6 +77,33 @@ class V176CLITests(unittest.TestCase):
         self.assertIn("128", line)
         self.assertIn("16", line)
         self.assertNotIn("v176-capacity-proof", line)
+
+    def test_v177_train_and_checkpoint_preview_routing(self):
+        args = self.parser.parse_args([
+            "v177-enhancement-train", "--steps", "48", "--patch-size", "24",
+            "--seed", "900", "--device", "cpu",
+        ])
+        with patch.object(self.app, "_source_freshness_preflight", return_value=0), \
+             patch.object(self.app, "_python", return_value=Path("python")), \
+             patch.object(self.app, "_cuda_preflight",
+                               side_effect=AssertionError("CPU synthetic run must not preflight CUDA")), \
+             patch.object(self.app, "_run", return_value=0) as run:
+            self.assertEqual(self.app._command_v177_enhancement(args), 0)
+        values = [str(v) for v in run.call_args.args[0]]
+        self.assertIn("train_nsamdr_v177_enhancement.py", " ".join(values))
+        self.assertIn("48", values)
+        self.assertIn("900", values)
+        arg = self.parser.parse_args([
+            "v176-raven-preview", "--enhancer-checkpoint", "candidate.pt",
+        ])
+        with patch.object(self.app, "_source_freshness_preflight", return_value=0), \
+             patch.object(self.app, "_python", return_value=Path("python")), \
+             patch.object(self.app, "_cuda_preflight", return_value=0), \
+             patch.object(self.app, "_run", return_value=0) as run:
+            self.assertEqual(self.app._command_raven(arg), 0)
+        values = [str(v) for v in run.call_args.args[0]]
+        self.assertIn("--enhancer-checkpoint", values)
+        self.assertIn("candidate.pt", values)
 
     def test_legacy_preview_no_longer_callable(self):
         with self.assertRaises(SystemExit):
