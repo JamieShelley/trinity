@@ -112,6 +112,34 @@ def _load_preview_model(
     }
 
 
+def _load_v177_enhancer(repo: Path, checkpoint_path: str, device: torch.device):
+    """Fail closed unless the synthetic-only training gate and code SHA match."""
+    from tools.nsamdr.neural.v177.enhancement_model import NativeEnhancer4x, SCHEMA
+    from tools.nsamdr.neural.train_nsamdr_v177_enhancement import source_digest
+    path = Path(checkpoint_path).resolve()
+    if not path.is_file():
+        raise RuntimeError(f"V17.7 checkpoint not found: {path}")
+    report_path = path.parent / "report.json"
+    report = _json(report_path)
+    sha = sha256_file(path)
+    if (report.get("schema") != "NSAMDR_V177_SYNTHETIC_ENHANCER_REPORT_V1"
+        or report.get("decision") != "SYNTHETIC_IMPROVEMENT_ONLY"
+        or report.get("checkpointSha256") != sha
+        or Path(str(report.get("checkpoint", ""))).resolve() != path
+        or report.get("productionPromotionAllowed") is not False
+        or report.get("realRavenQualityVerified") is not False):
+        raise RuntimeError("V17.7 enhancer lacks verified synthetic-only report")
+    state = torch.load(path, map_location="cpu", weights_only=True)
+    if (state.get("schema") != SCHEMA
+        or state.get("sourceSha256") != source_digest(repo)
+        or state.get("syntheticImproved") is not True
+        or state.get("productionPromotionAllowed") is not False):
+        raise RuntimeError("V17.7 enhancer schema, quality gate or source SHA mismatch")
+    model = NativeEnhancer4x().to(device)
+    model.load_state_dict(state["model"], strict=True)
+    return model.eval(), sha, path
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--repo-root", type=Path, default=ROOT)
@@ -121,6 +149,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--authority-index", type=int, choices=(1,10), default=10)
     p.add_argument("--mode", choices=("output10","hr_features58"), default="output10")
     p.add_argument("--comparison-report", default="")
+    p.add_argument("--enhancer-checkpoint", default="",
+                   help="Explicit gated V17.7 synthetic-trained checkpoint; otherwise show V17.6 C1")
     return p
 
 
@@ -145,7 +175,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     if materials is None or not materials.is_file():
         raise RuntimeError("Raven physical material manifest unavailable")
-    label = f"{SOURCE_NAME}_TRAIN{args.authority_index:02d}_{args.mode.upper()}"
+    enhancer = (_load_v177_enhancer(repo, args.enhancer_checkpoint, device)
+                if args.enhancer_checkpoint else None)
+    label = (f"V177_RAVEN_SYNTHETIC_TRAIN{args.authority_index:02d}_{args.mode.upper()}"
+             if enhancer is not None
+             else f"{SOURCE_NAME}_TRAIN{args.authority_index:02d}_{args.mode.upper()}")
     source = native.PreviewSource(
         label=label, ordinal=STAGE, phase="v176-trained-comparison-research",
         checkpoint=checkpoint,
@@ -153,7 +187,8 @@ def main(argv: list[str] | None = None) -> int:
     report = native._generate_candidate(
         repo_root=repo, source=source,
         device=device, obj_path=obj_path, materials=materials,
-        model_override=(model, config, payload), preview_schema=SCHEMA,
+        model_override=(model, config, payload),
+        enhancer_override=enhancer, preview_schema=SCHEMA,
     )
     if (report["checkpointSchema"] != payload["schema"]
         or report["checkpointSha256"] != sha256_file(checkpoint)):
@@ -164,6 +199,9 @@ def main(argv: list[str] | None = None) -> int:
         "comparisonReport": str(report_path.resolve()),
         "modelMode": args.mode, "trainingAuthorityIndex": args.authority_index,
         "quadtreeRouting": False,
+        "candidateSupervision": ("synthetic-clean-geometry-only"
+                                 if enhancer is not None else "v176-authored-reconstruction"),
+        "realRavenQualityVerified": False,
     })
     Path(report["reportPath"]).write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8",
