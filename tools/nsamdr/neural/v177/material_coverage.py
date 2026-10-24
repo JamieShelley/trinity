@@ -76,7 +76,7 @@ def rgba_coverage(selector: np.ndarray, *, scale: int=4, smoothing: float=.70) -
     # absent slots or changing the dominant identity in uniform interiors.
     error=255-np.sum(result.astype(np.int16),axis=2)
     largest=np.argmax(coverage,axis=2)
-    ys,xs=np.indices(classes.shape)*0 if False else np.indices((h*scale,w*scale))
+    ys,xs=np.indices((h*scale,w*scale))
     adjusted=result[ys,xs,largest].astype(np.int16)+error
     result[ys,xs,largest]=np.clip(adjusted,0,255).astype(np.uint8)
     if not np.all(np.sum(result.astype(np.int16),axis=2)==255):
