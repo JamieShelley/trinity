@@ -11,6 +11,8 @@ on:
       - 'tools/nsamdr/neural/v176/raven_renderer.py'
       - 'tools/nsamdr/neural/v177/**'
       - 'tools/nsamdr/neural/test_nsamdr_v177_baseline.py'
+      - 'tools/nsamdr/neural/test_nsamdr_v177_enhancement.py'
+      - 'tools/nsamdr/neural/train_nsamdr_v177_enhancement.py'
       - 'trinityal/tests/nsamdr/NSAMDRPreviewProcessing.cpp'
       - 'trinityal/tests/nsamdr/NSAMDRPreviewPanel.cpp'
       - 'trinityal/tests/nsamdr/NSAMDRRenderPipeline.cpp'
@@ -38,11 +40,11 @@ jobs:
       - name: Compile current operator and all Python entrypoint sources
         shell: pwsh
         run: |
-          python -m compileall -q tools/nsamdr/nsamdr_cli.py tools/nsamdr/gui/nsamdr_v176_workflow_gui.py tools/nsamdr/neural/render_nsamdr_v176_raven_preview.py tools/nsamdr/neural/v176/raven_renderer.py tools/nsamdr/neural/v177/semantic_baseline.py tools/nsamdr/neural/test_nsamdr_v177_baseline.py tools/nsamdr/neural/v176/channel_audit.py tools/nsamdr/neural/audit_nsamdr_v176_raven_channels.py tools/nsamdr/neural/test_nsamdr_v176_channel_audit.py tools/nsamdr/test_nsamdr_cli.py tools/nsamdr/gui/test_nsamdr_v176_workflow_gui.py tools/nsamdr/neural/test_nsamdr_v176_raven_preview.py
+          python -m compileall -q tools/nsamdr/nsamdr_cli.py tools/nsamdr/gui/nsamdr_v176_workflow_gui.py tools/nsamdr/neural/render_nsamdr_v176_raven_preview.py tools/nsamdr/neural/v176/raven_renderer.py tools/nsamdr/neural/v177/semantic_baseline.py tools/nsamdr/neural/test_nsamdr_v177_baseline.py tools/nsamdr/neural/test_nsamdr_v177_enhancement.py tools/nsamdr/neural/train_nsamdr_v177_enhancement.py tools/nsamdr/neural/v177/enhancement_model.py tools/nsamdr/neural/v177/synthetic_geometry.py tools/nsamdr/neural/v176/channel_audit.py tools/nsamdr/neural/audit_nsamdr_v176_raven_channels.py tools/nsamdr/neural/test_nsamdr_v176_channel_audit.py tools/nsamdr/test_nsamdr_cli.py tools/nsamdr/gui/test_nsamdr_v176_workflow_gui.py tools/nsamdr/neural/test_nsamdr_v176_raven_preview.py
       - name: Assert sole supported GUI and legacy CLI removal
         shell: pwsh
         run: |
-          python -c "from tools.nsamdr.nsamdr_cli import NSAMDRCommandLineApplication; p=NSAMDRCommandLineApplication().build_parser(); names=set(p._subparsers._group_actions[0].choices); expected={'gui','setup','v176-detail-proof','v176-capacity-proof','v176-raven-preview','v176-raven-channel-audit','test'}; assert names==expected,(names,expected); print('SOLE_V176_OPERATOR_SURFACE_VERIFIED')"
+          python -c "from tools.nsamdr.nsamdr_cli import NSAMDRCommandLineApplication; p=NSAMDRCommandLineApplication().build_parser(); names=set(p._subparsers._group_actions[0].choices); expected={'gui','setup','v176-detail-proof','v176-capacity-proof','v176-raven-preview','v176-raven-channel-audit','v177-enhancement-train','test'}; assert names==expected,(names,expected); print('SOLE_V176_OPERATOR_SURFACE_VERIFIED')"
       - name: Run V17.6 operator GUI and CLI tests
         shell: pwsh
         run: |
@@ -66,4 +68,4 @@ jobs:
           python -m pip install --disable-pip-version-check torch --index-url https://download.pytorch.org/whl/cpu
       - name: Exercise real native-channel audit on synthetic textures
         run: |
-          python -m unittest -v tools.nsamdr.neural.test_nsamdr_v176_channel_audit tools.nsamdr.neural.test_nsamdr_v177_baseline tools.nsamdr.neural.test_nsamdr_v176_raven_preview
+          python -m unittest -v tools.nsamdr.neural.test_nsamdr_v176_channel_audit tools.nsamdr.neural.test_nsamdr_v177_baseline tools.nsamdr.neural.test_nsamdr_v177_enhancement tools.nsamdr.neural.test_nsamdr_v176_raven_preview
