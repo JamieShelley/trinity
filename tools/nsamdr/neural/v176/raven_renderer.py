@@ -320,6 +320,7 @@ def _tiled_maps(
     device: torch.device,
     scratch: Path,
     material_policy: str = "unknown",
+    enhancer: torch.nn.Module | None = None,
 ) -> dict[str, np.memmap]:
     """Tile V17.6 inference with full native input and disk-backed HR stitching.
 
@@ -377,6 +378,17 @@ def _tiled_maps(
             outputs["backbone_albedo"] = outputs["base_candidate_albedo"]
             outputs["backbone_normal"] = outputs["candidate_normal"]
             outputs["backbone_material"] = outputs["candidate_material"]
+            if enhancer is not None:
+                # Independently trained V17.7 C1 is composed against B.
+                # C0 remains the untouched historical reference only.
+                with torch.autocast(device_type="cuda", enabled=False):
+                    new = enhancer(a.float(), n.float(), m.float(),
+                                   material_policy=material_policy)
+                for key in ("candidate_albedo", "candidate_normal",
+                            "candidate_material"):
+                    if new[key].shape != outputs[key].shape:
+                        raise RuntimeError("V17.7 enhancer changed physical map dimensions")
+                    outputs[key] = new[key]
             ph, pw = outputs["candidate_albedo"].shape[-2:]
             oy, ox = y * scale, x * scale
             win = _window(ph, pw, torch.device("cpu"))[0, 0].numpy()
@@ -546,6 +558,7 @@ def _generate_candidate(
     obj_path: Path,
     materials: Path,
     model_override: tuple[torch.nn.Module, Any, dict[str, Any]] | None = None,
+    enhancer_override: tuple[torch.nn.Module, str, Path] | None = None,
     preview_schema: str = "NSAMDR_V176_RAVEN_RESEARCH_PREVIEW_V1",
 ) -> dict[str, Any]:
     checkpoint_sha = _sha256(source.checkpoint)
@@ -553,6 +566,8 @@ def _generate_candidate(
         raise RuntimeError("V17.6 preview requires an authenticated model")
     model, config, payload = model_override
     model.eval()
+    if enhancer_override is not None:
+        enhancer_override[0].eval()
 
     fields, rows, comments = _read_tsv(materials)
     contexts = _collect_contexts(rows, materials.parent)
@@ -560,7 +575,10 @@ def _generate_candidate(
         raise RuntimeError("prepared EVE ship has no aligned albedo contexts")
 
     live_root = repo_root / "artifacts/nsamdr/render_preview" / source.label
-    output_root = live_root / "candidates" / f"step_{source.ordinal:06d}_{checkpoint_sha[:12]}"
+    candidate_identity = (
+        enhancer_override[1] if enhancer_override is not None else checkpoint_sha
+    )
+    output_root = live_root / "candidates" / f"step_{source.ordinal:06d}_{candidate_identity[:12]}"
     if output_root.exists():
         shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -620,6 +638,7 @@ def _generate_candidate(
                 device=device,
                 scratch=Path(scratch),
                 material_policy=context.material_policy,
+                enhancer=(enhancer_override[0] if enhancer_override is not None else None),
             )
             _apply_maps(
                 albedo=albedo,
@@ -744,7 +763,13 @@ def _generate_candidate(
             for source, context in sorted(contexts.items(), key=lambda x: str(x[0]))
         ],
         "backboneVariant": "C0-authenticated-frozen-V17.2",
-        "candidateVariant": "C1-V17.6-trained-unqualified",
+        "candidateVariant": ("C1-V17.7-synthetic-trained-unqualified"
+                             if enhancer_override is not None
+                             else "C1-V17.6-trained-unqualified"),
+        "enhancerCheckpoint": (str(enhancer_override[2].resolve())
+                               if enhancer_override is not None else None),
+        "enhancerCheckpointSha256": (enhancer_override[1]
+                                      if enhancer_override is not None else None),
         "fourWayComparison": True,
         "nativeSourceDimensions": source_dimensions,
     }
@@ -759,7 +784,7 @@ def _generate_candidate(
 def _pointer_text(report: Mapping[str, Any]) -> str:
     token = (
         f"{report['source']}-{int(report['ordinal']):06d}-"
-        f"{str(report['checkpointSha256'])[:16]}"
+        f"{str(report.get('enhancerCheckpointSha256') or report['checkpointSha256'])[:16]}"
     )
     return "\n".join(
         (
