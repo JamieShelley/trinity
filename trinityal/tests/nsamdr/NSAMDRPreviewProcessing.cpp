@@ -39,6 +39,8 @@ struct LiveCandidatePointer
     std::string checkpointSha;
     std::string baselineObj;
     std::string baselineMaterials;
+    std::string backboneObj;
+    std::string backboneMaterials;
     std::string candidateObj;
     std::string candidateMaterials;
 };
@@ -65,6 +67,8 @@ bool ReadLiveCandidatePointer(const std::string& path, LiveCandidatePointer& poi
         else if (key == "checkpointSha256") pointer.checkpointSha = value;
         else if (key == "baselineObj") pointer.baselineObj = value;
         else if (key == "baselineMaterials") pointer.baselineMaterials = value;
+        else if (key == "backboneObj") pointer.backboneObj = value;
+        else if (key == "backboneMaterials") pointer.backboneMaterials = value;
         else if (key == "candidateObj") pointer.candidateObj = value;
         else if (key == "candidateMaterials") pointer.candidateMaterials = value;
     }
@@ -243,6 +247,21 @@ bool PreviewProcessing::RefreshLiveCandidate(
         return true;
     }
 
+    CandidateAssetGpu nextBackbone;
+    if (!pointer.backboneObj.empty() || !pointer.backboneMaterials.empty())
+    {
+        if (pointer.backboneObj.empty() || pointer.backboneMaterials.empty() ||
+            !m_assetProcessor.LoadCandidateAsset(
+                device, context, "C0 FROZEN BACKBONE",
+                pointer.backboneObj, pointer.backboneMaterials, nextBackbone) ||
+            !nextBackbone.available ||
+            !CandidateUsesSourceDrawRanges(resources, nextBackbone))
+        {
+            std::printf("NSAMDR live preview: rejected C0 for token %s\n", pointer.token.c_str());
+            return true; // atomic four-way update; do not display mismatched assets
+        }
+    }
+
     CandidateAssetGpu nextCandidate;
     const std::string stage = pointer.stageVariant.empty() ? pointer.phase : pointer.stageVariant;
     const std::string label = "NSAMDR LIVE epoch " + pointer.epoch + " | " + stage;
@@ -270,14 +289,17 @@ bool PreviewProcessing::RefreshLiveCandidate(
         return true;
     }
 
-    nextBaseline.status = "DETERMINISTIC 4X BASELINE | same degraded LR evidence";
+    nextBaseline.status = "V17.7 SEMANTIC 4X BASELINE | native source evidence";
+    if (nextBackbone.available)
+        nextBackbone.status = "C0 FROZEN AUTHENTICATED V17.2 BACKBONE";
     nextCandidate.status = "UNQUALIFIED INTERMEDIATE | epoch=" + pointer.epoch +
         " | phase=" + pointer.phase + " | variant=" + stage + " | checkpoint=" +
         (pointer.checkpointSha.empty() ? std::string("unknown") : pointer.checkpointSha.substr(0U, 12U));
     candidates.baseline = std::move(nextBaseline);
+    candidates.backbone = std::move(nextBackbone);
     candidates.candidate = std::move(nextCandidate);
     m_liveCandidateToken = pointer.token;
-    std::printf("NSAMDR live preview: hot-reloaded baseline + %s\n", candidates.candidate.status.c_str());
+    std::printf("NSAMDR live preview: hot-reloaded B + C0 + %s\n", candidates.candidate.status.c_str());
     return true;
 }
 
