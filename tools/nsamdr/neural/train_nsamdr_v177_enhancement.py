@@ -29,6 +29,7 @@ SOURCE_FILES = (
     "tools/nsamdr/neural/v177/semantic_baseline.py",
     "tools/nsamdr/neural/v177/enhancement_model.py",
     "tools/nsamdr/neural/v177/synthetic_geometry.py",
+    "tools/nsamdr/neural/train_nsamdr_v177_enhancement.py",
 )
 
 
@@ -134,6 +135,9 @@ def main(argv:list[str]|None=None)->int:
     )
     run.mkdir(parents=True,exist_ok=True)
     latest=run/"resume.pt"
+    torch.manual_seed(args.seed)
+    if device.type=="cuda":
+        torch.cuda.manual_seed_all(args.seed)
     model=NativeEnhancer4x().to(device)
     optimizer=torch.optim.AdamW(model.parameters(),lr=args.learning_rate,
                                 weight_decay=0.00001)
