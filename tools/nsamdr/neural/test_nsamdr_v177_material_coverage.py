@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 
 from tools.nsamdr.neural.v177.material_coverage import (
-    _quantize_selector, rgba_coverage, semantic_half, weights_to_bgra,
+    _quantize_selector, rgba_coverage, semantic_half, selector_has_discrete_slots, weights_to_bgra,
     write_coverage, write_semantic_mips,
 )
 from tools.nsamdr.neural.v176.raven_renderer import _write_material_manifest
@@ -27,6 +27,16 @@ class V177MaterialCoverageTests(unittest.TestCase):
         self.assertTrue(np.any((rgba[:,:,0]>0)&(rgba[:,:,0]<255)))
         self.assertTrue(np.any((rgba[:,:,3]>0)&(rgba[:,:,3]<255)))
         self.assertTrue(np.all(rgba.astype(np.int16).sum(axis=2)==255))
+
+    def test_authored_intermediate_selector_remains_unmodified(self):
+        pure=np.zeros((32,32),dtype=np.uint8)
+        pure[:,16:]=255
+        self.assertTrue(selector_has_discrete_slots(pure))
+        authored=np.full((32,32),127,dtype=np.uint8)
+        self.assertFalse(selector_has_discrete_slots(authored))
+        partly=authored.copy()
+        partly[:,:31]=0
+        self.assertTrue(selector_has_discrete_slots(partly))
 
     def test_flat_selector_preserved_exactly(self):
         native=np.full((16,16),170,dtype=np.uint8)
