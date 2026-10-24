@@ -158,6 +158,14 @@ bool AssetProcessor::LoadAreaMaterialSources(const std::string& path, std::vecto
         material.aoPath = value("ao");
         material.paintMaskPath = value("paint_mask");
         material.roughnessMapPath = value("roughness_map");
+        material.materialWeightsPath = value("material_weights");
+        if (!material.materialWeightsPath.empty() &&
+            material.shaderFamily != ShaderFamily::V5Separate &&
+            material.shaderFamily != ShaderFamily::V5Packed)
+        {
+            error = "material_weights requires a V5 shader family";
+            return false;
+        }
 
         auto parseChannel = [&](const char* name, int& destination) -> bool {
             const std::string text = value(name);
@@ -1013,6 +1021,18 @@ bool AssetProcessor::LoadCandidateAsset(
                 if (!material.hasRoughnessMap)
                 {
                     candidate.status = "failed to load candidate roughness map: " + source.roughnessMapPath;
+                    return true;
+                }
+            }
+            if (!source.materialWeightsPath.empty())
+            {
+                uint32_t width = 0, height = 0;
+                material.hasMaterialWeights = loadCached(
+                    source.materialWeightsPath, false, material.materialWeightsView,
+                    width, height, "candidate V17.7 RGBA material coverage");
+                if (!material.hasMaterialWeights)
+                {
+                    candidate.status = "failed to load material coverage: " + source.materialWeightsPath;
                     return true;
                 }
             }
