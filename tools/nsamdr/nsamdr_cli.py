@@ -189,6 +189,7 @@ class NSAMDRCommandLineApplication:
             "tools.nsamdr.neural.test_nsamdr_v176_stability",
             "tools.nsamdr.neural.test_nsamdr_v176_attainable",
             "tools.nsamdr.neural.test_nsamdr_v176_raven_preview",
+            "tools.nsamdr.neural.test_nsamdr_v177_baseline",
             "tools.nsamdr.neural.test_nsamdr_v176_channel_audit",
             "tools.nsamdr.gui.test_nsamdr_v176_workflow_gui",
         ]
