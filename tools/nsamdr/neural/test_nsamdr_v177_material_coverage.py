@@ -148,7 +148,7 @@ class V177MaterialCoverageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             ship = root / "ship.obj"
-            ship.write_text("v 0 0 0\\n", encoding="utf-8")
+            ship.write_text("v 0 0 0\n", encoding="utf-8")
             checkpoint = root / "checkpoint.pt"
             checkpoint.write_bytes(b"synthetic-model-identity")
             albedo = root / "native_albedo.png"
@@ -160,8 +160,8 @@ class V177MaterialCoverageTests(unittest.TestCase):
             self.assertTrue(cv2.imwrite(str(pgs), mask))
             manifest = root / "ship.materials.tsv"
             manifest.write_text(
-                "albedo\\tmaterial\\tmaterial_channel\\tshader_family\\n"
-                "native_albedo.png\\tnative_material.png\\t2\\tv5_packed\\n",
+                "albedo\tmaterial\tmaterial_channel\tshader_family\n"
+                "native_albedo.png\tnative_material.png\t2\tv5_packed\n",
                 encoding="utf-8",
             )
             # Channel 2 is the BGRA red channel containing the V5 selector.
