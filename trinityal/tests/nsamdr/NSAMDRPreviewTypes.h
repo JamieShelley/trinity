@@ -203,6 +203,7 @@ struct AreaMaterialSource
     std::string aoPath;
     std::string paintMaskPath;
     std::string roughnessMapPath;
+    std::string materialWeightsPath; // Optional V17.7 RGBA coverage; never used for authored A
     XMFLOAT3 tint = XMFLOAT3(0.34f, 0.38f, 0.42f);
     XMFLOAT3 glowColour = XMFLOAT3(0.34f, 0.58f, 0.95f);
     std::array<MaterialSlotSource, 4> slots{};
@@ -237,6 +238,7 @@ struct AreaMaterialGpu
     ComPtr<ID3D11ShaderResourceView> aoView;
     ComPtr<ID3D11ShaderResourceView> paintMaskView;
     ComPtr<ID3D11ShaderResourceView> roughnessMapView;
+    ComPtr<ID3D11ShaderResourceView> materialWeightsView;
     uint32_t albedoWidth = 1;
     uint32_t albedoHeight = 1;
     bool hasAlbedo = false;
@@ -247,6 +249,7 @@ struct AreaMaterialGpu
     bool hasAo = false;
     bool hasPaintMask = false;
     bool hasRoughnessMap = false;
+    bool hasMaterialWeights = false;
 };
 
 struct EnvironmentGpu
