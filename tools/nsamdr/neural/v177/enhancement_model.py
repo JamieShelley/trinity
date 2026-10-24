@@ -13,7 +13,7 @@ from torch.nn import functional as F
 
 from .semantic_baseline import SemanticBaseline4x, normalize_xy
 
-SCHEMA = "NSAMDR_V177_NATIVE_ENHANCER_V1"
+SCHEMA = "NSAMDR_V177_NATIVE_ENHANCER_V2_CONTOUR"
 FEATURE_WIDTH = 32
 SCALE = 4
 
@@ -41,9 +41,12 @@ class NativeEnhancer4x(nn.Module):
             _Residual(),
             _Residual(),
         )
+        # Resize-convolution uses the SAME spatial kernel at every enhanced
+        # pixel phase. PixelShuffle learns 16 separate subpixel phase filters
+        # and can create a periodic four-pixel checkerboard on real textures.
         self.up = nn.Sequential(
-            nn.Conv2d(FEATURE_WIDTH, FEATURE_WIDTH * SCALE * SCALE, 3, padding=1),
-            nn.PixelShuffle(SCALE),
+            nn.Upsample(scale_factor=SCALE, mode="bilinear", align_corners=False),
+            nn.Conv2d(FEATURE_WIDTH, FEATURE_WIDTH, 3, padding=1),
             nn.SiLU(),
             nn.Conv2d(FEATURE_WIDTH, FEATURE_WIDTH, 3, padding=1),
             nn.SiLU(),
