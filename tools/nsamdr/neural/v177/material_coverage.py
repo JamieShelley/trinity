@@ -90,11 +90,44 @@ def weights_to_bgra(rgba: np.ndarray) -> np.ndarray:
     return rgba[:,:,[2,1,0,3]].copy()
 
 
-def write_coverage(selector: np.ndarray, destination: Path) -> None:
+def write_coverage(
+    selector: np.ndarray, destination: Path, *, tile_native: int=256,
+) -> None:
+    """Render full native 4x material coverage in bounded overlapping tiles.
+
+    An 8192x8192 output cannot hold four float32 signed-distance fields in
+    VRAM or host RAM at once. The overlap is computation context, not missing
+    input evidence. A disk-backed BGRA buffer retains every output pixel.
+    """
+    if selector.ndim!=2 or tile_native<32 or tile_native>1024:
+        raise ValueError("material coverage requires HxW and a bounded tile size")
+    from tempfile import TemporaryDirectory
+    h,w=selector.shape
     destination.parent.mkdir(parents=True,exist_ok=True)
-    bgra=weights_to_bgra(rgba_coverage(selector))
-    if not cv2.imwrite(str(destination),bgra,[cv2.IMWRITE_PNG_COMPRESSION,3]):
-        raise RuntimeError(f"failed to save coverage: {destination}")
+    if max(h,w)<=tile_native:
+        bgra=weights_to_bgra(rgba_coverage(selector))
+        if not cv2.imwrite(str(destination),bgra,[cv2.IMWRITE_PNG_COMPRESSION,3]):
+            raise RuntimeError(f"failed to save coverage: {destination}")
+        return
+    halo=12
+    with TemporaryDirectory(prefix="v177_coverage_",dir=destination.parent) as scratch:
+        mapped=np.memmap(Path(scratch)/"coverage.bgra",dtype=np.uint8,mode="w+",
+                         shape=(h*4,w*4,4))
+        for y in range(0,h,tile_native):
+            y1=min(h,y+tile_native)
+            for x in range(0,w,tile_native):
+                x1=min(w,x+tile_native)
+                sy=max(0,y-halo); ey=min(h,y1+halo)
+                sx=max(0,x-halo); ex=min(w,x1+halo)
+                patch=rgba_coverage(selector[sy:ey,sx:ex])
+                cy=(y-sy)*4; cx=(x-sx)*4
+                mapped[y*4:y1*4,x*4:x1*4,:]=weights_to_bgra(
+                    patch[cy:cy+(y1-y)*4,cx:cx+(x1-x)*4,:]
+                )
+        mapped.flush()
+        if not cv2.imwrite(str(destination),mapped,[cv2.IMWRITE_PNG_COMPRESSION,3]):
+            raise RuntimeError(f"failed to save coverage: {destination}")
+        mapped._mmap.close()
 
 
 def semantic_half(image: np.ndarray, *, mode: str,
