@@ -501,7 +501,10 @@ void PreviewPanel::DrawSplitCompareOverlay(
         addLabel(raw.min, "A AUTHORED SOURCE - NATIVE");
         addLabel(baseline.min, "B V17.7 SEMANTIC 4X - UNQUALIFIED");
         addLabel(backbone.min, "C0 FROZEN V17.2 BACKBONE");
-        addLabel(candidate.min, "C1 TRAINED V17.6 - UNQUALIFIED");
+        addLabel(candidate.min,
+            candidates.candidate.status.find("C1-V17.7") != std::string::npos
+                ? "C1 V17.7 SYNTHETIC TRAINED - UNQUALIFIED"
+                : "C1 TRAINED V17.6 - UNQUALIFIED");
     }
     else if (threeWay)
     {
