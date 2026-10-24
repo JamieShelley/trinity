@@ -92,6 +92,38 @@ class V177SemanticBaselineTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "conflicting Raven material semantics"):
                 _collect_contexts(rows, root)
 
+    def test_exporter_viewer_four_pane_pointer_contract(self):
+        from tools.nsamdr.neural.v176.raven_renderer import _pointer_text
+        payload = {
+            "source": "RAVEN", "ordinal": 6144,
+            "checkpointSha256": "a" * 64,
+            "phase": "v176-trained-comparison-research",
+            "baselineObj": r"C:\\ship.obj",
+            "baselineMaterials": r"C:\\b.materials.tsv",
+            "backboneObj": r"C:\\ship.obj",
+            "backboneMaterials": r"C:\\c0.materials.tsv",
+            "candidateObj": r"C:\\ship.obj",
+            "candidateMaterials": r"C:\\c1.materials.tsv",
+            "reportPath": r"C:\\candidate_manifest.json",
+        }
+        pointer = _pointer_text(payload)
+        for key in ("baselineMaterials", "backboneObj",
+                    "backboneMaterials", "candidateMaterials", "candidateManifest"):
+            self.assertIn(key + "=", pointer)
+        self.assertIn("stageVariant=C1-trained", pointer)
+        root = Path(__file__).resolve().parents[3]
+        processing = (root / "trinityal/tests/nsamdr/NSAMDRPreviewProcessing.cpp").read_text()
+        layout = (root / "trinityal/tests/nsamdr/NSAMDRRenderPipeline.cpp").read_text()
+        labels = (root / "trinityal/tests/nsamdr/NSAMDRPreviewPanel.cpp").read_text()
+        types = (root / "trinityal/tests/nsamdr/NSAMDRPreviewTypes.h").read_text()
+        for key in ("backboneObj", "backboneMaterials"):
+            self.assertIn('key == "' + key + '"', processing)
+        self.assertIn("CandidateAssetGpu backbone;", types)
+        self.assertIn("const bool fourWay", layout)
+        self.assertIn("drawPane(frozenBackbonePane, backboneAsset)", layout)
+        self.assertIn("C0 FROZEN V17.2 BACKBONE", labels)
+        self.assertIn("C1 TRAINED V17.6", labels)
+
     def test_c0_and_c1_export_as_different_independent_planes(self):
         class Dummy(torch.nn.Module):
             def forward(self,a,n,m):
