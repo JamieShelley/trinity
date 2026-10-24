@@ -145,6 +145,22 @@ class NSAMDRCommandLineApplication:
                 argv += [flag, value]
         return self._run(argv)
 
+    def _command_v177_enhancement(self, args: argparse.Namespace) -> int:
+        rc = self._source_freshness_preflight()
+        if rc:
+            return rc
+        python = self._python("cuda")
+        if args.device == "cuda":
+            rc = self._cuda_preflight(python)
+            if rc:
+                return rc
+        argv = [python, "-u", NEURAL_ROOT / "train_nsamdr_v177_enhancement.py",
+                "--repo-root", REPO_ROOT, "--device", args.device,
+                "--steps", str(args.steps), "--batch-size", str(args.batch_size),
+                "--patch-size", str(args.patch_size), "--seed", str(args.seed),
+                "--learning-rate", str(args.learning_rate), "--resume", args.resume]
+        return self._run(argv)
+
     def _command_raven(self, args: argparse.Namespace) -> int:
         rc = self._source_freshness_preflight()
         if rc:
@@ -160,6 +176,8 @@ class NSAMDRCommandLineApplication:
                 "--authority-index", str(args.authority_index), "--mode", args.mode]
         if args.comparison_report:
             argv += ["--comparison-report", args.comparison_report]
+        if args.enhancer_checkpoint:
+            argv += ["--enhancer-checkpoint", args.enhancer_checkpoint]
         return self._run(argv)
 
     def _command_raven_channel_audit(self, args: argparse.Namespace) -> int:
@@ -190,6 +208,7 @@ class NSAMDRCommandLineApplication:
             "tools.nsamdr.neural.test_nsamdr_v176_attainable",
             "tools.nsamdr.neural.test_nsamdr_v176_raven_preview",
             "tools.nsamdr.neural.test_nsamdr_v177_baseline",
+            "tools.nsamdr.neural.test_nsamdr_v177_enhancement",
             "tools.nsamdr.neural.test_nsamdr_v176_channel_audit",
             "tools.nsamdr.gui.test_nsamdr_v176_workflow_gui",
         ]
@@ -221,12 +240,23 @@ class NSAMDRCommandLineApplication:
         capacity.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
         capacity.add_argument("--audit-only", action="store_true")
         capacity.set_defaults(handler=self._command_v176_capacity)
+        enhanced = commands.add_parser("v177-enhancement-train")
+        enhanced.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
+        enhanced.add_argument("--steps", type=int, default=300)
+        enhanced.add_argument("--batch-size", type=int, default=4)
+        enhanced.add_argument("--patch-size", type=int, default=32)
+        enhanced.add_argument("--seed", type=int, default=177)
+        enhanced.add_argument("--learning-rate", type=float, default=.001)
+        enhanced.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
+        enhanced.set_defaults(handler=self._command_v177_enhancement)
         raven = commands.add_parser("v176-raven-preview")
         raven.add_argument("--shared-cache", default=r"C:\CCP\EVE")
         raven.add_argument("--device", choices=("cuda", "cpu", "auto"), default="cuda")
         raven.add_argument("--authority-index", type=int, choices=(1, 10), default=10)
         raven.add_argument("--mode", choices=("output10", "hr_features58"), default="output10")
         raven.add_argument("--comparison-report", default="")
+        raven.add_argument("--enhancer-checkpoint", default="",
+                           help="Explicit validated synthetic-trained V17.7 model")
         raven.set_defaults(handler=self._command_raven)
         audit = commands.add_parser("v176-raven-channel-audit")
         audit.add_argument("--shared-cache", default=r"C:\CCP\EVE")
