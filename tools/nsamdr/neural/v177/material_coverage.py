@@ -117,12 +117,24 @@ def semantic_half(image: np.ndarray, *, mode: str,
         yy,xx=np.indices(inds.shape)
         result[yy,xx,inds]=np.clip(result[yy,xx,inds].astype(np.int16)+error,0,255)
         return weights_to_bgra(result)
-    if mode=="categorical":
+    if mode in ("categorical", "packed"):
         result=cv2.resize(image,size,interpolation=cv2.INTER_AREA)
         if selector_channel is not None:
             result[:,:,selector_channel]=cv2.resize(
                 image[:,:,selector_channel],size,interpolation=cv2.INTER_NEAREST,
             )
+        if mode=="categorical":
+            return result
+        if normal_channels is None:
+            raise ValueError("packed normal material mip requires signed normal XY indices")
+        c0,c1=normal_channels
+        if c0 == c1 or min(c0,c1)<0 or max(c0,c1)>3 or selector_channel in (c0,c1):
+            raise ValueError("packed normal and selector channels overlap")
+        x=result[:,:,c0].astype(np.float32)/127.5-1
+        y=result[:,:,c1].astype(np.float32)/127.5-1
+        denominator=np.maximum(1,np.hypot(x,y)/.999)
+        result[:,:,c0]=np.rint(np.clip((x/denominator+1)*127.5,0,255)).astype(np.uint8)
+        result[:,:,c1]=np.rint(np.clip((y/denominator+1)*127.5,0,255)).astype(np.uint8)
         return result
     if mode=="normal":
         if normal_channels is None:
