@@ -14,6 +14,21 @@ CENTRES = np.array([0.0, 1/3, 2/3, 1.0],dtype=np.float32)
 SCHEMA = "NSAMDR_V177_SUBPIXEL_MATERIAL_COVERAGE_V1"
 
 
+def selector_has_discrete_slots(selector: np.ndarray) -> bool:
+    """Do not reinterpret authored continuous V5 blends as hard class labels.
+
+    A scalar selector may legitimately encode intermediate authoring values.
+    Only generate a categorical contour when nearly all native texels are
+    close to the four documented slot centres. Otherwise preserve the
+    original scalar shader branch, avoiding invented colour transitions.
+    """
+    if selector.ndim!=2 or not np.issubdtype(selector.dtype,np.integer):
+        raise ValueError("selector qualification requires a native uint8 plane")
+    values=selector.astype(np.float32)/255
+    distance=np.min(np.abs(values[...,None]-CENTRES),axis=2)
+    return bool(np.mean(distance>.08)<=.02)
+
+
 def _quantize_selector(selector: np.ndarray) -> np.ndarray:
     if selector.ndim != 2:
         raise ValueError("selector must be a native-resolution H×W plane")
