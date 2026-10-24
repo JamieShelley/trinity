@@ -770,8 +770,8 @@ def _generate_candidate(
         if not family.startswith("v5_") or material_path is None or albedo_path is None:
             weighted.append("")
             continue
-        source = _read_bgra(albedo_path)
-        nh,nw = source.shape[:2]
+        native_albedo_pixels = _read_bgra(albedo_path)
+        nh, nw = native_albedo_pixels.shape[:2]
         selector_channel = _channel(row, "material_channel", 0)
         key = (material_path, selector_channel, nw, nh)
         if key not in coverage_cache:
