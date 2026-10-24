@@ -50,6 +50,28 @@ def file_digest(path: Path) -> str:
     return h.hexdigest()
 
 
+def _contour_error(
+    value: torch.Tensor, reference: torch.Tensor,
+) -> torch.Tensor:
+    """Gradient continuity and orientation error on clean reference contours.
+
+    A four-pixel checkerboard can lower RGB L1 while breaking connected
+    contours. Comparing directional gradients to analytic clean geometry
+    explicitly penalizes that. Both inputs are full enhanced-resolution maps.
+    """
+    if value.shape!=reference.shape or value.ndim!=4:
+        raise ValueError("contour quality needs aligned NCHW images")
+    # The synthetic reference provides precise first-channel legacy coverage
+    # and RGB edge evidence; evaluate the SAME gradients for both.
+    def contour(v: torch.Tensor):
+        gx=v[:,:,:,1:]-v[:,:,:,:-1]
+        gy=v[:,:,1:,:]-v[:,:,:-1,:]
+        return gx,gy
+    gx,gy=contour(value)
+    rx,ry=contour(reference)
+    return .5*(torch.mean(torch.abs(gx-rx))+torch.mean(torch.abs(gy-ry)))
+
+
 def _loss(
     prediction: dict[str,torch.Tensor],
     reference: tuple[torch.Tensor,torch.Tensor,torch.Tensor],
@@ -65,11 +87,21 @@ def _loss(
     dx,dy=gradients(p)
     gx,gy=gradients(a)
     edges= .5*(F.l1_loss(dx,gx)+F.l1_loss(dy,gy))
+    # Independent contour channel: material coverage + surface colour.
+    # Crucially the target is analytic HR geometry, NOT jagged LR labels.
+    contours=(
+        .6*_contour_error(p.mean(dim=1,keepdim=True),a.mean(dim=1,keepdim=True))
+        +.4*_contour_error(
+            prediction["candidate_material"][:,:1],m[:,:1]
+        )
+    )
     protected = (p-a).abs().mul(preserved).mean()
-    loss = rgb + .45*normal + .35*material + .4*edges + .15*protected
+    loss = (rgb + .45*normal + .35*material + .4*edges
+            + .7*contours + .15*protected)
     return loss,{
         "rgb":float(rgb.detach()),"normal":float(normal.detach()),
         "material":float(material.detach()),"edges":float(edges.detach()),
+        "contours":float(contours.detach()),
         "protected":float(protected.detach()),
     }
 
@@ -78,6 +110,7 @@ def _score(model: NativeEnhancer4x, device: torch.device, *,seed:int,patch:int) 
     model.eval()
     baseline_sum=0.0
     candidate_sum=0.0
+    contour_baseline=0.0
     parts={}
     with torch.no_grad():
         for case in range(8):
@@ -89,15 +122,19 @@ def _score(model: NativeEnhancer4x, device: torch.device, *,seed:int,patch:int) 
                 "candidate_normal":pred["baseline_normal"],
                 "candidate_material":pred["baseline_material"],
             }
-            b, _ = _loss(base,(ta,tn,tm),protected)
+            b, base_detail = _loss(base,(ta,tn,tm),protected)
             q, detail = _loss(pred,(ta,tn,tm),protected)
             baseline_sum+=float(b)
             candidate_sum+=float(q)
+            contour_baseline+=base_detail["contours"]
             for k,v in detail.items():
                 parts[k]=parts.get(k,0.0)+v/8
     return {
         "baselineLoss":baseline_sum/8, "candidateLoss":candidate_sum/8,
         "relativeRecovery":1.0-candidate_sum/max(1e-12,baseline_sum),
+        "contourBaseline":contour_baseline/8,
+        "contourCandidate":parts["contours"],
+        "contourRecovery":1.0-parts["contours"]/max(1e-12,contour_baseline/8),
         "candidateLossComponents":parts,
         "syntheticHoldoutSeed":seed+1000000,
     }
@@ -199,12 +236,14 @@ def main(argv:list[str]|None=None)->int:
     validation=_score(model,device,seed=args.seed,patch=args.patch_size)
     # A synthetic edge task can be used as a bounded learning diagnostic,
     # but does not imply successful generalisation to real EVE assets.
-    improved=(validation["relativeRecovery"]>=.05 and
-              validation["candidateLoss"]<original["candidateLoss"] and
-              validation["candidateLoss"]<validation["baselineLoss"])
+    improved=(validation["relativeRecovery"]>=.05
+              and validation["contourRecovery"]>=.05
+              and validation["candidateLoss"]<original["candidateLoss"]
+              and validation["candidateLoss"]<validation["baselineLoss"]
+              and validation["contourCandidate"]<validation["contourBaseline"])
     candidate=run/"candidate.pt"
     saved={
-        "schema":SCHEMA,"architecture":"native_8_to_4x_rgb_normal_material_v1",
+        "schema":SCHEMA,"architecture":"native_8_to_4x_rgb_normal_material_v2_contour",
         "sourceSha256":digest,"config":config,"steps":args.steps,
         "model":model.cpu().state_dict(),
         "syntheticImproved":bool(improved),
@@ -225,12 +264,16 @@ def main(argv:list[str]|None=None)->int:
         "checkpoint":str(candidate.resolve()),"checkpointSha256":file_digest(candidate),
         "elapsedSeconds":time.monotonic()-start_time,
         "realRavenQualityVerified":False,
+        "requiredContourRecovery":0.05,
+        "networkUpsampling":"bilinear_resize_convolution",
+        "fourPixelPhaseIndependent":True,
     }
     (run/"report.json").write_text(
         json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8",
     )
     print(f"[v177-enhance] decision={report['decision']} "
           f"synthetic_recovery={validation['relativeRecovery']:.4f} "
+          f"contour_recovery={validation['contourRecovery']:.4f} "
           f"report={run/'report.json'}",flush=True)
     return 0 if improved else 2
 
