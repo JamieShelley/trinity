@@ -41,7 +41,7 @@ class V176OperatorGuiTests(unittest.TestCase):
         import inspect
         from tools.nsamdr.gui.nsamdr_v176_workflow_gui import App, STAGES
         self.assertEqual([s.id for s in STAGES], [
-            "setup", "train", "compare", "attainable",
+            "setup", "train", "compare", "attainable", "enhance",
             "preview", "evidence", "tests", "quadtree",
         ])
         source = inspect.getsource(App._build)
@@ -75,6 +75,12 @@ class V176OperatorGuiTests(unittest.TestCase):
         self.assertIn("v176-raven-preview", actual)
         self.assertIn("output10", actual)
         self.assertIsNone(app._command_for_stage("quadtree"))
+        self.assertIn("v177-enhancement-train",app._command_for_stage("enhance"))
+        app.vars["candidate_source"] = Var("v177")
+        app.vars["enhancer_checkpoint"] = Var(r"C:\\candidate.pt")
+        preview = app._command_for_stage("preview")
+        self.assertIn("--enhancer-checkpoint",preview)
+        self.assertIn(r"C:\\candidate.pt",preview)
         self.assertNotIn("channel-audit", " ".join(actual))
 
     def test_footer_source_matches_renderer_folder(self):
