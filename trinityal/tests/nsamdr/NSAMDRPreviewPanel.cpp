@@ -136,7 +136,9 @@ void PreviewPanel::Draw(
     const CandidateAssetGpu& finalCandidate = candidates.candidate;
     ImGui::TextWrapped(
         liveTrainingPreview
-            ? "Live training comparison: A AUTHORED SOURCE, B DETERMINISTIC 4X BASELINE, and C CURRENT TRAINED STAGE. All panes keep the same EVE mesh, camera, lighting, background, material shader and sampler."
+            ? (candidates.backbone.available
+                ? "Four-way RESEARCH comparison: A native authored source, B V17.7 conservative semantic baseline, C0 authenticated frozen V17.2 backbone, C1 trained V17.6 specialist. C1 is NOT yet a V17.7 enhancer. Shared mesh, camera, lighting, shader and sampler."
+                : "Live training comparison: A authored source, B baseline, C trained specialist; frozen C0 unavailable. Shared mesh, camera, lighting, shader and sampler.")
             : "Fixed production comparison: A RAW SOURCE and B NSAMDR FINAL. Both panes use the source mesh, one camera, one material shader and the same 16x anisotropic sampler at zero LOD bias. The renderer does not sharpen, denoise or otherwise alter the final candidate.");
 
     ImGui::Separator();
@@ -270,7 +272,7 @@ void PreviewPanel::Draw(
     ImGui::Checkbox(liveTrainingPreview ? "Swap A and C" : "Swap A and B", &state.swapSplitSides);
     ImGui::TextWrapped(
         liveTrainingPreview
-            ? "A AUTHORED SOURCE stays fixed. B is the deterministic 4x baseline from the same degraded LR evidence. C is the current stage output and hot-reloads. Training is useful only when C improves on B while moving toward A."
+            ? "A: original native source. B: V17.7 semantic reference. C0: frozen V17.2 neural backbone. C1: trained V17.6 albedo-only specialist. The proposed V17.7 enhancer has not been trained; differences from A are not proof of improvement."
             : "A RAW SOURCE and B NSAMDR FINAL are always visible. Both panes use the same source vertex/index buffers, camera, transform, lighting, environment, material shader, gradient sampling and 16x anisotropic sampler at zero LOD bias.");
 
     const AreaMaterialGpu* baselineProofMaterial = nullptr;
@@ -425,7 +427,9 @@ void PreviewPanel::Draw(
     ImGui::TextUnformatted("Keys: [ / ] backgrounds | F/Home frame ship | V flip UV | R reset | F9 capture | Esc exit");
     ImGui::TextWrapped(
         liveTrainingPreview
-            ? "Live comparison is A AUTHORED SOURCE, B DETERMINISTIC 4X BASELINE, and C CURRENT TRAINED STAGE under one shared renderer and sampler."
+            ? (candidates.backbone.available
+                ? "Four-way comparison: A native source, B semantic 4x, C0 frozen backbone, C1 trained V17.6. Every pane shares the renderer and sampler."
+                : "Three-way comparison: A source, B baseline, C trained V17.6. Frozen C0 unavailable.")
             : "The comparison is fixed to A RAW SOURCE and B NSAMDR FINAL under one shared renderer and sampler.");
 
     ImGui::EndChild();
@@ -455,6 +459,7 @@ void PreviewPanel::DrawSplitCompareOverlay(
     const bool liveTrainingPreview =
         ReadEnvironmentVariable("NSAMDR_PREVIEW_AUTHORITY") == "training-intermediate";
     const bool threeWay = liveTrainingPreview && candidates.baseline.available;
+    const bool fourWay = threeWay && candidates.backbone.available;
 
     auto addLabel = [&](const ImVec2& paneMin, const std::string& label)
     {
@@ -470,8 +475,35 @@ void PreviewPanel::DrawSplitCompareOverlay(
     struct Pane { ImVec2 min; ImVec2 max; };
     Pane raw{{sceneX, 0.0f}, {sceneX + sceneWidth, sceneHeight}};
     Pane baseline = raw;
+    Pane backbone = raw;
     Pane candidate = raw;
-    if (threeWay)
+    if (fourWay)
+    {
+        const float w0 = std::floor(sceneWidth * 0.5f);
+        const float h0 = std::floor(sceneHeight * 0.5f);
+        raw = {{sceneX, 0.0f}, {sceneX + w0, h0}};
+        candidate = {{sceneX + w0, h0}, {sceneX + sceneWidth, sceneHeight}};
+        if (state.splitVertical)
+        {
+            baseline = {{sceneX + w0, 0.0f}, {sceneX + sceneWidth, h0}};
+            backbone = {{sceneX, h0}, {sceneX + w0, sceneHeight}};
+        }
+        else
+        {
+            backbone = {{sceneX + w0, 0.0f}, {sceneX + sceneWidth, h0}};
+            baseline = {{sceneX, h0}, {sceneX + w0, sceneHeight}};
+        }
+        draw->AddLine({sceneX + w0, 0.0f}, {sceneX + w0, sceneHeight},
+                      IM_COL32(255,255,255,210), 2.0f);
+        draw->AddLine({sceneX, h0}, {sceneX + sceneWidth, h0},
+                      IM_COL32(255,255,255,210), 2.0f);
+        if (state.swapSplitSides) std::swap(raw, candidate);
+        addLabel(raw.min, "A AUTHORED SOURCE - NATIVE");
+        addLabel(baseline.min, "B V17.7 SEMANTIC 4X - UNQUALIFIED");
+        addLabel(backbone.min, "C0 FROZEN V17.2 BACKBONE");
+        addLabel(candidate.min, "C1 TRAINED V17.6 - UNQUALIFIED");
+    }
+    else if (threeWay)
     {
         if (state.splitVertical)
         {
