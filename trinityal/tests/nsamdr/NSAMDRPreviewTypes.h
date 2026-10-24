@@ -319,7 +319,8 @@ struct CandidateAssetGpu
 struct FinalCandidateSet
 {
     CandidateAssetGpu baseline;
-    CandidateAssetGpu candidate;
+    CandidateAssetGpu backbone; // C0: authenticated frozen neural candidate (research only)
+    CandidateAssetGpu candidate; // C1: trained specialist, unqualified
 };
 
 struct ShipCatalogEntry
