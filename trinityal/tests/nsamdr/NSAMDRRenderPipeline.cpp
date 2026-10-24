@@ -227,11 +227,47 @@ void RenderPipeline::RenderShip(
         }
         : AssetBinding{nullptr, nullptr, 0U, nullptr, false, false, false};
 
+    const CandidateAssetGpu& frozenBackbone = candidates.backbone;
+    const AssetBinding backboneAsset = frozenBackbone.available
+        ? AssetBinding{
+            baselineAsset.vertexBuffer,
+            baselineAsset.indexBuffer,
+            baselineAsset.indexCount,
+            &frozenBackbone.areaMaterials,
+            false, true, true,
+        }
+        : AssetBinding{nullptr, nullptr, 0U, nullptr, false, false, false};
+
     const bool threeWay = deterministicBaseline.available;
+    const bool fourWay = threeWay && frozenBackbone.available;
     PaneRect rawControlPane{sceneX, 0U, sceneWidth, sceneHeight};
     PaneRect deterministicBaselinePane = rawControlPane;
+    PaneRect frozenBackbonePane = rawControlPane;
     PaneRect candidatePane = rawControlPane;
-    if (threeWay)
+    if (fourWay)
+    {
+        // Four equal 2x2 viewports avoid the unusable narrow quarter-width
+        // strips that hide the Raven's panel-detail defects.
+        const uint32_t w0 = std::max(1U, sceneWidth / 2U);
+        const uint32_t h0 = std::max(1U, sceneHeight / 2U);
+        const uint32_t w1 = std::max(1U, sceneWidth - w0);
+        const uint32_t h1 = std::max(1U, sceneHeight - h0);
+        rawControlPane = PaneRect{sceneX, 0U, w0, h0};
+        candidatePane = PaneRect{sceneX + w0, h0, w1, h1};
+        if (state.splitVertical)
+        {
+            deterministicBaselinePane = PaneRect{sceneX + w0, 0U, w1, h0};
+            frozenBackbonePane = PaneRect{sceneX, h0, w0, h1};
+        }
+        else
+        {
+            frozenBackbonePane = PaneRect{sceneX + w0, 0U, w1, h0};
+            deterministicBaselinePane = PaneRect{sceneX, h0, w0, h1};
+        }
+        if (state.swapSplitSides)
+            std::swap(rawControlPane, candidatePane);
+    }
+    else if (threeWay)
     {
         if (state.splitVertical)
         {
@@ -464,7 +500,15 @@ void RenderPipeline::RenderShip(
     drawPane(candidatePane, finalAsset);
     context->ClearDepthStencilView(resources.depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-    // B: exact deterministic 4x reconstruction baseline from the same LR evidence.
+    // C0: frozen authenticated backbone; independent from trained C1.
+    if (fourWay)
+    {
+        drawBackgroundPane(frozenBackbonePane);
+        drawPane(frozenBackbonePane, backboneAsset);
+        context->ClearDepthStencilView(resources.depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+    }
+
+    // B: V17.7 conservative semantic baseline from the same native pixels.
     if (threeWay)
     {
         drawBackgroundPane(deterministicBaselinePane);
