@@ -245,7 +245,7 @@ class NSAMDRCommandLineApplication:
         enhanced.add_argument("--steps", type=int, default=300)
         enhanced.add_argument("--batch-size", type=int, default=4)
         enhanced.add_argument("--patch-size", type=int, default=32)
-        enhanced.add_argument("--seed", type=int, default=177)
+        enhanced.add_argument("--seed", type=int, default=178)
         enhanced.add_argument("--learning-rate", type=float, default=.001)
         enhanced.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
         enhanced.set_defaults(handler=self._command_v177_enhancement)
