@@ -74,6 +74,14 @@ def create(
         "sourceDimensions": [w, h],
         "nativeRoi": [crop_x, crop_y, size, size],
         "outputScale": 4,
+        "materialPolicy": context.material_policy,
+        "channelLayout": {
+            "normalX": context.normal_x_channel,
+            "normalY": context.normal_y_channel,
+            "material": context.material_channel,
+            "glow": context.glow_channel,
+            "roughness": context.roughness_channel,
+        },
     }
     if report_path.is_file():
         existing = json.loads(report_path.read_text(encoding="utf-8"))
