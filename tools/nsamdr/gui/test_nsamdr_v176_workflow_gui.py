@@ -42,7 +42,7 @@ class V176OperatorGuiTests(unittest.TestCase):
         from tools.nsamdr.gui.nsamdr_v176_workflow_gui import App, STAGES
         self.assertEqual([s.id for s in STAGES], [
             "setup", "train", "compare", "attainable", "enhance",
-            "preview", "evidence", "tests", "quadtree",
+            "golden", "contour", "preview", "evidence", "tests", "quadtree",
         ])
         source = inspect.getsource(App._build)
         for item in ("ttk.Treeview", "ttk.Panedwindow", "controls_canvas",
@@ -52,6 +52,7 @@ class V176OperatorGuiTests(unittest.TestCase):
         selection_source = inspect.getsource(App._selected)
         self.assertIn("Audit native texture channels", selection_source)
         self.assertIn("Open latest channel audit", selection_source)
+        self.assertIn("Open latest Golden Patch / trace editor", selection_source)
 
     def test_current_stage_commands_are_wired_without_tk_instance(self):
         from tools.nsamdr.gui.nsamdr_v176_workflow_gui import App
@@ -76,6 +77,8 @@ class V176OperatorGuiTests(unittest.TestCase):
         self.assertIn("output10", actual)
         self.assertIsNone(app._command_for_stage("quadtree"))
         self.assertIn("v177-enhancement-train",app._command_for_stage("enhance"))
+        self.assertIn("v178-golden-patch",app._command_for_stage("golden"))
+        self.assertIn("v178-contour-train",app._command_for_stage("contour"))
         app.vars["candidate_source"] = Var("v177")
         app.vars["enhancer_checkpoint"] = Var(r"C:\\candidate.pt")
         preview = app._command_for_stage("preview")
