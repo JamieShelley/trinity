@@ -1,4 +1,24 @@
-# NSAMDR — V17.7 physical-baseline research, V17.6 neural evidence
+# NSAMDR — Native structural enhancement research
+
+## Canonical visual target and current G0–G2 quality gate
+
+**The project's visual target is [EXAMPLE.png](EXAMPLE.png), interpreted
+alongside the [full system architecture](NSAMDR_FULL_SYSTEM_ARCHITECTURE.png).
+The latest Raven A/B/C0/C1 test does not meet that target.** Bigger pixel
+dimensions, successful CUDA execution and lower synthetic reconstruction
+loss do not establish clean mechanical contours or better-than-authored detail.
+
+**Active next work:** [G0–G2 Golden Patch qualification](GOLDEN_PATCH.md).
+It extracts authentic source-resolution Raven evidence, requires an
+independently traced smooth 4× reference, and separates synthetic contour
+learning from a supervised one-real-patch capacity test. It uses the
+existing full-featured GUI; no second operator interface is introduced.
+
+Do not treat a Golden Patch single-region overfit as unseen real-texture
+generalisation, and do not promote old V17.6/V17.7 checkpoints based on
+previous synthetic numbers. V17.6 frozen proof evidence remains immutable.
+
+## Historical V17.7 / V17.6 preview and diagnostic workflows
 
 **Canonical operator interface: one full-featured GUI.** Raven preview now
 uses the V17.7 semantic B baseline and four independently rendered A/B/C0/C1
