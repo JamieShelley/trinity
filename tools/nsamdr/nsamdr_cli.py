@@ -197,6 +197,40 @@ class NSAMDRCommandLineApplication:
             argv += ["--crop-x", str(args.crop_x), "--crop-y", str(args.crop_y)]
         return self._run(argv)
 
+    def _command_v178_golden(self, args: argparse.Namespace) -> int:
+        rc = self._source_freshness_preflight()
+        if rc:
+            return rc
+        python = self._python("cuda")
+        cmd = [python, "-u", NEURAL_ROOT / "golden_nsamdr_v178.py",
+               "--repo-root", REPO_ROOT, "--action", args.action,
+               "--shared-cache", args.shared_cache,
+               "--crop-x", str(args.crop_x), "--crop-y", str(args.crop_y),
+               "--size", str(args.size)]
+        if args.source_name:
+            cmd += ["--source-name", args.source_name]
+        if args.folder:
+            cmd += ["--folder", args.folder]
+        return self._run(cmd)
+
+    def _command_v178_contour(self, args: argparse.Namespace) -> int:
+        rc = self._source_freshness_preflight()
+        if rc:
+            return rc
+        python = self._python("cuda")
+        if args.device == "cuda":
+            rc = self._cuda_preflight(python)
+            if rc:
+                return rc
+        return self._run([
+            python, "-u", NEURAL_ROOT / "train_nsamdr_v178_contour.py",
+            "--repo-root", REPO_ROOT,
+            "--device", args.device, "--steps", str(args.steps),
+            "--batch-size", str(args.batch_size), "--patch-size", str(args.patch_size),
+            "--seed", str(args.seed), "--learning-rate", str(args.learning_rate),
+            "--resume", args.resume,
+        ])
+
     def _command_tests(self, args: argparse.Namespace) -> int:
         python = self._python("cuda")
         cases = [
@@ -209,6 +243,7 @@ class NSAMDRCommandLineApplication:
             "tools.nsamdr.neural.test_nsamdr_v176_raven_preview",
             "tools.nsamdr.neural.test_nsamdr_v177_baseline",
             "tools.nsamdr.neural.test_nsamdr_v177_enhancement",
+            "tools.nsamdr.neural.test_nsamdr_v178_golden",
             "tools.nsamdr.neural.test_nsamdr_v176_channel_audit",
             "tools.nsamdr.gui.test_nsamdr_v176_workflow_gui",
         ]
@@ -249,6 +284,24 @@ class NSAMDRCommandLineApplication:
         enhanced.add_argument("--learning-rate", type=float, default=.001)
         enhanced.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
         enhanced.set_defaults(handler=self._command_v177_enhancement)
+        golden = commands.add_parser("v178-golden-patch")
+        golden.add_argument("--action", choices=("prepare", "render-trace"), default="prepare")
+        golden.add_argument("--shared-cache", default=r"C:\CCP\EVE")
+        golden.add_argument("--source-name", default="")
+        golden.add_argument("--crop-x", type=int, default=320)
+        golden.add_argument("--crop-y", type=int, default=448)
+        golden.add_argument("--size", type=int, default=256)
+        golden.add_argument("--folder", default="")
+        golden.set_defaults(handler=self._command_v178_golden)
+        contour = commands.add_parser("v178-contour-train")
+        contour.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
+        contour.add_argument("--steps", type=int, default=400)
+        contour.add_argument("--batch-size", type=int, default=4)
+        contour.add_argument("--patch-size", type=int, default=32)
+        contour.add_argument("--seed", type=int, default=17802)
+        contour.add_argument("--learning-rate", type=float, default=.0007)
+        contour.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
+        contour.set_defaults(handler=self._command_v178_contour)
         raven = commands.add_parser("v176-raven-preview")
         raven.add_argument("--shared-cache", default=r"C:\CCP\EVE")
         raven.add_argument("--device", choices=("cuda", "cpu", "auto"), default="cuda")
