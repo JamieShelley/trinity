@@ -214,27 +214,50 @@ def render_contour_trace(folder: Path) -> Path:
     output = np.zeros((size*scale*ss, size*scale*ss), dtype=np.uint8)
     for path in trace["paths"]:
         points = np.array(path["points"], dtype=np.float64)
-        # Independent human control points; interpolation creates continuous
-        # lines, not grid-aligned 4x nearest-neighbour blocks.
+        # Use interpolating Catmull–Rom for 3+ independently authored control
+        # points; preserve straightness for two-point traces. Never estimate
+        # control points from the jagged authored raster.
         interp = []
-        for start, end in zip(points[:-1], points[1:]):
+        for index, (start, end) in enumerate(zip(points[:-1], points[1:])):
             length = float(np.linalg.norm(end-start))
             steps = max(2, int(np.ceil(length * scale * ss * 2)))
             t = np.linspace(0, 1, steps, endpoint=False)[:, None]
-            interp.append(start[None,:]*(1-t)+end[None,:]*t)
+            if len(points) <= 2:
+                segment = start[None,:]*(1-t)+end[None,:]*t
+            else:
+                p0 = points[max(0,index-1)]
+                p1, p2 = start, end
+                p3 = points[min(len(points)-1,index+2)]
+                segment = .5*((2*p1)[None,:] + (-p0+p2)[None,:]*t
+                              + (2*p0-5*p1+4*p2-p3)[None,:]*(t*t)
+                              + (-p0+3*p1-3*p2+p3)[None,:]*(t*t*t))
+            interp.append(segment)
         interp.append(points[-1:])
-        vertices = np.rint(np.concatenate(interp) * scale * ss).astype(np.int32)
+        vertices = np.rint(
+            np.clip(np.concatenate(interp), 0, size-1) * scale * ss
+        ).astype(np.int32)
         width = max(1, int(round(float(path["widthNative"])*scale*ss)))
         cv2.polylines(output,[vertices.reshape(-1,1,2)],False,255,width,
                       lineType=cv2.LINE_AA)
     mask = cv2.resize(output, (size*4,size*4), interpolation=cv2.INTER_AREA)
     destination = folder/"curated_contours_4x.png"
     _write_png(destination,mask)
+    # Protect all source features sufficiently far from the independently
+    # traced centreline. The network must eventually preserve these regions.
+    radius = max(3,int(round(2*scale)))
+    kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,(radius*2+1,radius*2+1)
+    )
+    protected = 255 - cv2.dilate(mask,kernel)
+    protected_path = folder/"protected_regions_4x.png"
+    _write_png(protected_path, protected)
     provenance = {
         "schema": TRACE_SCHEMA, "author": trace["author"],
         "sourceSha256": evidence["identity"]["sourceSha256"],
         "traceSha256": sha256(folder/"trace.json"),
         "contourSha256": sha256(destination),
+        "protectedRegions": str(protected_path.resolve()),
+        "protectedRegionsSha256": sha256(protected_path),
         "cleanReferenceType": "independently-traced-contours",
         "referenceIsNetworkGenerated": False,
         "qualifiedForRealEveTraining": False,
