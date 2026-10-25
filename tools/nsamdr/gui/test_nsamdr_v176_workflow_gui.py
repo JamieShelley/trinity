@@ -42,7 +42,7 @@ class V176OperatorGuiTests(unittest.TestCase):
         from tools.nsamdr.gui.nsamdr_v176_workflow_gui import App, STAGES
         self.assertEqual([s.id for s in STAGES], [
             "setup", "train", "compare", "attainable", "enhance",
-            "golden", "contour", "preview", "evidence", "tests", "quadtree",
+            "golden", "contour", "goldenfit", "preview", "evidence", "tests", "quadtree",
         ])
         source = inspect.getsource(App._build)
         for item in ("ttk.Treeview", "ttk.Panedwindow", "controls_canvas",
@@ -79,6 +79,8 @@ class V176OperatorGuiTests(unittest.TestCase):
         self.assertIn("v177-enhancement-train",app._command_for_stage("enhance"))
         self.assertIn("v178-golden-patch",app._command_for_stage("golden"))
         self.assertIn("v178-contour-train",app._command_for_stage("contour"))
+        app.vars["folder"] = Var(r"D:\\REPOS\\trinity\\artifacts\\golden")
+        self.assertIn("v178-golden-fit",app._command_for_stage("goldenfit"))
         app.vars["candidate_source"] = Var("v177")
         app.vars["enhancer_checkpoint"] = Var(r"C:\\candidate.pt")
         preview = app._command_for_stage("preview")
