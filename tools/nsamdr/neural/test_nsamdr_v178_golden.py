@@ -69,6 +69,30 @@ class GoldenEvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"source evidence changed"):
                 create(manifest,root/"golden",crop_x=8,crop_y=12,size=64)
 
+    def test_real_single_patch_fit_emits_visual_evidence_but_never_promotes(self):
+        from tools.nsamdr.neural.v178.real_fit import fit, SCHEMA_FIT
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            manifest=self._fixture(root)
+            result=create(manifest,root/"golden",crop_x=8,crop_y=12,size=64)
+            patch=root/"golden/a_x8_y12_s64"
+            trace=json.loads((patch/"trace.template.json").read_text())
+            trace["author"]="independent reviewer"
+            trace["paths"]=[{"points":[[5.,10.],[19.,24.],[38.,42.]],
+                             "widthNative":1.25}]
+            (patch/"trace.json").write_text(json.dumps(trace),encoding="utf-8")
+            output=fit(patch,device_name="cpu",steps=2,patch_size=16,seed=3001)
+            self.assertEqual(output["schema"],SCHEMA_FIT)
+            self.assertIn(output["decision"],(
+                "SINGLE_PATCH_CAPACITY_PASS_ONLY","REAL_PATCH_FIT_INSUFFICIENT"
+            ))
+            self.assertFalse(output["realEveGeneralisationVerified"])
+            self.assertFalse(output["productionPromotionAllowed"])
+            self.assertTrue(output["targetUsedInTraining"])
+            self.assertTrue(Path(output["comparisonSheet"]).is_file())
+            self.assertTrue(Path(output["checkpoint"]).is_file())
+            self.assertEqual(output["sourceSha256"],result["identity"]["sourceSha256"])
+
     def test_template_is_not_a_clean_reference(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
