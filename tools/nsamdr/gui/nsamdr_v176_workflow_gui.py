@@ -52,6 +52,8 @@ STAGES = (
     Stage("compare", "10A.1", "Capacity and features", "Diagnose, run stability, train capacity, or compare 10/58-channel specialists."),
     Stage("attainable", "10A.2", "Attainability diagnostic", "Target-assisted training-only pixel fit. Does not update neural weights."),
     Stage("enhance", "11", "V17.7 native enhancement", "Train a bounded RGB/normal/material correction over B using clean synthetic geometry."),
+    Stage("golden", "G0–G1", "Raven Golden Patch", "Capture verified native Raven pixels and independently trace clean structural contours."),
+    Stage("contour", "G2", "Structural contour proof", "Train structural field from synthetic clean geometry; hold out real Raven until independently traced."),
     Stage("preview", "VIS", "Raven 3D A/B/C0/C1 preview", "Compare authored A, semantic B, frozen C0, and trained V17.6 C1 on the Raven."),
     Stage("evidence", "REP", "Reports / provenance", "Inspect completed V17.6 proof and native render artifacts."),
     Stage("tests", "T", "Regression tests", "Run the current supported V17.6 verification suite."),
@@ -472,6 +474,28 @@ class App:
             self._row("Device", "device", "cuda", ("cuda", "cpu"))
             self._row("Resume", "resume", "fresh", ("fresh", "auto"))
             self._label("Gate", "Synthetic validation improvement required; no real-Raven qualification")
+        elif selected == "golden":
+            self._label("Contract", "Native Raven 256×256 → 4× structural reference. No fabricated clean target.")
+            self._row("EVE ResFiles cache", "cache", r"C:\CCP\EVE")
+            self._row("Native ROI X", "x", "320")
+            self._row("Native ROI Y", "y", "448")
+            self._row("Native ROI size", "size", "256", ("128", "256", "384", "512"))
+            self._row("Exact source filename", "source_name", "")
+            self._label("Next action", "Prepare evidence, then trace panel centre-lines independently.")
+            ttk.Button(self.form, text="Open latest Golden Patch / trace editor",
+                       command=self.open_golden_editor).pack(anchor="w", pady=5)
+            ttk.Button(self.form, text="Open latest golden evidence folder",
+                       command=self.open_golden_folder).pack(anchor="w", pady=5)
+        elif selected == "contour":
+            self._label("Objective", "Clean 4× structural coverage: tangent, curvature, continuity. Synthetic gate only.")
+            self._row("Updates", "steps", "400")
+            self._row("Batch size", "batch_size", "4")
+            self._row("Native patch width", "patch", "32")
+            self._row("Seed", "seed", "17802")
+            self._row("Learning rate", "lr", "0.0007")
+            self._row("Device", "device", "cuda", ("cuda", "cpu"))
+            self._row("Resume", "resume", "fresh", ("fresh", "auto"))
+            self._label("Gate", "At least 20% relative contour recovery on unseen analytic geometry.")
         elif selected == "preview":
             self._label("Ship", "Caldari Raven — real EVE textures / DX11 native viewer")
             self._row("Training authority", "authority", "10", ("10", "1"))
@@ -568,6 +592,26 @@ class App:
                     "--learning-rate", self._value("lr", "0.001"),
                     "--device", self._value("device", "cuda"),
                     "--resume", self._value("resume", "fresh")]
+        elif stage_id == "golden":
+            args = [
+                "v178-golden-patch", "--action", "prepare",
+                "--shared-cache", self._value("cache", r"C:\CCP\EVE"),
+                "--crop-x", self._value("x", "320"),
+                "--crop-y", self._value("y", "448"),
+                "--size", self._value("size", "256"),
+            ]
+            if self._value("source_name").strip():
+                args.extend(("--source-name",self._value("source_name").strip()))
+        elif stage_id == "contour":
+            args = [
+                "v178-contour-train", "--steps", self._value("steps", "400"),
+                "--batch-size", self._value("batch_size", "4"),
+                "--patch-size", self._value("patch", "32"),
+                "--seed", self._value("seed", "17802"),
+                "--learning-rate", self._value("lr", "0.0007"),
+                "--device", self._value("device", "cuda"),
+                "--resume", self._value("resume", "fresh"),
+            ]
         elif stage_id == "preview":
             args = raven_command(self._value("cache", r"C:\CCP\EVE"),
                                  int(self._value("authority", "10")),
@@ -640,6 +684,17 @@ class App:
                     "completed" if row and (_read_json(row) or {}).get("decision") not in
                     ("RUNNING", "PARENT_PROVENANCE_VERIFIED_ONLY") else
                     "audit only" if row else "pending"
+                )
+            elif stage.id == "golden":
+                self.state["status"][stage.id] = (
+                    "reference pending" if self._latest_golden() is not None
+                    else "pending"
+                )
+            elif stage.id == "contour":
+                proofs = DIAGNOSTIC_ROOT / "v178_golden_contour"
+                self.state["status"][stage.id] = (
+                    "report available" if any(proofs.glob("seed_*/report.json"))
+                    else "pending"
                 )
             elif stage.id == "enhance":
                 synthetic = DIAGNOSTIC_ROOT / "v177_native_enhancement"
@@ -738,6 +793,29 @@ class App:
             messagebox.showinfo("NSAMDR", "No Raven channel audit exists yet.")
             return
         _open_path(reports[0].parent)
+
+    def _latest_golden(self) -> Path | None:
+        root = REPO_ROOT / "artifacts/nsamdr/golden_patch"
+        reports = list(root.glob("*/evidence.json"))
+        return max(reports,key=lambda p:p.stat().st_mtime).parent if reports else None
+
+    def open_golden_folder(self) -> None:
+        folder = self._latest_golden()
+        if folder is None:
+            messagebox.showinfo("Golden Patch", "Run Golden Patch preparation first.")
+            return
+        _open_path(folder)
+
+    def open_golden_editor(self) -> None:
+        folder = self._latest_golden()
+        if folder is None:
+            messagebox.showinfo("Golden Patch", "Prepare the Raven native patch first.")
+            return
+        from tools.nsamdr.gui.golden_trace_editor import open_trace_editor
+        try:
+            open_trace_editor(self.root,folder)
+        except (OSError,ValueError,RuntimeError) as exc:
+            messagebox.showerror("Golden Patch",str(exc))
 
     def open_latest_report(self) -> None:
         report = latest_report(CAPACITY_ROOT) or latest_report(DETAIL_ROOT)
