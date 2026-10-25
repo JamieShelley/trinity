@@ -54,6 +54,7 @@ STAGES = (
     Stage("enhance", "11", "V17.7 native enhancement", "Train a bounded RGB/normal/material correction over B using clean synthetic geometry."),
     Stage("golden", "G0–G1", "Raven Golden Patch", "Capture verified native Raven pixels and independently trace clean structural contours."),
     Stage("contour", "G2", "Structural contour proof", "Train structural field from synthetic clean geometry; hold out real Raven until independently traced."),
+    Stage("goldenfit", "G2.R", "Real Golden Patch capacity", "Fit independently human-traced real Raven contours; single-region overfit only."),
     Stage("preview", "VIS", "Raven 3D A/B/C0/C1 preview", "Compare authored A, semantic B, frozen C0, and trained V17.6 C1 on the Raven."),
     Stage("evidence", "REP", "Reports / provenance", "Inspect completed V17.6 proof and native render artifacts."),
     Stage("tests", "T", "Regression tests", "Run the current supported V17.6 verification suite."),
@@ -496,6 +497,19 @@ class App:
             self._row("Device", "device", "cuda", ("cuda", "cpu"))
             self._row("Resume", "resume", "fresh", ("fresh", "auto"))
             self._label("Gate", "At least 20% relative contour recovery on unseen analytic geometry.")
+        elif selected == "goldenfit":
+            self._label("Qualification", "REAL Raven single-patch supervised capacity only — not unseen-ship generalisation.")
+            self._row("Golden Patch folder", "folder", str(self._latest_golden() or ""))
+            self._row("Updates", "steps", "300")
+            self._row("Native training patch", "patch", "48")
+            self._row("Seed", "seed", "17803")
+            self._row("Device", "device", "cuda", ("cuda", "cpu"))
+            self._row("Resume", "resume", "fresh", ("fresh", "auto"))
+            self._label("Reference", "Prepare Golden Patch, trace a clean contour and save it first.")
+            ttk.Button(self.form, text="Open trace editor",
+                       command=self.open_golden_editor).pack(anchor="w", pady=4)
+            ttk.Button(self.form, text="Open golden evidence / fit reports",
+                       command=self.open_golden_folder).pack(anchor="w", pady=4)
         elif selected == "preview":
             self._label("Ship", "Caldari Raven — real EVE textures / DX11 native viewer")
             self._row("Training authority", "authority", "10", ("10", "1"))
@@ -612,6 +626,18 @@ class App:
                 "--device", self._value("device", "cuda"),
                 "--resume", self._value("resume", "fresh"),
             ]
+        elif stage_id == "goldenfit":
+            folder = self._value("folder", "").strip()
+            if not folder:
+                raise ValueError("Prepare a Golden Patch and select its folder first")
+            args = [
+                "v178-golden-fit", "--folder", folder,
+                "--steps", self._value("steps", "300"),
+                "--patch-size", self._value("patch", "48"),
+                "--seed", self._value("seed", "17803"),
+                "--device", self._value("device", "cuda"),
+                "--resume", self._value("resume", "fresh"),
+            ]
         elif stage_id == "preview":
             args = raven_command(self._value("cache", r"C:\CCP\EVE"),
                                  int(self._value("authority", "10")),
@@ -689,6 +715,13 @@ class App:
                 self.state["status"][stage.id] = (
                     "reference pending" if self._latest_golden() is not None
                     else "pending"
+                )
+            elif stage.id == "goldenfit":
+                golden_root = REPO_ROOT / "artifacts/nsamdr/golden_patch"
+                self.state["status"][stage.id] = (
+                    "report available" if any(
+                        golden_root.glob("*/fit_runs/*/report.json")
+                    ) else "reference pending"
                 )
             elif stage.id == "contour":
                 proofs = DIAGNOSTIC_ROOT / "v178_golden_contour"
