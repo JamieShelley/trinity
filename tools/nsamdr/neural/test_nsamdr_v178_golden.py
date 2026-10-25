@@ -44,6 +44,29 @@ class GoldenEvidenceTests(unittest.TestCase):
         )
         return manifest
 
+    def test_real_launcher_import_and_prepared_manifest_routing(self):
+        # Runs the actual launched entry point, not merely create().
+        # Fake only external SharedCache preparation; this catches import-path
+        # failures on the normal Windows python -u execution route.
+        from unittest.mock import patch
+        from tools.nsamdr.neural.golden_nsamdr_v178 import main
+        with tempfile.TemporaryDirectory() as directory:
+            repo=Path(directory)
+            manifest=self._fixture(repo)
+            prepared=(None,None,None,None,None,None,manifest)
+            with patch("tools.nsamdr.eve_asset_test.prepare_asset",
+                       return_value=prepared) as prepare:
+                rc=main(["--repo-root",str(repo),"--action","prepare",
+                         "--shared-cache",str(repo/"mock_cache"),
+                         "--source-name","a.png","--crop-x","8",
+                         "--crop-y","12","--size","64"])
+            self.assertEqual(rc,0)
+            self.assertEqual(prepare.call_count,1)
+            report=repo/"artifacts/nsamdr/golden_patch/a_x8_y12_s64/evidence.json"
+            self.assertTrue(report.is_file())
+            self.assertEqual(json.loads(report.read_text())["decision"],
+                             "AWAITING_CURATED_CONTOUR_REFERENCE")
+
     def test_native_evidence_unchanged_and_explicitly_unqualified(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
