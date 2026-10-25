@@ -15,7 +15,8 @@ class V176CLITests(unittest.TestCase):
                     self.parser._subparsers._group_actions[0].choices}
         self.assertEqual(accepted, {
             "gui", "setup", "v176-detail-proof", "v176-capacity-proof",
-            "v176-raven-preview", "v176-raven-channel-audit", "v177-enhancement-train", "test",
+            "v176-raven-preview", "v176-raven-channel-audit", "v177-enhancement-train",
+            "v178-golden-patch", "v178-contour-train", "test",
         })
 
     def test_v176_capacity_passes_phase_resume_and_preserves_audit(self):
@@ -104,6 +105,35 @@ class V176CLITests(unittest.TestCase):
         values = [str(v) for v in run.call_args.args[0]]
         self.assertIn("--enhancer-checkpoint", values)
         self.assertIn("candidate.pt", values)
+
+    def test_v178_golden_prepare_has_no_training_or_gpu_preflight(self):
+        args = self.parser.parse_args([
+            "v178-golden-patch", "--action", "prepare",
+            "--crop-x", "320", "--crop-y", "448", "--size", "256",
+        ])
+        with patch.object(self.app, "_source_freshness_preflight", return_value=0), \
+             patch.object(self.app, "_python", return_value=Path("python")), \
+             patch.object(self.app, "_cuda_preflight", side_effect=AssertionError("no GPU for evidence")), \
+             patch.object(self.app, "_run", return_value=0) as run:
+            self.assertEqual(self.app._command_v178_golden(args),0)
+        command = [str(v) for v in run.call_args.args[0]]
+        self.assertIn("golden_nsamdr_v178.py", " ".join(command))
+        self.assertIn("448",command)
+        self.assertNotIn("--device",command)
+
+    def test_v178_contour_uses_own_isolated_training_command(self):
+        args = self.parser.parse_args([
+            "v178-contour-train", "--steps", "30", "--device", "cpu",
+        ])
+        with patch.object(self.app, "_source_freshness_preflight", return_value=0), \
+             patch.object(self.app, "_python", return_value=Path("python")), \
+             patch.object(self.app, "_cuda_preflight", side_effect=AssertionError("no CUDA for cpu training")), \
+             patch.object(self.app, "_run", return_value=0) as run:
+            self.assertEqual(self.app._command_v178_contour(args),0)
+        command = [str(v) for v in run.call_args.args[0]]
+        self.assertIn("train_nsamdr_v178_contour.py"," ".join(command))
+        self.assertIn("30",command)
+        self.assertNotIn("v177-enhancement-train", command)
 
     def test_legacy_preview_no_longer_callable(self):
         with self.assertRaises(SystemExit):
