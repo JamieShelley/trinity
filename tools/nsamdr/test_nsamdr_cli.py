@@ -16,7 +16,7 @@ class V176CLITests(unittest.TestCase):
         self.assertEqual(accepted, {
             "gui", "setup", "v176-detail-proof", "v176-capacity-proof",
             "v176-raven-preview", "v176-raven-channel-audit", "v177-enhancement-train",
-            "v178-golden-patch", "v178-contour-train", "test",
+            "v178-golden-patch", "v178-contour-train", "v178-golden-fit", "test",
         })
 
     def test_v176_capacity_passes_phase_resume_and_preserves_audit(self):
@@ -120,6 +120,22 @@ class V176CLITests(unittest.TestCase):
         self.assertIn("golden_nsamdr_v178.py", " ".join(command))
         self.assertIn("448",command)
         self.assertNotIn("--device",command)
+
+    def test_v178_real_fit_needs_explicit_trace_folder(self):
+        args = self.parser.parse_args([
+            "v178-golden-fit", "--folder", "golden_patch", "--device", "cpu",
+            "--steps", "12",
+        ])
+        with patch.object(self.app, "_source_freshness_preflight", return_value=0), \
+             patch.object(self.app, "_python", return_value=Path("python")), \
+             patch.object(self.app, "_cuda_preflight",
+                               side_effect=AssertionError("CPU fit must not preflight CUDA")), \
+             patch.object(self.app, "_run", return_value=0) as run:
+            self.assertEqual(self.app._command_v178_real_fit(args),0)
+        command=[str(v) for v in run.call_args.args[0]]
+        self.assertIn("fit_nsamdr_v178_golden.py"," ".join(command))
+        self.assertIn("golden_patch",command)
+        self.assertIn("12",command)
 
     def test_v178_contour_uses_own_isolated_training_command(self):
         args = self.parser.parse_args([
