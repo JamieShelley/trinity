@@ -171,9 +171,15 @@ def fit(folder:Path, *, device_name:str="cuda",steps:int=300,
         torch.cuda.manual_seed_all(seed)
     model=StructuralContourHead().to(device)
     optimizer=torch.optim.AdamW(model.parameters(),lr=.0007)
+    code_hash = hashlib.sha256(
+        b"".join((Path(__file__).read_bytes(),
+                  Path(__file__).with_name("contour_model.py").read_bytes(),
+                  Path(__file__).with_name("golden_patch.py").read_bytes()))
+    ).hexdigest()
     config={
         "sourceSha256":source_id,"traceSha256":traced_id,
         "seed":seed,"patchSize":patch_size,"architectureSchema":SCHEMA,
+        "codeSha256":code_hash,
     }
     start=0
     if resume=="fresh" and resume_file.exists():
@@ -195,9 +201,11 @@ def fit(folder:Path, *, device_name:str="cuda",steps:int=300,
     ys,xs=np.where(target[::4,::4]>.2*255)
     if len(xs)==0:
         raise RuntimeError("curated contours contain no occupied supervision pixels")
-    rng=np.random.default_rng(seed)
     begin=time.monotonic()
     for index in range(start,steps):
+        # Step-local RNG makes a resumed experiment sample the same region
+        # sequence as an uninterrupted experiment.
+        rng=np.random.default_rng(seed+index*10007)
         if rng.random()<.80:
             choice=int(rng.integers(0,len(xs)))
             px,py=int(xs[choice]),int(ys[choice])
