@@ -45,7 +45,9 @@ class StructuralContourHead(nn.Module):
     ) -> dict[str, torch.Tensor]:
         if (albedo.ndim != 4 or albedo.shape[1] != 3
             or normal.shape[1] != 2 or material.shape[1] != 3
-            or albedo.shape[0] != normal.shape[0] != material.shape[0]
+            or normal.ndim != 4 or material.ndim != 4
+            or albedo.shape[0] != normal.shape[0]
+            or albedo.shape[0] != material.shape[0]
             or albedo.shape[-2:] != normal.shape[-2:]
             or albedo.shape[-2:] != material.shape[-2:]):
             raise ValueError("G2 contour head requires aligned native NCHW physical maps")
