@@ -231,6 +231,22 @@ class NSAMDRCommandLineApplication:
             "--resume", args.resume,
         ])
 
+    def _command_v178_real_fit(self, args: argparse.Namespace) -> int:
+        rc = self._source_freshness_preflight()
+        if rc:
+            return rc
+        python = self._python("cuda")
+        if args.device == "cuda":
+            rc = self._cuda_preflight(python)
+            if rc:
+                return rc
+        return self._run([
+            python, "-u", NEURAL_ROOT / "fit_nsamdr_v178_golden.py",
+            "--folder", args.folder, "--device", args.device,
+            "--steps", str(args.steps), "--patch-size", str(args.patch_size),
+            "--seed", str(args.seed), "--resume", args.resume,
+        ])
+
     def _command_tests(self, args: argparse.Namespace) -> int:
         python = self._python("cuda")
         cases = [
@@ -302,6 +318,14 @@ class NSAMDRCommandLineApplication:
         contour.add_argument("--learning-rate", type=float, default=.0007)
         contour.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
         contour.set_defaults(handler=self._command_v178_contour)
+        real_fit = commands.add_parser("v178-golden-fit")
+        real_fit.add_argument("--folder", required=True)
+        real_fit.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
+        real_fit.add_argument("--steps", type=int, default=300)
+        real_fit.add_argument("--patch-size", type=int, default=48)
+        real_fit.add_argument("--seed", type=int, default=17803)
+        real_fit.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
+        real_fit.set_defaults(handler=self._command_v178_real_fit)
         raven = commands.add_parser("v176-raven-preview")
         raven.add_argument("--shared-cache", default=r"C:\CCP\EVE")
         raven.add_argument("--device", choices=("cuda", "cpu", "auto"), default="cuda")
