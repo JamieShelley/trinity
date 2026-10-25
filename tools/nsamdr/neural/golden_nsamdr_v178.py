@@ -43,7 +43,7 @@ def main(argv:list[str]|None=None)->int:
         result=render_contour_trace(args.folder.resolve())
         print(f"[v178-golden] INDEPENDENT_TRACE_RENDERED {result}",flush=True)
         return 0
-    import eve_asset_test as eve
+    from tools.nsamdr import eve_asset_test as eve
     prepared=eve.prepare_asset(repo,args.shared_cache,DEFAULT_RAVEN,"")
     manifest=prepared[6]
     if manifest is None or not manifest.is_file():
