@@ -60,7 +60,10 @@ class StructuralContourHead(nn.Module):
         features = self.features(torch.cat((
             albedo.float(), normal.float(), material.float()
         ), dim=1))
-        correction = .5 * torch.tanh(self.delta(self.up(features)))
+        # Signed ±1 range permits learning an independently traced contour
+        # even when a real V5 selector is semantically unrelated to the line.
+        # Initial zero residual still reproduces the observation baseline.
+        correction = torch.tanh(self.delta(self.up(features)))
         candidate = (reference + correction).clamp(0, 1)
         return {"baseline_contour": reference, "candidate_contour": candidate}
 
