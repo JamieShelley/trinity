@@ -17,7 +17,7 @@ def parser()->argparse.ArgumentParser:
     p.add_argument("--folder",type=Path,required=True)
     p.add_argument("--checkpoint",type=Path,default=ROOT/
         "artifacts/nsamdr/diagnostics/v178_golden_contour/"
-        "seed_17812_patch_32_batch_4/candidate.pt")
+        "seed_17822_patch_32_batch_4/candidate.pt")
     p.add_argument("--device",choices=("cuda","cpu"),default="cuda")
     p.add_argument("--tile",type=int,default=96)
     return p
@@ -25,8 +25,9 @@ def parser()->argparse.ArgumentParser:
 
 def main(argv:list[str]|None=None)->int:
     args=parser().parse_args(argv)
-    run(args.folder,args.checkpoint,device_name=args.device,tile=args.tile)
-    return 0
+    report=run(args.folder,args.checkpoint,device_name=args.device,tile=args.tile)
+    # Do not let the GUI report ordinary success for an empty all-black mask.
+    return 3 if report["realContourCollapsed"] else 0
 
 
 if __name__=="__main__":
