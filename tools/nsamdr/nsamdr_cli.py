@@ -330,7 +330,7 @@ class NSAMDRCommandLineApplication:
         contour.add_argument("--steps", type=int, default=400)
         contour.add_argument("--batch-size", type=int, default=4)
         contour.add_argument("--patch-size", type=int, default=32)
-        contour.add_argument("--seed", type=int, default=17812)
+        contour.add_argument("--seed", type=int, default=17822)
         contour.add_argument("--learning-rate", type=float, default=.0007)
         contour.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
         contour.set_defaults(handler=self._command_v178_contour)
