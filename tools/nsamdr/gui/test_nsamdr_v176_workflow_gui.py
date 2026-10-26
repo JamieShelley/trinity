@@ -100,7 +100,9 @@ class V176OperatorGuiTests(unittest.TestCase):
         selection_source = inspect.getsource(App._selected)
         self.assertIn("Audit native texture channels", selection_source)
         self.assertIn("Open latest channel audit", selection_source)
-        self.assertIn("Open latest Golden Patch / trace editor", selection_source)
+        self.assertIn("Open latest golden evidence folder", selection_source)
+        self.assertNotIn("Open latest Golden Patch / trace editor", selection_source)
+        self.assertIn("Automatic contour inference", selection_source)
 
     def test_current_stage_commands_are_wired_without_tk_instance(self):
         from tools.nsamdr.gui.nsamdr_v176_workflow_gui import App
@@ -128,7 +130,8 @@ class V176OperatorGuiTests(unittest.TestCase):
         self.assertIn("v178-golden-patch",app._command_for_stage("golden"))
         self.assertIn("v178-contour-train",app._command_for_stage("contour"))
         app.vars["folder"] = Var(r"D:\\REPOS\\trinity\\artifacts\\golden")
-        self.assertIn("v178-golden-fit",app._command_for_stage("goldenfit"))
+        self.assertIn("v178-golden-auto",app._command_for_stage("goldenfit"))
+        self.assertNotIn("v178-golden-fit",app._command_for_stage("goldenfit"))
         app.vars["candidate_source"] = Var("v177")
         app.vars["enhancer_checkpoint"] = Var(r"C:\\candidate.pt")
         preview = app._command_for_stage("preview")
