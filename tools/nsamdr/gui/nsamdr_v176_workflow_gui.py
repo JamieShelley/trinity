@@ -22,6 +22,11 @@ from tkinter import messagebox, ttk
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+# The canonical Windows launcher executes this file directly by absolute path.
+# In that mode sys.path[0] is tools/nsamdr/gui, not the repository root.
+# Preserve absolute package imports used by the Golden Patch trace editor.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 CLI = REPO_ROOT / "tools/nsamdr/nsamdr_cli.py"
 GUI_STATE_ROOT = REPO_ROOT / "artifacts/nsamdr/gui"
 STATE_PATH = GUI_STATE_ROOT / "v176_operator_workflow_state.json"
@@ -844,11 +849,11 @@ class App:
         if folder is None:
             messagebox.showinfo("Golden Patch", "Prepare the Raven native patch first.")
             return
-        from tools.nsamdr.gui.golden_trace_editor import open_trace_editor
         try:
-            open_trace_editor(self.root,folder)
-        except (OSError,ValueError,RuntimeError) as exc:
-            messagebox.showerror("Golden Patch",str(exc))
+            from tools.nsamdr.gui.golden_trace_editor import open_trace_editor
+            open_trace_editor(self.root, folder)
+        except (ImportError, OSError, ValueError, RuntimeError) as exc:
+            messagebox.showerror("Golden Patch", str(exc))
 
     def open_latest_report(self) -> None:
         report = latest_report(CAPACITY_ROOT) or latest_report(DETAIL_ROOT)
