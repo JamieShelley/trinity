@@ -182,7 +182,7 @@ class ContourHeadTests(unittest.TestCase):
         scores=evaluate(model,torch.device("cpu"),patch=16,seed=131,cases=2)
         self.assertEqual(scores["holdoutSeedStart"],1000131)
         self.assertAlmostEqual(scores["relativeContourRecovery"],0.,places=5)
-        self.assertEqual(SCHEMA,"NSAMDR_V178_CONTOUR_HEAD_V2_AUTO_EVIDENCE")
+        self.assertEqual(SCHEMA,"NSAMDR_V178_CONTOUR_HEAD_V3_FOREGROUND_PROTECTED")
 
 
 if __name__=="__main__":
