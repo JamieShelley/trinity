@@ -174,6 +174,23 @@ class ContourHeadTests(unittest.TestCase):
         self.assertGreater(float(worse),.001)
         self.assertEqual(set(parts),{"coverage","tangent","curvature"})
 
+    def test_foreground_aware_loss_rejects_all_black_contours(self):
+        from tools.nsamdr.neural.v178.contour_model import (
+            contour_supervised_loss,foreground_metrics
+        )
+        target=torch.zeros((1,1,64,64))
+        target[:,:,:,28:32]=1.
+        blank=torch.zeros_like(target)
+        exact=target.clone()
+        loss_blank,_=contour_supervised_loss(blank,target)
+        loss_exact,_=contour_supervised_loss(exact,target)
+        self.assertGreater(float(loss_blank),float(loss_exact)+.2)
+        metrics=foreground_metrics(blank,target)
+        self.assertEqual(metrics["contourRecall"],0.)
+        self.assertEqual(metrics["contourIoU"],0.)
+        self.assertEqual(metrics["predictedActiveFraction"],0.)
+        self.assertAlmostEqual(foreground_metrics(exact,target)["contourRecall"],1.)
+
     def test_contour_head_has_training_gradient_and_independent_holdout(self):
         a,n,m,_,_,target,_=make_batch(1,16,seed=173)
         model=StructuralContourHead(width=16)
