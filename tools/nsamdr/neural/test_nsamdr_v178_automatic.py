@@ -108,9 +108,15 @@ class AutoRavenTests(unittest.TestCase):
         m=torch.rand((1,3,40,48))
         m[:,0:1]=physical_edge_evidence(a,n)
         model=StructuralContourHead()
+        # Exercise non-zero learned contour corrections; the zero-initialised
+        # network alone would trivially hide tile seams.
         with torch.no_grad():
+            model.delta.weight.normal_(0,.02)
+            model.delta.bias.fill_(.08)
             dense=model(a,n,m)
         base,cand=_predict_tiled(model,a,n,m,tile=20,halo=20)
+        self.assertGreater(float((dense["candidate_contour"] -
+                                  dense["baseline_contour"]).abs().max()),.001)
         self.assertLess(float((base-dense["baseline_contour"]).abs().max()),1.e-5)
         self.assertLess(float((cand-dense["candidate_contour"]).abs().max()),1.e-5)
 
