@@ -22,7 +22,8 @@ if str(ROOT) not in sys.path:
 
 from tools.nsamdr.neural.v177.synthetic_geometry import make_batch
 from tools.nsamdr.neural.v178.contour_model import (
-    SCHEMA, StructuralContourHead, contour_loss, physical_edge_evidence,
+    SCHEMA, StructuralContourHead, contour_loss, contour_supervised_loss,
+    foreground_metrics, physical_edge_evidence,
 )
 
 TRAIN_SCHEMA = "NSAMDR_V178_G2_CONTOUR_REPORT_V1"
@@ -66,12 +67,24 @@ def evaluate(model: StructuralContourHead, device: torch.device,
     model.eval()
     baseline_total=0.
     candidate_total=0.
-    components={"coverage":0.,"tangent":0.,"curvature":0.}
+    components={"coverage":0.,"tangent":0.,"curvature":0.,
+                "foregroundWeighted":0.,"softDicePenalty":0.,
+                "falseStructurePenalty":0.}
+    baseline_foreground={name:0. for name in (
+        "contourRecall","contourPrecision","contourIoU",
+        "targetActiveFraction","predictedActiveFraction"
+    )}
+    candidate_foreground={name:0. for name in baseline_foreground}
     for index in range(cases):
         a,n,m,reference=_batch(1,patch,seed+1000000+index*1723,device)
         result=model(a,n,m)
-        base,_=contour_loss(result["baseline_contour"],reference)
-        pred,parts=contour_loss(result["candidate_contour"],reference)
+        base,_=contour_supervised_loss(result["baseline_contour"],reference)
+        pred,parts=contour_supervised_loss(result["candidate_contour"],reference)
+        before_fg=foreground_metrics(result["baseline_contour"],reference)
+        after_fg=foreground_metrics(result["candidate_contour"],reference)
+        for name in baseline_foreground:
+            baseline_foreground[name]+=before_fg[name]/cases
+            candidate_foreground[name]+=after_fg[name]/cases
         baseline_total+=float(base)
         candidate_total+=float(pred)
         for k,v in parts.items():
@@ -83,6 +96,8 @@ def evaluate(model: StructuralContourHead, device: torch.device,
         "candidateContourLoss": candidate_total,
         "relativeContourRecovery": 1.-candidate_total/max(1e-12,baseline_total),
         "candidateComponents": components,
+        "baselineForeground": baseline_foreground,
+        "candidateForeground": candidate_foreground,
         "holdoutSeedStart":seed+1000000,
         "holdoutCaseCount":cases,
     }
@@ -95,7 +110,7 @@ def parser()->argparse.ArgumentParser:
     p.add_argument("--steps",type=int,default=400)
     p.add_argument("--batch-size",type=int,default=4)
     p.add_argument("--patch-size",type=int,default=32)
-    p.add_argument("--seed",type=int,default=17812)
+    p.add_argument("--seed",type=int,default=17822)
     p.add_argument("--learning-rate",type=float,default=.0007)
     p.add_argument("--resume",choices=("fresh","auto"),default="fresh")
     return p
@@ -155,7 +170,7 @@ def main(argv:list[str]|None=None)->int:
                                args.seed+index*8191,device)
         optimizer.zero_grad(set_to_none=True)
         prediction=model(a,n,m)
-        loss,_=contour_loss(prediction["candidate_contour"],reference)
+        loss,_=contour_supervised_loss(prediction["candidate_contour"],reference)
         if not torch.isfinite(loss):
             raise RuntimeError(f"nonfinite G2 contour loss at {index+1}")
         loss.backward()
@@ -176,6 +191,10 @@ def main(argv:list[str]|None=None)->int:
         after["relativeContourRecovery"]>=.20
         and after["candidateContourLoss"]<before["candidateContourLoss"]
         and after["candidateContourLoss"]<after["baselineContourLoss"]
+        and after["candidateForeground"]["contourRecall"]>=.45
+        and after["candidateForeground"]["contourPrecision"]>=.20
+        and after["candidateForeground"]["contourIoU"]>=.20
+        and after["candidateForeground"]["predictedActiveFraction"]>=.005
     )
     checkpoint=folder/"candidate.pt"
     temp=folder/"candidate.tmp"
@@ -193,6 +212,10 @@ def main(argv:list[str]|None=None)->int:
         "checkpoint":str(checkpoint.resolve()),"checkpointSha256":digest(checkpoint),
         "before":before,"after":after,
         "requiredRelativeContourRecovery":.20,
+        "requiredContourRecall":.45,
+        "requiredContourPrecision":.20,
+        "requiredContourIoU":.20,
+        "requiredPredictedActiveFraction":.005,
         "trainingUpdates":args.steps-start,
         "elapsedSeconds":time.monotonic()-start_time,
         "realRavenReferenceAvailable":False,
@@ -205,6 +228,8 @@ def main(argv:list[str]|None=None)->int:
     )
     print(f"[v178-golden] {report['decision']} "
           f"contour_recovery={after['relativeContourRecovery']:.3f} "
+          f"recall={after['candidateForeground']['contourRecall']:.3f} "
+          f"precision={after['candidateForeground']['contourPrecision']:.3f} "
           f"report={folder/'report.json'}",flush=True)
     return 0 if qualified else 2
 
