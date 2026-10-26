@@ -76,6 +76,24 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def golden_reference_status(folder: Path | None) -> str:
+    """Report the REAL Raven reference state, not synthetic trainer metadata.
+
+    A completed synthetic contour report has no bearing on whether the
+    independently authored Raven trace.json is available and valid.
+    """
+    if folder is None or not (folder / "evidence.json").is_file():
+        return "prepare required"
+    if not (folder / "trace.json").is_file():
+        return "trace required"
+    try:
+        from tools.nsamdr.neural.v178.golden_patch import validate_trace
+        validate_trace(folder)
+    except (ImportError, OSError, ValueError, RuntimeError, KeyError, TypeError):
+        return "trace invalid"
+    return "trace ready"
+
+
 def latest_report(folder: Path, phase: str = "") -> Path | None:
     options = []
     for path in folder.glob("proof_*/report.json"):
@@ -716,18 +734,16 @@ class App:
                     ("RUNNING", "PARENT_PROVENANCE_VERIFIED_ONLY") else
                     "audit only" if row else "pending"
                 )
-            elif stage.id == "golden":
-                self.state["status"][stage.id] = (
-                    "reference pending" if self._latest_golden() is not None
-                    else "pending"
-                )
-            elif stage.id == "goldenfit":
-                golden_root = REPO_ROOT / "artifacts/nsamdr/golden_patch"
-                self.state["status"][stage.id] = (
-                    "report available" if any(
-                        golden_root.glob("*/fit_runs/*/report.json")
-                    ) else "reference pending"
-                )
+            elif stage.id in ("golden", "goldenfit"):
+                folder = self._latest_golden()
+                reference_state = golden_reference_status(folder)
+                if stage.id == "golden":
+                    self.state["status"][stage.id] = reference_state
+                else:
+                    reports = list(folder.glob("fit_runs/*/report.json")) if folder else []
+                    self.state["status"][stage.id] = (
+                        "report available" if reports else reference_state
+                    )
             elif stage.id == "contour":
                 proofs = DIAGNOSTIC_ROOT / "v178_golden_contour"
                 self.state["status"][stage.id] = (
