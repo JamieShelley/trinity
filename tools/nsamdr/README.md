@@ -8,11 +8,13 @@ The latest Raven A/B/C0/C1 test does not meet that target.** Bigger pixel
 dimensions, successful CUDA execution and lower synthetic reconstruction
 loss do not establish clean mechanical contours or better-than-authored detail.
 
-**Active next work:** [G0–G2 Golden Patch qualification](GOLDEN_PATCH.md).
-It extracts authentic source-resolution Raven evidence, requires an
-independently traced smooth 4× reference, and separates synthetic contour
-learning from a supervised one-real-patch capacity test. It uses the
-existing full-featured GUI; no second operator interface is introduced.
+**Active next work:** [G0–G2 automatic Golden Patch preview](GOLDEN_PATCH.md).
+It extracts authentic native Raven evidence, trains a structural contour
+head on known clean analytic geometry using consistent RGB/normal edge
+observations, then renders an automatic 4× real Raven contour proposal.
+**No manual tracing or fabricated clean real target is required.**
+The result is an unqualified inference experiment, not proof of an improved
+real texture. The existing full-featured GUI remains the sole operator UI.
 
 Do not treat a Golden Patch single-region overfit as unseen real-texture
 generalisation, and do not promote old V17.6/V17.7 checkpoints based on
