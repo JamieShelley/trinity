@@ -22,7 +22,7 @@ if str(ROOT) not in sys.path:
 
 from tools.nsamdr.neural.v177.synthetic_geometry import make_batch
 from tools.nsamdr.neural.v178.contour_model import (
-    SCHEMA, StructuralContourHead, contour_loss,
+    SCHEMA, StructuralContourHead, contour_loss, physical_edge_evidence,
 )
 
 TRAIN_SCHEMA = "NSAMDR_V178_G2_CONTOUR_REPORT_V1"
@@ -52,8 +52,12 @@ def source_hash(repo: Path) -> str:
 def _batch(count:int, patch:int, seed:int, device:torch.device):
     images=make_batch(count,patch,seed=seed)
     a,n,m,_,_,target_material,_=images
-    return (a.to(device),n.to(device),m.to(device),
-            target_material[:,:1].to(device))
+    a,n,m=a.to(device),n.to(device),m.to(device)
+    # Synthetic and real inference use the SAME observation semantics:
+    # native RGB/normal structural edges, not synthetic coverage or V5 IDs.
+    edges=physical_edge_evidence(a,n)
+    observation=torch.cat((edges,m[:,1:]),dim=1)
+    return (a,n,observation,target_material[:,:1].to(device))
 
 
 @torch.no_grad()
@@ -91,7 +95,7 @@ def parser()->argparse.ArgumentParser:
     p.add_argument("--steps",type=int,default=400)
     p.add_argument("--batch-size",type=int,default=4)
     p.add_argument("--patch-size",type=int,default=32)
-    p.add_argument("--seed",type=int,default=17802)
+    p.add_argument("--seed",type=int,default=17812)
     p.add_argument("--learning-rate",type=float,default=.0007)
     p.add_argument("--resume",choices=("fresh","auto"),default="fresh")
     return p
