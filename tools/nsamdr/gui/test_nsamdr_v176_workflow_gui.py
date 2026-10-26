@@ -9,6 +9,31 @@ from tools.nsamdr.gui.nsamdr_v176_workflow_gui import (
 
 
 class V176OperatorGuiTests(unittest.TestCase):
+    def test_direct_script_mode_resolves_golden_editor_package(self):
+        """Real GUI launcher is a file, not python -m: isolate its sys.path."""
+        import subprocess
+        import sys
+        gui = Path(__file__).resolve().parent / "nsamdr_v176_workflow_gui.py"
+        editor = gui.with_name("golden_trace_editor.py").resolve()
+        probe = (
+            "import importlib.util,runpy,sys,pathlib; "
+            "runpy.run_path(sys.argv[1],run_name='nsamdr_gui_import_probe'); "
+            "spec=importlib.util.find_spec('tools.nsamdr.gui.golden_trace_editor'); "
+            "assert spec is not None, 'Golden Patch package unavailable'; "
+            "assert pathlib.Path(spec.origin).resolve()==pathlib.Path(sys.argv[2]).resolve()"
+        )
+        with tempfile.TemporaryDirectory() as other_cwd:
+            process = subprocess.run(
+                [sys.executable, "-I", "-c", probe, str(gui), str(editor)],
+                cwd=other_cwd, capture_output=True, text=True, timeout=30,
+                check=False,
+            )
+        self.assertEqual(
+            process.returncode, 0,
+            f"direct GUI script cannot import Golden Patch editor:\n"
+            f"{process.stdout}\n{process.stderr}"
+        )
+
     def test_train_comparison_is_real_optimisation(self):
         cmd = training_command("compare-features", "fresh", False, "auto")
         self.assertEqual(cmd[:3], ["v176-capacity-proof", "--phase", "compare-features"])
