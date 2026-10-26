@@ -9,7 +9,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-SCHEMA = "NSAMDR_V178_CONTOUR_HEAD_V2_AUTO_EVIDENCE"
+SCHEMA = "NSAMDR_V178_CONTOUR_HEAD_V3_FOREGROUND_PROTECTED"
 SCALE = 4
 
 
@@ -122,4 +122,53 @@ def contour_loss(
     return result, {
         "coverage": float(regression.detach()), "tangent":float(tangent.detach()),
         "curvature":float(curvature.detach()),
+    }
+
+
+def foreground_metrics(
+    candidate: torch.Tensor, target: torch.Tensor, *, threshold: float=.30,
+) -> dict[str, float]:
+    """Explicit line survival, never an implicit low-mean L1 surrogate."""
+    if candidate.shape != target.shape or candidate.ndim != 4 or candidate.shape[1] != 1:
+        raise ValueError("foreground metrics need matching N1HW masks")
+    with torch.no_grad():
+        expected = target >= threshold
+        predicted = candidate >= threshold
+        matched = (expected & predicted).sum().item()
+        count_expected = expected.sum().item()
+        count_predicted = predicted.sum().item()
+        return {
+            "contourRecall": matched / max(1, count_expected),
+            "contourPrecision": matched / max(1, count_predicted),
+            "contourIoU": matched / max(1, count_expected + count_predicted - matched),
+            "targetActiveFraction": count_expected / target.numel(),
+            "predictedActiveFraction": count_predicted / candidate.numel(),
+        }
+
+
+def contour_supervised_loss(
+    candidate: torch.Tensor, target: torch.Tensor,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Cost of erasing narrow real geometric lines must exceed empty background.
+
+    Plain global L1 made a nearly-all-zero predictor numerically attractive.
+    Keep tangent/curvature fidelity, but explicitly reward correct foreground
+    and penalise spurious structures. The target is analytic clean geometry,
+    not a sharpened version of input.
+    """
+    geometric, parts = contour_loss(candidate, target)
+    # The positive supervision is weighted by subpixel target coverage so
+    # boundary pixels cannot disappear to reduce a background-dominated mean.
+    weights = 1. + 10. * target.detach()
+    foreground_l1 = (weights * (candidate - target).abs()).mean()
+    overlap = (candidate * target).sum(dim=(-2,-1))
+    denominator = candidate.sum(dim=(-2,-1)) + target.sum(dim=(-2,-1))
+    soft_dice = (1. - (2.*overlap+1.e-5)/(denominator+1.e-5)).mean()
+    false_positive = (candidate * (1.-target).clamp_min(0)).mean()
+    loss = geometric + .5*foreground_l1 + .25*soft_dice + .15*false_positive
+    return loss, {
+        **parts,
+        "foregroundWeighted":float(foreground_l1.detach()),
+        "softDicePenalty":float(soft_dice.detach()),
+        "falseStructurePenalty":float(false_positive.detach()),
     }
