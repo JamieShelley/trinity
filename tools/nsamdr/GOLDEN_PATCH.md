@@ -20,11 +20,11 @@ three steps:
 After updating NSAMDR, from the repository root:
 
 ~~~bat
-scripts\build\nsamdr.bat v178-contour-train --steps 400 --batch-size 4 --patch-size 32 --seed 17812 --device cuda --resume fresh
+scripts\build\nsamdr.bat v178-contour-train --steps 400 --batch-size 4 --patch-size 32 --seed 17822 --device cuda --resume fresh
 ~~~
 
 This is **a new model schema / input encoding**. The previous
-seed-17802 checkpoint cannot be reused as a source-equivalent candidate.
+seed-17812 checkpoint cannot be reused as a source-equivalent candidate.
 
 After a `SYNTHETIC_CONTOUR_PASS_ONLY` report (>= 20% held-out synthetic
 contour recovery), run the new **Automatic real Raven contour preview**
