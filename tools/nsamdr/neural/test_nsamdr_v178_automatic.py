@@ -87,6 +87,24 @@ class AutoRavenTests(unittest.TestCase):
             self.assertIn("sourceSha256",result)
             self.assertNotIn("contourIoU",result)
 
+    def test_real_black_contour_is_rejected_with_diagnostic_report(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            folder=self._folder(root)
+            ck=self._checkpoint(root,True)
+            saved=torch.load(ck,weights_only=True)
+            # Deliberately suppress every contour logit. It must NEVER be
+            # labelled a successful real Raven reconstruction.
+            saved["model"]["delta.bias"]=torch.tensor([-70.])
+            torch.save(saved,ck)
+            report=run(folder,ck,device_name="cpu",tile=32)
+            self.assertTrue(report["realContourCollapsed"])
+            self.assertEqual(report["decision"],"REAL_EVE_CONTOUR_COLLAPSE_REJECTED")
+            self.assertLess(report["signalRetentionRatio"],.05)
+            self.assertLess(report["candidateActiveFraction"],.001)
+            self.assertFalse(report["productionPromotionAllowed"])
+            self.assertTrue((folder/"automatic_contour_preview/report.json").exists())
+
     def test_failed_or_wrong_generation_checkpoint_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
