@@ -1,4 +1,69 @@
-# NSAMDR — G0–G2 Golden Patch: qualify visual geometry first
+# NSAMDR — Golden Patch G2 automatic contour inference (current)
+
+Manual contour tracing is **not the standard workflow**. A hand-drawn trace
+introduces bias and scales poorly. The canonical Golden Patch work now has
+three steps:
+
+1. **G0 native Raven evidence**: `v178-golden-patch --action prepare`
+   extracts and hashes native albedo, normal and other physical-map crops.
+2. **G2 synthetic structural training V2**: train an analytic reference
+   network using **native RGB and normal edge evidence** rather than a
+   categorical material selector or manual traced label. This makes the
+   training-time observation semantics match the real Raven inference path.
+3. **Automatic G2 real-patch preview**: apply the trained synthetic candidate
+   to the frozen native Raven patch without trace.json. Compare its inferred
+   contour field with native and interpolated appearance. This produces a
+   *hypothesis* about continuous geometry, not a verified real clean target.
+
+## Commands
+
+After updating NSAMDR, from the repository root:
+
+~~~bat
+scripts\build\nsamdr.bat v178-contour-train --steps 400 --batch-size 4 --patch-size 32 --seed 17812 --device cuda --resume fresh
+~~~
+
+This is **a new model schema / input encoding**. The previous
+seed-17802 checkpoint cannot be reused as a source-equivalent candidate.
+
+After a `SYNTHETIC_CONTOUR_PASS_ONLY` report (>= 20% held-out synthetic
+contour recovery), run the new **Automatic real Raven contour preview**
+stage in the full NSAMDR GUI. Or run:
+
+~~~bat
+scripts\build\nsamdr.bat v178-golden-auto --folder "artifacts\nsamdr\golden_patch\cb1_t1_a_000_x320_y448_s256" --device cuda
+~~~
+
+The exact folder name is grounded by the G0 preparation output and may vary.
+
+Outputs under `automatic_contour_preview`:
+
+- `native_edge_observation.png`: authentic source RGB/normal native-edge evidence
+- `baseline_observation_4x.png`: interpolated observation; **not ground truth**
+- `candidate_contour_4x.png`: automatic learned 4× contour proposal
+- `automatic_contour_comparison.png`: A native, B interpolated, C candidate
+  contour overlay, D model-versus-observation diagnostic difference
+- `report.json`: provenance, actual dimensions and explicit **no real-EVE
+  quality qualification** decision
+
+The CPU GUI does not import OpenCV or load the contour model. The inference
+stage executes in the managed CUDA environment; `cv2` is required there.
+Do **not** install Python packages in the GUI CPU environment merely to
+display a manual trace editor.
+
+**Important limitation:** no real 4× target exists just because a smooth
+contour was generated. Distinct structural evidence, physical-render
+consistency and real held-out evaluation are still needed before enhanced
+albedo/normal maps can be qualified. The synthetic pass alone is insufficient.
+
+---
+
+# Historical/manual single-patch annotation experiments (not recommended)
+
+The following earlier G1 human tracing and G2.R same-patch fitting
+commands are retained for experimental reproducibility, not required for
+automatic inference or GUI operation. They are not the production objective.
+
 
 ## The reference is the project goal, not the latest training loss
 
