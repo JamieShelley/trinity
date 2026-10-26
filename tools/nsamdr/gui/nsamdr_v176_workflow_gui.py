@@ -57,9 +57,9 @@ STAGES = (
     Stage("compare", "10A.1", "Capacity and features", "Diagnose, run stability, train capacity, or compare 10/58-channel specialists."),
     Stage("attainable", "10A.2", "Attainability diagnostic", "Target-assisted training-only pixel fit. Does not update neural weights."),
     Stage("enhance", "11", "V17.7 native enhancement", "Train a bounded RGB/normal/material correction over B using clean synthetic geometry."),
-    Stage("golden", "G0–G1", "Raven Golden Patch", "Capture verified native Raven pixels and independently trace clean structural contours."),
-    Stage("contour", "G2", "Structural contour proof", "Train structural field from synthetic clean geometry; hold out real Raven until independently traced."),
-    Stage("goldenfit", "G2.R", "Real Golden Patch capacity", "Fit independently human-traced real Raven contours; single-region overfit only."),
+    Stage("golden", "G0", "Raven Golden Patch", "Capture authentic Raven pixels and all native physical-map evidence; no manual tracing."),
+    Stage("contour", "G2", "Structural contour proof", "Learn structural field from clean synthetic geometry using RGB and normal edge evidence."),
+    Stage("goldenfit", "G2.R", "Automatic real Raven contour preview", "Run the G2 structural model on an authentic Raven patch without a traced target."),
     Stage("preview", "VIS", "Raven 3D A/B/C0/C1 preview", "Compare authored A, semantic B, frozen C0, and trained V17.6 C1 on the Raven."),
     Stage("evidence", "REP", "Reports / provenance", "Inspect completed V17.6 proof and native render artifacts."),
     Stage("tests", "T", "Regression tests", "Run the current supported V17.6 verification suite."),
@@ -499,15 +499,13 @@ class App:
             self._row("Resume", "resume", "fresh", ("fresh", "auto"))
             self._label("Gate", "Synthetic validation improvement required; no real-Raven qualification")
         elif selected == "golden":
-            self._label("Contract", "Native Raven 256×256 → 4× structural reference. No fabricated clean target.")
+            self._label("Contract", "Native Raven physical-map evidence, not a fabricated high-resolution ground truth.")
             self._row("EVE ResFiles cache", "cache", r"C:\CCP\EVE")
             self._row("Native ROI X", "x", "320")
             self._row("Native ROI Y", "y", "448")
             self._row("Native ROI size", "size", "256", ("128", "256", "384", "512"))
             self._row("Exact source filename", "source_name", "")
-            self._label("Next action", "Prepare evidence, then trace panel centre-lines independently.")
-            ttk.Button(self.form, text="Open latest Golden Patch / trace editor",
-                       command=self.open_golden_editor).pack(anchor="w", pady=5)
+            self._label("Next action", "Prepare the native patch, then run G2 training and automatic real-patch inference.")
             ttk.Button(self.form, text="Open latest golden evidence folder",
                        command=self.open_golden_folder).pack(anchor="w", pady=5)
         elif selected == "contour":
@@ -515,23 +513,20 @@ class App:
             self._row("Updates", "steps", "400")
             self._row("Batch size", "batch_size", "4")
             self._row("Native patch width", "patch", "32")
-            self._row("Seed", "seed", "17802")
+            self._row("Seed", "seed", "17812")
             self._row("Learning rate", "lr", "0.0007")
             self._row("Device", "device", "cuda", ("cuda", "cpu"))
             self._row("Resume", "resume", "fresh", ("fresh", "auto"))
             self._label("Gate", "At least 20% relative contour recovery on unseen analytic geometry.")
         elif selected == "goldenfit":
-            self._label("Qualification", "REAL Raven single-patch supervised capacity only — not unseen-ship generalisation.")
+            self._label("Qualification", "Automatic contour inference on native Raven maps; no human trace or pseudo-ground truth.")
             self._row("Golden Patch folder", "folder", str(self._latest_golden() or ""))
-            self._row("Updates", "steps", "300")
-            self._row("Native training patch", "patch", "48")
-            self._row("Seed", "seed", "17803")
+            self._row("G2 checkpoint", "checkpoint", str(
+                DIAGNOSTIC_ROOT / "v178_golden_contour/seed_17812_patch_32_batch_4/candidate.pt"))
             self._row("Device", "device", "cuda", ("cuda", "cpu"))
-            self._row("Resume", "resume", "fresh", ("fresh", "auto"))
-            self._label("Reference", "Prepare Golden Patch, trace a clean contour and save it first.")
-            ttk.Button(self.form, text="Open trace editor",
-                       command=self.open_golden_editor).pack(anchor="w", pady=4)
-            ttk.Button(self.form, text="Open golden evidence / fit reports",
+            self._row("Tile size (native)", "tile", "96")
+            self._label("Gate", "Requires synthetic holdout pass. Produces an unqualified real-Raven comparison sheet.")
+            ttk.Button(self.form, text="Open Golden Patch comparison folder",
                        command=self.open_golden_folder).pack(anchor="w", pady=4)
         elif selected == "preview":
             self._label("Ship", "Caldari Raven — real EVE textures / DX11 native viewer")
@@ -644,7 +639,7 @@ class App:
                 "v178-contour-train", "--steps", self._value("steps", "400"),
                 "--batch-size", self._value("batch_size", "4"),
                 "--patch-size", self._value("patch", "32"),
-                "--seed", self._value("seed", "17802"),
+                "--seed", self._value("seed", "17812"),
                 "--learning-rate", self._value("lr", "0.0007"),
                 "--device", self._value("device", "cuda"),
                 "--resume", self._value("resume", "fresh"),
@@ -654,12 +649,11 @@ class App:
             if not folder:
                 raise ValueError("Prepare a Golden Patch and select its folder first")
             args = [
-                "v178-golden-fit", "--folder", folder,
-                "--steps", self._value("steps", "300"),
-                "--patch-size", self._value("patch", "48"),
-                "--seed", self._value("seed", "17803"),
+                "v178-golden-auto", "--folder", folder,
+                "--checkpoint", self._value("checkpoint", str(
+                    DIAGNOSTIC_ROOT / "v178_golden_contour/seed_17812_patch_32_batch_4/candidate.pt")),
                 "--device", self._value("device", "cuda"),
-                "--resume", self._value("resume", "fresh"),
+                "--tile", self._value("tile", "96"),
             ]
         elif stage_id == "preview":
             args = raven_command(self._value("cache", r"C:\CCP\EVE"),
@@ -736,13 +730,15 @@ class App:
                 )
             elif stage.id in ("golden", "goldenfit"):
                 folder = self._latest_golden()
-                reference_state = golden_reference_status(folder)
                 if stage.id == "golden":
-                    self.state["status"][stage.id] = reference_state
-                else:
-                    reports = list(folder.glob("fit_runs/*/report.json")) if folder else []
                     self.state["status"][stage.id] = (
-                        "report available" if reports else reference_state
+                        "native patch ready" if folder else "prepare required"
+                    )
+                else:
+                    report = folder / "automatic_contour_preview/report.json" if folder else None
+                    self.state["status"][stage.id] = (
+                        "preview available" if report and report.is_file()
+                        else "ready for inference" if folder else "prepare required"
                     )
             elif stage.id == "contour":
                 proofs = DIAGNOSTIC_ROOT / "v178_golden_contour"
