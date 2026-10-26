@@ -247,6 +247,22 @@ class NSAMDRCommandLineApplication:
             "--seed", str(args.seed), "--resume", args.resume,
         ])
 
+    def _command_v178_auto(self, args: argparse.Namespace) -> int:
+        rc = self._source_freshness_preflight()
+        if rc:
+            return rc
+        python = self._python("cuda")
+        if args.device == "cuda":
+            rc = self._cuda_preflight(python)
+            if rc:
+                return rc
+        argv = [python, "-u", NEURAL_ROOT / "preview_nsamdr_v178_automatic.py",
+                "--folder", args.folder, "--device", args.device,
+                "--tile", str(args.tile)]
+        if args.checkpoint:
+            argv.extend(("--checkpoint", args.checkpoint))
+        return self._run(argv)
+
     def _command_tests(self, args: argparse.Namespace) -> int:
         python = self._python("cuda")
         cases = [
@@ -314,7 +330,7 @@ class NSAMDRCommandLineApplication:
         contour.add_argument("--steps", type=int, default=400)
         contour.add_argument("--batch-size", type=int, default=4)
         contour.add_argument("--patch-size", type=int, default=32)
-        contour.add_argument("--seed", type=int, default=17802)
+        contour.add_argument("--seed", type=int, default=17812)
         contour.add_argument("--learning-rate", type=float, default=.0007)
         contour.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
         contour.set_defaults(handler=self._command_v178_contour)
@@ -326,6 +342,12 @@ class NSAMDRCommandLineApplication:
         real_fit.add_argument("--seed", type=int, default=17803)
         real_fit.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
         real_fit.set_defaults(handler=self._command_v178_real_fit)
+        auto = commands.add_parser("v178-golden-auto")
+        auto.add_argument("--folder", required=True)
+        auto.add_argument("--checkpoint", default="")
+        auto.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
+        auto.add_argument("--tile", type=int, default=96)
+        auto.set_defaults(handler=self._command_v178_auto)
         raven = commands.add_parser("v176-raven-preview")
         raven.add_argument("--shared-cache", default=r"C:\CCP\EVE")
         raven.add_argument("--device", choices=("cuda", "cpu", "auto"), default="cuda")
