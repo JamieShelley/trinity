@@ -16,7 +16,8 @@ class V176CLITests(unittest.TestCase):
         self.assertEqual(accepted, {
             "gui", "setup", "v176-detail-proof", "v176-capacity-proof",
             "v176-raven-preview", "v176-raven-channel-audit", "v177-enhancement-train",
-            "v178-golden-patch", "v178-contour-train", "v178-golden-fit", "test",
+            "v178-golden-patch", "v178-contour-train", "v178-golden-fit",
+            "v178-golden-auto", "test",
         })
 
     def test_v176_capacity_passes_phase_resume_and_preserves_audit(self):
@@ -120,6 +121,23 @@ class V176CLITests(unittest.TestCase):
         self.assertIn("golden_nsamdr_v178.py", " ".join(command))
         self.assertIn("448",command)
         self.assertNotIn("--device",command)
+
+    def test_v178_auto_uses_existing_cuda_runtime_without_trace(self):
+        args = self.parser.parse_args([
+            "v178-golden-auto", "--folder", "frozen_raven",
+            "--checkpoint", "new_model.pt", "--device", "cpu", "--tile", "32",
+        ])
+        with patch.object(self.app, "_source_freshness_preflight", return_value=0), \
+             patch.object(self.app, "_python", return_value=Path("python")), \
+             patch.object(self.app, "_cuda_preflight",
+                               side_effect=AssertionError("no GPU in CPU mode")), \
+             patch.object(self.app, "_run", return_value=0) as run:
+            self.assertEqual(self.app._command_v178_auto(args),0)
+        command=[str(value) for value in run.call_args.args[0]]
+        self.assertIn("preview_nsamdr_v178_automatic.py"," ".join(command))
+        self.assertIn("frozen_raven",command)
+        self.assertIn("new_model.pt",command)
+        self.assertNotIn("trace.json",command)
 
     def test_v178_real_fit_needs_explicit_trace_folder(self):
         args = self.parser.parse_args([
