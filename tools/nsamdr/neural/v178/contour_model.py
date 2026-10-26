@@ -9,8 +9,36 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-SCHEMA = "NSAMDR_V178_CONTOUR_HEAD_V1"
+SCHEMA = "NSAMDR_V178_CONTOUR_HEAD_V2_AUTO_EVIDENCE"
 SCALE = 4
+
+
+def physical_edge_evidence(
+    albedo: torch.Tensor, normal: torch.Tensor,
+) -> torch.Tensor:
+    """Native geometry observation, not a high-resolution training target.
+
+    Shared between analytic training inputs and authentic EVE inputs.
+    Derivative magnitude is computed in NATIVE texels, without using any
+    high-resolution target or V5 categorical material selector as an edge.
+    """
+    if (albedo.ndim != 4 or normal.ndim != 4 or albedo.shape[1] != 3
+            or normal.shape[1] != 2 or albedo.shape[0] != normal.shape[0]
+            or albedo.shape[-2:] != normal.shape[-2:]):
+        raise ValueError("aligned native RGB and normal XY required")
+    lum=(albedo[:,0:1]*.2126+albedo[:,1:2]*.7152
+         +albedo[:,2:3]*.0722)
+    def magnitude(signal: torch.Tensor) -> torch.Tensor:
+        # Padded symmetric differences approximate boundaries at their
+        # native coordinates; do not infer a fake clean 4x contour.
+        gx=torch.nn.functional.pad(signal[:,:,:,2:]-signal[:,:,:,:-2],
+                                  (1,1,0,0),mode="replicate")*.5
+        gy=torch.nn.functional.pad(signal[:,:,2:,:]-signal[:,:,:-2,:],
+                                  (0,0,1,1),mode="replicate")*.5
+        return torch.sqrt(gx.square()+gy.square()+1.e-10)
+    colour=magnitude(lum)
+    normal_edges=magnitude(normal).mean(dim=1,keepdim=True)
+    return torch.clamp(3.0*colour+1.2*normal_edges,0,1)
 
 
 class Residual(nn.Module):
@@ -51,6 +79,8 @@ class StructuralContourHead(nn.Module):
             or albedo.shape[-2:] != normal.shape[-2:]
             or albedo.shape[-2:] != material.shape[-2:]):
             raise ValueError("G2 contour head requires aligned native NCHW physical maps")
+        # material[0] is the calibrated native edge evidence shared by
+        # synthetic and real sources, NEVER a categorical V5 material ID.
         # Bilinear only as an explicitly labelled observation baseline. The
         # output corrects its geometry rather than treating it as clean truth.
         reference = F.interpolate(
