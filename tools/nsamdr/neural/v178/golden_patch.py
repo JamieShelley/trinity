@@ -169,10 +169,27 @@ def create(
     return report
 
 
-def validate_trace(folder: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    evidence = json.loads((folder/"evidence.json").read_text(encoding="utf-8"))
+def validate_native_evidence(folder: Path) -> dict[str, Any]:
+    """Verify G0 authentic pixels without requiring any human trace."""
+    evidence_path=folder/"evidence.json"
+    evidence=json.loads(evidence_path.read_text(encoding="utf-8"))
     if evidence.get("schema") != SCHEMA:
-        raise ValueError("unknown golden-patch evidence schema")
+        raise ValueError("invalid native Golden Patch evidence schema")
+    identity=evidence.get("identity",{})
+    if not identity.get("sourceSha256") or not identity.get("nativeRoi"):
+        raise ValueError("native Golden Patch identity missing")
+    assets=evidence.get("assets",{})
+    if not assets or "native_albedo.png" not in assets:
+        raise ValueError("native Golden Patch missing albedo evidence")
+    for name,info in assets.items():
+        path=folder/name
+        if not path.is_file() or sha256(path)!=info["sha256"]:
+            raise RuntimeError(f"frozen native Golden Patch evidence changed: {name}")
+    return evidence
+
+
+def validate_trace(folder: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    evidence = validate_native_evidence(folder)
     if not (folder/"trace.json").is_file():
         raise RuntimeError("human-curated trace.json is required; template is not a target")
     trace = json.loads((folder/"trace.json").read_text(encoding="utf-8"))
