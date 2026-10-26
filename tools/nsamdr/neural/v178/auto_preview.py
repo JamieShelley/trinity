@@ -132,9 +132,23 @@ def run(folder: Path, checkpoint: Path, *, device_name: str="cuda",
         if not cv2.imwrite(str(dest/name),pixels):
             raise RuntimeError(f"could not write {name}")
     sheet=_comparison(dest,image,b,c)
+    # An unsupervised sanity check is NOT a proxy for geometry accuracy.
+    # It only rejects degenerate outputs that erase all structural evidence.
+    mean_baseline=float(np.mean(b))
+    mean_prediction=float(np.mean(c))
+    active_baseline=float(np.mean(b>=.30))
+    active_prediction=float(np.mean(c>=.30))
+    retained=mean_prediction/max(1.e-8,mean_baseline)
+    collapsed=bool(
+        mean_prediction < .005
+        or retained < .05
+        or active_prediction < .001
+        or not np.isfinite(c).all()
+    )
     report={
         "schema":REPORT_SCHEMA,
-        "decision":"REAL_EVE_UNQUALIFIED_AUTOMATIC_CONTOUR_PREVIEW",
+        "decision":("REAL_EVE_CONTOUR_COLLAPSE_REJECTED" if collapsed else
+                    "REAL_EVE_UNQUALIFIED_AUTOMATIC_CONTOUR_PREVIEW"),
         "nativeEvidenceVerified":True,
         "humanContourTracingRequired":False,
         "referenceAvailable":False,
@@ -150,7 +164,17 @@ def run(folder: Path, checkpoint: Path, *, device_name: str="cuda",
         "nativeDimensions":list(image.shape[1::-1]),
         "outputDimensions":[image.shape[1]*4,image.shape[0]*4],
         "observationMean":float(np.mean(native)),
-        "candidateMean":float(np.mean(c)),
+        "candidateMean":mean_prediction,
+        "baselineMean":mean_baseline,
+        "realContourCollapsed":collapsed,
+        "signalRetentionRatio":retained,
+        "baselineActiveFraction":active_baseline,
+        "candidateActiveFraction":active_prediction,
+        "signalIntegrityThresholds":{
+            "minimumCandidateMean":.005,
+            "minimumSignalRetentionRatio":.05,
+            "minimumCandidateActiveFraction":.001,
+        },
         "candidateDifferenceFromObservation":float(np.mean(np.abs(c-b))),
         "visualComparison":str(sheet),
         "candidateMask":str(dest/"candidate_contour_4x.png"),
@@ -158,5 +182,7 @@ def run(folder: Path, checkpoint: Path, *, device_name: str="cuda",
     }
     (dest/"report.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8")
     print(f"[v178-auto] {report['decision']} comparison={sheet} "
-          f"changed={report['candidateDifferenceFromObservation']:.6f}",flush=True)
+          f"changed={report['candidateDifferenceFromObservation']:.6f} "
+          f"signal_retention={retained:.6f} active_fraction={active_prediction:.6f}",
+          flush=True)
     return report
