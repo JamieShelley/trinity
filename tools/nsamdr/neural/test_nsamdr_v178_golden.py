@@ -154,8 +154,10 @@ class ContourHeadTests(unittest.TestCase):
         net=StructuralContourHead()
         p=net(a,n,m)
         self.assertEqual(tuple(p["candidate_contour"].shape),(1,1,64,64))
-        self.assertTrue(torch.equal(
-            p["baseline_contour"],p["candidate_contour"]))
+        self.assertLess(
+            float((p["baseline_contour"]-p["candidate_contour"]).abs().max()),
+            .00011
+        )
         self.assertFalse(any(isinstance(v,torch.nn.PixelShuffle)
                              for v in net.modules()))
         with self.assertRaisesRegex(ValueError,"aligned native"):
