@@ -513,16 +513,16 @@ class App:
             self._row("Updates", "steps", "400")
             self._row("Batch size", "batch_size", "4")
             self._row("Native patch width", "patch", "32")
-            self._row("Seed", "seed", "17812")
+            self._row("Seed", "seed", "17822")
             self._row("Learning rate", "lr", "0.0007")
             self._row("Device", "device", "cuda", ("cuda", "cpu"))
             self._row("Resume", "resume", "fresh", ("fresh", "auto"))
-            self._label("Gate", "At least 20% relative contour recovery on unseen analytic geometry.")
+            self._label("Gate", "At least 20% contour recovery plus foreground precision/recall; blank masks fail.")
         elif selected == "goldenfit":
             self._label("Qualification", "Automatic contour inference on native Raven maps; no human trace or pseudo-ground truth.")
             self._row("Golden Patch folder", "folder", str(self._latest_golden() or ""))
             self._row("G2 checkpoint", "checkpoint", str(
-                DIAGNOSTIC_ROOT / "v178_golden_contour/seed_17812_patch_32_batch_4/candidate.pt"))
+                DIAGNOSTIC_ROOT / "v178_golden_contour/seed_17822_patch_32_batch_4/candidate.pt"))
             self._row("Device", "device", "cuda", ("cuda", "cpu"))
             self._row("Tile size (native)", "tile", "96")
             self._label("Gate", "Requires synthetic holdout pass. Produces an unqualified real-Raven comparison sheet.")
@@ -639,7 +639,7 @@ class App:
                 "v178-contour-train", "--steps", self._value("steps", "400"),
                 "--batch-size", self._value("batch_size", "4"),
                 "--patch-size", self._value("patch", "32"),
-                "--seed", self._value("seed", "17812"),
+                "--seed", self._value("seed", "17822"),
                 "--learning-rate", self._value("lr", "0.0007"),
                 "--device", self._value("device", "cuda"),
                 "--resume", self._value("resume", "fresh"),
@@ -651,7 +651,7 @@ class App:
             args = [
                 "v178-golden-auto", "--folder", folder,
                 "--checkpoint", self._value("checkpoint", str(
-                    DIAGNOSTIC_ROOT / "v178_golden_contour/seed_17812_patch_32_batch_4/candidate.pt")),
+                    DIAGNOSTIC_ROOT / "v178_golden_contour/seed_17822_patch_32_batch_4/candidate.pt")),
                 "--device", self._value("device", "cuda"),
                 "--tile", self._value("tile", "96"),
             ]
