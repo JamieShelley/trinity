@@ -34,6 +34,29 @@ class V176OperatorGuiTests(unittest.TestCase):
             f"{process.stdout}\n{process.stderr}"
         )
 
+    def test_golden_reference_status_distinguishes_missing_valid_invalid_trace(self):
+        import sys
+        import types
+        from unittest.mock import patch
+        from tools.nsamdr.gui.nsamdr_v176_workflow_gui import golden_reference_status
+
+        self.assertEqual(golden_reference_status(None), "prepare required")
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            self.assertEqual(golden_reference_status(folder), "prepare required")
+            (folder / "evidence.json").write_text("{}")
+            self.assertEqual(golden_reference_status(folder), "trace required")
+            (folder / "trace.json").write_text("{}")
+
+            stub = types.ModuleType("tools.nsamdr.neural.v178.golden_patch")
+            stub.validate_trace = lambda chosen: (chosen == folder) or None
+            with patch.dict(sys.modules, {"tools.nsamdr.neural.v178.golden_patch": stub}):
+                self.assertEqual(golden_reference_status(folder), "trace ready")
+                def reject(_folder):
+                    raise ValueError("trace source identity mismatch")
+                stub.validate_trace = reject
+                self.assertEqual(golden_reference_status(folder), "trace invalid")
+
     def test_train_comparison_is_real_optimisation(self):
         cmd = training_command("compare-features", "fresh", False, "auto")
         self.assertEqual(cmd[:3], ["v176-capacity-proof", "--phase", "compare-features"])
