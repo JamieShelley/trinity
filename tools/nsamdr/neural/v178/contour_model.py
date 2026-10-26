@@ -90,11 +90,14 @@ class StructuralContourHead(nn.Module):
         features = self.features(torch.cat((
             albedo.float(), normal.float(), material.float()
         ), dim=1))
-        # Signed ±1 range permits learning an independently traced contour
-        # even when a real V5 selector is semantically unrelated to the line.
-        # Initial zero residual still reproduces the observation baseline.
-        correction = torch.tanh(self.delta(self.up(features)))
-        candidate = (reference + correction).clamp(0, 1)
+        # Logit-space correction retains gradients for dim structural
+        # contours. The previous additive tanh + hard clamp could send every
+        # pixel to exactly zero, eliminating the training gradient there.
+        # Zero-initialized residual reproduces the baseline within 1e-4.
+        eps = 1.e-4
+        prior = torch.logit(reference.clamp(eps,1.-eps))
+        correction = 2. * self.delta(self.up(features))
+        candidate = torch.sigmoid(prior + correction)
         return {"baseline_contour": reference, "candidate_contour": candidate}
 
 
