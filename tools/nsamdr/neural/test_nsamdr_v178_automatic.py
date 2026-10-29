@@ -113,11 +113,13 @@ class AutoRavenTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"synthetic contour proof failed"):
                 run(folder,ck,device_name="cpu",tile=32)
             state=torch.load(ck,weights_only=True)
-            state["schema"]="NSAMDR_V178_CONTOUR_HEAD_V1"
             state["syntheticPass"]=True
-            torch.save(state,ck)
-            with self.assertRaisesRegex(RuntimeError,"old V1"):
-                run(folder,ck,device_name="cpu",tile=32)
+            for old_schema in ("NSAMDR_V178_CONTOUR_HEAD_V1",
+                               "NSAMDR_V178_CONTOUR_HEAD_V3_FOREGROUND_PROTECTED"):
+                state["schema"]=old_schema
+                torch.save(state,ck)
+                with self.assertRaisesRegex(RuntimeError,"wrong contour schema"):
+                    run(folder,ck,device_name="cpu",tile=32)
 
     def test_tiled_matches_dense_same_native_evidence(self):
         torch.manual_seed(1234)

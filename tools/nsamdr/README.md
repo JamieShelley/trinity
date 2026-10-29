@@ -16,6 +16,12 @@ observations, then renders an automatic 4× real Raven contour proposal.
 The result is an unqualified inference experiment, not proof of an improved
 real texture. The existing full-featured GUI remains the sole operator UI.
 
+The current contour training contract is **V4**, default seed **17832**.
+Its glow/roughness observations vary independently of the analytic contour,
+removing the V3 synthetic auxiliary-channel shortcut. Network, geometric loss
+and qualification thresholds are unchanged; seed-17822 V3 checkpoints require
+fresh training and are rejected by the current source/schema checks.
+
 Do not treat a Golden Patch single-region overfit as unseen real-texture
 generalisation, and do not promote old V17.6/V17.7 checkpoints based on
 previous synthetic numbers. V17.6 frozen proof evidence remains immutable.

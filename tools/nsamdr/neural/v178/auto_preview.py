@@ -103,11 +103,11 @@ def run(folder: Path, checkpoint: Path, *, device_name: str="cuda",
     if device.type=="cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA requested but unavailable")
     if not checkpoint.is_file():
-        raise FileNotFoundError(f"Train a new V2 synthetic contour checkpoint first: {checkpoint}")
+        raise FileNotFoundError(f"Train a source-matched G2 V4 contour checkpoint first: {checkpoint}")
     state=torch.load(checkpoint,map_location="cpu",weights_only=True)
     if (state.get("schema")!=SCHEMA
         or state.get("config",{}).get("sourceHash")!=source_hash(repo)):
-        raise RuntimeError("checkpoint is from the old V1 material-ID contour model or stale training sources; retrain G2 V2")
+        raise RuntimeError("wrong contour schema or stale training sources; retrain G2 V4 with a fresh seed (default 17832)")
     if not state.get("syntheticPass"):
         raise RuntimeError("synthetic contour proof failed its holdout gate; automatic Raven inference blocked")
     model=StructuralContourHead().to(device)

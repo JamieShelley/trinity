@@ -17,7 +17,7 @@ def parser()->argparse.ArgumentParser:
     p.add_argument("--folder",type=Path,required=True)
     p.add_argument("--checkpoint",type=Path,default=ROOT/
         "artifacts/nsamdr/diagnostics/v178_golden_contour/"
-        "seed_17822_patch_32_batch_4/candidate.pt")
+        "seed_17832_patch_32_batch_4/candidate.pt")
     p.add_argument("--device",choices=("cuda","cpu"),default="cuda")
     p.add_argument("--tile",type=int,default=96)
     return p

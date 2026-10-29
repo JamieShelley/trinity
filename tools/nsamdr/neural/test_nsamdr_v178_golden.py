@@ -201,7 +201,32 @@ class ContourHeadTests(unittest.TestCase):
         scores=evaluate(model,torch.device("cpu"),patch=16,seed=131,cases=2)
         self.assertEqual(scores["holdoutSeedStart"],1000131)
         self.assertAlmostEqual(scores["relativeContourRecovery"],0.,places=5)
-        self.assertEqual(SCHEMA,"NSAMDR_V178_CONTOUR_HEAD_V3_FOREGROUND_PROTECTED")
+        self.assertEqual(SCHEMA,"NSAMDR_V178_CONTOUR_HEAD_V4_AUXILIARY_INDEPENDENT")
+
+    def test_contour_inputs_do_not_reuse_auxiliary_target_copies(self):
+        from unittest.mock import patch
+        from tools.nsamdr.neural.train_nsamdr_v178_contour import _batch
+        images=make_batch(2,16,seed=173)
+        changed=list(images)
+        changed[2]=images[2].clone()
+        changed[2][:,1:]=1.-changed[2][:,1:]
+        batch_factory="tools.nsamdr.neural.train_nsamdr_v178_contour.make_batch"
+        with patch(batch_factory,return_value=images):
+            first=_batch(2,16,444,torch.device("cpu"))
+            torch.manual_seed(999)
+            repeated=_batch(2,16,444,torch.device("cpu"))
+            other_seed=_batch(2,16,445,torch.device("cpu"))
+        with patch(batch_factory,return_value=tuple(changed)):
+            altered=_batch(2,16,444,torch.device("cpu"))
+        for before,after in zip(first,altered):
+            torch.testing.assert_close(before,after,rtol=0,atol=0)
+        torch.testing.assert_close(first[0],images[0],rtol=0,atol=0)
+        torch.testing.assert_close(first[1],images[1],rtol=0,atol=0)
+        torch.testing.assert_close(first[3],images[5][:,:1],rtol=0,atol=0)
+        torch.testing.assert_close(first[2],repeated[2],rtol=0,atol=0)
+        self.assertGreater(float((first[2][:,1:]-other_seed[2][:,1:]).abs().max()),.1)
+        self.assertGreaterEqual(float(first[2][:,1:].min()),0.)
+        self.assertLessEqual(float(first[2][:,1:].max()),1.)
 
 
 if __name__=="__main__":

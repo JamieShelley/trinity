@@ -6,7 +6,7 @@ three steps:
 
 1. **G0 native Raven evidence**: `v178-golden-patch --action prepare`
    extracts and hashes native albedo, normal and other physical-map crops.
-2. **G2 synthetic structural training V2**: train an analytic reference
+2. **G2 synthetic structural training V4**: train an analytic reference
    network using **native RGB and normal edge evidence** rather than a
    categorical material selector or manual traced label. This makes the
    training-time observation semantics match the real Raven inference path.
@@ -20,11 +20,17 @@ three steps:
 After updating NSAMDR, from the repository root:
 
 ~~~bat
-scripts\build\nsamdr.bat v178-contour-train --steps 400 --batch-size 4 --patch-size 32 --seed 17822 --device cuda --resume fresh
+scripts\build\nsamdr.bat v178-contour-train --steps 400 --batch-size 4 --patch-size 32 --seed 17832 --device cuda --resume fresh
 ~~~
 
-This is **a new model schema / input encoding**. The previous
-seed-17812 checkpoint cannot be reused as a source-equivalent candidate.
+This is **a new training contract / checkpoint schema**:
+`NSAMDR_V178_CONTOUR_HEAD_V4_AUXILIARY_INDEPENDENT`. The previous seed-17812
+and seed-17822 checkpoints cannot be reused as source-equivalent candidates.
+V3's synthetic glow/roughness inputs were affine copies of contour coverage.
+V4 varies those auxiliary observations independently, including absent-map
+defaults. RGB, normals, analytic targets, network, loss and pass thresholds
+are unchanged. The shared V17.7 generator and frozen V17.6 proof are untouched.
+Fresh training is required; a synthetic pass still does not qualify Raven.
 
 After a `SYNTHETIC_CONTOUR_PASS_ONLY` report (>= 20% held-out synthetic
 contour recovery), run the new **Automatic real Raven contour preview**

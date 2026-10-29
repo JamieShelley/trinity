@@ -15,6 +15,7 @@ import sys
 import time
 
 import torch
+from torch.nn import functional as F
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
@@ -26,7 +27,8 @@ from tools.nsamdr.neural.v178.contour_model import (
     foreground_metrics, physical_edge_evidence,
 )
 
-TRAIN_SCHEMA = "NSAMDR_V178_G2_CONTOUR_REPORT_V1"
+TRAIN_SCHEMA = "NSAMDR_V178_G2_CONTOUR_REPORT_V2_AUXILIARY_INDEPENDENT"
+AUXILIARY_POLICY = "INDEPENDENT_COARSE_FIELDS_WITH_MISSING_MAP_DEFAULTS_V1"
 FILES = (
     "tools/nsamdr/neural/v177/synthetic_geometry.py",
     "tools/nsamdr/neural/v178/contour_model.py",
@@ -52,12 +54,27 @@ def source_hash(repo: Path) -> str:
 
 def _batch(count:int, patch:int, seed:int, device:torch.device):
     images=make_batch(count,patch,seed=seed)
-    a,n,m,_,_,target_material,_=images
-    a,n,m=a.to(device),n.to(device),m.to(device)
+    a,n,_,_,_,target_material,_=images
+    a,n=a.to(device),n.to(device)
     # Synthetic and real inference use the SAME observation semantics:
     # native RGB/normal structural edges, not synthetic coverage or V5 IDs.
     edges=physical_edge_evidence(a,n)
-    observation=torch.cat((edges,m[:,1:]),dim=1)
+    # The shared generator's two auxiliary material channels are affine
+    # copies of contour coverage. Passing them through as glow/roughness
+    # teaches a shortcut that disappears on non-emissive real surfaces.
+    # Vary these nuisance observations independently of the analytic target;
+    # include the same absent-map defaults as real_fit._input. Keep RGB,
+    # normal evidence, clean coverage targets and the geometric loss intact.
+    generator=torch.Generator(device="cpu").manual_seed(int(seed)^0x5A17832)
+    coarse=torch.rand((count,2,4,4),generator=generator)
+    auxiliary=F.interpolate(coarse,size=(patch,patch),mode="bilinear",
+                            align_corners=False)
+    level=torch.rand((count,2,1,1),generator=generator)
+    auxiliary=(level+.25*(auxiliary-.5)).clamp(0,1)
+    absent=torch.rand((count,2,1,1),generator=generator)<.5
+    defaults=torch.tensor([0.,.5]).view(1,2,1,1)
+    auxiliary=torch.where(absent,defaults,auxiliary)
+    observation=torch.cat((edges,auxiliary.to(device)),dim=1)
     return (a,n,observation,target_material[:,:1].to(device))
 
 
@@ -110,7 +127,7 @@ def parser()->argparse.ArgumentParser:
     p.add_argument("--steps",type=int,default=400)
     p.add_argument("--batch-size",type=int,default=4)
     p.add_argument("--patch-size",type=int,default=32)
-    p.add_argument("--seed",type=int,default=17822)
+    p.add_argument("--seed",type=int,default=17832)
     p.add_argument("--learning-rate",type=float,default=.0007)
     p.add_argument("--resume",choices=("fresh","auto"),default="fresh")
     return p
@@ -137,6 +154,7 @@ def main(argv:list[str]|None=None)->int:
         "seed":args.seed,"patchSize":args.patch_size,
         "batchSize":args.batch_size,"learningRate":args.learning_rate,
         "sourceHash":code_hash,
+        "auxiliaryInputPolicy":AUXILIARY_POLICY,
     }
     folder=repo/"artifacts/nsamdr/diagnostics/v178_golden_contour"/(
         f"seed_{args.seed}_patch_{args.patch_size}_batch_{args.batch_size}"
@@ -207,6 +225,8 @@ def main(argv:list[str]|None=None)->int:
     os.replace(temp,checkpoint)
     report={
         "schema":TRAIN_SCHEMA,
+        "modelSchema":SCHEMA,
+        "device":str(device),"torchVersion":str(torch.__version__),
         "decision":"SYNTHETIC_CONTOUR_PASS_ONLY" if qualified else "G2_SYNTHETIC_FAIL",
         "sourceHash":code_hash,"config":config,
         "checkpoint":str(checkpoint.resolve()),"checkpointSha256":digest(checkpoint),
