@@ -1,29 +1,54 @@
-# NSAMDR tracked-source cleanup audit — 30 October 2026
+# NSAMDR neural cleanup — 30 October 2026
 
-Audited the remote NSAMDR tree at commit 7f4c0b3a7348f48076b1d06a8379661498352407. The Windows working tree and ignored/local files were not accessible.
+## Verified remote scope
 
-## Findings
+Remote `NSAMDR` base: `7f4c0b3a7348f48076b1d06a8379661498352407`.
+Cleanup commits build on isolated `cleanup/nsamdr-cache-audit-20261030`.
+The Windows checkout was not reachable; only GitHub remote tracked files were changed.
 
-- tools/nsamdr/neural: 163 tracked files (~1.66 MiB): 60 versioned module files, 44 tests, 20 probes, 6 trainers, 6 dataset-preparation scripts, 5 benchmarks, 3 audits, 3 inspectors and 16 other files.
-- tools/nsamdr/gr2_converter/node_modules: 476 tracked files (~2.42 MiB). The converter README explicitly says these contain private/source dependencies not reproducibly installable from npm. Preserve until packaging replacement and full converter tests are available.
-- artifacts/nsamdr is already ignored. Checkpoints, evidence and generated native previews are not disposable cache files.
-- V6–V8 scripts are provenance-bearing experimental source files. Moving or editing them without a provenance migration would invalidate source-matched checkpoints.
-- Zero static references alone does not demonstrate that a historical probe is dead: Python CLI, GUI, documentation and external command execution must be checked.
+## Deleted from tracked neural root
 
-## Safe local-only cleanup
+These V16/V17 standalone historical experiments and their dedicated regression tests were removed from current HEAD. Their source remains recoverable at the original base commit (no Git history rewrite).
 
-From a verified D:\REPOS\trinity checkout, run a dry-run:
+- `tools/nsamdr/neural/probe_nsamdr_v16_augmented_two_crop_fit.py`
+- `tools/nsamdr/neural/probe_nsamdr_v16_heldout_transfer.py`
+- `tools/nsamdr/neural/probe_nsamdr_v16_interference.py`
+- `tools/nsamdr/neural/probe_nsamdr_v16_pyramid_context.py`
+- `tools/nsamdr/neural/probe_nsamdr_v16_sibling_crop_transfer.py`
+- `tools/nsamdr/neural/probe_nsamdr_v16_structure_conditioning.py`
+- `tools/nsamdr/neural/probe_nsamdr_v16_two_crop_fit.py`
+- `tools/nsamdr/neural/test_nsamdr_v16_augmented_two_crop_fit_probe.py`
+- `tools/nsamdr/neural/test_nsamdr_v16_heldout_transfer_probe.py`
+- `tools/nsamdr/neural/test_nsamdr_v16_interference_probe.py`
+- `tools/nsamdr/neural/test_nsamdr_v16_sibling_crop_transfer_probe.py`
+- `tools/nsamdr/neural/test_nsamdr_v16_structure_probe_ladder.py`
+- `tools/nsamdr/neural/test_nsamdr_v16_two_crop_fit_probe.py`
+- `tools/nsamdr/neural/probe_nsamdr_v17_4096_visual.py`
+- `tools/nsamdr/neural/probe_nsamdr_v17_5_matched_continuation.py`
+- `tools/nsamdr/neural/probe_nsamdr_v17_source_readiness.py`
+- `tools/nsamdr/neural/test_nsamdr_v17_4096_visual.py`
+- `tools/nsamdr/neural/test_nsamdr_v17_5_matched_continuation.py`
+- `tools/nsamdr/neural/test_nsamdr_v17_source_readiness.py`
 
-    python scripts/maintenance/cleanup_nsamdr_caches.py
+## Dependency review
 
-After inspecting all printed paths, run:
+- CLI (`nsamdr_cli.py`), full GUI, Windows CI workflow and README contain no references to these files.
+- Active V17.6 training still imports functions from `probe_nsamdr_v16_full_broad.py`, `probe_nsamdr_v16_memorization.py`, `probe_nsamdr_v17_comprehensive.py`, `probe_nsamdr_v17_generalization.py`, `probe_nsamdr_v17_generalization_v2.py`, `probe_nsamdr_v17_sibling_architecture.py` and `probe_nsamdr_v17_5_diversity.py`; all remain intact.
+- Historical `train_nsamdr_v16_main.py` and its tests still depend on `probe_nsamdr_v16_full_broad.py`; it is retained.
+- Remaining V16/V17 module and V17.6/17.7/17.8 test imports were checked for the removed modules; none found outside the removed paired tests.
+- Active V5 training source-hash list names only V17.7 synthetic geometry, V178 contour model and V5 training files, all unchanged.
+- Frozen V17.6 evidence, archived checkpoints and generated outputs were not altered.
+- Tracked `gr2_converter/node_modules` is not removable safely: it contains a private/source runtime dependency; preserve it until the converter is packaged and validated.
 
-    python scripts/maintenance/cleanup_nsamdr_caches.py --apply
+## Additional safe local cleanup
 
-Optional --scope repo expands the same strict policy to the full repository. Only ignored, untracked cache files are eligible. Tracked files, environments, checkpoint/evidence paths, vendored dependencies and symlinks are skipped. No Git reset or history rewrite occurs.
+`scripts/maintenance/cleanup_nsamdr_caches.py` is a dry-run-first tool for ignored Python caches. It is optional and is **not** needed for this tracked cleanup.
 
-## Next tracked-cleanup gate
+## Verification and limits
 
-Trace CLI/GUI, dynamic import, test, documentation and checkpoint-source references for each historical script. Remove only a provably obsolete group on an isolated branch, with Windows regression and converter validation before merging. Preserve frozen V17.6 evidence.
+- GitHub compare/tree inspection confirms the deleted paths and unchanged active code.
+- Static import/reference review is not a substitute for running the Windows CLI/GUI, DX11, CUDA or complete regression suites.
+- Hosted GitHub Actions is disabled. The unreachable local Windows working tree may contain additional untracked files; no such files were touched.
+- Production/default model is still V5 and all V6–V8 candidates remain unqualified.
 
-**No tracked source is deleted by this cleanup tool.**
+Historical experiments may be recovered from `7f4c0b3a` if a specific forensic re-run needs them. No change to `main`.
