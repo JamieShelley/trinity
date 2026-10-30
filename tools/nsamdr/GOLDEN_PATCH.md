@@ -40,6 +40,11 @@ V5 source-equivalent candidates. The shared V17.7 generator and frozen V17.6
 proof remain untouched. Fresh V5 training is required; a synthetic pass still
 does not qualify Raven.
 
+The completed [V4/V5 contrast experiment](V178_CONTRAST_EXPERIMENT.md) preserves
+both 400-update checkpoints. Inversion robustness improved, but original-polarity
+precision/IoU regressed and real thin contours remain fragmented. Do not retrain
+these valid candidates or treat their synthetic passes as physical-map quality.
+
 After a `SYNTHETIC_CONTOUR_PASS_ONLY` report (>= 20% held-out synthetic
 contour recovery), run the new **Automatic real Raven contour preview**
 stage in the full NSAMDR GUI. Or run:

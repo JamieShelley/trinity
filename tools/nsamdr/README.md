@@ -28,6 +28,11 @@ checkpoint remains an unqualified baseline; older schemas cannot be reused as
 V5 candidates. Reports use
 `NSAMDR_V178_G2_CONTOUR_REPORT_V3_RGB_CONTRAST_BALANCED`.
 
+The [30 October V4/V5 experiment](V178_CONTRAST_EXPERIMENT.md) reproduces and
+substantially reduces RGB-inversion sensitivity, but records original-polarity
+precision/IoU regressions and persistent real contour fragmentation. V5 is
+unqualified; physical reconstruction remains gated on credible real structure.
+
 Do not treat a Golden Patch single-region overfit as unseen real-texture
 generalisation, and do not promote old V17.6/V17.7 checkpoints based on
 previous synthetic numbers. V17.6 frozen proof evidence remains immutable.
