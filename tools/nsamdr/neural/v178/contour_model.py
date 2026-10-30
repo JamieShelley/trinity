@@ -9,7 +9,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-SCHEMA = "NSAMDR_V178_CONTOUR_HEAD_V4_AUXILIARY_INDEPENDENT"
+SCHEMA = "NSAMDR_V178_CONTOUR_HEAD_V5_RGB_CONTRAST_BALANCED"
 SCALE = 4
 
 

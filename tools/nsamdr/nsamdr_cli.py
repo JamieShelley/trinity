@@ -276,6 +276,7 @@ class NSAMDRCommandLineApplication:
             "tools.nsamdr.neural.test_nsamdr_v177_baseline",
             "tools.nsamdr.neural.test_nsamdr_v177_enhancement",
             "tools.nsamdr.neural.test_nsamdr_v178_golden",
+            "tools.nsamdr.neural.test_nsamdr_v178_contrast",
             "tools.nsamdr.neural.test_nsamdr_v176_channel_audit",
             "tools.nsamdr.gui.test_nsamdr_v176_workflow_gui",
         ]
@@ -330,7 +331,7 @@ class NSAMDRCommandLineApplication:
         contour.add_argument("--steps", type=int, default=400)
         contour.add_argument("--batch-size", type=int, default=4)
         contour.add_argument("--patch-size", type=int, default=32)
-        contour.add_argument("--seed", type=int, default=17832)
+        contour.add_argument("--seed", type=int, default=17842)
         contour.add_argument("--learning-rate", type=float, default=.0007)
         contour.add_argument("--resume", choices=("fresh", "auto"), default="fresh")
         contour.set_defaults(handler=self._command_v178_contour)

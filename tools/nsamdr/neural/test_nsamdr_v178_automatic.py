@@ -115,7 +115,8 @@ class AutoRavenTests(unittest.TestCase):
             state=torch.load(ck,weights_only=True)
             state["syntheticPass"]=True
             for old_schema in ("NSAMDR_V178_CONTOUR_HEAD_V1",
-                               "NSAMDR_V178_CONTOUR_HEAD_V3_FOREGROUND_PROTECTED"):
+                               "NSAMDR_V178_CONTOUR_HEAD_V3_FOREGROUND_PROTECTED",
+                               "NSAMDR_V178_CONTOUR_HEAD_V4_AUXILIARY_INDEPENDENT"):
                 state["schema"]=old_schema
                 torch.save(state,ck)
                 with self.assertRaisesRegex(RuntimeError,"wrong contour schema"):

@@ -159,6 +159,7 @@ class V176CLITests(unittest.TestCase):
         args = self.parser.parse_args([
             "v178-contour-train", "--steps", "30", "--device", "cpu",
         ])
+        self.assertEqual(args.seed,17842)
         with patch.object(self.app, "_source_freshness_preflight", return_value=0), \
              patch.object(self.app, "_python", return_value=Path("python")), \
              patch.object(self.app, "_cuda_preflight", side_effect=AssertionError("no CUDA for cpu training")), \
@@ -167,6 +168,7 @@ class V176CLITests(unittest.TestCase):
         command = [str(v) for v in run.call_args.args[0]]
         self.assertIn("train_nsamdr_v178_contour.py"," ".join(command))
         self.assertIn("30",command)
+        self.assertEqual(command[command.index("--seed")+1],"17842")
         self.assertNotIn("v177-enhancement-train", command)
 
     def test_legacy_preview_no_longer_callable(self):

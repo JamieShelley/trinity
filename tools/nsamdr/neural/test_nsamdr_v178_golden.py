@@ -201,7 +201,34 @@ class ContourHeadTests(unittest.TestCase):
         scores=evaluate(model,torch.device("cpu"),patch=16,seed=131,cases=2)
         self.assertEqual(scores["holdoutSeedStart"],1000131)
         self.assertAlmostEqual(scores["relativeContourRecovery"],0.,places=5)
-        self.assertEqual(SCHEMA,"NSAMDR_V178_CONTOUR_HEAD_V4_AUXILIARY_INDEPENDENT")
+        self.assertEqual(SCHEMA,"NSAMDR_V178_CONTOUR_HEAD_V5_RGB_CONTRAST_BALANCED")
+
+    def test_rgb_contrast_augmentation_preserves_geometry_and_observations(self):
+        from tools.nsamdr.neural.train_nsamdr_v178_contour import _batch
+        device=torch.device("cpu")
+        original=_batch(8,16,444,device)
+        torch.manual_seed(12345)
+        rng_before=torch.random.get_rng_state().clone()
+        augmented=_batch(8,16,444,device,augment_rgb=True)
+        torch.testing.assert_close(torch.random.get_rng_state(),rng_before,rtol=0,atol=0)
+        torch.manual_seed(999)
+        repeated=_batch(8,16,444,device,augment_rgb=True)
+        for before,after in zip(augmented,repeated):
+            torch.testing.assert_close(before,after,rtol=0,atol=0)
+        for before,after in zip(original[1:],augmented[1:]):
+            torch.testing.assert_close(before,after,rtol=0,atol=0)
+        inverted=unchanged=0
+        for index in range(8):
+            if torch.equal(augmented[0][index],original[0][index]):
+                unchanged+=1
+            else:
+                torch.testing.assert_close(augmented[0][index],1.-original[0][index],
+                                           rtol=0,atol=0)
+                inverted+=1
+        self.assertGreater(inverted,0)
+        self.assertGreater(unchanged,0)
+        other_seed=_batch(8,16,445,device,augment_rgb=True)
+        self.assertFalse(torch.equal(augmented[0],other_seed[0]))
 
     def test_contour_inputs_do_not_reuse_auxiliary_target_copies(self):
         from unittest.mock import patch

@@ -27,8 +27,9 @@ from tools.nsamdr.neural.v178.contour_model import (
     foreground_metrics, physical_edge_evidence,
 )
 
-TRAIN_SCHEMA = "NSAMDR_V178_G2_CONTOUR_REPORT_V2_AUXILIARY_INDEPENDENT"
+TRAIN_SCHEMA = "NSAMDR_V178_G2_CONTOUR_REPORT_V3_RGB_CONTRAST_BALANCED"
 AUXILIARY_POLICY = "INDEPENDENT_COARSE_FIELDS_WITH_MISSING_MAP_DEFAULTS_V1"
+RGB_POLICY = "SEEDED_PER_SAMPLE_RGB_CONTRAST_INVERSION_P50_V1"
 FILES = (
     "tools/nsamdr/neural/v177/synthetic_geometry.py",
     "tools/nsamdr/neural/v178/contour_model.py",
@@ -52,7 +53,8 @@ def source_hash(repo: Path) -> str:
     return h.hexdigest()
 
 
-def _batch(count:int, patch:int, seed:int, device:torch.device):
+def _batch(count:int, patch:int, seed:int, device:torch.device, *,
+           augment_rgb:bool=False):
     images=make_batch(count,patch,seed=seed)
     a,n,_,_,_,target_material,_=images
     a,n=a.to(device),n.to(device)
@@ -75,12 +77,20 @@ def _batch(count:int, patch:int, seed:int, device:torch.device):
     defaults=torch.tensor([0.,.5]).view(1,2,1,1)
     auxiliary=torch.where(absent,defaults,auxiliary)
     observation=torch.cat((edges,auxiliary.to(device)),dim=1)
+    if augment_rgb:
+        # Bright and dark structures share the same analytic geometry.
+        # A separate seeded stream keeps observations and targets identical
+        # to V4, including its independent auxiliary-map correction.
+        contrast=torch.Generator(device="cpu").manual_seed(int(seed)^0x5A17842)
+        invert=(torch.rand((count,1,1,1),generator=contrast)<.5).to(device)
+        a=torch.where(invert,1.-a,a)
     return (a,n,observation,target_material[:,:1].to(device))
 
 
 @torch.no_grad()
 def evaluate(model: StructuralContourHead, device: torch.device,
-             *, patch: int, seed: int, cases: int=12) -> dict:
+             *, patch: int, seed: int, cases: int=12,
+             invert_rgb: bool=False) -> dict:
     model.eval()
     baseline_total=0.
     candidate_total=0.
@@ -94,6 +104,8 @@ def evaluate(model: StructuralContourHead, device: torch.device,
     candidate_foreground={name:0. for name in baseline_foreground}
     for index in range(cases):
         a,n,m,reference=_batch(1,patch,seed+1000000+index*1723,device)
+        if invert_rgb:
+            a=1.-a
         result=model(a,n,m)
         base,_=contour_supervised_loss(result["baseline_contour"],reference)
         pred,parts=contour_supervised_loss(result["candidate_contour"],reference)
@@ -127,7 +139,7 @@ def parser()->argparse.ArgumentParser:
     p.add_argument("--steps",type=int,default=400)
     p.add_argument("--batch-size",type=int,default=4)
     p.add_argument("--patch-size",type=int,default=32)
-    p.add_argument("--seed",type=int,default=17832)
+    p.add_argument("--seed",type=int,default=17842)
     p.add_argument("--learning-rate",type=float,default=.0007)
     p.add_argument("--resume",choices=("fresh","auto"),default="fresh")
     return p
@@ -155,6 +167,7 @@ def main(argv:list[str]|None=None)->int:
         "batchSize":args.batch_size,"learningRate":args.learning_rate,
         "sourceHash":code_hash,
         "auxiliaryInputPolicy":AUXILIARY_POLICY,
+        "rgbInputPolicy":RGB_POLICY,
     }
     folder=repo/"artifacts/nsamdr/diagnostics/v178_golden_contour"/(
         f"seed_{args.seed}_patch_{args.patch_size}_batch_{args.batch_size}"
@@ -178,6 +191,8 @@ def main(argv:list[str]|None=None)->int:
         if start>args.steps:
             raise ValueError("requested training horizon precedes resumed step")
     before=evaluate(model,device,patch=args.patch_size,seed=args.seed)
+    before_inverted=evaluate(model,device,patch=args.patch_size,seed=args.seed,
+                             invert_rgb=True)
     print(f"[v178-golden] G2 synthetic structural training "
           f"start={start} target={args.steps} baseline={before['baselineContourLoss']:.6f}",
           flush=True)
@@ -185,7 +200,7 @@ def main(argv:list[str]|None=None)->int:
     for index in range(start,args.steps):
         model.train()
         a,n,m,reference=_batch(args.batch_size,args.patch_size,
-                               args.seed+index*8191,device)
+                               args.seed+index*8191,device,augment_rgb=True)
         optimizer.zero_grad(set_to_none=True)
         prediction=model(a,n,m)
         loss,_=contour_supervised_loss(prediction["candidate_contour"],reference)
@@ -204,6 +219,8 @@ def main(argv:list[str]|None=None)->int:
                         "model":model.state_dict(),"optimizer":optimizer.state_dict()},temp)
             os.replace(temp,resume_file)
     after=evaluate(model,device,patch=args.patch_size,seed=args.seed)
+    after_inverted=evaluate(model,device,patch=args.patch_size,seed=args.seed,
+                            invert_rgb=True)
     # Only synthetic demonstration gate; NEVER a real-texture promotion.
     qualified=(
         after["relativeContourRecovery"]>=.20
@@ -231,6 +248,8 @@ def main(argv:list[str]|None=None)->int:
         "sourceHash":code_hash,"config":config,
         "checkpoint":str(checkpoint.resolve()),"checkpointSha256":digest(checkpoint),
         "before":before,"after":after,
+        "beforeContrastInverted":before_inverted,
+        "afterContrastInverted":after_inverted,
         "requiredRelativeContourRecovery":.20,
         "requiredContourRecall":.45,
         "requiredContourPrecision":.20,

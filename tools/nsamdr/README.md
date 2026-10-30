@@ -16,11 +16,17 @@ observations, then renders an automatic 4× real Raven contour proposal.
 The result is an unqualified inference experiment, not proof of an improved
 real texture. The existing full-featured GUI remains the sole operator UI.
 
-The current contour training contract is **V4**, default seed **17832**.
-Its glow/roughness observations vary independently of the analytic contour,
-removing the V3 synthetic auxiliary-channel shortcut. Network, geometric loss
-and qualification thresholds are unchanged; seed-17822 V3 checkpoints require
-fresh training and are rejected by the current source/schema checks.
+The current contour training contract is **V5**, default seed **17842**:
+`NSAMDR_V178_CONTOUR_HEAD_V5_RGB_CONTRAST_BALANCED`. Training applies seeded
+per-sample RGB contrast inversion (`RGB = 1 - RGB`) with 50% probability so
+bright and dark structures share the same analytic geometry target. Normals,
+edge-magnitude observations, analytic contour targets, independent auxiliary
+observations, network, loss and qualification thresholds remain unchanged.
+Inference does not apply this augmentation. V4's correction of the V3
+glow/roughness target shortcut is preserved. The source-matched seed-17832 V4
+checkpoint remains an unqualified baseline; older schemas cannot be reused as
+V5 candidates. Reports use
+`NSAMDR_V178_G2_CONTOUR_REPORT_V3_RGB_CONTRAST_BALANCED`.
 
 Do not treat a Golden Patch single-region overfit as unseen real-texture
 generalisation, and do not promote old V17.6/V17.7 checkpoints based on
